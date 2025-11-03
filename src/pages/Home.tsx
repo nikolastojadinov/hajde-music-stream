@@ -1,22 +1,75 @@
 import PlaylistCard from "@/components/PlaylistCard";
 import { Search as SearchIcon } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 
 const Home = () => {
-  const featuredPlaylists = [
-    { id: 1, title: "Top Hits 2024", description: "Najpopularnije pesme trenutno" },
-    { id: 2, title: "Chill Vibes", description: "Opuštajuća muzika za svaki trenutak" },
-    { id: 3, title: "Workout Energy", description: "Motivacija za trening" },
-    { id: 4, title: "Deep Focus", description: "Muzika za koncentraciju" },
-    { id: 5, title: "Party Mix", description: "Zabavna muzika za žurke" },
-    { id: 6, title: "Rock Classics", description: "Besmrtne rok pesme" },
-  ];
-
-  const recentlyPlayed = [
-    { id: 7, title: "Moja Plejlista #1", description: "50 pesama" },
-    { id: 8, title: "Road Trip", description: "Muzika za putovanje" },
-    { id: 9, title: "Summer Hits", description: "Ljetni hitovi" },
-    { id: 10, title: "Evening Jazz", description: "Opuštajući jazz" },
+  const categories = [
+    {
+      title: "Izdvojeno za vas",
+      playlists: [
+        { id: 1, title: "Top Hits 2024", description: "Najpopularnije pesme trenutno" },
+        { id: 2, title: "Chill Vibes", description: "Opuštajuća muzika za svaki trenutak" },
+        { id: 3, title: "Workout Energy", description: "Motivacija za trening" },
+        { id: 4, title: "Deep Focus", description: "Muzika za koncentraciju" },
+        { id: 5, title: "Party Mix", description: "Zabavna muzika za žurke" },
+        { id: 6, title: "Rock Classics", description: "Besmrtne rok pesme" },
+        { id: 7, title: "Jazz Evening", description: "Smooth jazz melodije" },
+        { id: 8, title: "Pop Stars", description: "Najveći pop hitovi" },
+      ],
+    },
+    {
+      title: "Nedavno slušano",
+      playlists: [
+        { id: 9, title: "Moja Plejlista #1", description: "50 pesama" },
+        { id: 10, title: "Road Trip", description: "Muzika za putovanje" },
+        { id: 11, title: "Summer Hits", description: "Ljetni hitovi" },
+        { id: 12, title: "Evening Jazz", description: "Opuštajući jazz" },
+        { id: 13, title: "Morning Coffee", description: "Jutarnja inspiracija" },
+        { id: 14, title: "Night Drive", description: "Noćna vožnja" },
+        { id: 15, title: "Study Session", description: "Fokus i koncentracija" },
+        { id: 16, title: "Dance Party", description: "Plesna zabava" },
+      ],
+    },
+    {
+      title: "Popularno sada",
+      playlists: [
+        { id: 17, title: "Trending Now", description: "Najslušanije pesme" },
+        { id: 18, title: "Viral Hits", description: "Viralni hitovi" },
+        { id: 19, title: "New Releases", description: "Nova muzika" },
+        { id: 20, title: "Charts Global", description: "Svetske top liste" },
+        { id: 21, title: "Rising Stars", description: "Nove zvezde" },
+        { id: 22, title: "Hot 100", description: "Top 100 pesama" },
+        { id: 23, title: "Club Bangers", description: "Klubske pesme" },
+        { id: 24, title: "Radio Hits", description: "Radio hitovi" },
+      ],
+    },
+    {
+      title: "Po raspoloženju",
+      playlists: [
+        { id: 25, title: "Happy Vibes", description: "Vesela atmosfera" },
+        { id: 26, title: "Sad Songs", description: "Emotivne pesme" },
+        { id: 27, title: "Energetic", description: "Puna energija" },
+        { id: 28, title: "Relaxing", description: "Relaksacija" },
+        { id: 29, title: "Romantic", description: "Romantične melodije" },
+        { id: 30, title: "Motivational", description: "Motivaciona muzika" },
+        { id: 31, title: "Melancholic", description: "Melanholične pesme" },
+        { id: 32, title: "Uplifting", description: "Podizanje raspoloženja" },
+      ],
+    },
+    {
+      title: "Po žanru",
+      playlists: [
+        { id: 33, title: "Hip Hop Essentials", description: "Najbolji hip hop" },
+        { id: 34, title: "Electronic Beats", description: "Elektronska muzika" },
+        { id: 35, title: "Country Roads", description: "Kantri hitovi" },
+        { id: 36, title: "Classical Masters", description: "Klasična muzika" },
+        { id: 37, title: "Blues & Soul", description: "Blues i soul" },
+        { id: 38, title: "Latin Rhythms", description: "Latino ritmovi" },
+        { id: 39, title: "Metal Power", description: "Heavy metal" },
+        { id: 40, title: "Indie Vibes", description: "Indie muzika" },
+      ],
+    },
   ];
 
   return (
@@ -44,35 +97,26 @@ const Home = () => {
           </p>
         </div>
 
-        {/* Featured Playlists */}
-        <section className="mb-8 md:mb-12 animate-slide-up">
-          <h2 className="text-xl md:text-2xl font-bold mb-4 md:mb-6">Izdvojeno za vas</h2>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3 md:gap-4">
-            {featuredPlaylists.map((playlist) => (
-              <PlaylistCard
-                key={playlist.id}
-                id={playlist.id}
-                title={playlist.title}
-                description={playlist.description}
-              />
-            ))}
-          </div>
-        </section>
-
-        {/* Recently Played */}
-        <section className="animate-slide-up">
-          <h2 className="text-xl md:text-2xl font-bold mb-4 md:mb-6">Nedavno slušano</h2>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 md:gap-4">
-            {recentlyPlayed.map((playlist) => (
-              <PlaylistCard
-                key={playlist.id}
-                id={playlist.id}
-                title={playlist.title}
-                description={playlist.description}
-              />
-            ))}
-          </div>
-        </section>
+        {/* Categories with horizontal scroll */}
+        {categories.map((category, index) => (
+          <section key={index} className="mb-8 md:mb-12 animate-slide-up">
+            <h2 className="text-xl md:text-2xl font-bold mb-4 md:mb-6">{category.title}</h2>
+            <ScrollArea className="w-full whitespace-nowrap">
+              <div className="flex gap-3 md:gap-4 pb-4">
+                {category.playlists.map((playlist) => (
+                  <div key={playlist.id} className="w-[160px] md:w-[180px] flex-shrink-0">
+                    <PlaylistCard
+                      id={playlist.id}
+                      title={playlist.title}
+                      description={playlist.description}
+                    />
+                  </div>
+                ))}
+              </div>
+              <ScrollBar orientation="horizontal" />
+            </ScrollArea>
+          </section>
+        ))}
       </div>
     </div>
   );
