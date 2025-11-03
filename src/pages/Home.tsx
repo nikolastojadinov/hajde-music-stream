@@ -73,8 +73,8 @@ const Home = () => {
   ];
 
   return (
-    <div className="flex-1 overflow-y-auto">
-      <div className="p-4 md:p-8">
+    <div className="flex-1 overflow-y-auto scrollbar-hide">
+      <div className="p-4 md:p-8 pb-8">
         {/* Mobile Search Bar */}
         <div className="mb-6 md:hidden animate-fade-in">
           <div className="relative">
@@ -101,7 +101,7 @@ const Home = () => {
         {categories.map((category, index) => (
           <section key={index} className="mb-8 md:mb-12 animate-slide-up">
             <h2 className="text-xl md:text-2xl font-bold mb-4 md:mb-6">{category.title}</h2>
-            <ScrollArea className="w-full whitespace-nowrap">
+            <ScrollArea className="w-full whitespace-nowrap [&>div:first-child]:scrollbar-hide">
               <div className="flex gap-3 md:gap-4 pb-4">
                 {category.playlists.map((playlist) => (
                   <div key={playlist.id} className="w-[160px] md:w-[180px] flex-shrink-0">
@@ -113,7 +113,6 @@ const Home = () => {
                   </div>
                 ))}
               </div>
-              <ScrollBar orientation="horizontal" />
             </ScrollArea>
           </section>
         ))}

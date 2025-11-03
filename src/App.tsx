@@ -31,7 +31,7 @@ const App = () => (
           
           <div className="flex-1 flex flex-col w-full">
             <Header />
-            <div className="flex-1 mt-16 mb-44 md:mb-32 overflow-y-auto">
+            <div className="flex-1 mt-16 mb-20 overflow-y-auto scrollbar-hide">
               <Routes>
                 <Route path="/" element={<Home />} />
                 <Route path="/search" element={<Search />} />
