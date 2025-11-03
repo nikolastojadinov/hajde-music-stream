@@ -1,4 +1,6 @@
 import PlaylistCard from "@/components/PlaylistCard";
+import { Search as SearchIcon } from "lucide-react";
+import { Input } from "@/components/ui/input";
 
 const Home = () => {
   const featuredPlaylists = [
@@ -18,11 +20,23 @@ const Home = () => {
   ];
 
   return (
-    <div className="flex-1 overflow-y-auto pb-32">
-      <div className="p-8">
+    <div className="flex-1 overflow-y-auto">
+      <div className="p-4 md:p-8">
+        {/* Mobile Search Bar */}
+        <div className="mb-6 md:hidden animate-fade-in">
+          <div className="relative">
+            <SearchIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+            <Input
+              type="text"
+              placeholder="Šta želite da slušate?"
+              className="pl-12 h-12 bg-card border-border text-foreground placeholder:text-muted-foreground"
+            />
+          </div>
+        </div>
+
         {/* Hero Section */}
-        <div className="mb-8">
-          <h1 className="text-4xl font-bold mb-2 bg-gradient-to-r from-primary via-primary/80 to-primary/60 bg-clip-text text-transparent animate-fade-in">
+        <div className="mb-6 md:mb-8">
+          <h1 className="text-3xl md:text-4xl font-bold mb-2 bg-gradient-to-r from-primary via-primary/80 to-primary/60 bg-clip-text text-transparent animate-fade-in">
             Dobrodošli nazad
           </h1>
           <p className="text-muted-foreground animate-fade-in">
@@ -31,9 +45,9 @@ const Home = () => {
         </div>
 
         {/* Featured Playlists */}
-        <section className="mb-12 animate-slide-up">
-          <h2 className="text-2xl font-bold mb-6">Izdvojeno za vas</h2>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
+        <section className="mb-8 md:mb-12 animate-slide-up">
+          <h2 className="text-xl md:text-2xl font-bold mb-4 md:mb-6">Izdvojeno za vas</h2>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3 md:gap-4">
             {featuredPlaylists.map((playlist) => (
               <PlaylistCard
                 key={playlist.id}
@@ -47,8 +61,8 @@ const Home = () => {
 
         {/* Recently Played */}
         <section className="animate-slide-up">
-          <h2 className="text-2xl font-bold mb-6">Nedavno slušano</h2>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-4 gap-4">
+          <h2 className="text-xl md:text-2xl font-bold mb-4 md:mb-6">Nedavno slušano</h2>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 md:gap-4">
             {recentlyPlayed.map((playlist) => (
               <PlaylistCard
                 key={playlist.id}

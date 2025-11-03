@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Sidebar from "./components/Sidebar";
 import Header from "./components/Header";
+import Footer from "./components/Footer";
 import Player from "./components/Player";
 import Home from "./pages/Home";
 import Search from "./pages/Search";
@@ -23,10 +24,14 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <div className="flex h-screen w-full bg-background text-foreground">
-          <Sidebar />
-          <div className="flex-1 flex flex-col">
+          {/* Sidebar - hidden on mobile */}
+          <div className="hidden md:block">
+            <Sidebar />
+          </div>
+          
+          <div className="flex-1 flex flex-col w-full">
             <Header />
-            <div className="flex-1 mt-16">
+            <div className="flex-1 mt-16 mb-32 md:mb-36 overflow-hidden">
               <Routes>
                 <Route path="/" element={<Home />} />
                 <Route path="/search" element={<Search />} />
@@ -38,7 +43,9 @@ const App = () => (
               </Routes>
             </div>
           </div>
+          
           <Player />
+          <Footer />
         </div>
       </BrowserRouter>
     </TooltipProvider>
