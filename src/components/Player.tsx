@@ -1,16 +1,100 @@
-import { Play, SkipBack, SkipForward, Volume2, Repeat, Shuffle, Heart, X } from "lucide-react";
+import { Play, SkipBack, SkipForward, Volume2, Repeat, Shuffle, Heart, X, ChevronUp, ChevronDown } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { useState } from "react";
 import testTrackCover from "@/assets/test-track-cover.jpg";
 
 const Player = () => {
   const [isVisible, setIsVisible] = useState(true);
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   if (!isVisible) return null;
 
+  // Fullscreen Player
+  if (isFullscreen) {
+    return (
+      <div className="fixed inset-0 bg-background z-50 flex flex-col animate-fade-in">
+        {/* Header */}
+        <div className="flex items-center justify-between p-4 border-b border-border">
+          <button
+            onClick={() => setIsFullscreen(false)}
+            className="text-foreground hover:text-primary transition-colors"
+          >
+            <ChevronDown className="w-6 h-6" />
+          </button>
+          <button
+            onClick={() => setIsVisible(false)}
+            className="text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <X className="w-6 h-6" />
+          </button>
+        </div>
+
+        {/* Album Art & Info */}
+        <div className="flex-1 flex flex-col items-center justify-center p-8">
+          <div className="w-full max-w-md mb-8 aspect-square rounded-lg overflow-hidden shadow-2xl">
+            <img src={testTrackCover} alt="Album cover" className="w-full h-full object-cover" />
+          </div>
+          
+          <div className="w-full max-w-md text-center mb-8">
+            <h2 className="text-3xl font-bold mb-2 text-foreground">Purple Dreams</h2>
+            <p className="text-lg text-muted-foreground">Electronic Beats</p>
+          </div>
+
+          {/* Progress Bar */}
+          <div className="w-full max-w-md mb-8">
+            <Slider defaultValue={[33]} max={100} step={1} className="mb-2" />
+            <div className="flex justify-between text-sm text-muted-foreground">
+              <span>2:34</span>
+              <span>4:12</span>
+            </div>
+          </div>
+
+          {/* Controls */}
+          <div className="flex items-center gap-8 mb-8">
+            <button className="text-muted-foreground hover:text-foreground transition-colors">
+              <Shuffle className="w-6 h-6" />
+            </button>
+            <button className="text-foreground hover:text-primary transition-colors">
+              <SkipBack className="w-8 h-8" />
+            </button>
+            <button className="w-16 h-16 bg-primary rounded-full flex items-center justify-center text-background hover:scale-105 transition-transform shadow-lg">
+              <Play className="w-8 h-8 fill-current ml-1" />
+            </button>
+            <button className="text-foreground hover:text-primary transition-colors">
+              <SkipForward className="w-8 h-8" />
+            </button>
+            <button className="text-muted-foreground hover:text-foreground transition-colors">
+              <Repeat className="w-6 h-6" />
+            </button>
+          </div>
+
+          {/* Volume & Extra Controls */}
+          <div className="w-full max-w-md flex items-center justify-between">
+            <button className="text-primary hover:scale-110 transition-transform">
+              <Heart className="w-6 h-6 fill-current" />
+            </button>
+            <div className="flex items-center gap-3">
+              <Volume2 className="w-5 h-5 text-muted-foreground" />
+              <Slider defaultValue={[70]} max={100} step={1} className="w-32" />
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Mini Player
   return (
     <div className="fixed bottom-20 md:bottom-0 left-0 right-0 bg-card/95 backdrop-blur-md border-t border-border z-30">
       <div className="relative">
+        {/* Expand button */}
+        <button
+          onClick={() => setIsFullscreen(true)}
+          className="absolute top-2 left-1/2 -translate-x-1/2 text-muted-foreground hover:text-foreground transition-colors z-10"
+        >
+          <ChevronUp className="w-5 h-5" />
+        </button>
+
         {/* Close button */}
         <button
           onClick={() => setIsVisible(false)}
@@ -19,7 +103,7 @@ const Player = () => {
           <X className="w-5 h-5" />
         </button>
 
-        <div className="flex items-center justify-between gap-4 max-w-screen-2xl mx-auto px-4 py-3">
+        <div className="flex items-center justify-between gap-4 max-w-screen-2xl mx-auto px-4 py-3 pt-8">
           {/* Current Track Info */}
           <div className="flex items-center gap-4 flex-1 min-w-0">
             <div className="w-14 h-14 bg-secondary rounded-lg flex-shrink-0 overflow-hidden">
