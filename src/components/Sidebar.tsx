@@ -46,10 +46,13 @@ const Sidebar = () => {
         ))}
         
         <div className="pt-6 pb-4">
-          <button className="flex items-center gap-4 px-3 py-3 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-all w-full">
+          <Link
+            to="/create-playlist"
+            className="flex items-center gap-4 px-3 py-3 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-all w-full"
+          >
             <Plus className="w-6 h-6" />
             <span>Napravi plejlistu</span>
-          </button>
+          </Link>
           
           <button className="flex items-center gap-4 px-3 py-3 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-all w-full">
             <Heart className="w-6 h-6" />
