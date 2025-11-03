@@ -4,6 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Sidebar from "./components/Sidebar";
+import Header from "./components/Header";
 import Player from "./components/Player";
 import Home from "./pages/Home";
 import Search from "./pages/Search";
@@ -23,15 +24,20 @@ const App = () => (
       <BrowserRouter>
         <div className="flex h-screen w-full bg-background text-foreground">
           <Sidebar />
-          <Routes>
-            <Route path="/" element={<Home />} />
-            <Route path="/search" element={<Search />} />
-            <Route path="/library" element={<Library />} />
-            <Route path="/playlist/:id" element={<Playlist />} />
-            <Route path="/create-playlist" element={<CreatePlaylist />} />
-            <Route path="/favorites" element={<Favorites />} />
-            <Route path="*" element={<NotFound />} />
-          </Routes>
+          <div className="flex-1 flex flex-col">
+            <Header />
+            <div className="flex-1 mt-16">
+              <Routes>
+                <Route path="/" element={<Home />} />
+                <Route path="/search" element={<Search />} />
+                <Route path="/library" element={<Library />} />
+                <Route path="/playlist/:id" element={<Playlist />} />
+                <Route path="/create-playlist" element={<CreatePlaylist />} />
+                <Route path="/favorites" element={<Favorites />} />
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+            </div>
+          </div>
           <Player />
         </div>
       </BrowserRouter>
