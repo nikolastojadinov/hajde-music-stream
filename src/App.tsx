@@ -10,6 +10,7 @@ import Search from "./pages/Search";
 import Library from "./pages/Library";
 import Playlist from "./pages/Playlist";
 import CreatePlaylist from "./pages/CreatePlaylist";
+import Favorites from "./pages/Favorites";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -28,6 +29,7 @@ const App = () => (
             <Route path="/library" element={<Library />} />
             <Route path="/playlist/:id" element={<Playlist />} />
             <Route path="/create-playlist" element={<CreatePlaylist />} />
+            <Route path="/favorites" element={<Favorites />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
           <Player />
