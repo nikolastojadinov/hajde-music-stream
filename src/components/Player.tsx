@@ -1,6 +1,7 @@
 import { Play, SkipBack, SkipForward, Volume2, Repeat, Shuffle, Heart, X } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { useState } from "react";
+import testTrackCover from "@/assets/test-track-cover.jpg";
 
 const Player = () => {
   const [isVisible, setIsVisible] = useState(true);
@@ -8,7 +9,7 @@ const Player = () => {
   if (!isVisible) return null;
 
   return (
-    <div className="fixed bottom-16 md:bottom-16 left-0 right-0 bg-card/95 backdrop-blur-md border-t border-border z-30">
+    <div className="fixed bottom-20 md:bottom-0 left-0 right-0 bg-card/95 backdrop-blur-md border-t border-border z-30">
       <div className="relative">
         {/* Close button */}
         <button
@@ -22,11 +23,11 @@ const Player = () => {
           {/* Current Track Info */}
           <div className="flex items-center gap-4 flex-1 min-w-0">
             <div className="w-14 h-14 bg-secondary rounded-lg flex-shrink-0 overflow-hidden">
-              <div className="w-full h-full bg-gradient-to-br from-primary/20 to-primary/5" />
+              <img src={testTrackCover} alt="Album cover" className="w-full h-full object-cover" />
             </div>
             <div className="min-w-0 flex-1 hidden md:block">
-              <p className="font-semibold text-foreground truncate">Trenutna pesma</p>
-              <p className="text-sm text-muted-foreground truncate">Izvođač</p>
+              <p className="font-semibold text-foreground truncate">Purple Dreams</p>
+              <p className="text-sm text-muted-foreground truncate">Electronic Beats</p>
             </div>
             <button className="text-muted-foreground hover:text-primary transition-colors flex-shrink-0 hidden md:block">
               <Heart className="w-5 h-5" />

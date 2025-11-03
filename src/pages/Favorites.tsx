@@ -15,16 +15,16 @@ const Favorites = () => {
 
   return (
     <div className="flex-1 overflow-y-auto pb-32">
-      {/* Header with gradient */}
-      <div className="relative h-80 bg-gradient-to-b from-primary/40 to-background p-8 flex items-end animate-fade-in">
-        <div className="flex items-end gap-6">
-          <div className="w-56 h-56 bg-gradient-to-br from-primary/50 via-primary/30 to-primary/20 rounded-lg shadow-2xl flex-shrink-0 flex items-center justify-center">
-            <Heart className="w-28 h-28 text-primary fill-primary" />
+      {/* Header with gradient - responsive */}
+      <div className="relative h-48 md:h-80 bg-gradient-to-b from-primary/40 to-background p-4 md:p-8 flex items-end animate-fade-in">
+        <div className="flex items-end gap-3 md:gap-6">
+          <div className="w-24 h-24 md:w-56 md:h-56 bg-gradient-to-br from-primary/50 via-primary/30 to-primary/20 rounded-lg shadow-2xl flex-shrink-0 flex items-center justify-center">
+            <Heart className="w-12 h-12 md:w-28 md:h-28 text-primary fill-primary" />
           </div>
-          <div className="pb-4">
-            <p className="text-sm font-semibold mb-2 uppercase tracking-wider">Plejlista</p>
-            <h1 className="text-6xl font-bold mb-4">Omiljene pesme</h1>
-            <div className="flex items-center gap-2 text-sm">
+          <div className="pb-2 md:pb-4">
+            <p className="text-xs md:text-sm font-semibold mb-1 md:mb-2 uppercase tracking-wider">Plejlista</p>
+            <h1 className="text-2xl md:text-6xl font-bold mb-2 md:mb-4">Omiljene pesme</h1>
+            <div className="flex items-center gap-2 text-xs md:text-sm">
               <span className="font-semibold">Vaša kolekcija</span>
               <span className="text-muted-foreground">• {favoriteSongs.length} pesama</span>
             </div>
@@ -33,12 +33,12 @@ const Favorites = () => {
       </div>
 
       {/* Controls */}
-      <div className="bg-background/95 backdrop-blur-sm sticky top-0 z-10 px-8 py-6 flex items-center gap-6 animate-slide-up">
-        <button className="w-14 h-14 bg-primary rounded-full flex items-center justify-center hover:scale-105 transition-transform shadow-lg">
-          <Play className="w-6 h-6 text-background fill-current ml-0.5" />
+      <div className="bg-background/95 backdrop-blur-sm sticky top-0 z-10 px-4 md:px-8 py-4 md:py-6 flex items-center gap-4 md:gap-6 animate-slide-up">
+        <button className="w-12 h-12 md:w-14 md:h-14 bg-primary rounded-full flex items-center justify-center hover:scale-105 transition-transform shadow-lg">
+          <Play className="w-5 h-5 md:w-6 md:h-6 text-background fill-current ml-0.5" />
         </button>
         <button className="text-muted-foreground hover:text-foreground transition-colors">
-          <MoreHorizontal className="w-8 h-8" />
+          <MoreHorizontal className="w-6 h-6 md:w-8 md:h-8" />
         </button>
       </div>
 
