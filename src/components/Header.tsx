@@ -1,4 +1,4 @@
-import { Music, User, Globe, Shield, FileText } from "lucide-react";
+import { User, Globe, Shield, FileText } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -6,6 +6,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Link } from "react-router-dom";
+import appLogo from "@/assets/app-logo.png";
 
 const Header = () => {
   return (
@@ -13,10 +14,12 @@ const Header = () => {
       <div className="h-full px-4 md:px-6 flex items-center justify-between">
         {/* Logo */}
         <Link to="/" className="flex items-center gap-2 md:gap-3 group">
-          <div className="w-8 h-8 md:w-10 md:h-10 bg-gradient-to-br from-primary to-primary/70 rounded-lg flex items-center justify-center group-hover:scale-105 transition-transform">
-            <Music className="w-5 h-5 md:w-6 md:h-6 text-background" />
-          </div>
-          <span className="text-lg md:text-xl font-bold bg-gradient-to-r from-primary to-primary/70 bg-clip-text text-transparent">
+          <img 
+            src={appLogo} 
+            alt="Purple Music Logo" 
+            className="w-8 h-8 md:w-10 md:h-10 rounded-lg group-hover:scale-105 transition-transform"
+          />
+          <span className="text-lg md:text-xl font-bold bg-gradient-to-r from-primary via-primary/80 to-accent bg-clip-text text-transparent">
             Purple Music
           </span>
         </Link>
