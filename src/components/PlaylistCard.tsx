@@ -12,7 +12,7 @@ const PlaylistCard = ({ id, title, description, imageUrl }: PlaylistCardProps) =
   return (
     <Link
       to={`/playlist/${id}`}
-      className="group relative bg-card p-4 rounded-xl hover:bg-secondary/80 transition-all duration-300 cursor-pointer"
+      className="group relative bg-card p-4 rounded-xl hover:bg-secondary/80 transition-all duration-300 cursor-pointer overflow-hidden"
     >
       <div className="relative mb-4 aspect-square rounded-lg overflow-hidden bg-gradient-to-br from-primary/20 to-primary/5">
         {imageUrl && (
