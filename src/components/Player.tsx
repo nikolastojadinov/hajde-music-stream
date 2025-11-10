@@ -14,6 +14,7 @@ const Player = () => {
     isFullscreen,
     currentVideoTitle,
     currentVideoArtist,
+    isLiked,
     togglePlay,
     skipForward,
     skipBackward,
@@ -21,6 +22,7 @@ const Player = () => {
     seekTo,
     formatTime,
     setIsFullscreen,
+    toggleLike,
   } = usePlayer();
 
   const handleVolumeChange = (values: number[]) => {
@@ -115,8 +117,11 @@ const Player = () => {
 
           {/* Volume */}
           <div className="w-full max-w-md flex items-center justify-between">
-            <button className="text-primary">
-              <Heart className="w-6 h-6 fill-current" />
+            <button 
+              onClick={toggleLike}
+              className={`transition-colors ${isLiked ? 'text-primary' : 'text-muted-foreground hover:text-primary'}`}
+            >
+              <Heart className={`w-6 h-6 ${isLiked ? 'fill-current' : ''}`} />
             </button>
             <div className="flex items-center gap-3">
               <Volume2 className="w-5 h-5 text-muted-foreground" />
@@ -198,8 +203,11 @@ const Player = () => {
             </div>
 
             {/* Treći red: Like dugme */}
-            <button className="text-muted-foreground hover:text-primary transition-colors">
-              <Heart className="w-6 h-6" />
+            <button 
+              onClick={toggleLike}
+              className={`transition-colors ${isLiked ? 'text-primary' : 'text-muted-foreground hover:text-primary'}`}
+            >
+              <Heart className={`w-6 h-6 ${isLiked ? 'fill-current' : ''}`} />
             </button>
           </div>
 

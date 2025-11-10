@@ -15,6 +15,7 @@ type PlayerContextType = {
   isFullscreen: boolean;
   currentVideoTitle: string;
   currentVideoArtist: string;
+  isLiked: boolean;
   togglePlay: () => void;
   skipForward: () => void;
   skipBackward: () => void;
@@ -22,6 +23,7 @@ type PlayerContextType = {
   seekTo: (seconds: number) => void;
   formatTime: (seconds: number) => string;
   setIsFullscreen: (fullscreen: boolean) => void;
+  toggleLike: () => void;
   playerReady: boolean;
 };
 
@@ -37,6 +39,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [playerReady, setPlayerReady] = useState(false);
   const [currentVideoTitle, setCurrentVideoTitle] = useState("Rick Astley - Never Gonna Give You Up");
   const [currentVideoArtist, setCurrentVideoArtist] = useState("Rick Astley");
+  const [isLiked, setIsLiked] = useState(false);
   const initAttempted = useRef(false);
 
   useEffect(() => {
@@ -148,6 +151,10 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
+  const toggleLike = () => {
+    setIsLiked(!isLiked);
+  };
+
   return (
     <PlayerContext.Provider
       value={{
@@ -158,6 +165,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         isFullscreen,
         currentVideoTitle,
         currentVideoArtist,
+        isLiked,
         togglePlay,
         skipForward,
         skipBackward,
@@ -165,6 +173,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         seekTo,
         formatTime,
         setIsFullscreen,
+        toggleLike,
         playerReady,
       }}
     >
