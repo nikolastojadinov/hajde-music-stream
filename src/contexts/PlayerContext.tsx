@@ -27,6 +27,14 @@ type PlayerContextType = {
   playerReady: boolean;
 };
 
+const playlist = [
+  { id: "dQw4w9WgXcQ", title: "Rick Astley - Never Gonna Give You Up", artist: "Rick Astley" },
+  { id: "9bZkp7q19f0", title: "PSY - Gangnam Style", artist: "PSY" },
+  { id: "kJQP7kiw5Fk", title: "Luis Fonsi - Despacito", artist: "Luis Fonsi ft. Daddy Yankee" },
+  { id: "RgKAFK5djSk", title: "Wiz Khalifa - See You Again", artist: "Wiz Khalifa ft. Charlie Puth" },
+  { id: "JGwWNGJdvx8", title: "Ed Sheeran - Shape of You", artist: "Ed Sheeran" },
+];
+
 const PlayerContext = createContext<PlayerContextType | undefined>(undefined);
 
 export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -37,8 +45,9 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [duration, setDuration] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [playerReady, setPlayerReady] = useState(false);
-  const [currentVideoTitle, setCurrentVideoTitle] = useState("Rick Astley - Never Gonna Give You Up");
-  const [currentVideoArtist, setCurrentVideoArtist] = useState("Rick Astley");
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [currentVideoTitle, setCurrentVideoTitle] = useState(playlist[0].title);
+  const [currentVideoArtist, setCurrentVideoArtist] = useState(playlist[0].artist);
   const [isLiked, setIsLiked] = useState(false);
   const initAttempted = useRef(false);
 
@@ -64,7 +73,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       try {
         playerRef.current = new window.YT.Player("yt-player", {
-          videoId: "dQw4w9WgXcQ",
+          videoId: playlist[0].id,
           playerVars: {
             autoplay: 0,
             controls: 1,
@@ -123,14 +132,22 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const skipForward = () => {
     if (!playerRef.current) return;
-    const currentTime = playerRef.current.getCurrentTime();
-    playerRef.current.seekTo(currentTime + 10, true);
+    const nextIndex = (currentIndex + 1) % playlist.length;
+    setCurrentIndex(nextIndex);
+    setCurrentVideoTitle(playlist[nextIndex].title);
+    setCurrentVideoArtist(playlist[nextIndex].artist);
+    playerRef.current.loadVideoById(playlist[nextIndex].id);
+    setIsLiked(false);
   };
 
   const skipBackward = () => {
     if (!playerRef.current) return;
-    const currentTime = playerRef.current.getCurrentTime();
-    playerRef.current.seekTo(Math.max(0, currentTime - 10), true);
+    const prevIndex = currentIndex === 0 ? playlist.length - 1 : currentIndex - 1;
+    setCurrentIndex(prevIndex);
+    setCurrentVideoTitle(playlist[prevIndex].title);
+    setCurrentVideoArtist(playlist[prevIndex].artist);
+    playerRef.current.loadVideoById(playlist[prevIndex].id);
+    setIsLiked(false);
   };
 
   const setVolume = (newVolume: number) => {
