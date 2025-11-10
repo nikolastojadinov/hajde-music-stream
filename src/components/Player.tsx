@@ -1,31 +1,29 @@
 import { Play, Pause, SkipBack, SkipForward, Volume2, Repeat, Shuffle, Heart, X, ChevronUp, ChevronDown } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
-import { useState, useEffect } from "react";
-import { useYouTubePlayer } from "@/hooks/useYouTubePlayer";
+import { useState } from "react";
+import { usePlayer } from "@/contexts/PlayerContext";
 
 const Player = () => {
   const [isVisible, setIsVisible] = useState(true);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [videoId] = useState("dQw4w9WgXcQ");
-  
-  const containerId = isFullscreen ? "youtube-player-fullscreen" : "youtube-player-mini";
   
   const {
     isPlaying,
     volume,
     currentTime,
     duration,
+    isFullscreen,
     togglePlay,
     skipForward,
     skipBackward,
-    setVolume,
+    setVolume: updateVolume,
     seekTo,
     formatTime,
-  } = useYouTubePlayer(videoId, containerId);
+    setIsFullscreen,
+  } = usePlayer();
 
   // Ažuriraj volume kada korisnik pomeri slider
   const handleVolumeChange = (values: number[]) => {
-    setVolume(values[0]);
+    updateVolume(values[0]);
   };
 
   // Ažuriraj progress kada korisnik pomeri slider
@@ -61,7 +59,11 @@ const Player = () => {
         {/* YouTube Video Player */}
         <div className="flex-1 flex flex-col items-center justify-center p-8">
           <div className="w-full max-w-md mb-8 aspect-square rounded-lg overflow-hidden shadow-2xl">
-            <div id="youtube-player-fullscreen" className="w-full h-full"></div>
+            <div 
+              id="youtube-player-container" 
+              className="w-full h-full"
+              style={{ width: '100%', height: '100%' }}
+            />
           </div>
           
           <div className="w-full max-w-md text-center mb-8">
@@ -161,7 +163,10 @@ const Player = () => {
           {/* Current Track Info with YouTube Player */}
           <div className="flex items-center gap-4 flex-1 min-w-0">
             <div className="rounded-lg flex-shrink-0 overflow-hidden" style={{ width: '200px', height: '200px' }}>
-              <div id="youtube-player-mini" style={{ width: '200px', height: '200px' }}></div>
+              <div 
+                id="youtube-player-container" 
+                style={{ width: '200px', height: '200px' }}
+              />
             </div>
             <div className="min-w-0 flex-1 hidden md:block">
               <p className="font-semibold text-foreground truncate">Purple Dreams</p>

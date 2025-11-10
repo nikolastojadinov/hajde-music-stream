@@ -4,6 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { LanguageProvider } from "./contexts/LanguageContext";
+import { PlayerProvider } from "./contexts/PlayerContext";
 import Sidebar from "./components/Sidebar";
 import Header from "./components/Header";
 import Footer from "./components/Footer";
@@ -21,36 +22,38 @@ const queryClient = new QueryClient();
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <LanguageProvider>
-      <TooltipProvider>
-        <Toaster />
-        <Sonner />
-        <BrowserRouter>
-          <div className="flex h-screen w-full bg-background text-foreground">
-            {/* Sidebar - hidden on mobile */}
-            <div className="hidden md:block">
-              <Sidebar />
-            </div>
-            
-            <div className="flex-1 flex flex-col w-full">
-              <Header />
-              <div className="flex-1 mt-16 mb-20 overflow-y-auto scrollbar-hide">
-                <Routes>
-                  <Route path="/" element={<Home />} />
-                  <Route path="/search" element={<Search />} />
-                  <Route path="/library" element={<Library />} />
-                  <Route path="/playlist/:id" element={<Playlist />} />
-                  <Route path="/create-playlist" element={<CreatePlaylist />} />
-                  <Route path="/favorites" element={<Favorites />} />
-                  <Route path="*" element={<NotFound />} />
-                </Routes>
+      <PlayerProvider>
+        <TooltipProvider>
+          <Toaster />
+          <Sonner />
+          <BrowserRouter>
+            <div className="flex h-screen w-full bg-background text-foreground">
+              {/* Sidebar - hidden on mobile */}
+              <div className="hidden md:block">
+                <Sidebar />
               </div>
+              
+              <div className="flex-1 flex flex-col w-full">
+                <Header />
+                <div className="flex-1 mt-16 mb-20 overflow-y-auto scrollbar-hide">
+                  <Routes>
+                    <Route path="/" element={<Home />} />
+                    <Route path="/search" element={<Search />} />
+                    <Route path="/library" element={<Library />} />
+                    <Route path="/playlist/:id" element={<Playlist />} />
+                    <Route path="/create-playlist" element={<CreatePlaylist />} />
+                    <Route path="/favorites" element={<Favorites />} />
+                    <Route path="*" element={<NotFound />} />
+                  </Routes>
+                </div>
+              </div>
+              
+              <Player />
+              <Footer />
             </div>
-            
-            <Player />
-            <Footer />
-          </div>
-        </BrowserRouter>
-      </TooltipProvider>
+          </BrowserRouter>
+        </TooltipProvider>
+      </PlayerProvider>
     </LanguageProvider>
   </QueryClientProvider>
 );
