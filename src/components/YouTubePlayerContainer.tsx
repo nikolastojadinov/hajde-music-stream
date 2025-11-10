@@ -11,10 +11,10 @@ export const YouTubePlayerContainer = () => {
         zIndex: isFullscreen ? 55 : 31,
         ...(isFullscreen
           ? {
-              top: '50%',
+              top: '120px',
               left: '50%',
-              transform: 'translate(-50%, -50%)',
-              width: 'min(800px, 90vw)',
+              transform: 'translateX(-50%)',
+              width: 'min(896px, 90vw)',
               aspectRatio: '16/9',
             }
           : {
