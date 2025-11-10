@@ -17,7 +17,7 @@ const Header = () => {
         {/* Logo */}
         <Link to="/" className="flex items-center gap-2 md:gap-3 group">
           <img src={appLogo} alt="Purple Music Logo" className="w-[42px] h-[42px] md:w-[52px] md:h-[52px] rounded-lg group-hover:scale-105 transition-transform" />
-          <span className="text-lg md:text-xl font-bold bg-gradient-to-r from-primary via-primary/80 to-accent bg-clip-text text-yellow-400">
+          <span className="text-lg md:text-xl font-bold bg-gradient-to-r from-primary via-primary/90 to-accent bg-clip-text text-transparent drop-shadow-[0_2px_8px_rgba(227,64,153,0.5)]">
             Purple Music
           </span>
         </Link>
