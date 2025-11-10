@@ -18,14 +18,10 @@ const Header = () => {
         <Link to="/" className="flex items-center gap-2 md:gap-3 group">
           <img src={appLogo} alt="PurpleBeats Logo" className="w-[42px] h-[42px] md:w-[52px] md:h-[52px] rounded-lg group-hover:scale-105 transition-transform" />
           <span className="text-lg md:text-xl font-bold">
-            <span className="bg-gradient-to-b from-purple-400 via-purple-500 to-purple-600 bg-clip-text text-transparent" style={{
-              textShadow: '0 1px 0 #9333ea, 0 2px 0 #7e22ce, 0 3px 0 #6b21a8, 0 4px 1px rgba(0,0,0,.1), 0 0 5px rgba(168,85,247,.4)',
-            }}>
+            <span className="bg-gradient-to-b from-purple-400 via-purple-500 to-purple-600 bg-clip-text text-transparent">
               Purple
             </span>
-            <span className="bg-gradient-to-b from-yellow-300 via-amber-400 to-orange-500 bg-clip-text text-transparent" style={{
-              textShadow: '0 1px 0 #c9a034, 0 2px 0 #b58d2d, 0 3px 0 #a07f28, 0 4px 1px rgba(0,0,0,.1), 0 0 5px rgba(251,191,36,.4)',
-            }}>
+            <span className="bg-gradient-to-b from-amber-500 via-amber-600 to-yellow-700 bg-clip-text text-transparent">
               Beats
             </span>
           </span>
