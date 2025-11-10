@@ -16,7 +16,7 @@ const Header = () => {
       <div className="h-full px-4 md:px-6 flex items-center justify-between">
         {/* Logo */}
         <Link to="/" className="flex items-center gap-2 md:gap-3 group">
-          <img src={appLogo} alt="Purple Music Logo" className="w-8 h-8 md:w-10 md:h-10 rounded-lg group-hover:scale-105 transition-transform" />
+          <img src={appLogo} alt="Purple Music Logo" className="w-[42px] h-[42px] md:w-[52px] md:h-[52px] rounded-lg group-hover:scale-105 transition-transform" />
           <span className="text-lg md:text-xl font-bold bg-gradient-to-r from-primary via-primary/80 to-accent bg-clip-text text-yellow-400">
             Purple Music
           </span>
