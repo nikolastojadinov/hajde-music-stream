@@ -12,6 +12,8 @@ const Player = () => {
     currentTime,
     duration,
     isFullscreen,
+    currentVideoTitle,
+    currentVideoArtist,
     togglePlay,
     skipForward,
     skipBackward,
@@ -60,8 +62,8 @@ const Player = () => {
           <div className="w-full max-w-2xl aspect-video mb-8" />
           
           <div className="w-full max-w-md text-center mb-6">
-            <h2 className="text-2xl font-bold mb-1 text-foreground">Purple Dreams</h2>
-            <p className="text-muted-foreground">Electronic Beats</p>
+            <h2 className="text-2xl font-bold mb-1 text-foreground">{currentVideoTitle}</h2>
+            <p className="text-muted-foreground">{currentVideoArtist}</p>
           </div>
 
           {/* Progress Bar */}

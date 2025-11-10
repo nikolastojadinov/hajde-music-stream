@@ -13,6 +13,8 @@ type PlayerContextType = {
   currentTime: number;
   duration: number;
   isFullscreen: boolean;
+  currentVideoTitle: string;
+  currentVideoArtist: string;
   togglePlay: () => void;
   skipForward: () => void;
   skipBackward: () => void;
@@ -33,6 +35,8 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [duration, setDuration] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [playerReady, setPlayerReady] = useState(false);
+  const [currentVideoTitle, setCurrentVideoTitle] = useState("Rick Astley - Never Gonna Give You Up");
+  const [currentVideoArtist, setCurrentVideoArtist] = useState("Rick Astley");
   const initAttempted = useRef(false);
 
   useEffect(() => {
@@ -152,6 +156,8 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         currentTime,
         duration,
         isFullscreen,
+        currentVideoTitle,
+        currentVideoArtist,
         togglePlay,
         skipForward,
         skipBackward,
