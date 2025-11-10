@@ -31,18 +31,18 @@ const Library = () => {
         <h1 className="text-4xl font-bold mb-8 animate-fade-in">{t("your_library")}</h1>
 
         <Tabs defaultValue="playlists" className="w-full animate-slide-up">
-          <TabsList className="bg-secondary mb-8">
-            <TabsTrigger value="playlists" className="gap-2">
-              <Music className="w-4 h-4" />
-              {t("playlists")}
+          <TabsList className="bg-secondary mb-8 w-full sm:w-auto">
+            <TabsTrigger value="playlists" className="gap-1 sm:gap-2 flex-1 sm:flex-initial">
+              <Music className="w-3 h-3 sm:w-4 sm:h-4 flex-shrink-0" />
+              <span className="truncate">{t("playlists")}</span>
             </TabsTrigger>
-            <TabsTrigger value="albums" className="gap-2">
-              <Disc className="w-4 h-4" />
-              {t("albums")}
+            <TabsTrigger value="albums" className="gap-1 sm:gap-2 flex-1 sm:flex-initial">
+              <Disc className="w-3 h-3 sm:w-4 sm:h-4 flex-shrink-0" />
+              <span className="truncate">{t("albums")}</span>
             </TabsTrigger>
-            <TabsTrigger value="artists" className="gap-2">
-              <User className="w-4 h-4" />
-              {t("artists")}
+            <TabsTrigger value="artists" className="gap-1 sm:gap-2 flex-1 sm:flex-initial">
+              <User className="w-3 h-3 sm:w-4 sm:h-4 flex-shrink-0" />
+              <span className="truncate">{t("artists")}</span>
             </TabsTrigger>
           </TabsList>
 
