@@ -106,8 +106,16 @@ const Player = () => {
         <div className="flex items-center justify-between gap-4 max-w-screen-2xl mx-auto px-4 py-3 pt-8">
           {/* Current Track Info */}
           <div className="flex items-center gap-4 flex-1 min-w-0">
-            <div className="w-14 h-14 bg-secondary rounded-lg flex-shrink-0 overflow-hidden">
-              <img src={testTrackCover} alt="Album cover" className="w-full h-full object-cover" />
+            <div className="rounded-lg flex-shrink-0 overflow-hidden" style={{ width: '200px', height: '200px' }}>
+              <iframe
+                width="200"
+                height="200"
+                src="https://www.youtube.com/embed/dQw4w9WgXcQ"
+                title="YouTube video player"
+                frameBorder="0"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+              />
             </div>
             <div className="min-w-0 flex-1 hidden md:block">
               <p className="font-semibold text-foreground truncate">Purple Dreams</p>
