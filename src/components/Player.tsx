@@ -25,6 +25,13 @@ const Player = () => {
     toggleLike,
   } = usePlayer();
 
+  const handleClose = () => {
+    if (isPlaying) {
+      togglePlay(); // Pauzira reprodukciju
+    }
+    setIsVisible(false);
+  };
+
   const handleVolumeChange = (values: number[]) => {
     updateVolume(values[0]);
   };
@@ -51,7 +58,7 @@ const Player = () => {
             <ChevronDown className="w-6 h-6" />
           </button>
           <button
-            onClick={() => setIsVisible(false)}
+            onClick={handleClose}
             className="text-muted-foreground hover:text-foreground transition-colors"
           >
             <X className="w-6 h-6" />
@@ -153,7 +160,7 @@ const Player = () => {
 
         {/* Close button */}
         <button
-          onClick={() => setIsVisible(false)}
+          onClick={handleClose}
           className="absolute top-2 right-2 text-muted-foreground hover:text-foreground transition-colors z-10"
         >
           <X className="w-5 h-5" />
