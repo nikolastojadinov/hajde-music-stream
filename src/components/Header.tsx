@@ -1,4 +1,4 @@
-import { User, Globe, Shield, FileText, ChevronDown } from "lucide-react";
+import { User, Globe, Shield, FileText } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -7,12 +7,21 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Link } from "react-router-dom";
 import appLogo from "@/assets/app-logo.png";
 import { useLanguage, languages } from "@/contexts/LanguageContext";
+import { useState } from "react";
 
 const Header = () => {
   const { t, setLanguage, currentLanguage } = useLanguage();
+  const [languageDialogOpen, setLanguageDialogOpen] = useState(false);
   
   return (
     <header className="fixed top-0 left-0 right-0 h-16 bg-background/80 backdrop-blur-md border-b border-border/50 z-50">
@@ -44,31 +53,43 @@ const Header = () => {
               <span>{t("profile")}</span>
             </DropdownMenuItem>
             
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="cursor-pointer py-3">
+            <Dialog open={languageDialogOpen} onOpenChange={setLanguageDialogOpen}>
+              <DialogTrigger asChild>
+                <DropdownMenuItem onSelect={(e) => {
+                  e.preventDefault();
+                  setLanguageDialogOpen(true);
+                }} className="cursor-pointer py-3">
                   <Globe className="w-4 h-4 mr-3" />
-                  <span className="flex-1">{t("choose_language")}</span>
-                  <ChevronDown className="ml-2 h-4 w-4" />
+                  <span>{t("choose_language")}</span>
                 </DropdownMenuItem>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent side="right" align="start" className="w-56 max-h-[400px] overflow-y-auto bg-card border-border z-[100]">
-                <DropdownMenuLabel className="flex items-center gap-2">
-                  <Globe className="h-4 w-4" />
-                  {t("language")}
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                {languages.map((lang) => (
-                  <DropdownMenuItem
-                    key={lang.code}
-                    onClick={() => setLanguage(lang.code)}
-                    className={currentLanguage === lang.code ? "bg-secondary" : ""}
-                  >
-                    {lang.nativeName}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
+              </DialogTrigger>
+              <DialogContent className="max-w-md bg-card border-border">
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2 text-xl">
+                    <Globe className="h-5 w-5" />
+                    {t("language")}
+                  </DialogTitle>
+                </DialogHeader>
+                <div className="max-h-[400px] overflow-y-auto scrollbar-hide pr-2">
+                  <div className="grid gap-2">
+                    {languages.map((lang) => (
+                      <button
+                        key={lang.code}
+                        onClick={() => {
+                          setLanguage(lang.code);
+                          setLanguageDialogOpen(false);
+                        }}
+                        className={`w-full text-left px-4 py-3 rounded-lg transition-all hover:bg-secondary/80 ${
+                          currentLanguage === lang.code ? "bg-secondary font-semibold" : ""
+                        }`}
+                      >
+                        {lang.nativeName}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
             
             <DropdownMenuSeparator />
             <DropdownMenuItem className="cursor-pointer py-3">
