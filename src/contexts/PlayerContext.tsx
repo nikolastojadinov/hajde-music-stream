@@ -40,20 +40,41 @@ const PlayerContext = createContext<PlayerContextType | undefined>(undefined);
 export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const playerRef = useRef<any>(null);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [volume, setVolumeState] = useState(70);
+  const [volume, setVolumeState] = useState(() => {
+    const saved = localStorage.getItem('player-volume');
+    return saved ? Number(saved) : 70;
+  });
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [playerReady, setPlayerReady] = useState(false);
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [currentVideoTitle, setCurrentVideoTitle] = useState(playlist[0].title);
-  const [currentVideoArtist, setCurrentVideoArtist] = useState(playlist[0].artist);
+  const [currentIndex, setCurrentIndex] = useState(() => {
+    const saved = localStorage.getItem('player-index');
+    return saved ? Number(saved) : 0;
+  });
+  const [currentVideoTitle, setCurrentVideoTitle] = useState(() => {
+    const saved = localStorage.getItem('player-index');
+    const index = saved ? Number(saved) : 0;
+    return playlist[index].title;
+  });
+  const [currentVideoArtist, setCurrentVideoArtist] = useState(() => {
+    const saved = localStorage.getItem('player-index');
+    const index = saved ? Number(saved) : 0;
+    return playlist[index].artist;
+  });
   const [isLiked, setIsLiked] = useState(false);
   const initAttempted = useRef(false);
+  const savedTimeRef = useRef<number>(0);
 
   useEffect(() => {
     if (initAttempted.current) return;
     initAttempted.current = true;
+
+    // Učitaj sačuvano vreme
+    const savedTime = localStorage.getItem('player-time');
+    if (savedTime) {
+      savedTimeRef.current = Number(savedTime);
+    }
 
     // Učitaj YouTube API
     const loadYouTubeAPI = () => {
@@ -73,7 +94,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       try {
         playerRef.current = new window.YT.Player("yt-player", {
-          videoId: playlist[0].id,
+          videoId: playlist[currentIndex].id,
           playerVars: {
             autoplay: 0,
             controls: 1,
@@ -84,6 +105,10 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             onReady: (event: any) => {
               console.log("Player ready");
               event.target.setVolume(volume);
+              // Postavi sačuvano vreme
+              if (savedTimeRef.current > 0) {
+                event.target.seekTo(savedTimeRef.current, true);
+              }
               setPlayerReady(true);
             },
             onStateChange: (event: any) => {
@@ -109,8 +134,11 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const interval = setInterval(() => {
       if (playerRef.current && playerRef.current.getCurrentTime) {
         try {
-          setCurrentTime(playerRef.current.getCurrentTime() || 0);
+          const time = playerRef.current.getCurrentTime() || 0;
+          setCurrentTime(time);
           setDuration(playerRef.current.getDuration() || 0);
+          // Čuvaj vreme u localStorage
+          localStorage.setItem('player-time', time.toString());
         } catch (e) {
           // ignore
         }
@@ -118,7 +146,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }, 1000);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [currentIndex, volume]);
 
   const togglePlay = () => {
     if (!playerRef.current) return;
@@ -136,6 +164,8 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setCurrentIndex(nextIndex);
     setCurrentVideoTitle(playlist[nextIndex].title);
     setCurrentVideoArtist(playlist[nextIndex].artist);
+    localStorage.setItem('player-index', nextIndex.toString());
+    localStorage.setItem('player-time', '0');
     playerRef.current.loadVideoById(playlist[nextIndex].id);
     setIsLiked(false);
   };
@@ -146,6 +176,8 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setCurrentIndex(prevIndex);
     setCurrentVideoTitle(playlist[prevIndex].title);
     setCurrentVideoArtist(playlist[prevIndex].artist);
+    localStorage.setItem('player-index', prevIndex.toString());
+    localStorage.setItem('player-time', '0');
     playerRef.current.loadVideoById(playlist[prevIndex].id);
     setIsLiked(false);
   };
@@ -154,6 +186,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (!playerRef.current) return;
     playerRef.current.setVolume(newVolume);
     setVolumeState(newVolume);
+    localStorage.setItem('player-volume', newVolume.toString());
   };
 
   const seekTo = (seconds: number) => {
