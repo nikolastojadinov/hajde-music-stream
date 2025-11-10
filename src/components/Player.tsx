@@ -166,49 +166,35 @@ const Player = () => {
           </div>
 
           {/* Controls */}
-          <div className="flex flex-col items-center gap-2 flex-1 max-w-2xl">
-            <div className="flex items-center gap-4">
-              <button className="text-muted-foreground hover:text-foreground transition-colors hidden md:block">
-                <Shuffle className="w-4 h-4" />
-              </button>
-              <button 
-                onClick={skipBackward}
-                className="text-foreground hover:text-primary transition-colors"
-              >
-                <SkipBack className="w-5 h-5" />
-              </button>
-              <button 
-                onClick={togglePlay}
-                className="w-10 h-10 bg-primary rounded-full flex items-center justify-center text-background hover:scale-105 transition-transform"
-              >
-                {isPlaying ? (
-                  <Pause className="w-5 h-5" />
-                ) : (
-                  <Play className="w-5 h-5 fill-current ml-0.5" />
-                )}
-              </button>
-              <button 
-                onClick={skipForward}
-                className="text-foreground hover:text-primary transition-colors"
-              >
-                <SkipForward className="w-5 h-5" />
-              </button>
-              <button className="text-muted-foreground hover:text-foreground transition-colors hidden md:block">
-                <Repeat className="w-4 h-4" />
-              </button>
-            </div>
-            
-            <div className="flex items-center gap-2 w-full">
-              <span className="text-xs text-muted-foreground">{formatTime(currentTime)}</span>
-              <Slider 
-                value={[progressPercentage]} 
-                max={100} 
-                step={0.1} 
-                className="flex-1"
-                onValueChange={handleProgressChange}
-              />
-              <span className="text-xs text-muted-foreground">{formatTime(duration)}</span>
-            </div>
+          <div className="flex items-center gap-4 flex-1 max-w-2xl justify-center">
+            <button className="text-muted-foreground hover:text-foreground transition-colors hidden md:block">
+              <Shuffle className="w-4 h-4" />
+            </button>
+            <button 
+              onClick={skipBackward}
+              className="text-foreground hover:text-primary transition-colors"
+            >
+              <SkipBack className="w-5 h-5" />
+            </button>
+            <button 
+              onClick={togglePlay}
+              className="w-10 h-10 bg-primary rounded-full flex items-center justify-center text-background hover:scale-105 transition-transform"
+            >
+              {isPlaying ? (
+                <Pause className="w-5 h-5" />
+              ) : (
+                <Play className="w-5 h-5 fill-current ml-0.5" />
+              )}
+            </button>
+            <button 
+              onClick={skipForward}
+              className="text-foreground hover:text-primary transition-colors"
+            >
+              <SkipForward className="w-5 h-5" />
+            </button>
+            <button className="text-muted-foreground hover:text-foreground transition-colors hidden md:block">
+              <Repeat className="w-4 h-4" />
+            </button>
           </div>
 
           {/* Volume */}
