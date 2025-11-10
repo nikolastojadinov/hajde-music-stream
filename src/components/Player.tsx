@@ -5,7 +5,6 @@ import { useState } from "react";
 const Player = () => {
   const [isVisible, setIsVisible] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  // YouTube video ID - može se kasnije učiniti dinamičkim
   const [videoId] = useState("dQw4w9WgXcQ");
 
   if (!isVisible) return null;
@@ -36,7 +35,7 @@ const Player = () => {
             <iframe
               width="100%"
               height="100%"
-              src={`https://www.youtube.com/embed/${videoId}?autoplay=0&controls=1`}
+              src={`https://www.youtube.com/embed/${videoId}?autoplay=1&controls=1&enablejsapi=1`}
               title="YouTube video player"
               frameBorder="0"
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
@@ -114,13 +113,13 @@ const Player = () => {
         </button>
 
         <div className="flex items-center justify-between gap-4 max-w-screen-2xl mx-auto px-4 py-3 pt-8">
-          {/* Current Track Info */}
+          {/* Current Track Info with YouTube Player */}
           <div className="flex items-center gap-4 flex-1 min-w-0">
             <div className="rounded-lg flex-shrink-0 overflow-hidden" style={{ width: '200px', height: '200px' }}>
               <iframe
                 width="200"
                 height="200"
-                src={`https://www.youtube.com/embed/${videoId}?autoplay=0&controls=1`}
+                src={`https://www.youtube.com/embed/${videoId}?autoplay=1&controls=1&enablejsapi=1`}
                 title="YouTube video player"
                 frameBorder="0"
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
