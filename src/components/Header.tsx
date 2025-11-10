@@ -1,10 +1,11 @@
-import { User, Globe, Shield, FileText } from "lucide-react";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuLabel, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
+import { User, Globe, Shield, FileText, Crown } from "lucide-react";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Link } from "react-router-dom";
 import appLogo from "@/assets/app-logo.png";
 import { useLanguage, languages } from "@/contexts/LanguageContext";
 import { useState } from "react";
+import PremiumDialog from "./PremiumDialog";
 const Header = () => {
   const {
     t,
@@ -12,6 +13,7 @@ const Header = () => {
     currentLanguage
   } = useLanguage();
   const [languageDialogOpen, setLanguageDialogOpen] = useState(false);
+  const [premiumDialogOpen, setPremiumDialogOpen] = useState(false);
   return <header className="fixed top-0 left-0 right-0 h-16 bg-background/80 backdrop-blur-md border-b border-border/50 z-50">
       <div className="h-full px-4 md:px-6 flex items-center justify-between">
         {/* Logo */}
@@ -35,7 +37,13 @@ const Header = () => {
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56 bg-card border-border">
-            <DropdownMenuLabel>{t("my_account")}</DropdownMenuLabel>
+            <DropdownMenuItem 
+              onClick={() => setPremiumDialogOpen(true)}
+              className="cursor-pointer py-3 bg-gradient-to-r from-amber-500/10 to-yellow-600/10 hover:from-amber-500/20 hover:to-yellow-600/20 border border-amber-500/20"
+            >
+              <Crown className="w-4 h-4 mr-3 text-amber-500" />
+              <span className="bg-gradient-to-b from-amber-500 via-amber-600 to-yellow-700 bg-clip-text text-transparent font-semibold">Go Premium</span>
+            </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem className="cursor-pointer py-3">
               <User className="w-4 h-4 mr-3" />
@@ -84,6 +92,8 @@ const Header = () => {
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+
+      <PremiumDialog open={premiumDialogOpen} onOpenChange={setPremiumDialogOpen} />
     </header>;
 };
 export default Header;
