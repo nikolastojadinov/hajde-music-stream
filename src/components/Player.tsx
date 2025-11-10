@@ -1,11 +1,40 @@
-import { Play, SkipBack, SkipForward, Volume2, Repeat, Shuffle, Heart, X, ChevronUp, ChevronDown } from "lucide-react";
+import { Play, Pause, SkipBack, SkipForward, Volume2, Repeat, Shuffle, Heart, X, ChevronUp, ChevronDown } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useYouTubePlayer } from "@/hooks/useYouTubePlayer";
 
 const Player = () => {
   const [isVisible, setIsVisible] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [videoId] = useState("dQw4w9WgXcQ");
+  
+  const containerId = isFullscreen ? "youtube-player-fullscreen" : "youtube-player-mini";
+  
+  const {
+    isPlaying,
+    volume,
+    currentTime,
+    duration,
+    togglePlay,
+    skipForward,
+    skipBackward,
+    setVolume,
+    seekTo,
+    formatTime,
+  } = useYouTubePlayer(videoId, containerId);
+
+  // Ažuriraj volume kada korisnik pomeri slider
+  const handleVolumeChange = (values: number[]) => {
+    setVolume(values[0]);
+  };
+
+  // Ažuriraj progress kada korisnik pomeri slider
+  const handleProgressChange = (values: number[]) => {
+    const newTime = (values[0] / 100) * duration;
+    seekTo(newTime);
+  };
+
+  const progressPercentage = duration > 0 ? (currentTime / duration) * 100 : 0;
 
   if (!isVisible) return null;
 
@@ -32,16 +61,7 @@ const Player = () => {
         {/* YouTube Video Player */}
         <div className="flex-1 flex flex-col items-center justify-center p-8">
           <div className="w-full max-w-md mb-8 aspect-square rounded-lg overflow-hidden shadow-2xl">
-            <iframe
-              width="100%"
-              height="100%"
-              src={`https://www.youtube.com/embed/${videoId}?autoplay=1&controls=1&enablejsapi=1`}
-              title="YouTube video player"
-              frameBorder="0"
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-              allowFullScreen
-              className="w-full h-full"
-            />
+            <div id="youtube-player-fullscreen" className="w-full h-full"></div>
           </div>
           
           <div className="w-full max-w-md text-center mb-8">
@@ -51,10 +71,16 @@ const Player = () => {
 
           {/* Progress Bar */}
           <div className="w-full max-w-md mb-8">
-            <Slider defaultValue={[33]} max={100} step={1} className="mb-2" />
+            <Slider 
+              value={[progressPercentage]} 
+              max={100} 
+              step={0.1} 
+              className="mb-2"
+              onValueChange={handleProgressChange}
+            />
             <div className="flex justify-between text-sm text-muted-foreground">
-              <span>2:34</span>
-              <span>4:12</span>
+              <span>{formatTime(currentTime)}</span>
+              <span>{formatTime(duration)}</span>
             </div>
           </div>
 
@@ -63,13 +89,26 @@ const Player = () => {
             <button className="text-muted-foreground hover:text-foreground transition-colors">
               <Shuffle className="w-6 h-6" />
             </button>
-            <button className="text-foreground hover:text-primary transition-colors">
+            <button 
+              onClick={() => skipBackward(10)}
+              className="text-foreground hover:text-primary transition-colors"
+            >
               <SkipBack className="w-8 h-8" />
             </button>
-            <button className="w-16 h-16 bg-primary rounded-full flex items-center justify-center text-background hover:scale-105 transition-transform shadow-lg">
-              <Play className="w-8 h-8 fill-current ml-1" />
+            <button 
+              onClick={togglePlay}
+              className="w-16 h-16 bg-primary rounded-full flex items-center justify-center text-background hover:scale-105 transition-transform shadow-lg"
+            >
+              {isPlaying ? (
+                <Pause className="w-8 h-8" />
+              ) : (
+                <Play className="w-8 h-8 fill-current ml-1" />
+              )}
             </button>
-            <button className="text-foreground hover:text-primary transition-colors">
+            <button 
+              onClick={() => skipForward(10)}
+              className="text-foreground hover:text-primary transition-colors"
+            >
               <SkipForward className="w-8 h-8" />
             </button>
             <button className="text-muted-foreground hover:text-foreground transition-colors">
@@ -84,7 +123,13 @@ const Player = () => {
             </button>
             <div className="flex items-center gap-3">
               <Volume2 className="w-5 h-5 text-muted-foreground" />
-              <Slider defaultValue={[70]} max={100} step={1} className="w-32" />
+              <Slider 
+                value={[volume]} 
+                max={100} 
+                step={1} 
+                className="w-32"
+                onValueChange={handleVolumeChange}
+              />
             </div>
           </div>
         </div>
@@ -116,15 +161,7 @@ const Player = () => {
           {/* Current Track Info with YouTube Player */}
           <div className="flex items-center gap-4 flex-1 min-w-0">
             <div className="rounded-lg flex-shrink-0 overflow-hidden" style={{ width: '200px', height: '200px' }}>
-              <iframe
-                width="200"
-                height="200"
-                src={`https://www.youtube.com/embed/${videoId}?autoplay=1&controls=1&enablejsapi=1`}
-                title="YouTube video player"
-                frameBorder="0"
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                allowFullScreen
-              />
+              <div id="youtube-player-mini" style={{ width: '200px', height: '200px' }}></div>
             </div>
             <div className="min-w-0 flex-1 hidden md:block">
               <p className="font-semibold text-foreground truncate">Purple Dreams</p>
@@ -141,13 +178,26 @@ const Player = () => {
               <button className="text-muted-foreground hover:text-foreground transition-colors hidden md:block">
                 <Shuffle className="w-4 h-4" />
               </button>
-              <button className="text-foreground hover:text-primary transition-colors">
+              <button 
+                onClick={() => skipBackward(10)}
+                className="text-foreground hover:text-primary transition-colors"
+              >
                 <SkipBack className="w-5 h-5" />
               </button>
-              <button className="w-10 h-10 bg-primary rounded-full flex items-center justify-center text-background hover:scale-105 transition-transform">
-                <Play className="w-5 h-5 fill-current ml-0.5" />
+              <button 
+                onClick={togglePlay}
+                className="w-10 h-10 bg-primary rounded-full flex items-center justify-center text-background hover:scale-105 transition-transform"
+              >
+                {isPlaying ? (
+                  <Pause className="w-5 h-5" />
+                ) : (
+                  <Play className="w-5 h-5 fill-current ml-0.5" />
+                )}
               </button>
-              <button className="text-foreground hover:text-primary transition-colors">
+              <button 
+                onClick={() => skipForward(10)}
+                className="text-foreground hover:text-primary transition-colors"
+              >
                 <SkipForward className="w-5 h-5" />
               </button>
               <button className="text-muted-foreground hover:text-foreground transition-colors hidden md:block">
@@ -156,16 +206,28 @@ const Player = () => {
             </div>
             
             <div className="flex items-center gap-2 w-full">
-              <span className="text-xs text-muted-foreground">2:34</span>
-              <Slider defaultValue={[33]} max={100} step={1} className="flex-1" />
-              <span className="text-xs text-muted-foreground">4:12</span>
+              <span className="text-xs text-muted-foreground">{formatTime(currentTime)}</span>
+              <Slider 
+                value={[progressPercentage]} 
+                max={100} 
+                step={0.1} 
+                className="flex-1"
+                onValueChange={handleProgressChange}
+              />
+              <span className="text-xs text-muted-foreground">{formatTime(duration)}</span>
             </div>
           </div>
 
           {/* Volume Controls */}
           <div className="hidden md:flex items-center gap-2 flex-1 justify-end">
             <Volume2 className="w-5 h-5 text-muted-foreground" />
-            <Slider defaultValue={[70]} max={100} step={1} className="w-24" />
+            <Slider 
+              value={[volume]} 
+              max={100} 
+              step={1} 
+              className="w-24"
+              onValueChange={handleVolumeChange}
+            />
           </div>
         </div>
       </div>
