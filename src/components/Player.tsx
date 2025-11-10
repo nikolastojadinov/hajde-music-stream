@@ -160,9 +160,9 @@ const Player = () => {
         </button>
 
         <div className="flex items-center justify-between gap-4 max-w-screen-2xl mx-auto px-4 py-3 pt-8">
-          {/* Prazan prostor za YouTube Player - on se renderuje u YouTubePlayerContainer */}
+          {/* Song info i controls */}
           <div className="flex items-center gap-4 flex-1 min-w-0">
-            <div className="w-[200px] h-[200px] flex-shrink-0" />
+            <div className="w-[200px] h-[200px] flex-shrink-0 bg-secondary/20 rounded-lg" />
             <div className="min-w-0 flex-1 hidden md:block">
               <p className="font-semibold text-foreground truncate">Purple Dreams</p>
               <p className="text-sm text-muted-foreground truncate">Electronic Beats</p>
