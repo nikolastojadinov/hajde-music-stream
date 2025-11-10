@@ -18,7 +18,7 @@ const Header = () => {
         <Link to="/" className="flex items-center gap-2 md:gap-3 group">
           <img src={appLogo} alt="PurpleBeats Logo" className="w-[42px] h-[42px] md:w-[52px] md:h-[52px] rounded-lg group-hover:scale-105 transition-transform" />
           <span className="text-lg md:text-xl font-bold">
-            <span className="bg-gradient-to-b from-purple-400 via-purple-500 to-purple-600 bg-clip-text text-transparent">
+            <span className="bg-gradient-to-b from-amber-500 via-amber-600 to-yellow-700 bg-clip-text text-transparent">
               Purple
             </span>
             <span className="bg-gradient-to-b from-amber-500 via-amber-600 to-yellow-700 bg-clip-text text-transparent">
