@@ -49,11 +49,10 @@ const Playlist = () => {
 
       {/* Song list */}
       <div className="px-8 pb-8">
-        <div className="grid grid-cols-[16px_6fr_4fr_3fr_minmax(120px,1fr)] gap-4 px-4 py-2 text-sm text-muted-foreground border-b border-border mb-2">
+        <div className="grid grid-cols-[16px_6fr_4fr_minmax(120px,1fr)] gap-4 px-4 py-2 text-sm text-muted-foreground border-b border-border mb-2">
           <div>#</div>
           <div>{t("title")}</div>
           <div>{t("album")}</div>
-          <div>{t("date_added")}</div>
           <div className="flex justify-end">
             <Clock className="w-4 h-4" />
           </div>
@@ -63,7 +62,7 @@ const Playlist = () => {
           {songs.map((song, index) => (
             <div
               key={song.id}
-              className="grid grid-cols-[16px_6fr_4fr_3fr_minmax(120px,1fr)] gap-4 px-4 py-3 rounded-md hover:bg-secondary/50 group cursor-pointer transition-colors"
+              className="grid grid-cols-[16px_6fr_4fr_minmax(120px,1fr)] gap-4 px-4 py-3 rounded-md hover:bg-secondary/50 group cursor-pointer transition-colors"
             >
               <div className="flex items-center text-muted-foreground group-hover:text-foreground">
                 {index + 1}
@@ -79,7 +78,6 @@ const Playlist = () => {
               <div className="flex items-center text-sm text-muted-foreground truncate">
                 {song.album}
               </div>
-              <div className="flex items-center text-sm text-muted-foreground">Pre 2 dana</div>
               <div className="flex items-center justify-end text-sm text-muted-foreground">
                 {song.duration}
               </div>
