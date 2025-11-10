@@ -105,9 +105,15 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             onReady: (event: any) => {
               console.log("Player ready");
               event.target.setVolume(volume);
-              // Postavi sačuvano vreme
+              // Postavi sačuvano vreme nakon što se player potpuno učita
               if (savedTimeRef.current > 0) {
-                event.target.seekTo(savedTimeRef.current, true);
+                setTimeout(() => {
+                  if (playerRef.current && playerRef.current.seekTo) {
+                    console.log("Seeking to saved time:", savedTimeRef.current);
+                    playerRef.current.seekTo(savedTimeRef.current, true);
+                    savedTimeRef.current = 0; // Reset nakon što je postavljeno
+                  }
+                }, 1000);
               }
               setPlayerReady(true);
             },
