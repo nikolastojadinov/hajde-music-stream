@@ -1,11 +1,8 @@
 import { Play, Pause, SkipBack, SkipForward, Volume2, Repeat, Shuffle, Heart, X, ChevronUp, ChevronDown } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
-import { useState } from "react";
 import { usePlayer } from "@/contexts/PlayerContext";
 
 const Player = () => {
-  const [isVisible, setIsVisible] = useState(true);
-  
   const {
     isPlaying,
     volume,
@@ -15,6 +12,7 @@ const Player = () => {
     currentVideoTitle,
     currentVideoArtist,
     isLiked,
+    isPlayerVisible,
     togglePlay,
     skipForward,
     skipBackward,
@@ -23,13 +21,14 @@ const Player = () => {
     formatTime,
     setIsFullscreen,
     toggleLike,
+    setIsPlayerVisible,
   } = usePlayer();
 
   const handleClose = () => {
     if (isPlaying) {
       togglePlay(); // Pauzira reprodukciju
     }
-    setIsVisible(false);
+    setIsPlayerVisible(false);
   };
 
   const handleVolumeChange = (values: number[]) => {
@@ -43,7 +42,7 @@ const Player = () => {
 
   const progressPercentage = duration > 0 ? (currentTime / duration) * 100 : 0;
 
-  if (!isVisible) return null;
+  if (!isPlayerVisible) return null;
 
   // Fullscreen Player UI (bez player iframe-a - on je u YouTubePlayerContainer)
   if (isFullscreen) {

@@ -16,6 +16,7 @@ type PlayerContextType = {
   currentVideoTitle: string;
   currentVideoArtist: string;
   isLiked: boolean;
+  isPlayerVisible: boolean;
   togglePlay: () => void;
   skipForward: () => void;
   skipBackward: () => void;
@@ -24,6 +25,7 @@ type PlayerContextType = {
   formatTime: (seconds: number) => string;
   setIsFullscreen: (fullscreen: boolean) => void;
   toggleLike: () => void;
+  setIsPlayerVisible: (visible: boolean) => void;
   playerReady: boolean;
 };
 
@@ -63,6 +65,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return playlist[index].artist;
   });
   const [isLiked, setIsLiked] = useState(false);
+  const [isPlayerVisible, setIsPlayerVisible] = useState(true);
   const initAttempted = useRef(false);
   const savedTimeRef = useRef<number>(0);
 
@@ -222,6 +225,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         currentVideoTitle,
         currentVideoArtist,
         isLiked,
+        isPlayerVisible,
         togglePlay,
         skipForward,
         skipBackward,
@@ -230,6 +234,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         formatTime,
         setIsFullscreen,
         toggleLike,
+        setIsPlayerVisible,
         playerReady,
       }}
     >

@@ -1,7 +1,9 @@
 import { usePlayer } from "@/contexts/PlayerContext";
 
 export const YouTubePlayerContainer = () => {
-  const { isFullscreen } = usePlayer();
+  const { isFullscreen, isPlayerVisible } = usePlayer();
+
+  if (!isPlayerVisible) return null;
 
   return (
     <div
