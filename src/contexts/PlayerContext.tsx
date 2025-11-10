@@ -29,6 +29,7 @@ const PlayerContext = createContext<PlayerContextType | undefined>(undefined);
 
 export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const playerRef = useRef<any>(null);
+  const playerInitializedRef = useRef(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [volume, setVolumeState] = useState(70);
   const [currentTime, setCurrentTime] = useState(0);
@@ -36,9 +37,16 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [videoId, setVideoId] = useState("dQw4w9WgXcQ");
   const [playerReady, setPlayerReady] = useState(false);
-  const initAttemptedRef = useRef(false);
 
   useEffect(() => {
+    // Sprečava višestruko pokretanje
+    if (playerInitializedRef.current) {
+      console.log("Player already initialized, skipping...");
+      return;
+    }
+
+    console.log("Initializing YouTube player for the first time...");
+
     // Učitaj YouTube Iframe API
     if (!window.YT) {
       const tag = document.createElement("script");
@@ -49,74 +57,84 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     // Inicijalizuj player kada je API spreman
     const initializePlayer = () => {
-      console.log("Attempting to initialize YouTube player...");
-      
-      if (initAttemptedRef.current) {
-        console.log("Player already initialized, skipping...");
+      if (playerInitializedRef.current) {
+        console.log("Already initialized, aborting...");
         return;
       }
-      
+
       if (window.YT && window.YT.Player) {
-        const container = document.getElementById("youtube-player-container");
-        console.log("Container found:", !!container);
-        
-        if (container && !initAttemptedRef.current) {
-          initAttemptedRef.current = true;
+        // Sačekaj da se DOM učita
+        const checkContainer = setInterval(() => {
+          const container = document.getElementById("youtube-player-container");
           
-          playerRef.current = new window.YT.Player("youtube-player-container", {
-            videoId: videoId,
-            width: '100%',
-            height: '100%',
-            playerVars: {
-              autoplay: 0,
-              controls: 1,
-              enablejsapi: 1,
-              origin: window.location.origin,
-              modestbranding: 1,
-              rel: 0,
-            },
-            events: {
-              onReady: (event: any) => {
-                console.log("YouTube player ready!");
-                event.target.setVolume(volume);
-                setPlayerReady(true);
+          if (container) {
+            clearInterval(checkContainer);
+            console.log("Container found, creating player...");
+            
+            playerInitializedRef.current = true;
+            
+            playerRef.current = new window.YT.Player("youtube-player-container", {
+              videoId: videoId,
+              width: '100%',
+              height: '100%',
+              playerVars: {
+                autoplay: 0,
+                controls: 1,
+                enablejsapi: 1,
+                origin: window.location.origin,
+                modestbranding: 1,
+                rel: 0,
               },
-              onStateChange: (event: any) => {
-                console.log("Player state changed:", event.data);
-                setIsPlaying(event.data === window.YT.PlayerState.PLAYING);
+              events: {
+                onReady: (event: any) => {
+                  console.log("✅ YouTube player ready!");
+                  event.target.setVolume(volume);
+                  setPlayerReady(true);
+                },
+                onStateChange: (event: any) => {
+                  const states = ['unstarted', 'ended', 'playing', 'paused', 'buffering', 'cued'];
+                  console.log("Player state:", states[event.data + 1] || event.data);
+                  setIsPlaying(event.data === window.YT.PlayerState.PLAYING);
+                },
+                onError: (event: any) => {
+                  console.error("YouTube player error:", event.data);
+                },
               },
-              onError: (event: any) => {
-                console.error("YouTube player error:", event.data);
-              },
-            },
-          });
-        }
+            });
+          }
+        }, 100);
+
+        // Timeout nakon 5 sekundi
+        setTimeout(() => clearInterval(checkContainer), 5000);
       }
     };
 
-    // Pokušaj sa inicijalizacijom nakon kratkog delay-a da se osigura da je DOM spreman
-    const timeoutId = setTimeout(() => {
-      if (window.YT && window.YT.Player) {
+    if (window.YT && window.YT.Player) {
+      initializePlayer();
+    } else {
+      window.onYouTubeIframeAPIReady = () => {
+        console.log("YouTube API ready");
         initializePlayer();
-      } else {
-        window.onYouTubeIframeAPIReady = initializePlayer;
-      }
-    }, 100);
+      };
+    }
 
     // Ažuriraj trenutno vreme i trajanje
     const interval = setInterval(() => {
       if (playerRef.current && playerRef.current.getCurrentTime) {
-        setCurrentTime(playerRef.current.getCurrentTime());
-        setDuration(playerRef.current.getDuration());
+        try {
+          setCurrentTime(playerRef.current.getCurrentTime());
+          setDuration(playerRef.current.getDuration());
+        } catch (e) {
+          // Ignoriši greške
+        }
       }
     }, 1000);
 
     return () => {
-      clearTimeout(timeoutId);
       clearInterval(interval);
       // NE uništavaj player - ostavi ga aktivnim
     };
-  }, []);
+  }, []); // Prazan dependency array - pokreće se samo jednom
 
   // Ažuriraj video kada se promeni videoId
   useEffect(() => {
@@ -126,43 +144,13 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, [videoId, playerReady]);
 
-  // Animiraj poziciju playera kada se menja fullscreen
-  useEffect(() => {
-    const container = document.getElementById("youtube-player-container");
-    if (container && playerReady) {
-      console.log("Fullscreen state changed:", isFullscreen);
-      
-      if (isFullscreen) {
-        // Fullscreen mod
-        container.style.position = 'fixed';
-        container.style.top = '50%';
-        container.style.left = '50%';
-        container.style.transform = 'translate(-50%, -50%)';
-        container.style.width = '600px';
-        container.style.maxWidth = '90vw';
-        container.style.height = 'auto';
-        container.style.aspectRatio = '1';
-        container.style.zIndex = '60';
-        container.style.transition = 'all 0.3s ease-in-out';
-      } else {
-        // Mini player mod
-        container.style.position = 'fixed';
-        container.style.bottom = 'calc(5rem + 12px)';
-        container.style.left = '16px';
-        container.style.top = 'auto';
-        container.style.transform = 'none';
-        container.style.width = '200px';
-        container.style.height = '200px';
-        container.style.maxWidth = 'none';
-        container.style.aspectRatio = 'auto';
-        container.style.zIndex = '30';
-        container.style.transition = 'all 0.3s ease-in-out';
-      }
-    }
-  }, [isFullscreen, playerReady]);
-
   const togglePlay = () => {
-    if (!playerRef.current) return;
+    if (!playerRef.current) {
+      console.log("Player not ready");
+      return;
+    }
+    
+    console.log("Toggle play, current state:", isPlaying);
     
     if (isPlaying) {
       playerRef.current.pauseVideo();
@@ -175,6 +163,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (playerRef.current && playerRef.current.getCurrentTime) {
       const newTime = playerRef.current.getCurrentTime() + seconds;
       playerRef.current.seekTo(newTime, true);
+      console.log("Skip forward to:", newTime);
     }
   };
 
@@ -182,6 +171,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (playerRef.current && playerRef.current.getCurrentTime) {
       const newTime = Math.max(0, playerRef.current.getCurrentTime() - seconds);
       playerRef.current.seekTo(newTime, true);
+      console.log("Skip backward to:", newTime);
     }
   };
 
@@ -189,16 +179,19 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (playerRef.current && playerRef.current.setVolume) {
       playerRef.current.setVolume(newVolume);
       setVolumeState(newVolume);
+      console.log("Volume set to:", newVolume);
     }
   };
 
   const seekTo = (seconds: number) => {
     if (playerRef.current && playerRef.current.seekTo) {
       playerRef.current.seekTo(seconds, true);
+      console.log("Seek to:", seconds);
     }
   };
 
   const formatTime = (seconds: number): string => {
+    if (!seconds || isNaN(seconds)) return "0:00";
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
     return `${mins}:${secs.toString().padStart(2, "0")}`;
