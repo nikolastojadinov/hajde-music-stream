@@ -1,24 +1,26 @@
 import { Home, Search, Library, Plus, Heart } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 const Footer = () => {
   const location = useLocation();
+  const { t } = useLanguage();
   const isActive = (path: string) => location.pathname === path;
 
   // Desktop navigation
   const desktopNav = [
-    { name: "Početna", path: "/", icon: Home },
-    { name: "Pretraži", path: "/search", icon: Search },
-    { name: "Biblioteka", path: "/library", icon: Library },
+    { name: t("home"), path: "/", icon: Home },
+    { name: t("search"), path: "/search", icon: Search },
+    { name: t("library"), path: "/library", icon: Library },
   ];
 
   // Mobile navigation
   const mobileNav = [
-    { name: "Početna", path: "/", icon: Home },
-    { name: "Napravi", path: "/create-playlist", icon: Plus },
-    { name: "Omiljene", path: "/favorites", icon: Heart },
-    { name: "Biblioteka", path: "/library", icon: Library },
+    { name: t("home"), path: "/", icon: Home },
+    { name: t("create"), path: "/create-playlist", icon: Plus },
+    { name: t("favorites"), path: "/favorites", icon: Heart },
+    { name: t("library"), path: "/library", icon: Library },
   ];
 
   return (

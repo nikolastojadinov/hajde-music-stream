@@ -1,14 +1,19 @@
-import { User, Globe, Shield, FileText } from "lucide-react";
+import { User, Globe, Shield, FileText, ChevronDown } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { Link } from "react-router-dom";
 import appLogo from "@/assets/app-logo.png";
+import { useLanguage, languages } from "@/contexts/LanguageContext";
 
 const Header = () => {
+  const { t, setLanguage, currentLanguage } = useLanguage();
+  
   return (
     <header className="fixed top-0 left-0 right-0 h-16 bg-background/80 backdrop-blur-md border-b border-border/50 z-50">
       <div className="h-full px-4 md:px-6 flex items-center justify-between">
@@ -32,21 +37,47 @@ const Header = () => {
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56 bg-card border-border">
+            <DropdownMenuLabel>Moj nalog</DropdownMenuLabel>
+            <DropdownMenuSeparator />
             <DropdownMenuItem className="cursor-pointer py-3">
               <User className="w-4 h-4 mr-3" />
-              <span>View profile</span>
+              <span>{t("profile")}</span>
             </DropdownMenuItem>
-            <DropdownMenuItem className="cursor-pointer py-3">
-              <Globe className="w-4 h-4 mr-3" />
-              <span>Choose language</span>
-            </DropdownMenuItem>
+            
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="cursor-pointer py-3">
+                  <Globe className="w-4 h-4 mr-3" />
+                  <span className="flex-1">{t("choose_language")}</span>
+                  <ChevronDown className="ml-2 h-4 w-4" />
+                </DropdownMenuItem>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent side="right" align="start" className="w-56 max-h-[400px] overflow-y-auto bg-card border-border z-[100]">
+                <DropdownMenuLabel className="flex items-center gap-2">
+                  <Globe className="h-4 w-4" />
+                  {t("language")}
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {languages.map((lang) => (
+                  <DropdownMenuItem
+                    key={lang.code}
+                    onClick={() => setLanguage(lang.code)}
+                    className={currentLanguage === lang.code ? "bg-secondary" : ""}
+                  >
+                    {lang.nativeName}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            
+            <DropdownMenuSeparator />
             <DropdownMenuItem className="cursor-pointer py-3">
               <Shield className="w-4 h-4 mr-3" />
-              <span>Privacy policy</span>
+              <span>{t("privacy_policy")}</span>
             </DropdownMenuItem>
             <DropdownMenuItem className="cursor-pointer py-3">
               <FileText className="w-4 h-4 mr-3" />
-              <span>Terms of service</span>
+              <span>{t("terms_of_service")}</span>
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

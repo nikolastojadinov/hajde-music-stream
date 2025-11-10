@@ -1,8 +1,11 @@
 import { Music, Disc, User } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import PlaylistCard from "@/components/PlaylistCard";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 const Library = () => {
+  const { t } = useLanguage();
+  
   const playlists = [
     { id: 1, title: "Moja Plejlista #1", description: "50 pesama" },
     { id: 2, title: "Chill Vibes", description: "32 pesme" },
@@ -25,21 +28,21 @@ const Library = () => {
   return (
     <div className="flex-1 overflow-y-auto pb-32">
       <div className="p-8">
-        <h1 className="text-4xl font-bold mb-8 animate-fade-in">Vaša biblioteka</h1>
+        <h1 className="text-4xl font-bold mb-8 animate-fade-in">{t("your_library")}</h1>
 
         <Tabs defaultValue="playlists" className="w-full animate-slide-up">
           <TabsList className="bg-secondary mb-8">
             <TabsTrigger value="playlists" className="gap-2">
               <Music className="w-4 h-4" />
-              Plejliste
+              {t("playlists")}
             </TabsTrigger>
             <TabsTrigger value="albums" className="gap-2">
               <Disc className="w-4 h-4" />
-              Albumi
+              {t("albums")}
             </TabsTrigger>
             <TabsTrigger value="artists" className="gap-2">
               <User className="w-4 h-4" />
-              Izvođači
+              {t("artists")}
             </TabsTrigger>
           </TabsList>
 

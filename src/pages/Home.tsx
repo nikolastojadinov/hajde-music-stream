@@ -2,11 +2,14 @@ import PlaylistCard from "@/components/PlaylistCard";
 import { Search as SearchIcon } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 const Home = () => {
+  const { t } = useLanguage();
+  
   const categories = [
     {
-      title: "Izdvojeno za vas",
+      title: t("featured_for_you"),
       playlists: [
         { id: 1, title: "Top Hits 2024", description: "Najpopularnije pesme trenutno" },
         { id: 2, title: "Chill Vibes", description: "Opuštajuća muzika za svaki trenutak" },
@@ -19,7 +22,7 @@ const Home = () => {
       ],
     },
     {
-      title: "Nedavno slušano",
+      title: t("recently_played"),
       playlists: [
         { id: 9, title: "Moja Plejlista #1", description: "50 pesama" },
         { id: 10, title: "Road Trip", description: "Muzika za putovanje" },
@@ -32,7 +35,7 @@ const Home = () => {
       ],
     },
     {
-      title: "Popularno sada",
+      title: t("popular_now"),
       playlists: [
         { id: 17, title: "Trending Now", description: "Najslušanije pesme" },
         { id: 18, title: "Viral Hits", description: "Viralni hitovi" },
@@ -45,7 +48,7 @@ const Home = () => {
       ],
     },
     {
-      title: "Po raspoloženju",
+      title: t("by_mood"),
       playlists: [
         { id: 25, title: "Happy Vibes", description: "Vesela atmosfera" },
         { id: 26, title: "Sad Songs", description: "Emotivne pesme" },
@@ -58,7 +61,7 @@ const Home = () => {
       ],
     },
     {
-      title: "Po žanru",
+      title: t("by_genre"),
       playlists: [
         { id: 33, title: "Hip Hop Essentials", description: "Najbolji hip hop" },
         { id: 34, title: "Electronic Beats", description: "Elektronska muzika" },
@@ -81,7 +84,7 @@ const Home = () => {
             <SearchIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
             <Input
               type="text"
-              placeholder="Šta želite da slušate?"
+              placeholder={t("search_placeholder")}
               className="pl-12 h-12 bg-card border-border text-foreground placeholder:text-muted-foreground"
             />
           </div>
@@ -90,10 +93,10 @@ const Home = () => {
         {/* Hero Section */}
         <div className="mb-6 md:mb-8">
           <h1 className="text-3xl md:text-4xl font-bold mb-2 bg-gradient-to-r from-primary via-primary/80 to-primary/60 bg-clip-text text-transparent animate-fade-in">
-            Dobrodošli nazad
+            {t("welcome_back")}
           </h1>
           <p className="text-muted-foreground animate-fade-in">
-            Otkrijte svoju omiljenu muziku
+            {t("discover_music")}
           </p>
         </div>
 

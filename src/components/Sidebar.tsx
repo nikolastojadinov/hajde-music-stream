@@ -1,16 +1,18 @@
 import { Home, Search, Library, Plus, Heart } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 const Sidebar = () => {
   const location = useLocation();
+  const { t } = useLanguage();
   
   const isActive = (path: string) => location.pathname === path;
   
   const mainNav = [
-    { name: "Početna", path: "/", icon: Home },
-    { name: "Pretraži", path: "/search", icon: Search },
-    { name: "Biblioteka", path: "/library", icon: Library },
+    { name: t("home"), path: "/", icon: Home },
+    { name: t("search"), path: "/search", icon: Search },
+    { name: t("library"), path: "/library", icon: Library },
   ];
   
   const playlists = [
@@ -51,7 +53,7 @@ const Sidebar = () => {
             className="flex items-center gap-4 px-3 py-3 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-all w-full"
           >
             <Plus className="w-6 h-6" />
-            <span>Napravi plejlistu</span>
+            <span>{t("create_playlist")}</span>
           </Link>
           
           <Link
@@ -59,13 +61,13 @@ const Sidebar = () => {
             className="flex items-center gap-4 px-3 py-3 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-all w-full"
           >
             <Heart className="w-6 h-6" />
-            <span>Omiljene pesme</span>
+            <span>{t("favorites")}</span>
           </Link>
         </div>
         
         <div className="border-t border-border pt-4">
           <h3 className="px-3 mb-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-            Plejliste
+            {t("playlists")}
           </h3>
           <div className="space-y-1">
             {playlists.map((playlist) => (
