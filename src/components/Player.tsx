@@ -166,34 +166,38 @@ const Player = () => {
           </div>
 
           {/* Controls */}
-          <div className="flex items-center gap-4 flex-1 max-w-2xl justify-center">
-            <button className="text-muted-foreground hover:text-foreground transition-colors hidden md:block">
-              <Shuffle className="w-4 h-4" />
-            </button>
-            <button 
-              onClick={skipBackward}
-              className="text-foreground hover:text-primary transition-colors"
-            >
-              <SkipBack className="w-5 h-5" />
-            </button>
+          <div className="flex flex-col items-center gap-3 flex-1 justify-center">
+            {/* Prvi red: Play dugme */}
             <button 
               onClick={togglePlay}
-              className="w-10 h-10 bg-primary rounded-full flex items-center justify-center text-background hover:scale-105 transition-transform"
+              className="w-12 h-12 bg-primary rounded-full flex items-center justify-center text-background hover:scale-105 transition-transform"
             >
               {isPlaying ? (
-                <Pause className="w-5 h-5" />
+                <Pause className="w-6 h-6" />
               ) : (
-                <Play className="w-5 h-5 fill-current ml-0.5" />
+                <Play className="w-6 h-6 fill-current ml-0.5" />
               )}
             </button>
-            <button 
-              onClick={skipForward}
-              className="text-foreground hover:text-primary transition-colors"
-            >
-              <SkipForward className="w-5 h-5" />
-            </button>
-            <button className="text-muted-foreground hover:text-foreground transition-colors hidden md:block">
-              <Repeat className="w-4 h-4" />
+
+            {/* Drugi red: Skip backward i Skip forward */}
+            <div className="flex items-center gap-6">
+              <button 
+                onClick={skipBackward}
+                className="text-foreground hover:text-primary transition-colors"
+              >
+                <SkipBack className="w-6 h-6" />
+              </button>
+              <button 
+                onClick={skipForward}
+                className="text-foreground hover:text-primary transition-colors"
+              >
+                <SkipForward className="w-6 h-6" />
+              </button>
+            </div>
+
+            {/* Treći red: Like dugme */}
+            <button className="text-muted-foreground hover:text-primary transition-colors">
+              <Heart className="w-6 h-6" />
             </button>
           </div>
 
