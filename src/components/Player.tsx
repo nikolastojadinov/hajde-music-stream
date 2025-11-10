@@ -34,10 +34,10 @@ const Player = () => {
 
   if (!isVisible) return null;
 
-  // Fullscreen Player
+  // Fullscreen Player UI (bez player iframe-a - on je u YouTubePlayerContainer)
   if (isFullscreen) {
     return (
-      <div className="fixed inset-0 bg-background z-50 flex flex-col animate-fade-in">
+      <div className="fixed inset-0 bg-background z-50 flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-border">
           <button
@@ -54,22 +54,18 @@ const Player = () => {
           </button>
         </div>
 
-        {/* YouTube Video Player - Fullscreen */}
-        <div className="flex-1 flex flex-col items-center justify-center p-8">
-          <div className="w-full max-w-md mb-8 aspect-square rounded-lg overflow-hidden shadow-2xl">
-            <div 
-              id="youtube-player-container" 
-              className="w-full h-full"
-            />
-          </div>
+        {/* Content */}
+        <div className="flex-1 flex flex-col items-center justify-center p-4">
+          {/* Prazan prostor za YouTube Player - on se renderuje u YouTubePlayerContainer */}
+          <div className="w-full max-w-2xl aspect-video mb-8" />
           
-          <div className="w-full max-w-md text-center mb-8">
-            <h2 className="text-3xl font-bold mb-2 text-foreground">Purple Dreams</h2>
-            <p className="text-lg text-muted-foreground">Electronic Beats</p>
+          <div className="w-full max-w-md text-center mb-6">
+            <h2 className="text-2xl font-bold mb-1 text-foreground">Purple Dreams</h2>
+            <p className="text-muted-foreground">Electronic Beats</p>
           </div>
 
           {/* Progress Bar */}
-          <div className="w-full max-w-md mb-8">
+          <div className="w-full max-w-md mb-6">
             <Slider 
               value={[progressPercentage]} 
               max={100} 
@@ -84,40 +80,40 @@ const Player = () => {
           </div>
 
           {/* Controls */}
-          <div className="flex items-center gap-8 mb-8">
+          <div className="flex items-center gap-6 mb-6">
             <button className="text-muted-foreground hover:text-foreground transition-colors">
-              <Shuffle className="w-6 h-6" />
+              <Shuffle className="w-5 h-5" />
             </button>
             <button 
-              onClick={() => skipBackward(10)}
+              onClick={skipBackward}
               className="text-foreground hover:text-primary transition-colors"
             >
-              <SkipBack className="w-8 h-8" />
+              <SkipBack className="w-7 h-7" />
             </button>
             <button 
               onClick={togglePlay}
-              className="w-16 h-16 bg-primary rounded-full flex items-center justify-center text-background hover:scale-105 transition-transform shadow-lg"
+              className="w-14 h-14 bg-primary rounded-full flex items-center justify-center text-background hover:scale-105 transition-transform"
             >
               {isPlaying ? (
-                <Pause className="w-8 h-8" />
+                <Pause className="w-7 h-7" />
               ) : (
-                <Play className="w-8 h-8 fill-current ml-1" />
+                <Play className="w-7 h-7 fill-current ml-1" />
               )}
             </button>
             <button 
-              onClick={() => skipForward(10)}
+              onClick={skipForward}
               className="text-foreground hover:text-primary transition-colors"
             >
-              <SkipForward className="w-8 h-8" />
+              <SkipForward className="w-7 h-7" />
             </button>
             <button className="text-muted-foreground hover:text-foreground transition-colors">
-              <Repeat className="w-6 h-6" />
+              <Repeat className="w-5 h-5" />
             </button>
           </div>
 
-          {/* Volume & Extra Controls */}
+          {/* Volume */}
           <div className="w-full max-w-md flex items-center justify-between">
-            <button className="text-primary hover:scale-110 transition-transform">
+            <button className="text-primary">
               <Heart className="w-6 h-6 fill-current" />
             </button>
             <div className="flex items-center gap-3">
@@ -136,7 +132,7 @@ const Player = () => {
     );
   }
 
-  // Mini Player
+  // Mini Player UI (bez player iframe-a - on je u YouTubePlayerContainer)
   return (
     <div className="fixed bottom-20 md:bottom-0 left-0 right-0 bg-card/95 backdrop-blur-md border-t border-border z-30">
       <div className="relative">
@@ -157,14 +153,9 @@ const Player = () => {
         </button>
 
         <div className="flex items-center justify-between gap-4 max-w-screen-2xl mx-auto px-4 py-3 pt-8">
-          {/* Current Track Info with YouTube Player */}
+          {/* Prazan prostor za YouTube Player - on se renderuje u YouTubePlayerContainer */}
           <div className="flex items-center gap-4 flex-1 min-w-0">
-            <div className="rounded-lg flex-shrink-0 overflow-hidden bg-secondary" style={{ width: '200px', height: '200px' }}>
-              <div 
-                id="youtube-player-container" 
-                className="w-full h-full"
-              />
-            </div>
+            <div className="w-[200px] h-[200px] flex-shrink-0" />
             <div className="min-w-0 flex-1 hidden md:block">
               <p className="font-semibold text-foreground truncate">Purple Dreams</p>
               <p className="text-sm text-muted-foreground truncate">Electronic Beats</p>
@@ -174,14 +165,14 @@ const Player = () => {
             </button>
           </div>
 
-          {/* Player Controls */}
+          {/* Controls */}
           <div className="flex flex-col items-center gap-2 flex-1 max-w-2xl">
             <div className="flex items-center gap-4">
               <button className="text-muted-foreground hover:text-foreground transition-colors hidden md:block">
                 <Shuffle className="w-4 h-4" />
               </button>
               <button 
-                onClick={() => skipBackward(10)}
+                onClick={skipBackward}
                 className="text-foreground hover:text-primary transition-colors"
               >
                 <SkipBack className="w-5 h-5" />
@@ -197,7 +188,7 @@ const Player = () => {
                 )}
               </button>
               <button 
-                onClick={() => skipForward(10)}
+                onClick={skipForward}
                 className="text-foreground hover:text-primary transition-colors"
               >
                 <SkipForward className="w-5 h-5" />
@@ -220,7 +211,7 @@ const Player = () => {
             </div>
           </div>
 
-          {/* Volume Controls */}
+          {/* Volume */}
           <div className="hidden md:flex items-center gap-2 flex-1 justify-end">
             <Volume2 className="w-5 h-5 text-muted-foreground" />
             <Slider 

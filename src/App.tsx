@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { LanguageProvider } from "./contexts/LanguageContext";
 import { PlayerProvider } from "./contexts/PlayerContext";
+import { YouTubePlayerContainer } from "./components/YouTubePlayerContainer";
 import Sidebar from "./components/Sidebar";
 import Header from "./components/Header";
 import Footer from "./components/Footer";
@@ -47,6 +48,9 @@ const App = () => (
                   </Routes>
                 </div>
               </div>
+              
+              {/* YouTube Player Container - globalni, pomera se između pozicija */}
+              <YouTubePlayerContainer />
               
               <Player />
               <Footer />

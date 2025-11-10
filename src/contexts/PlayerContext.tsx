@@ -13,15 +13,13 @@ type PlayerContextType = {
   currentTime: number;
   duration: number;
   isFullscreen: boolean;
-  videoId: string;
   togglePlay: () => void;
-  skipForward: (seconds?: number) => void;
-  skipBackward: (seconds?: number) => void;
+  skipForward: () => void;
+  skipBackward: () => void;
   setVolume: (volume: number) => void;
   seekTo: (seconds: number) => void;
   formatTime: (seconds: number) => string;
   setIsFullscreen: (fullscreen: boolean) => void;
-  setVideoId: (id: string) => void;
   playerReady: boolean;
 };
 
@@ -29,128 +27,85 @@ const PlayerContext = createContext<PlayerContextType | undefined>(undefined);
 
 export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const playerRef = useRef<any>(null);
-  const playerInitializedRef = useRef(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [volume, setVolumeState] = useState(70);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [videoId, setVideoId] = useState("dQw4w9WgXcQ");
   const [playerReady, setPlayerReady] = useState(false);
+  const initAttempted = useRef(false);
 
   useEffect(() => {
-    // Sprečava višestruko pokretanje
-    if (playerInitializedRef.current) {
-      console.log("Player already initialized, skipping...");
-      return;
-    }
+    if (initAttempted.current) return;
+    initAttempted.current = true;
 
-    console.log("Initializing YouTube player for the first time...");
-
-    // Učitaj YouTube Iframe API
-    if (!window.YT) {
-      const tag = document.createElement("script");
-      tag.src = "https://www.youtube.com/iframe_api";
-      const firstScriptTag = document.getElementsByTagName("script")[0];
-      firstScriptTag.parentNode?.insertBefore(tag, firstScriptTag);
-    }
-
-    // Inicijalizuj player kada je API spreman
-    const initializePlayer = () => {
-      if (playerInitializedRef.current) {
-        console.log("Already initialized, aborting...");
-        return;
-      }
-
-      if (window.YT && window.YT.Player) {
-        // Sačekaj da se DOM učita
-        const checkContainer = setInterval(() => {
-          const container = document.getElementById("youtube-player-container");
-          
-          if (container) {
-            clearInterval(checkContainer);
-            console.log("Container found, creating player...");
-            
-            playerInitializedRef.current = true;
-            
-            playerRef.current = new window.YT.Player("youtube-player-container", {
-              videoId: videoId,
-              width: '100%',
-              height: '100%',
-              playerVars: {
-                autoplay: 0,
-                controls: 1,
-                enablejsapi: 1,
-                origin: window.location.origin,
-                modestbranding: 1,
-                rel: 0,
-              },
-              events: {
-                onReady: (event: any) => {
-                  console.log("✅ YouTube player ready!");
-                  event.target.setVolume(volume);
-                  setPlayerReady(true);
-                },
-                onStateChange: (event: any) => {
-                  const states = ['unstarted', 'ended', 'playing', 'paused', 'buffering', 'cued'];
-                  console.log("Player state:", states[event.data + 1] || event.data);
-                  setIsPlaying(event.data === window.YT.PlayerState.PLAYING);
-                },
-                onError: (event: any) => {
-                  console.error("YouTube player error:", event.data);
-                },
-              },
-            });
-          }
-        }, 100);
-
-        // Timeout nakon 5 sekundi
-        setTimeout(() => clearInterval(checkContainer), 5000);
+    // Učitaj YouTube API
+    const loadYouTubeAPI = () => {
+      if (!window.YT) {
+        const tag = document.createElement("script");
+        tag.src = "https://www.youtube.com/iframe_api";
+        document.body.appendChild(tag);
       }
     };
 
+    loadYouTubeAPI();
+
+    // Funkcija za kreiranje playera
+    const createPlayer = () => {
+      const container = document.getElementById("yt-player");
+      if (!container || playerRef.current) return;
+
+      try {
+        playerRef.current = new window.YT.Player("yt-player", {
+          videoId: "dQw4w9WgXcQ",
+          playerVars: {
+            autoplay: 0,
+            controls: 1,
+            modestbranding: 1,
+            rel: 0,
+          },
+          events: {
+            onReady: (event: any) => {
+              console.log("Player ready");
+              event.target.setVolume(volume);
+              setPlayerReady(true);
+            },
+            onStateChange: (event: any) => {
+              setIsPlaying(event.data === 1); // 1 = playing
+            },
+          },
+        });
+      } catch (error) {
+        console.error("Error creating player:", error);
+      }
+    };
+
+    // Čekaj da se API učita
     if (window.YT && window.YT.Player) {
-      initializePlayer();
+      setTimeout(createPlayer, 500);
     } else {
       window.onYouTubeIframeAPIReady = () => {
-        console.log("YouTube API ready");
-        initializePlayer();
+        setTimeout(createPlayer, 500);
       };
     }
 
-    // Ažuriraj trenutno vreme i trajanje
+    // Ažuriraj vreme
     const interval = setInterval(() => {
       if (playerRef.current && playerRef.current.getCurrentTime) {
         try {
-          setCurrentTime(playerRef.current.getCurrentTime());
-          setDuration(playerRef.current.getDuration());
+          setCurrentTime(playerRef.current.getCurrentTime() || 0);
+          setDuration(playerRef.current.getDuration() || 0);
         } catch (e) {
-          // Ignoriši greške
+          // ignore
         }
       }
     }, 1000);
 
-    return () => {
-      clearInterval(interval);
-      // NE uništavaj player - ostavi ga aktivnim
-    };
-  }, []); // Prazan dependency array - pokreće se samo jednom
-
-  // Ažuriraj video kada se promeni videoId
-  useEffect(() => {
-    if (playerRef.current && playerRef.current.loadVideoById && playerReady) {
-      console.log("Loading new video:", videoId);
-      playerRef.current.loadVideoById(videoId);
-    }
-  }, [videoId, playerReady]);
+    return () => clearInterval(interval);
+  }, []);
 
   const togglePlay = () => {
-    if (!playerRef.current) {
-      console.log("Player not ready");
-      return;
-    }
-    
-    console.log("Toggle play, current state:", isPlaying);
+    if (!playerRef.current) return;
     
     if (isPlaying) {
       playerRef.current.pauseVideo();
@@ -159,35 +114,27 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   };
 
-  const skipForward = (seconds: number = 10) => {
-    if (playerRef.current && playerRef.current.getCurrentTime) {
-      const newTime = playerRef.current.getCurrentTime() + seconds;
-      playerRef.current.seekTo(newTime, true);
-      console.log("Skip forward to:", newTime);
-    }
+  const skipForward = () => {
+    if (!playerRef.current) return;
+    const currentTime = playerRef.current.getCurrentTime();
+    playerRef.current.seekTo(currentTime + 10, true);
   };
 
-  const skipBackward = (seconds: number = 10) => {
-    if (playerRef.current && playerRef.current.getCurrentTime) {
-      const newTime = Math.max(0, playerRef.current.getCurrentTime() - seconds);
-      playerRef.current.seekTo(newTime, true);
-      console.log("Skip backward to:", newTime);
-    }
+  const skipBackward = () => {
+    if (!playerRef.current) return;
+    const currentTime = playerRef.current.getCurrentTime();
+    playerRef.current.seekTo(Math.max(0, currentTime - 10), true);
   };
 
   const setVolume = (newVolume: number) => {
-    if (playerRef.current && playerRef.current.setVolume) {
-      playerRef.current.setVolume(newVolume);
-      setVolumeState(newVolume);
-      console.log("Volume set to:", newVolume);
-    }
+    if (!playerRef.current) return;
+    playerRef.current.setVolume(newVolume);
+    setVolumeState(newVolume);
   };
 
   const seekTo = (seconds: number) => {
-    if (playerRef.current && playerRef.current.seekTo) {
-      playerRef.current.seekTo(seconds, true);
-      console.log("Seek to:", seconds);
-    }
+    if (!playerRef.current) return;
+    playerRef.current.seekTo(seconds, true);
   };
 
   const formatTime = (seconds: number): string => {
@@ -205,7 +152,6 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         currentTime,
         duration,
         isFullscreen,
-        videoId,
         togglePlay,
         skipForward,
         skipBackward,
@@ -213,7 +159,6 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         seekTo,
         formatTime,
         setIsFullscreen,
-        setVideoId,
         playerReady,
       }}
     >
