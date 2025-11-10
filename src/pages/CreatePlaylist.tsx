@@ -5,19 +5,21 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 const CreatePlaylist = () => {
+  const { t } = useLanguage();
   const navigate = useNavigate();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
 
   const handleCreate = () => {
     if (!name.trim()) {
-      toast.error("Unesite naziv plejliste");
+      toast.error(t("enter_playlist_name"));
       return;
     }
     
-    toast.success("Plejlista kreirana!");
+    toast.success(t("playlist_created"));
     navigate("/library");
   };
 
@@ -30,11 +32,11 @@ const CreatePlaylist = () => {
           className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors mb-8"
         >
           <ArrowLeft className="w-5 h-5" />
-          Nazad
+          {t("back")}
         </button>
 
         <h1 className="text-4xl font-bold mb-8 bg-gradient-to-r from-primary via-primary/80 to-primary/60 bg-clip-text text-transparent">
-          Napravi novu plejlistu
+          {t("create_new_playlist")}
         </h1>
 
         <div className="space-y-8">
@@ -44,7 +46,7 @@ const CreatePlaylist = () => {
               <div className="text-center">
                 <Upload className="w-12 h-12 text-muted-foreground group-hover:text-primary transition-colors mx-auto mb-2" />
                 <p className="text-sm text-muted-foreground group-hover:text-primary transition-colors">
-                  Dodaj sliku
+                  {t("add_image")}
                 </p>
               </div>
             </div>
@@ -53,12 +55,12 @@ const CreatePlaylist = () => {
               {/* Name Input */}
               <div className="space-y-2">
                 <label htmlFor="name" className="text-sm font-semibold">
-                  Naziv plejliste
+                  {t("playlist_name")}
                 </label>
                 <Input
                   id="name"
                   type="text"
-                  placeholder="Moja Plejlista"
+                  placeholder={t("my_playlist")}
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   className="h-12 bg-secondary border-border text-foreground"
@@ -68,11 +70,11 @@ const CreatePlaylist = () => {
               {/* Description */}
               <div className="space-y-2">
                 <label htmlFor="description" className="text-sm font-semibold">
-                  Opis (opciono)
+                  {t("description_optional")}
                 </label>
                 <Textarea
                   id="description"
-                  placeholder="Dodaj opis plejliste..."
+                  placeholder={t("add_description")}
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   className="min-h-32 bg-secondary border-border text-foreground resize-none"
@@ -87,24 +89,24 @@ const CreatePlaylist = () => {
               onClick={handleCreate}
               className="bg-primary text-background hover:bg-primary/90 font-semibold px-8"
             >
-              Kreiraj plejlistu
+              {t("create_playlist_btn")}
             </Button>
             <Button
               onClick={() => navigate(-1)}
               variant="outline"
               className="border-border hover:bg-secondary"
             >
-              Otkaži
+              {t("cancel")}
             </Button>
           </div>
 
           {/* Info */}
           <div className="pt-6 border-t border-border">
-            <h3 className="font-semibold mb-4">Napomene:</h3>
+            <h3 className="font-semibold mb-4">{t("notes")}</h3>
             <ul className="space-y-2 text-sm text-muted-foreground">
-              <li>• Nakon kreiranja možete dodavati pesme u plejlistu</li>
-              <li>• Plejlista će biti privatna dok je ne podelite</li>
-              <li>• Možete je uvek urediti ili obrisati kasnije</li>
+              <li>{t("note_1")}</li>
+              <li>{t("note_2")}</li>
+              <li>{t("note_3")}</li>
             </ul>
           </div>
         </div>

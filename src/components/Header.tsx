@@ -30,7 +30,7 @@ const Header = () => {
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56 bg-card border-border">
-            <DropdownMenuLabel>Moj nalog</DropdownMenuLabel>
+            <DropdownMenuLabel>{t("my_account")}</DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuItem className="cursor-pointer py-3">
               <User className="w-4 h-4 mr-3" />

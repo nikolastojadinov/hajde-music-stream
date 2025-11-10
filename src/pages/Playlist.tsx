@@ -1,7 +1,9 @@
 import { Play, Heart, MoreHorizontal, Clock } from "lucide-react";
 import { useParams } from "react-router-dom";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 const Playlist = () => {
+  const { t } = useLanguage();
   const { id } = useParams();
 
   const songs = [
@@ -22,11 +24,11 @@ const Playlist = () => {
         <div className="flex items-end gap-6">
           <div className="w-56 h-56 bg-gradient-to-br from-primary/30 to-primary/10 rounded-lg shadow-2xl flex-shrink-0" />
           <div className="pb-4">
-            <p className="text-sm font-semibold mb-2 uppercase tracking-wider">Plejlista</p>
-            <h1 className="text-6xl font-bold mb-4">Moja Plejlista #{id}</h1>
+            <p className="text-sm font-semibold mb-2 uppercase tracking-wider">{t("playlist")}</p>
+            <h1 className="text-6xl font-bold mb-4">{t("my_playlist")} #{id}</h1>
             <div className="flex items-center gap-2 text-sm">
-              <span className="font-semibold">Korisnik</span>
-              <span className="text-muted-foreground">• {songs.length} pesama</span>
+              <span className="font-semibold">{t("user")}</span>
+              <span className="text-muted-foreground">• {songs.length} {t("songs")}</span>
             </div>
           </div>
         </div>
@@ -49,9 +51,9 @@ const Playlist = () => {
       <div className="px-8 pb-8">
         <div className="grid grid-cols-[16px_6fr_4fr_3fr_minmax(120px,1fr)] gap-4 px-4 py-2 text-sm text-muted-foreground border-b border-border mb-2">
           <div>#</div>
-          <div>NASLOV</div>
-          <div>ALBUM</div>
-          <div>DATUM DODAVANJA</div>
+          <div>{t("title")}</div>
+          <div>{t("album")}</div>
+          <div>{t("date_added")}</div>
           <div className="flex justify-end">
             <Clock className="w-4 h-4" />
           </div>
