@@ -1,11 +1,12 @@
 import { Play, SkipBack, SkipForward, Volume2, Repeat, Shuffle, Heart, X, ChevronUp, ChevronDown } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { useState } from "react";
-import testTrackCover from "@/assets/test-track-cover.jpg";
 
 const Player = () => {
   const [isVisible, setIsVisible] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  // YouTube video ID - može se kasnije učiniti dinamičkim
+  const [videoId] = useState("dQw4w9WgXcQ");
 
   if (!isVisible) return null;
 
@@ -29,10 +30,19 @@ const Player = () => {
           </button>
         </div>
 
-        {/* Album Art & Info */}
+        {/* YouTube Video Player */}
         <div className="flex-1 flex flex-col items-center justify-center p-8">
           <div className="w-full max-w-md mb-8 aspect-square rounded-lg overflow-hidden shadow-2xl">
-            <img src={testTrackCover} alt="Album cover" className="w-full h-full object-cover" />
+            <iframe
+              width="100%"
+              height="100%"
+              src={`https://www.youtube.com/embed/${videoId}?autoplay=0&controls=1`}
+              title="YouTube video player"
+              frameBorder="0"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+              className="w-full h-full"
+            />
           </div>
           
           <div className="w-full max-w-md text-center mb-8">
@@ -110,7 +120,7 @@ const Player = () => {
               <iframe
                 width="200"
                 height="200"
-                src="https://www.youtube.com/embed/dQw4w9WgXcQ"
+                src={`https://www.youtube.com/embed/${videoId}?autoplay=0&controls=1`}
                 title="YouTube video player"
                 frameBorder="0"
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
