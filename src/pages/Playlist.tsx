@@ -1,34 +1,68 @@
 import { Play, Heart, MoreHorizontal, Clock } from "lucide-react";
 import { useParams } from "react-router-dom";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { usePlaylist } from "@/hooks/usePlaylist";
+import { Skeleton } from "@/components/ui/skeleton";
 
 const Playlist = () => {
   const { t } = useLanguage();
   const { id } = useParams();
+  const { data: playlist, isLoading } = usePlaylist(id);
 
-  const songs = [
-    { id: 1, title: "Pesma 1", artist: "Izvođač 1", album: "Album 1", duration: "3:45" },
-    { id: 2, title: "Pesma 2", artist: "Izvođač 2", album: "Album 2", duration: "4:12" },
-    { id: 3, title: "Pesma 3", artist: "Izvođač 1", album: "Album 3", duration: "3:28" },
-    { id: 4, title: "Pesma 4", artist: "Izvođač 3", album: "Album 1", duration: "5:01" },
-    { id: 5, title: "Pesma 5", artist: "Izvođač 2", album: "Album 4", duration: "3:55" },
-    { id: 6, title: "Pesma 6", artist: "Izvođač 4", album: "Album 2", duration: "4:33" },
-    { id: 7, title: "Pesma 7", artist: "Izvođač 1", album: "Album 5", duration: "3:18" },
-    { id: 8, title: "Pesma 8", artist: "Izvođač 3", album: "Album 3", duration: "4:47" },
-  ];
+  const formatDuration = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex-1 overflow-y-auto pb-32">
+        <div className="relative h-80 bg-gradient-to-b from-primary/40 to-background p-8 flex items-end">
+          <div className="flex items-end gap-6">
+            <Skeleton className="w-56 h-56 rounded-lg" />
+            <div className="pb-4 space-y-3">
+              <Skeleton className="h-4 w-20" />
+              <Skeleton className="h-12 w-64" />
+              <Skeleton className="h-4 w-40" />
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!playlist) {
+    return (
+      <div className="flex-1 overflow-y-auto pb-32 flex items-center justify-center">
+        <p className="text-muted-foreground">{t("playlist_not_found") || "Playlist not found"}</p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex-1 overflow-y-auto pb-32">
       {/* Header with gradient */}
       <div className="relative h-80 bg-gradient-to-b from-primary/40 to-background p-8 flex items-end animate-fade-in">
         <div className="flex items-end gap-6">
-          <div className="w-56 h-56 bg-gradient-to-br from-primary/30 to-primary/10 rounded-lg shadow-2xl flex-shrink-0" />
+          <div className="w-56 h-56 bg-gradient-to-br from-primary/30 to-primary/10 rounded-lg shadow-2xl flex-shrink-0 overflow-hidden">
+            {playlist.image_url ? (
+              <img 
+                src={playlist.image_url} 
+                alt={playlist.title} 
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <div className="w-full h-full bg-gradient-to-br from-primary/30 to-primary/10" />
+            )}
+          </div>
           <div className="pb-4">
             <p className="text-sm font-semibold mb-2 uppercase tracking-wider">{t("playlist")}</p>
-            <h1 className="text-6xl font-bold mb-4">{t("my_playlist")} #{id}</h1>
+            <h1 className="text-6xl font-bold mb-4">{playlist.title}</h1>
+            <p className="text-muted-foreground mb-2">{playlist.description}</p>
             <div className="flex items-center gap-2 text-sm">
-              <span className="font-semibold">{t("user")}</span>
-              <span className="text-muted-foreground">• {songs.length} {t("songs")}</span>
+              <span className="font-semibold">{playlist.category}</span>
+              <span className="text-muted-foreground">• {playlist.tracks.length} {t("songs")}</span>
             </div>
           </div>
         </div>
@@ -59,30 +93,36 @@ const Playlist = () => {
         </div>
 
         <div className="space-y-1">
-          {songs.map((song, index) => (
-            <div
-              key={song.id}
-              className="grid grid-cols-[16px_6fr_4fr_minmax(120px,1fr)] gap-4 px-4 py-3 rounded-md hover:bg-secondary/50 group cursor-pointer transition-colors"
-            >
-              <div className="flex items-center text-muted-foreground group-hover:text-foreground">
-                {index + 1}
-              </div>
-              <div className="flex items-center min-w-0">
-                <div className="min-w-0">
-                  <p className="font-medium truncate group-hover:text-primary transition-colors">
-                    {song.title}
-                  </p>
-                  <p className="text-sm text-muted-foreground truncate">{song.artist}</p>
+          {playlist.tracks.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              {t("no_tracks") || "No tracks in this playlist"}
+            </div>
+          ) : (
+            playlist.tracks.map((track, index) => (
+              <div
+                key={track.id}
+                className="grid grid-cols-[16px_6fr_4fr_minmax(120px,1fr)] gap-4 px-4 py-3 rounded-md hover:bg-secondary/50 group cursor-pointer transition-colors"
+              >
+                <div className="flex items-center text-muted-foreground group-hover:text-foreground">
+                  {index + 1}
+                </div>
+                <div className="flex items-center min-w-0">
+                  <div className="min-w-0">
+                    <p className="font-medium truncate group-hover:text-primary transition-colors">
+                      {track.title}
+                    </p>
+                    <p className="text-sm text-muted-foreground truncate">{track.artist}</p>
+                  </div>
+                </div>
+                <div className="flex items-center text-sm text-muted-foreground truncate">
+                  {track.artist}
+                </div>
+                <div className="flex items-center justify-end text-sm text-muted-foreground">
+                  {formatDuration(track.duration)}
                 </div>
               </div>
-              <div className="flex items-center text-sm text-muted-foreground truncate">
-                {song.album}
-              </div>
-              <div className="flex items-center justify-end text-sm text-muted-foreground">
-                {song.duration}
-              </div>
-            </div>
-          ))}
+            ))
+          )}
         </div>
       </div>
     </div>
