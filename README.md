@@ -1,73 +1,96 @@
-# Welcome to your Lovable project
+# PurpleBeats (Hajde Music Stream) with Pi Network Integration
 
-## Project info
+## Stack
 
-**URL**: https://lovable.dev/projects/3861ba28-b961-4365-8088-9bc80269de43
+- Vite + React + TypeScript
+- Tailwind CSS + shadcn-ui
+- Supabase (DB, Auth optional, Edge Functions)
+- Pi Network SDK (auth + payments + notifications)
 
-## How can I edit this code?
+## Pi Network integration (ported from pi-apps/demo)
 
-There are several ways of editing your application.
+Integrated flows:
+- Sign in with Pi (`Pi.authenticate`) with scopes: username, payments, roles, in_app_notifications
+- Payments lifecycle: approve, complete, cancel, recover incomplete
+- In-app notifications sending (optional)
 
-**Use Lovable**
+### Frontend additions
+- `index.html`: loads Pi SDK and initializes with `VITE_PI_SANDBOX` flag.
+- `src/contexts/PiContext.tsx`: React context wrapping auth & payment functions.
+- `Header`: Sign in/out controls and username display.
+- `PremiumDialog`: triggers payment for selected subscription plan.
+- `PiAuthDemo` route (`/pi-demo`): lightweight page to manually test Pi sign-in and a 1π payment independent of the full UI.
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/3861ba28-b961-4365-8088-9bc80269de43) and start prompting.
+### Supabase Edge Functions
+- `supabase/functions/pi-auth`: verifies access token with Platform API `/v2/me`, upserts user into `pi_users` table.
+- `supabase/functions/pi-payments`: payment callbacks (approve, complete, cancel, incomplete) and in-app notification forwarding.
 
-Changes made via Lovable will be committed automatically to this repo.
+### Database schema (Supabase)
+SQL file: `supabase/sql/pi_schema.sql`
 
-**Use your preferred IDE**
+Tables:
+- `pi_users(uid, username, roles, access_token, updated_at)`
+- `orders(pi_payment_id, product_id, user_uid, txid, paid, cancelled, created_at)`
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+### Environment Variables
+Copy `.env.example` and set:
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
-
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
+```
+VITE_PI_SANDBOX=true # use Pi Testnet sandbox in development
+VITE_SUPABASE_FUNCTIONS_URL=https://<project-ref>.functions.supabase.co
+VITE_SUPABASE_URL=https://<project-ref>.supabase.co
+VITE_SUPABASE_ANON_KEY=<anon-key>
 ```
 
-**Edit a file directly in GitHub**
+Supabase Function secrets (set in dashboard):
+```
+SUPABASE_URL=https://<project-ref>.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=<service-role-key>
+PLATFORM_API_URL=https://api.minepi.com
+PI_API_KEY=<your-pi-api-key>
+```
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+### Deploy Functions
+```
+supabase functions deploy pi-auth --no-verify-jwt
+supabase functions deploy pi-payments --no-verify-jwt
+```
 
-**Use GitHub Codespaces**
+### Run Locally
+```sh
+npm install
+npm run dev
+```
+Open in Pi Browser (Testnet) for full SDK behavior.
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+Netlify (Vite) env note:
+- This app uses Vite, which reads variables prefixed with `VITE_` at build time.
+- The Netlify config includes both `NEXT_PUBLIC_*` (left for compatibility) and matching `VITE_*` vars that the app actually consumes: `VITE_BACKEND_URL`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_SUPABASE_FUNCTIONS_URL`, `VITE_PI_SANDBOX`.
+Ensure these values are set correctly in your Netlify environment.
 
-## What technologies are used for this project?
+Health check (Express backend):
+```
+GET /health -> { ok: true, supabase: { configured, dbOk, url } }
+```
+Used by a lightweight client utility `testConnection()` on app mount to log backend status.
 
-This project is built with:
+### Usage Flow
+1. User opens profile menu -> Sign in with Pi
+2. Access token verified server-side; user stored in `pi_users`
+3. Premium plan purchase triggers `Pi.createPayment`
+4. Callbacks hit Edge Functions to approve & complete payment, updating `orders`
+5. Incomplete payments recovered on sign-in via context callback
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+### Notes
+- Gracefully no-op if Pi SDK unavailable (non-Pi browsers)
+- Minimal server state; no sessions, relies on Supabase tables
+- Extend with subscription expiration logic by adding `expires_at` to `orders`
 
-## How can I deploy this project?
+### Next Steps / Ideas
+- Add webhook security (e.g. signature verification if available)
+- Track premium status per user and gate features
+- Add notification UI for in-app notifications
+- Implement role-based UI using `roles` from Pi auth
 
-Simply open [Lovable](https://lovable.dev/projects/3861ba28-b961-4365-8088-9bc80269de43) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+## License
+MIT (adjust as needed)

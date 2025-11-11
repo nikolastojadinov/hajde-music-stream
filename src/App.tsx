@@ -14,16 +14,25 @@ import Home from "./pages/Home";
 import Search from "./pages/Search";
 import Library from "./pages/Library";
 import Playlist from "./pages/Playlist";
+import PiAuthDemo from "./components/PiAuthDemo";
 import CreatePlaylist from "./pages/CreatePlaylist";
 import Favorites from "./pages/Favorites";
 import NotFound from "./pages/NotFound";
+import { PiProvider } from "./contexts/PiContext";
+import { useEffect } from "react";
+import { testConnection } from "./lib/connectionTest";
 
 const queryClient = new QueryClient();
 
-const App = () => (
+const App = () => {
+  useEffect(() => {
+    testConnection();
+  }, []);
+  return (
   <QueryClientProvider client={queryClient}>
     <LanguageProvider>
       <PlayerProvider>
+        <PiProvider>
         <TooltipProvider>
           <Toaster />
           <Sonner />
@@ -44,6 +53,7 @@ const App = () => (
                     <Route path="/playlist/:id" element={<Playlist />} />
                     <Route path="/create-playlist" element={<CreatePlaylist />} />
                     <Route path="/favorites" element={<Favorites />} />
+                    <Route path="/pi-demo" element={<PiAuthDemo />} />
                     <Route path="*" element={<NotFound />} />
                   </Routes>
                 </div>
@@ -57,9 +67,11 @@ const App = () => (
             </div>
           </BrowserRouter>
         </TooltipProvider>
+        </PiProvider>
       </PlayerProvider>
     </LanguageProvider>
   </QueryClientProvider>
-);
+  );
+};
 
 export default App;

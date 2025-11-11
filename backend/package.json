@@ -1,0 +1,31 @@
+{
+  "name": "app-platform-demo-backend",
+  "version": "1.0.0",
+  "license": "MIT",
+  "description": "A demo app to showcase usage of the Pi App Platform.",
+  "author": {
+    "name": "Pi Core Team"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "NODE_ENV=development ts-node-dev ./src/index.ts"
+  },
+  "dependencies": {
+    "axios": "^1.7.7",
+    "cookie-parser": "^1.4.6",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "morgan": "^1.10.0",
+    "@supabase/supabase-js": "^2.43.5"
+  },
+  "devDependencies": {
+    "@types/cookie-parser": "^1.4.7",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/morgan": "^1.9.7",
+    "@types/node": "^20.14.12",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.4.5"
+  }
+}

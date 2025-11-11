@@ -1,4 +1,4 @@
-import { User, Globe, Shield, FileText, Crown, Wallet } from "lucide-react";
+import { User, Globe, Shield, FileText, Crown } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Link } from "react-router-dom";
@@ -6,6 +6,7 @@ import appLogo from "@/assets/app-logo.png";
 import { useLanguage, languages } from "@/contexts/LanguageContext";
 import { useState } from "react";
 import PremiumDialog from "./PremiumDialog";
+import { usePi } from "@/contexts/PiContext";
 const Header = () => {
   const {
     t,
@@ -14,6 +15,7 @@ const Header = () => {
   } = useLanguage();
   const [languageDialogOpen, setLanguageDialogOpen] = useState(false);
   const [premiumDialogOpen, setPremiumDialogOpen] = useState(false);
+  const { user, signIn, signOut } = usePi();
   return <header className="fixed top-0 left-0 right-0 h-16 bg-background/80 backdrop-blur-md border-b border-border/50 z-50">
       <div className="h-full px-4 md:px-6 flex items-center justify-between">
         {/* Logo */}
@@ -41,10 +43,6 @@ const Header = () => {
               <User className="w-4 h-4 mr-3" />
               <span>{t("profile")}</span>
             </DropdownMenuItem>
-            <DropdownMenuItem className="cursor-pointer py-3">
-              <Wallet className="w-4 h-4 mr-3" />
-              <span>Login with Pi Network</span>
-            </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem 
               onClick={() => setPremiumDialogOpen(true)}
@@ -53,6 +51,18 @@ const Header = () => {
               <Crown className="w-4 h-4 mr-3 text-amber-500" />
               <span className="bg-gradient-to-b from-amber-500 via-amber-600 to-yellow-700 bg-clip-text text-transparent font-semibold">Go Premium</span>
             </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            {user ? (
+              <DropdownMenuItem className="cursor-pointer py-3">
+                <User className="w-4 h-4 mr-3" />
+                <span>@{user.username}</span>
+              </DropdownMenuItem>
+            ) : (
+              <DropdownMenuItem onClick={() => signIn()} className="cursor-pointer py-3">
+                <User className="w-4 h-4 mr-3" />
+                <span>Sign in with Pi</span>
+              </DropdownMenuItem>
+            )}
             
             <Dialog open={languageDialogOpen} onOpenChange={setLanguageDialogOpen}>
               <DialogTrigger asChild>
@@ -93,6 +103,11 @@ const Header = () => {
               <FileText className="w-4 h-4 mr-3" />
               <span>{t("terms_of_service")}</span>
             </DropdownMenuItem>
+            {user && (
+              <DropdownMenuItem onClick={() => signOut()} className="cursor-pointer py-3 text-red-600">
+                <span>Sign out</span>
+              </DropdownMenuItem>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>

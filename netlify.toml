@@ -1,0 +1,23 @@
+[build]
+  command = "yarn build"
+  publish = "out"
+  environment = { NODE_ENV = "production" }
+
+[dev]
+  command = "yarn dev"
+  port = 3000
+  targetPort = 3000
+  publish = "out"
+
+[context.production.environment]
+  NEXT_PUBLIC_BACKEND_URL = "https://purple-music-backend.onrender.com"
+  NEXT_PUBLIC_SUPABASE_URL = "https://ofkfygqrfenctzitigae.supabase.co"
+  NEXT_PUBLIC_SUPABASE_ANON_KEY = "your-anon-key"
+  NEXT_PUBLIC_PI_APP_ID = "your-pi-app-id"
+  NEXT_PUBLIC_FRONTEND_URL = "https://pmtestnet.netlify.app"
+  # Vite-specific env vars used by this app
+  VITE_BACKEND_URL = "https://purple-music-backend.onrender.com"
+  VITE_SUPABASE_URL = "https://ofkfygqrfenctzitigae.supabase.co"
+  VITE_SUPABASE_ANON_KEY = "your-anon-key"
+  VITE_SUPABASE_FUNCTIONS_URL = "https://ofkfygqrfenctzitigae.functions.supabase.co"
+  VITE_PI_SANDBOX = "false"

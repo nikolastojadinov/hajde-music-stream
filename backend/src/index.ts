@@ -1,0 +1,119 @@
+import fs from 'fs';
+import path from 'path';
+import cors from 'cors';
+import express from 'express';
+import cookieParser from 'cookie-parser';
+import logger from 'morgan';
+import env from './environments';
+import mountPaymentsEndpoints from './handlers/payments';
+import mountUserEndpoints from './handlers/users';
+import mountNotificationEndpoints from './handlers/notifications';
+import mountHealthEndpoints from './handlers/health';
+import supabase from './services/supabaseClient';
+import { randomBytes } from 'crypto';
+
+declare global {
+  namespace Express {
+    interface Request {
+      currentUser?: { uid: string; username: string; roles: string[] } | null;
+      sid?: string | null;
+    }
+  }
+}
+
+
+//
+// I. Initialize and set up the express app and various middlewares and packages:
+//
+
+const app: express.Application = express();
+
+// Log requests to the console in a compact format:
+app.use(logger('dev'));
+
+// Full log of all requests to /log/access.log:
+app.use(logger('common', {
+  stream: fs.createWriteStream(path.join(__dirname, '..', 'log', 'access.log'), { flags: 'a' }),
+}));
+
+// Enable response bodies to be sent as JSON:
+app.use(express.json())
+
+// Handle CORS:
+app.use(cors({
+  origin: (origin, cb) => {
+    const allowed = [env.frontend_url, 'https://sandbox.minepi.com', 'https://minepi.com'];
+    if (!origin) return cb(null, true);
+    if (allowed.includes(origin)) return cb(null, true);
+    return cb(null, false);
+  },
+  credentials: true
+}));
+
+// Handle cookies 🍪
+app.use(cookieParser());
+
+// Minimal cookie-based sessions stored in Supabase
+app.use(async (req, res, next) => {
+  const sid = req.cookies['sid'] as string | undefined;
+  req.sid = sid || null;
+  if (!sid) return next();
+
+  const { data: sessionRows } = await supabase
+    .from('sessions')
+    .select('sid,user_uid,users:users(uid,username,roles)')
+    .eq('sid', sid)
+    .limit(1);
+
+  const row = sessionRows && sessionRows[0] as any;
+  if (row && row.users) {
+    req.currentUser = {
+      uid: row.users.uid,
+      username: row.users.username,
+      roles: row.users.roles || [],
+    };
+  } else {
+    req.currentUser = null;
+  }
+  next();
+});
+
+
+//
+// II. Mount app endpoints:
+//
+
+// Payments endpoint under /payments:
+const paymentsRouter = express.Router();
+mountPaymentsEndpoints(paymentsRouter);
+app.use('/payments', paymentsRouter);
+
+// User endpoints (e.g signin, signout) under /user:
+const userRouter = express.Router();
+mountUserEndpoints(userRouter);
+app.use('/user', userRouter);
+
+
+// Notification endpoints under /notifications:
+const notificationRouter = express.Router();
+mountNotificationEndpoints(notificationRouter);
+app.use("/notifications", notificationRouter);
+
+// Health endpoint under /health:
+const healthRouter = express.Router();
+mountHealthEndpoints(healthRouter);
+app.use('/', healthRouter);
+
+// Hello World page to check everything works:
+app.get('/', async (_, res) => {
+  res.status(200).send({ message: "Hello, World!" });
+});
+
+
+// III. Boot up the app:
+
+app.listen(env.port, async () => {
+  console.log(`Connected to Supabase at ${env.supabase_url}`);
+  console.log(`App backend listening on port ${env.port}!`);
+  console.log(`CORS config: configured to respond to a frontend hosted on ${env.frontend_url}`);
+});

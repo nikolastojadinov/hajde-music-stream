@@ -1,6 +1,7 @@
 import { Crown, Check, X } from "lucide-react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { useState } from "react";
+import { usePi } from "@/contexts/PiContext";
 
 interface PremiumDialogProps {
   open: boolean;
@@ -9,6 +10,8 @@ interface PremiumDialogProps {
 
 const PremiumDialog = ({ open, onOpenChange }: PremiumDialogProps) => {
   const [selectedPlan, setSelectedPlan] = useState<'weekly' | 'monthly' | 'yearly'>('monthly');
+  const { user, signIn, createPayment } = usePi();
+  const [message, setMessage] = useState<string | null>(null);
 
   const plans = [
     { id: 'weekly' as const, name: 'Weekly Plan', price: '1π', duration: '7 days access' },
@@ -16,9 +19,28 @@ const PremiumDialog = ({ open, onOpenChange }: PremiumDialogProps) => {
     { id: 'yearly' as const, name: 'Yearly Plan', price: '31.4π', duration: '365 days access' },
   ];
 
-  const handleActivate = () => {
-    // TODO: Implement Pi Network payment integration
-    console.log('Activating plan:', selectedPlan);
+  const handleActivate = async () => {
+    const priceMap = {
+      weekly: 1,
+      monthly: 3.14,
+      yearly: 31.4,
+    } as const;
+
+    if (!user) {
+      await signIn();
+    }
+
+    try {
+      setMessage('Processing payment...');
+      await createPayment({
+        amount: priceMap[selectedPlan],
+        memo: `Premium ${selectedPlan}`,
+        metadata: { plan: selectedPlan },
+      });
+      setMessage('Payment initiated. Complete in Pi wallet.');
+    } catch (e) {
+      setMessage('Payment failed to start.');
+    }
   };
 
   return (
@@ -102,6 +124,10 @@ const PremiumDialog = ({ open, onOpenChange }: PremiumDialogProps) => {
             >
               Activate {plans.find(p => p.id === selectedPlan)?.name}
             </button>
+
+            {message && (
+              <p className="text-sm text-muted-foreground">{message}</p>
+            )}
 
             {/* Footer note */}
             <p className="text-[10px] md:text-xs text-muted-foreground max-w-md px-4 pb-2">
