@@ -1,4 +1,4 @@
-import { User, Globe, Shield, FileText, Crown } from "lucide-react";
+import { User, Globe, Shield, FileText, Crown, Wallet } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Link } from "react-router-dom";
@@ -37,17 +37,21 @@ const Header = () => {
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56 bg-card border-border">
+            <DropdownMenuItem className="cursor-pointer py-3">
+              <User className="w-4 h-4 mr-3" />
+              <span>{t("profile")}</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem className="cursor-pointer py-3">
+              <Wallet className="w-4 h-4 mr-3" />
+              <span>Login with Pi Network</span>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
             <DropdownMenuItem 
               onClick={() => setPremiumDialogOpen(true)}
               className="cursor-pointer py-3 bg-gradient-to-r from-amber-500/10 to-yellow-600/10 hover:from-amber-500/20 hover:to-yellow-600/20 border border-amber-500/20"
             >
               <Crown className="w-4 h-4 mr-3 text-amber-500" />
               <span className="bg-gradient-to-b from-amber-500 via-amber-600 to-yellow-700 bg-clip-text text-transparent font-semibold">Go Premium</span>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem className="cursor-pointer py-3">
-              <User className="w-4 h-4 mr-3" />
-              <span>{t("profile")}</span>
             </DropdownMenuItem>
             
             <Dialog open={languageDialogOpen} onOpenChange={setLanguageDialogOpen}>
