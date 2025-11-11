@@ -191,9 +191,9 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   const skipForward = () => {
-    if (!playerRef.current || currentPlaylist.length === 0) return;
-    const nextIndex = (currentIndex + 1) % currentPlaylist.length;
-    const nextTrack = currentPlaylist[nextIndex];
+    if (!playerRef.current || currentPlaylistRef.current.length === 0) return;
+    const nextIndex = (currentIndexRef.current + 1) % currentPlaylistRef.current.length;
+    const nextTrack = currentPlaylistRef.current[nextIndex];
     
     console.log("Skip forward to:", nextTrack);
     setCurrentIndex(nextIndex);
@@ -204,9 +204,9 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   const skipBackward = () => {
-    if (!playerRef.current || currentPlaylist.length === 0) return;
-    const prevIndex = currentIndex === 0 ? currentPlaylist.length - 1 : currentIndex - 1;
-    const prevTrack = currentPlaylist[prevIndex];
+    if (!playerRef.current || currentPlaylistRef.current.length === 0) return;
+    const prevIndex = currentIndexRef.current === 0 ? currentPlaylistRef.current.length - 1 : currentIndexRef.current - 1;
+    const prevTrack = currentPlaylistRef.current[prevIndex];
     
     console.log("Skip backward to:", prevTrack);
     setCurrentIndex(prevIndex);
