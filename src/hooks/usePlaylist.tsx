@@ -8,6 +8,7 @@ export interface Track {
   duration: number;
   youtube_id: string;
   playlist_id: string;
+  image_url: string | null;
   created_at: string;
 }
 

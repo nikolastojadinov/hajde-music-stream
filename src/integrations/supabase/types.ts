@@ -47,6 +47,7 @@ export type Database = {
           created_at: string
           duration: number | null
           id: string
+          image_url: string | null
           playlist_id: string | null
           title: string
           youtube_id: string
@@ -56,6 +57,7 @@ export type Database = {
           created_at?: string
           duration?: number | null
           id?: string
+          image_url?: string | null
           playlist_id?: string | null
           title: string
           youtube_id: string
@@ -65,6 +67,7 @@ export type Database = {
           created_at?: string
           duration?: number | null
           id?: string
+          image_url?: string | null
           playlist_id?: string | null
           title?: string
           youtube_id?: string

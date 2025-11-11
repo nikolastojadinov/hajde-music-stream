@@ -83,10 +83,10 @@ const Playlist = () => {
 
       {/* Song list */}
       <div className="px-8 pb-8">
-        <div className="grid grid-cols-[16px_6fr_4fr_minmax(120px,1fr)] gap-4 px-4 py-2 text-sm text-muted-foreground border-b border-border mb-2">
+        <div className="grid grid-cols-[16px_minmax(0,1fr)_3fr_minmax(120px,1fr)] gap-4 px-4 py-2 text-sm text-muted-foreground border-b border-border mb-2">
           <div>#</div>
           <div>{t("title")}</div>
-          <div>{t("album")}</div>
+          <div>{t("artist") || "Artist"}</div>
           <div className="flex justify-end">
             <Clock className="w-4 h-4" />
           </div>
@@ -101,12 +101,21 @@ const Playlist = () => {
             playlist.tracks.map((track, index) => (
               <div
                 key={track.id}
-                className="grid grid-cols-[16px_6fr_4fr_minmax(120px,1fr)] gap-4 px-4 py-3 rounded-md hover:bg-secondary/50 group cursor-pointer transition-colors"
+                className="grid grid-cols-[16px_minmax(0,1fr)_3fr_minmax(120px,1fr)] gap-4 px-4 py-3 rounded-md hover:bg-secondary/50 group cursor-pointer transition-colors"
               >
                 <div className="flex items-center text-muted-foreground group-hover:text-foreground">
                   {index + 1}
                 </div>
-                <div className="flex items-center min-w-0">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-10 h-10 rounded overflow-hidden flex-shrink-0 bg-muted">
+                    {track.image_url && (
+                      <img 
+                        src={track.image_url} 
+                        alt={track.title}
+                        className="w-full h-full object-cover"
+                      />
+                    )}
+                  </div>
                   <div className="min-w-0">
                     <p className="font-medium truncate group-hover:text-primary transition-colors">
                       {track.title}
