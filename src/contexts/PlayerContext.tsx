@@ -59,6 +59,18 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [isPlayerVisible, setIsPlayerVisible] = useState(false);
   const initAttempted = useRef(false);
   const pendingVideoRef = useRef<{ id: string; title: string; artist: string } | null>(null);
+  const [currentPlaylist, setCurrentPlaylist] = useState<Array<{ youtube_id: string; title: string; artist: string }>>([]);
+  const currentPlaylistRef = useRef<Array<{ youtube_id: string; title: string; artist: string }>>([]);
+  const currentIndexRef = useRef(0);
+  
+  // Sinhronizuj refs sa state
+  useEffect(() => {
+    currentPlaylistRef.current = currentPlaylist;
+  }, [currentPlaylist]);
+  
+  useEffect(() => {
+    currentIndexRef.current = currentIndex;
+  }, [currentIndex]);
 
   useEffect(() => {
     if (initAttempted.current) return;
@@ -129,6 +141,24 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             },
             onStateChange: (event: any) => {
               setIsPlaying(event.data === 1);
+              
+              // Auto-play sledeće pesme kada se trenutna završi
+              if (event.data === 0) { // 0 = ended
+                const playlist = currentPlaylistRef.current;
+                const index = currentIndexRef.current;
+                
+                if (playlist.length > 0 && playerRef.current) {
+                  const nextIndex = (index + 1) % playlist.length;
+                  const nextTrack = playlist[nextIndex];
+                  
+                  console.log("Video ended, playing next:", nextTrack);
+                  setCurrentIndex(nextIndex);
+                  setCurrentVideoTitle(nextTrack.title);
+                  setCurrentVideoArtist(nextTrack.artist);
+                  playerRef.current.loadVideoById(nextTrack.youtube_id);
+                  setIsLiked(false);
+                }
+              }
             },
             onError: (event: any) => {
               console.error("YouTube player error:", event.data);
@@ -161,26 +191,28 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   const skipForward = () => {
-    if (!playerRef.current) return;
-    const nextIndex = (currentIndex + 1) % playlist.length;
+    if (!playerRef.current || currentPlaylist.length === 0) return;
+    const nextIndex = (currentIndex + 1) % currentPlaylist.length;
+    const nextTrack = currentPlaylist[nextIndex];
+    
+    console.log("Skip forward to:", nextTrack);
     setCurrentIndex(nextIndex);
-    setCurrentVideoTitle(playlist[nextIndex].title);
-    setCurrentVideoArtist(playlist[nextIndex].artist);
-    localStorage.setItem('player-index', nextIndex.toString());
-    localStorage.setItem('player-time', '0');
-    playerRef.current.loadVideoById(playlist[nextIndex].id);
+    setCurrentVideoTitle(nextTrack.title);
+    setCurrentVideoArtist(nextTrack.artist);
+    playerRef.current.loadVideoById(nextTrack.youtube_id);
     setIsLiked(false);
   };
 
   const skipBackward = () => {
-    if (!playerRef.current) return;
-    const prevIndex = currentIndex === 0 ? playlist.length - 1 : currentIndex - 1;
+    if (!playerRef.current || currentPlaylist.length === 0) return;
+    const prevIndex = currentIndex === 0 ? currentPlaylist.length - 1 : currentIndex - 1;
+    const prevTrack = currentPlaylist[prevIndex];
+    
+    console.log("Skip backward to:", prevTrack);
     setCurrentIndex(prevIndex);
-    setCurrentVideoTitle(playlist[prevIndex].title);
-    setCurrentVideoArtist(playlist[prevIndex].artist);
-    localStorage.setItem('player-index', prevIndex.toString());
-    localStorage.setItem('player-time', '0');
-    playerRef.current.loadVideoById(playlist[prevIndex].id);
+    setCurrentVideoTitle(prevTrack.title);
+    setCurrentVideoArtist(prevTrack.artist);
+    playerRef.current.loadVideoById(prevTrack.youtube_id);
     setIsLiked(false);
   };
 
@@ -212,6 +244,12 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setCurrentVideoTitle(title);
     setCurrentVideoArtist(artist);
     
+    // Ako nema playliste, napravi playlistu od jedne pesme
+    if (currentPlaylist.length === 0) {
+      setCurrentPlaylist([{ youtube_id: youtubeId, title, artist }]);
+      setCurrentIndex(0);
+    }
+    
     // Ako player već postoji i spreman je
     if (playerRef.current && playerReady && playerRef.current.loadVideoById) {
       console.log("Player exists, loading video");
@@ -228,6 +266,11 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const playPlaylist = (tracks: Array<{ youtube_id: string; title: string; artist: string }>, startIndex = 0) => {
     if (tracks.length === 0) return;
+    
+    console.log("Playing playlist with", tracks.length, "tracks, starting at", startIndex);
+    setCurrentPlaylist(tracks);
+    setCurrentIndex(startIndex);
+    
     const track = tracks[startIndex];
     playTrack(track.youtube_id, track.title, track.artist);
   };

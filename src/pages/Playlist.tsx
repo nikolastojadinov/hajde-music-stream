@@ -110,7 +110,14 @@ const Playlist = () => {
             playlist.tracks.map((track, index) => (
               <div
                 key={track.id}
-                onClick={() => playTrack(track.youtube_id, track.title, track.artist)}
+                onClick={() => {
+                  const tracksArray = playlist.tracks.map(t => ({
+                    youtube_id: t.youtube_id,
+                    title: t.title,
+                    artist: t.artist
+                  }));
+                  playPlaylist(tracksArray, index);
+                }}
                 className="grid grid-cols-[16px_minmax(0,1fr)_3fr_minmax(120px,1fr)] gap-4 px-4 py-3 rounded-md hover:bg-secondary/50 group cursor-pointer transition-colors"
               >
                 <div className="flex items-center text-muted-foreground group-hover:text-foreground">
