@@ -52,34 +52,17 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [duration, setDuration] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [playerReady, setPlayerReady] = useState(false);
-  const [currentIndex, setCurrentIndex] = useState(() => {
-    const saved = localStorage.getItem('player-index');
-    return saved ? Number(saved) : 0;
-  });
-  const [currentVideoTitle, setCurrentVideoTitle] = useState(() => {
-    const saved = localStorage.getItem('player-index');
-    const index = saved ? Number(saved) : 0;
-    return playlist[index].title;
-  });
-  const [currentVideoArtist, setCurrentVideoArtist] = useState(() => {
-    const saved = localStorage.getItem('player-index');
-    const index = saved ? Number(saved) : 0;
-    return playlist[index].artist;
-  });
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [currentVideoTitle, setCurrentVideoTitle] = useState("");
+  const [currentVideoArtist, setCurrentVideoArtist] = useState("");
   const [isLiked, setIsLiked] = useState(false);
   const [isPlayerVisible, setIsPlayerVisible] = useState(false);
   const initAttempted = useRef(false);
-  const savedTimeRef = useRef<number>(0);
+  const pendingVideoRef = useRef<{ id: string; title: string; artist: string } | null>(null);
 
   useEffect(() => {
     if (initAttempted.current) return;
     initAttempted.current = true;
-
-    // Učitaj sačuvano vreme
-    const savedTime = localStorage.getItem('player-time');
-    if (savedTime) {
-      savedTimeRef.current = Number(savedTime);
-    }
 
     // Učitaj YouTube API
     const loadYouTubeAPI = () => {
@@ -99,10 +82,6 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           const time = playerRef.current.getCurrentTime() || 0;
           setCurrentTime(time);
           setDuration(playerRef.current.getDuration() || 0);
-          // Čuvaj vreme u localStorage
-          if (isPlayerVisible) {
-            localStorage.setItem('player-time', time.toString());
-          }
         } catch (e) {
           // ignore
         }
@@ -110,7 +89,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [isPlayerVisible]);
+  }, []);
 
   // Kreiraj player samo kada postane vidljiv
   useEffect(() => {
@@ -120,11 +99,15 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const container = document.getElementById("yt-player");
       if (!container || playerRef.current) return;
 
+      // Uzmi video ID iz pending ili default
+      const videoId = pendingVideoRef.current?.id || playlist[0].id;
+
       try {
+        console.log("Creating player with video:", videoId);
         playerRef.current = new window.YT.Player("yt-player", {
-          videoId: playlist[currentIndex].id,
+          videoId: videoId,
           playerVars: {
-            autoplay: 1, // Autoplay kada se player otvori
+            autoplay: 1,
             controls: 1,
             modestbranding: 1,
             rel: 0,
@@ -133,20 +116,22 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             onReady: (event: any) => {
               console.log("Player ready");
               event.target.setVolume(volume);
-              // Postavi sačuvano vreme ako postoji
-              if (savedTimeRef.current > 0) {
-                setTimeout(() => {
-                  if (playerRef.current && playerRef.current.seekTo) {
-                    console.log("Seeking to saved time:", savedTimeRef.current);
-                    playerRef.current.seekTo(savedTimeRef.current, true);
-                    savedTimeRef.current = 0;
-                  }
-                }, 1000);
-              }
               setPlayerReady(true);
+              
+              // Ako imamo pending video, pusti ga
+              if (pendingVideoRef.current) {
+                console.log("Loading pending video:", pendingVideoRef.current.id);
+                setCurrentVideoTitle(pendingVideoRef.current.title);
+                setCurrentVideoArtist(pendingVideoRef.current.artist);
+                event.target.loadVideoById(pendingVideoRef.current.id);
+                pendingVideoRef.current = null;
+              }
             },
             onStateChange: (event: any) => {
               setIsPlaying(event.data === 1);
+            },
+            onError: (event: any) => {
+              console.error("YouTube player error:", event.data);
             },
           },
         });
@@ -157,13 +142,13 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     // Čekaj da se API učita
     if (window.YT && window.YT.Player) {
-      setTimeout(createPlayer, 500);
+      setTimeout(createPlayer, 300);
     } else {
       window.onYouTubeIframeAPIReady = () => {
-        setTimeout(createPlayer, 500);
+        setTimeout(createPlayer, 300);
       };
     }
-  }, [isPlayerVisible, currentIndex, volume]);
+  }, [isPlayerVisible, volume]);
 
   const togglePlay = () => {
     if (!playerRef.current) return;
@@ -223,20 +208,22 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   const playTrack = (youtubeId: string, title: string, artist: string) => {
+    console.log("playTrack called:", { youtubeId, title, artist });
     setCurrentVideoTitle(title);
     setCurrentVideoArtist(artist);
-    setIsPlayerVisible(true);
     
-    // Ako player već postoji, samo učitaj novi video
-    if (playerRef.current && playerRef.current.loadVideoById) {
+    // Ako player već postoji i spreman je
+    if (playerRef.current && playerReady && playerRef.current.loadVideoById) {
+      console.log("Player exists, loading video");
       playerRef.current.loadVideoById(youtubeId);
+      setIsPlaying(true);
     } else {
-      // Sačuvaj ID za učitavanje kada se player kreira
-      const tempIndex = playlist.findIndex(p => p.id === youtubeId);
-      if (tempIndex !== -1) {
-        setCurrentIndex(tempIndex);
-      }
+      // Sačuvaj video za kasnije učitavanje
+      console.log("Player not ready, saving pending video");
+      pendingVideoRef.current = { id: youtubeId, title, artist };
     }
+    
+    setIsPlayerVisible(true);
   };
 
   const playPlaylist = (tracks: Array<{ youtube_id: string; title: string; artist: string }>, startIndex = 0) => {
