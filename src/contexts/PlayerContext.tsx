@@ -27,6 +27,8 @@ type PlayerContextType = {
   toggleLike: () => void;
   setIsPlayerVisible: (visible: boolean) => void;
   playerReady: boolean;
+  playTrack: (youtubeId: string, title: string, artist: string) => void;
+  playPlaylist: (tracks: Array<{ youtube_id: string; title: string; artist: string }>, startIndex?: number) => void;
 };
 
 const playlist = [
@@ -65,7 +67,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return playlist[index].artist;
   });
   const [isLiked, setIsLiked] = useState(false);
-  const [isPlayerVisible, setIsPlayerVisible] = useState(true);
+  const [isPlayerVisible, setIsPlayerVisible] = useState(false);
   const initAttempted = useRef(false);
   const savedTimeRef = useRef<number>(0);
 
@@ -90,7 +92,30 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     loadYouTubeAPI();
 
-    // Funkcija za kreiranje playera
+    // Ažuriraj vreme
+    const interval = setInterval(() => {
+      if (playerRef.current && playerRef.current.getCurrentTime) {
+        try {
+          const time = playerRef.current.getCurrentTime() || 0;
+          setCurrentTime(time);
+          setDuration(playerRef.current.getDuration() || 0);
+          // Čuvaj vreme u localStorage
+          if (isPlayerVisible) {
+            localStorage.setItem('player-time', time.toString());
+          }
+        } catch (e) {
+          // ignore
+        }
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [isPlayerVisible]);
+
+  // Kreiraj player samo kada postane vidljiv
+  useEffect(() => {
+    if (!isPlayerVisible || playerRef.current) return;
+
     const createPlayer = () => {
       const container = document.getElementById("yt-player");
       if (!container || playerRef.current) return;
@@ -99,7 +124,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         playerRef.current = new window.YT.Player("yt-player", {
           videoId: playlist[currentIndex].id,
           playerVars: {
-            autoplay: 0,
+            autoplay: 1, // Autoplay kada se player otvori
             controls: 1,
             modestbranding: 1,
             rel: 0,
@@ -108,20 +133,20 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             onReady: (event: any) => {
               console.log("Player ready");
               event.target.setVolume(volume);
-              // Postavi sačuvano vreme nakon što se player potpuno učita
+              // Postavi sačuvano vreme ako postoji
               if (savedTimeRef.current > 0) {
                 setTimeout(() => {
                   if (playerRef.current && playerRef.current.seekTo) {
                     console.log("Seeking to saved time:", savedTimeRef.current);
                     playerRef.current.seekTo(savedTimeRef.current, true);
-                    savedTimeRef.current = 0; // Reset nakon što je postavljeno
+                    savedTimeRef.current = 0;
                   }
                 }, 1000);
               }
               setPlayerReady(true);
             },
             onStateChange: (event: any) => {
-              setIsPlaying(event.data === 1); // 1 = playing
+              setIsPlaying(event.data === 1);
             },
           },
         });
@@ -138,24 +163,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setTimeout(createPlayer, 500);
       };
     }
-
-    // Ažuriraj vreme
-    const interval = setInterval(() => {
-      if (playerRef.current && playerRef.current.getCurrentTime) {
-        try {
-          const time = playerRef.current.getCurrentTime() || 0;
-          setCurrentTime(time);
-          setDuration(playerRef.current.getDuration() || 0);
-          // Čuvaj vreme u localStorage
-          localStorage.setItem('player-time', time.toString());
-        } catch (e) {
-          // ignore
-        }
-      }
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [currentIndex, volume]);
+  }, [isPlayerVisible, currentIndex, volume]);
 
   const togglePlay = () => {
     if (!playerRef.current) return;
@@ -214,6 +222,29 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setIsLiked(!isLiked);
   };
 
+  const playTrack = (youtubeId: string, title: string, artist: string) => {
+    setCurrentVideoTitle(title);
+    setCurrentVideoArtist(artist);
+    setIsPlayerVisible(true);
+    
+    // Ako player već postoji, samo učitaj novi video
+    if (playerRef.current && playerRef.current.loadVideoById) {
+      playerRef.current.loadVideoById(youtubeId);
+    } else {
+      // Sačuvaj ID za učitavanje kada se player kreira
+      const tempIndex = playlist.findIndex(p => p.id === youtubeId);
+      if (tempIndex !== -1) {
+        setCurrentIndex(tempIndex);
+      }
+    }
+  };
+
+  const playPlaylist = (tracks: Array<{ youtube_id: string; title: string; artist: string }>, startIndex = 0) => {
+    if (tracks.length === 0) return;
+    const track = tracks[startIndex];
+    playTrack(track.youtube_id, track.title, track.artist);
+  };
+
   return (
     <PlayerContext.Provider
       value={{
@@ -236,6 +267,8 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         toggleLike,
         setIsPlayerVisible,
         playerReady,
+        playTrack,
+        playPlaylist,
       }}
     >
       {children}

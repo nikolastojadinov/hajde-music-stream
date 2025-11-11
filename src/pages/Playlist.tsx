@@ -3,11 +3,13 @@ import { useParams } from "react-router-dom";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { usePlaylist } from "@/hooks/usePlaylist";
 import { Skeleton } from "@/components/ui/skeleton";
+import { usePlayer } from "@/contexts/PlayerContext";
 
 const Playlist = () => {
   const { t } = useLanguage();
   const { id } = useParams();
   const { data: playlist, isLoading } = usePlaylist(id);
+  const { playTrack, playPlaylist } = usePlayer();
 
   const formatDuration = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -70,7 +72,14 @@ const Playlist = () => {
 
       {/* Controls */}
       <div className="bg-background/95 backdrop-blur-sm sticky top-0 z-10 px-8 py-6 flex items-center gap-6 animate-slide-up">
-        <button className="w-14 h-14 bg-primary rounded-full flex items-center justify-center hover:scale-105 transition-transform shadow-lg">
+        <button 
+          onClick={() => playPlaylist(playlist.tracks.map(t => ({ 
+            youtube_id: t.youtube_id, 
+            title: t.title, 
+            artist: t.artist 
+          })))}
+          className="w-14 h-14 bg-primary rounded-full flex items-center justify-center hover:scale-105 transition-transform shadow-lg"
+        >
           <Play className="w-6 h-6 text-background fill-current ml-0.5" />
         </button>
         <button className="text-muted-foreground hover:text-primary transition-colors">
@@ -101,6 +110,7 @@ const Playlist = () => {
             playlist.tracks.map((track, index) => (
               <div
                 key={track.id}
+                onClick={() => playTrack(track.youtube_id, track.title, track.artist)}
                 className="grid grid-cols-[16px_minmax(0,1fr)_3fr_minmax(120px,1fr)] gap-4 px-4 py-3 rounded-md hover:bg-secondary/50 group cursor-pointer transition-colors"
               >
                 <div className="flex items-center text-muted-foreground group-hover:text-foreground">
