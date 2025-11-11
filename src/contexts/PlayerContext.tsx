@@ -195,7 +195,8 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const nextIndex = (currentIndexRef.current + 1) % currentPlaylistRef.current.length;
     const nextTrack = currentPlaylistRef.current[nextIndex];
     
-    console.log("Skip forward to:", nextTrack);
+    console.log("Skip forward to:", nextTrack, "from index:", currentIndexRef.current, "to:", nextIndex);
+    currentIndexRef.current = nextIndex; // Ažuriraj ref ODMAH
     setCurrentIndex(nextIndex);
     setCurrentVideoTitle(nextTrack.title);
     setCurrentVideoArtist(nextTrack.artist);
@@ -208,7 +209,8 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const prevIndex = currentIndexRef.current === 0 ? currentPlaylistRef.current.length - 1 : currentIndexRef.current - 1;
     const prevTrack = currentPlaylistRef.current[prevIndex];
     
-    console.log("Skip backward to:", prevTrack);
+    console.log("Skip backward to:", prevTrack, "from index:", currentIndexRef.current, "to:", prevIndex);
+    currentIndexRef.current = prevIndex; // Ažuriraj ref ODMAH
     setCurrentIndex(prevIndex);
     setCurrentVideoTitle(prevTrack.title);
     setCurrentVideoArtist(prevTrack.artist);
