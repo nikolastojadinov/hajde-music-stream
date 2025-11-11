@@ -3,23 +3,18 @@ import { Search as SearchIcon } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { usePlaylists } from "@/hooks/usePlaylists";
+import { Skeleton } from "@/components/ui/skeleton";
 
 const Home = () => {
   const { t } = useLanguage();
+  const { data: rockPlaylists, isLoading: isLoadingRock } = usePlaylists("rock");
   
   const categories = [
     {
       title: t("featured_for_you"),
-      playlists: [
-        { id: 1, title: "Top Hits 2024", description: "Najpopularnije pesme trenutno" },
-        { id: 2, title: "Chill Vibes", description: "Opuštajuća muzika za svaki trenutak" },
-        { id: 3, title: "Workout Energy", description: "Motivacija za trening" },
-        { id: 4, title: "Deep Focus", description: "Muzika za koncentraciju" },
-        { id: 5, title: "Party Mix", description: "Zabavna muzika za žurke" },
-        { id: 6, title: "Rock Classics", description: "Besmrtne rok pesme" },
-        { id: 7, title: "Jazz Evening", description: "Smooth jazz melodije" },
-        { id: 8, title: "Pop Stars", description: "Najveći pop hitovi" },
-      ],
+      playlists: rockPlaylists || [],
+      isLoading: isLoadingRock,
     },
     {
       title: t("recently_played"),
@@ -106,15 +101,27 @@ const Home = () => {
             <h2 className="text-xl md:text-2xl font-bold mb-4 md:mb-6">{category.title}</h2>
             <ScrollArea className="w-full whitespace-nowrap [&>div:first-child]:scrollbar-hide">
               <div className="flex gap-3 md:gap-4 pb-4">
-                {category.playlists.map((playlist) => (
-                  <div key={playlist.id} className="w-[160px] md:w-[180px] flex-shrink-0">
-                    <PlaylistCard
-                      id={playlist.id}
-                      title={playlist.title}
-                      description={playlist.description}
-                    />
-                  </div>
-                ))}
+                {category.isLoading ? (
+                  // Loading skeletons
+                  Array.from({ length: 6 }).map((_, i) => (
+                    <div key={i} className="w-[160px] md:w-[180px] flex-shrink-0">
+                      <Skeleton className="aspect-square rounded-lg mb-3" />
+                      <Skeleton className="h-4 w-3/4 mb-2" />
+                      <Skeleton className="h-3 w-full" />
+                    </div>
+                  ))
+                ) : (
+                  category.playlists.map((playlist) => (
+                    <div key={playlist.id} className="w-[160px] md:w-[180px] flex-shrink-0">
+                      <PlaylistCard
+                        id={playlist.id}
+                        title={playlist.title}
+                        description={playlist.description || ""}
+                        imageUrl={playlist.image_url || undefined}
+                      />
+                    </div>
+                  ))
+                )}
               </div>
             </ScrollArea>
           </section>

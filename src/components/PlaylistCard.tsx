@@ -2,7 +2,7 @@ import { Play } from "lucide-react";
 import { Link } from "react-router-dom";
 
 interface PlaylistCardProps {
-  id: number;
+  id: string | number;
   title: string;
   description: string;
   imageUrl?: string;
