@@ -246,12 +246,6 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setCurrentVideoTitle(title);
     setCurrentVideoArtist(artist);
     
-    // Ako nema playliste, napravi playlistu od jedne pesme
-    if (currentPlaylist.length === 0) {
-      setCurrentPlaylist([{ youtube_id: youtubeId, title, artist }]);
-      setCurrentIndex(0);
-    }
-    
     // Ako player već postoji i spreman je
     if (playerRef.current && playerReady && playerRef.current.loadVideoById) {
       console.log("Player exists, loading video");
@@ -270,6 +264,12 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (tracks.length === 0) return;
     
     console.log("Playing playlist with", tracks.length, "tracks, starting at", startIndex);
+    
+    // Postavi playlistu i index ODMAH u refs
+    currentPlaylistRef.current = tracks;
+    currentIndexRef.current = startIndex;
+    
+    // Zatim postavi state
     setCurrentPlaylist(tracks);
     setCurrentIndex(startIndex);
     
