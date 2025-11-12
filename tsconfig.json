@@ -2,7 +2,7 @@
   "compilerOptions": {
     "baseUrl": "./frontend/src",
     "paths": {
-      "@/*": ["*"]
+      "@/*": ["./*"]
     }
   },
   "include": ["frontend/src", "frontend/vite.config.ts", "vite.config.ts"]
