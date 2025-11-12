@@ -101,10 +101,12 @@ const Header = () => {
                 <span>{t("privacy_policy")}</span>
               </DropdownMenuItem>
             </Link>
-            <DropdownMenuItem className="cursor-pointer py-3">
-              <FileText className="w-4 h-4 mr-3" />
-              <span>{t("terms_of_service")}</span>
-            </DropdownMenuItem>
+            <Link to="/terms">
+              <DropdownMenuItem className="cursor-pointer py-3">
+                <FileText className="w-4 h-4 mr-3" />
+                <span>{t("terms_of_service")}</span>
+              </DropdownMenuItem>
+            </Link>
             {user && (
               <DropdownMenuItem onClick={() => signOut()} className="cursor-pointer py-3 text-red-600">
                 <span>Sign out</span>
