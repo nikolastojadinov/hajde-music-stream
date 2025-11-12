@@ -21,10 +21,10 @@
     "noImplicitAny": false,
     "noFallthroughCasesInSwitch": false,
 
-    "baseUrl": ".",
+    "baseUrl": "./frontend/src",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["*"]
     }
   },
-  "include": ["src"]
+  "include": ["frontend/src"]
 }
