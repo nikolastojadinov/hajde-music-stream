@@ -9,7 +9,9 @@ declare global {
 export function usePiPayment() {
   const createPayment = useCallback(async ({ amount, memo, metadata }: { amount: number; memo: string; metadata?: Record<string, unknown> }) => {
     const onReadyForServerApproval = (paymentId: string) => {
-      fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/payments/approve`, {
+  const backend = process.env.NEXT_PUBLIC_BACKEND_URL as string | undefined;
+  if (!backend) throw new Error('Missing NEXT_PUBLIC_BACKEND_URL');
+  fetch(`${backend.replace(/\/$/, '')}/payments/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -18,7 +20,9 @@ export function usePiPayment() {
     };
 
     const onReadyForServerCompletion = (paymentId: string, txid: string) => {
-      fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/payments/complete`, {
+  const backend = process.env.NEXT_PUBLIC_BACKEND_URL as string | undefined;
+  if (!backend) throw new Error('Missing NEXT_PUBLIC_BACKEND_URL');
+  fetch(`${backend.replace(/\/$/, '')}/payments/complete`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -27,7 +31,9 @@ export function usePiPayment() {
     };
 
     const onCancel = (paymentId: string) => {
-      fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/payments/cancelled_payment`, {
+  const backend = process.env.NEXT_PUBLIC_BACKEND_URL as string | undefined;
+  if (!backend) throw new Error('Missing NEXT_PUBLIC_BACKEND_URL');
+  fetch(`${backend.replace(/\/$/, '')}/payments/cancelled_payment`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',

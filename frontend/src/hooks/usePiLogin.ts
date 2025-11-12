@@ -27,8 +27,8 @@ export function usePiLogin() {
       const scopes = ['username', 'payments', 'roles', 'in_app_notifications'];
       const authResult: AuthResult = await window.Pi.authenticate(scopes, () => {});
 
-      const backendUrl = (import.meta as any).env.VITE_BACKEND_URL as string | undefined;
-      if (!backendUrl) throw new Error('Missing VITE_BACKEND_URL');
+  const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL as string | undefined;
+  if (!backendUrl) throw new Error('Missing NEXT_PUBLIC_BACKEND_URL');
 
       // call backend to verify and create session
       const res = await fetch(`${backendUrl.replace(/\/$/, '')}/user/signin`, {
