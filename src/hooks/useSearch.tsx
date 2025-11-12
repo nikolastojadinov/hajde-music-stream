@@ -27,40 +27,33 @@ export interface SearchResults {
 export function useSearch(searchTerm: string) {
   return useQuery({
     queryKey: ["search", searchTerm],
-    queryFn: async (): Promise<SearchResults> => {
-      console.log("🔍 useSearch queryFn called with:", searchTerm);
-      
-      if (!searchTerm || searchTerm.trim().length < 1) {
-        console.log("❌ Search term empty, returning empty results");
+    queryFn: async () => {
+      if (!searchTerm?.trim()) {
         return { tracks: [], playlists: [] };
       }
 
-      const pattern = `%${searchTerm.trim()}%`;
-      console.log("🔍 Searching with pattern:", pattern);
+      const term = `%${searchTerm.trim()}%`;
 
-      const [tracksTitleRes, tracksArtistRes, playlistsTitleRes, playlistsDescRes] = await Promise.all([
-        supabase.from("tracks").select("*").ilike("title", pattern).limit(20),
-        supabase.from("tracks").select("*").ilike("artist", pattern).limit(20),
-        supabase.from("playlists").select("*").ilike("title", pattern).limit(20),
-        supabase.from("playlists").select("*").ilike("description", pattern).limit(20),
+      const [t1, t2, p1, p2] = await Promise.all([
+        supabase.from("tracks").select("*").ilike("title", term).limit(20),
+        supabase.from("tracks").select("*").ilike("artist", term).limit(20),
+        supabase.from("playlists").select("*").ilike("title", term).limit(20),
+        supabase.from("playlists").select("*").ilike("description", term).limit(20),
       ]);
 
       const tracksMap = new Map();
-      [...(tracksTitleRes.data || []), ...(tracksArtistRes.data || [])].forEach(track => {
-        tracksMap.set(track.id, track);
-      });
+      const allTracks = [...(t1.data || []), ...(t2.data || [])];
+      allTracks.forEach(track => tracksMap.set(track.id, track));
       const tracks = Array.from(tracksMap.values()).slice(0, 20);
 
       const playlistsMap = new Map();
-      [...(playlistsTitleRes.data || []), ...(playlistsDescRes.data || [])].forEach(playlist => {
-        playlistsMap.set(playlist.id, playlist);
-      });
+      const allPlaylists = [...(p1.data || []), ...(p2.data || [])];
+      allPlaylists.forEach(pl => playlistsMap.set(pl.id, pl));
       const playlists = Array.from(playlistsMap.values()).slice(0, 20);
 
-      console.log("✅ Search results:", { tracks: tracks.length, playlists: playlists.length });
       return { tracks, playlists };
     },
-    enabled: searchTerm.trim().length >= 1,
+    enabled: Boolean(searchTerm?.trim()),
     retry: false,
   });
 }
