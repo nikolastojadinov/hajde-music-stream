@@ -32,11 +32,13 @@ export function useSearch(searchTerm: string) {
         return { tracks: [], playlists: [] };
       }
 
-      // Tracks
+      const pattern = `%${searchTerm.trim()}%`;
+
+      // Tracks search
       const { data: tracks, error: tracksError } = await supabase
         .from("tracks")
         .select("*")
-        .or(`title.ilike.%${searchTerm}%,artist.ilike.%${searchTerm}%`)
+        .or(`title.ilike.${pattern},artist.ilike.${pattern}`)
         .limit(20);
 
       if (tracksError) {
@@ -44,11 +46,11 @@ export function useSearch(searchTerm: string) {
         return { tracks: [], playlists: [] };
       }
 
-      // Playlists
+      // Playlists search
       const { data: playlists, error: playlistsError } = await supabase
         .from("playlists")
         .select("*")
-        .or(`title.ilike.%${searchTerm}%,description.ilike.%${searchTerm}%`)
+        .or(`title.ilike.${pattern},description.ilike.${pattern}`)
         .limit(20);
 
       if (playlistsError) {
@@ -61,7 +63,7 @@ export function useSearch(searchTerm: string) {
         playlists: playlists || [],
       };
     },
-    enabled: searchTerm.length >= 1,
+    enabled: searchTerm.trim().length >= 1,
     retry: false,
   });
 }
