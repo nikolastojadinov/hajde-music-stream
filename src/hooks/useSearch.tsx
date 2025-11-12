@@ -25,14 +25,20 @@ export interface SearchResults {
 }
 
 export function useSearch(searchTerm: string) {
+  console.log("🔍 useSearch hook called with term:", searchTerm);
+  
   return useQuery({
     queryKey: ["search", searchTerm],
     queryFn: async () => {
+      console.log("🚀 queryFn executing for:", searchTerm);
+      
       if (!searchTerm?.trim()) {
+        console.log("❌ Empty search term");
         return { tracks: [], playlists: [] };
       }
 
       const term = `%${searchTerm.trim()}%`;
+      console.log("🔎 Searching with pattern:", term);
 
       const [t1, t2, p1, p2] = await Promise.all([
         supabase.from("tracks").select("*").ilike("title", term).limit(20),
@@ -50,6 +56,13 @@ export function useSearch(searchTerm: string) {
       const allPlaylists = [...(p1.data || []), ...(p2.data || [])];
       allPlaylists.forEach(pl => playlistsMap.set(pl.id, pl));
       const playlists = Array.from(playlistsMap.values()).slice(0, 20);
+
+      console.log("✅ Search complete:", { 
+        tracks: tracks.length, 
+        playlists: playlists.length,
+        trackSamples: tracks.slice(0, 2).map(t => t.title),
+        playlistSamples: playlists.slice(0, 2).map(p => p.title)
+      });
 
       return { tracks, playlists };
     },
