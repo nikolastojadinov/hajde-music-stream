@@ -28,11 +28,15 @@ export function useSearch(searchTerm: string) {
   return useQuery({
     queryKey: ["search", searchTerm],
     queryFn: async (): Promise<SearchResults> => {
+      console.log("🔍 useSearch queryFn called with:", searchTerm);
+      
       if (!searchTerm || searchTerm.trim().length < 1) {
+        console.log("❌ Search term empty, returning empty results");
         return { tracks: [], playlists: [] };
       }
 
       const pattern = `%${searchTerm.trim()}%`;
+      console.log("🔍 Searching with pattern:", pattern);
 
       const [tracksTitleRes, tracksArtistRes, playlistsTitleRes, playlistsDescRes] = await Promise.all([
         supabase.from("tracks").select("*").ilike("title", pattern).limit(20),
@@ -53,6 +57,7 @@ export function useSearch(searchTerm: string) {
       });
       const playlists = Array.from(playlistsMap.values()).slice(0, 20);
 
+      console.log("✅ Search results:", { tracks: tracks.length, playlists: playlists.length });
       return { tracks, playlists };
     },
     enabled: searchTerm.trim().length >= 1,

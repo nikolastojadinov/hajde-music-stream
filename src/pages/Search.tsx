@@ -15,6 +15,7 @@ const Search = () => {
   // Debounce search term
   useEffect(() => {
     const timer = setTimeout(() => {
+      console.log("⏱️ Debounced search updated:", searchTerm);
       setDebouncedSearch(searchTerm);
     }, 300);
 
@@ -22,6 +23,8 @@ const Search = () => {
   }, [searchTerm]);
 
   const { data: searchResults, isLoading } = useSearch(debouncedSearch);
+  
+  console.log("📊 Search state:", { searchTerm, debouncedSearch, isLoading, hasResults: !!searchResults });
 
   const hasResults = searchResults && (searchResults.tracks.length > 0 || searchResults.playlists.length > 0);
   const showEmptyState = debouncedSearch.length > 0 && !isLoading && !hasResults;
