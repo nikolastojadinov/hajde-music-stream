@@ -18,6 +18,7 @@ import PiAuthDemo from "./components/PiAuthDemo";
 import CreatePlaylist from "./pages/CreatePlaylist";
 import Favorites from "./pages/Favorites";
 import NotFound from "./pages/NotFound";
+import Privacy from "./pages/Privacy";
 import { PiProvider } from "./contexts/PiContext";
 import { useEffect } from "react";
 import { testConnection } from "./lib/connectionTest";
@@ -53,6 +54,7 @@ const App = () => {
                     <Route path="/playlist/:id" element={<Playlist />} />
                     <Route path="/create-playlist" element={<CreatePlaylist />} />
                     <Route path="/favorites" element={<Favorites />} />
+                    <Route path="/privacy" element={<Privacy />} />
                     <Route path="/pi-demo" element={<PiAuthDemo />} />
                     <Route path="*" element={<NotFound />} />
                   </Routes>

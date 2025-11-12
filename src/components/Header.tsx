@@ -95,10 +95,12 @@ const Header = () => {
             </Dialog>
             
             <DropdownMenuSeparator />
-            <DropdownMenuItem className="cursor-pointer py-3">
-              <Shield className="w-4 h-4 mr-3" />
-              <span>{t("privacy_policy")}</span>
-            </DropdownMenuItem>
+            <Link to="/privacy">
+              <DropdownMenuItem className="cursor-pointer py-3">
+                <Shield className="w-4 h-4 mr-3" />
+                <span>{t("privacy_policy")}</span>
+              </DropdownMenuItem>
+            </Link>
             <DropdownMenuItem className="cursor-pointer py-3">
               <FileText className="w-4 h-4 mr-3" />
               <span>{t("terms_of_service")}</span>
