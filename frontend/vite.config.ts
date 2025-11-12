@@ -9,6 +9,7 @@ export default defineConfig(() => {
   const frontendRoot = __dirname;
   return {
     root: frontendRoot,
+    base: './',
     server: {
       host: '::',
       port: 8080,
@@ -25,7 +26,7 @@ export default defineConfig(() => {
     plugins: [react()],
     resolve: {
       alias: {
-        '@': path.resolve(frontendRoot, './src'),
+        '@': path.resolve(frontendRoot, 'src'),
       },
     },
   };
