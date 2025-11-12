@@ -34,52 +34,26 @@ export function useSearch(searchTerm: string) {
 
       const pattern = `%${searchTerm.trim()}%`;
 
-      // Search tracks by title
-      const { data: tracksByTitle } = await supabase
-        .from("tracks")
-        .select("*")
-        .ilike("title", pattern)
-        .limit(20);
+      const [tracksTitleRes, tracksArtistRes, playlistsTitleRes, playlistsDescRes] = await Promise.all([
+        supabase.from("tracks").select("*").ilike("title", pattern).limit(20),
+        supabase.from("tracks").select("*").ilike("artist", pattern).limit(20),
+        supabase.from("playlists").select("*").ilike("title", pattern).limit(20),
+        supabase.from("playlists").select("*").ilike("description", pattern).limit(20),
+      ]);
 
-      // Search tracks by artist
-      const { data: tracksByArtist } = await supabase
-        .from("tracks")
-        .select("*")
-        .ilike("artist", pattern)
-        .limit(20);
-
-      // Merge and deduplicate tracks
       const tracksMap = new Map();
-      [...(tracksByTitle || []), ...(tracksByArtist || [])].forEach(track => {
+      [...(tracksTitleRes.data || []), ...(tracksArtistRes.data || [])].forEach(track => {
         tracksMap.set(track.id, track);
       });
       const tracks = Array.from(tracksMap.values()).slice(0, 20);
 
-      // Search playlists by title
-      const { data: playlistsByTitle } = await supabase
-        .from("playlists")
-        .select("*")
-        .ilike("title", pattern)
-        .limit(20);
-
-      // Search playlists by description
-      const { data: playlistsByDesc } = await supabase
-        .from("playlists")
-        .select("*")
-        .ilike("description", pattern)
-        .limit(20);
-
-      // Merge and deduplicate playlists
       const playlistsMap = new Map();
-      [...(playlistsByTitle || []), ...(playlistsByDesc || [])].forEach(playlist => {
+      [...(playlistsTitleRes.data || []), ...(playlistsDescRes.data || [])].forEach(playlist => {
         playlistsMap.set(playlist.id, playlist);
       });
       const playlists = Array.from(playlistsMap.values()).slice(0, 20);
 
-      return {
-        tracks,
-        playlists,
-      };
+      return { tracks, playlists };
     },
     enabled: searchTerm.trim().length >= 1,
     retry: false,
