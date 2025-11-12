@@ -32,8 +32,6 @@ export function useSearch(searchTerm: string) {
         return { tracks: [], playlists: [] };
       }
 
-      const searchPattern = `%${searchTerm}%`;
-
       // Search tracks
       const { data: tracks, error: tracksError } = await supabase
         .from("tracks")
@@ -41,7 +39,10 @@ export function useSearch(searchTerm: string) {
         .or(`title.ilike.%${searchTerm}%,artist.ilike.%${searchTerm}%`)
         .limit(20);
 
-      if (tracksError) throw tracksError;
+      if (tracksError) {
+        console.error("Tracks search error:", tracksError);
+        return { tracks: [], playlists: [] };
+      }
 
       // Search playlists
       const { data: playlists, error: playlistsError } = await supabase
@@ -50,7 +51,10 @@ export function useSearch(searchTerm: string) {
         .or(`title.ilike.%${searchTerm}%,description.ilike.%${searchTerm}%`)
         .limit(20);
 
-      if (playlistsError) throw playlistsError;
+      if (playlistsError) {
+        console.error("Playlists search error:", playlistsError);
+        return { tracks: tracks || [], playlists: [] };
+      }
 
       return {
         tracks: tracks || [],
@@ -58,5 +62,6 @@ export function useSearch(searchTerm: string) {
       };
     },
     enabled: searchTerm.length >= 1,
+    retry: false,
   });
 }
