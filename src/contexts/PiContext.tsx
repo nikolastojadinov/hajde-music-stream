@@ -30,24 +30,15 @@ export function PiProvider({ children }: { children: React.ReactNode }) {
 
   // Initialize Pi SDK once
   useEffect(() => {
-    const initPi = async () => {
-      try {
-        const sandbox = import.meta.env.VITE_PI_SANDBOX === 'true';
-        if (typeof window !== 'undefined' && window.Pi && typeof window.Pi.init === 'function') {
-          // Add timeout to prevent hanging
-          const initPromise = Promise.resolve(window.Pi.init({ version: '2.0', sandbox }));
-          const timeoutPromise = new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('Pi SDK init timeout')), 5000)
-          );
-          await Promise.race([initPromise, timeoutPromise]);
-        }
-      } catch (e) {
-        // Silently ignore - not in Pi Browser or init failed
-        console.debug('Pi SDK not available:', e);
+    try {
+      const sandbox = import.meta.env.VITE_PI_SANDBOX === 'true';
+      if (typeof window !== 'undefined' && window.Pi && typeof window.Pi.init === 'function') {
+        // Call init - it may timeout in console but won't block the app
+        window.Pi.init({ version: '2.0', sandbox });
       }
-    };
-    
-    initPi();
+    } catch (e) {
+      // Silently ignore - not in Pi Browser
+    }
   }, []);
 
   const onIncompletePaymentFound = useCallback(async (_payment: PaymentDTO) => {
@@ -106,7 +97,7 @@ export function PiProvider({ children }: { children: React.ReactNode }) {
       onCancel,
       onError,
     });
-  }, [backendBase, user]);
+  }, [user]);
 
   const value = useMemo(() => ({ user, signIn, signOut, createPayment }), [user, signIn, signOut, createPayment]);
 
