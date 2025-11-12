@@ -34,33 +34,51 @@ export function useSearch(searchTerm: string) {
 
       const pattern = `%${searchTerm.trim()}%`;
 
-      // Tracks search
-      const { data: tracks, error: tracksError } = await supabase
+      // Search tracks by title
+      const { data: tracksByTitle } = await supabase
         .from("tracks")
         .select("*")
-        .or(`title.ilike.${pattern},artist.ilike.${pattern}`)
+        .ilike("title", pattern)
         .limit(20);
 
-      if (tracksError) {
-        console.error("Tracks search error:", tracksError);
-        return { tracks: [], playlists: [] };
-      }
+      // Search tracks by artist
+      const { data: tracksByArtist } = await supabase
+        .from("tracks")
+        .select("*")
+        .ilike("artist", pattern)
+        .limit(20);
 
-      // Playlists search
-      const { data: playlists, error: playlistsError } = await supabase
+      // Merge and deduplicate tracks
+      const tracksMap = new Map();
+      [...(tracksByTitle || []), ...(tracksByArtist || [])].forEach(track => {
+        tracksMap.set(track.id, track);
+      });
+      const tracks = Array.from(tracksMap.values()).slice(0, 20);
+
+      // Search playlists by title
+      const { data: playlistsByTitle } = await supabase
         .from("playlists")
         .select("*")
-        .or(`title.ilike.${pattern},description.ilike.${pattern}`)
+        .ilike("title", pattern)
         .limit(20);
 
-      if (playlistsError) {
-        console.error("Playlists search error:", playlistsError);
-        return { tracks: tracks || [], playlists: [] };
-      }
+      // Search playlists by description
+      const { data: playlistsByDesc } = await supabase
+        .from("playlists")
+        .select("*")
+        .ilike("description", pattern)
+        .limit(20);
+
+      // Merge and deduplicate playlists
+      const playlistsMap = new Map();
+      [...(playlistsByTitle || []), ...(playlistsByDesc || [])].forEach(playlist => {
+        playlistsMap.set(playlist.id, playlist);
+      });
+      const playlists = Array.from(playlistsMap.values()).slice(0, 20);
 
       return {
-        tracks: tracks || [],
-        playlists: playlists || [],
+        tracks,
+        playlists,
       };
     },
     enabled: searchTerm.trim().length >= 1,
