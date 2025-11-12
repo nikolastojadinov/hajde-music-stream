@@ -1,15 +1,15 @@
 [build]
-  base = "frontend"
+  base = "."
   command = "npm run build"
-  publish = "frontend/build"
+  publish = "build"
   environment = { NODE_ENV = "production" }
 
 [dev]
-  base = "frontend"
+  base = "."
   command = "npm run dev"
   port = 3000
   targetPort = 8080
-  publish = "frontend/build"
+  publish = "build"
 
 [context.production.environment]
   NEXT_PUBLIC_BACKEND_URL = "https://purple-music-backend.onrender.com"
