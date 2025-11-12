@@ -28,15 +28,19 @@ export function useSearch(searchTerm: string) {
   return useQuery({
     queryKey: ["search", searchTerm],
     queryFn: async (): Promise<SearchResults> => {
-      if (!searchTerm || searchTerm.length < 1) {
+      if (!searchTerm || searchTerm.trim().length < 1) {
         return { tracks: [], playlists: [] };
       }
 
-      // Search tracks
+      const searchPattern = `%${searchTerm}%`;
+
+      // Tracks
       const { data: tracks, error: tracksError } = await supabase
         .from("tracks")
         .select("*")
-        .or(`title.ilike.%${searchTerm}%,artist.ilike.%${searchTerm}%`)
+        .or(
+          `title.ilike.${searchPattern},artist.ilike.${searchPattern}`
+        )
         .limit(20);
 
       if (tracksError) {
@@ -44,11 +48,13 @@ export function useSearch(searchTerm: string) {
         return { tracks: [], playlists: [] };
       }
 
-      // Search playlists
+      // Playlists
       const { data: playlists, error: playlistsError } = await supabase
         .from("playlists")
         .select("*")
-        .or(`title.ilike.%${searchTerm}%,description.ilike.%${searchTerm}%`)
+        .or(
+          `title.ilike.${searchPattern},description.ilike.${searchPattern}`
+        )
         .limit(20);
 
       if (playlistsError) {
