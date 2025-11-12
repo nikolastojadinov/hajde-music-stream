@@ -3,13 +3,9 @@ import react from '@vitejs/plugin-react-swc';
 import path from 'path';
 import tailwindcss from 'tailwindcss';
 import autoprefixer from 'autoprefixer';
-import { componentTagger } from 'lovable-tagger';
 
-// Vite config that points root to the repo root, and outputs to /frontend/build
 export default defineConfig(({ mode }) => {
-  const frontendRoot = __dirname;
   return {
-    root: frontendRoot,
     base: './',
     server: {
       host: '::',
@@ -17,7 +13,7 @@ export default defineConfig(({ mode }) => {
     },
     css: {
       postcss: {
-        plugins: [tailwindcss({ config: path.resolve(frontendRoot, 'tailwind.config.ts') }), autoprefixer()],
+        plugins: [tailwindcss(), autoprefixer()],
       },
     },
     build: {
@@ -62,13 +58,10 @@ export default defineConfig(({ mode }) => {
         },
       },
     },
-    plugins: [
-      react(),
-      mode === 'development' && componentTagger(),
-    ].filter(Boolean),
+    plugins: [react()],
     resolve: {
       alias: {
-        '@': path.resolve(frontendRoot, 'src'),
+        '@': path.resolve(__dirname, './src'),
       },
     },
   };
