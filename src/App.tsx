@@ -5,7 +5,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { LanguageProvider } from "@/contexts/LanguageContext";
 import { PlayerProvider } from "@/contexts/PlayerContext";
-import { PiProvider } from "@/contexts/PiContext";
 import Sidebar from "@/components/Sidebar";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
@@ -29,10 +28,9 @@ const App = () => {
       <TooltipProvider>
         <LanguageProvider>
           <PlayerProvider>
-            <PiProvider>
-              <Toaster />
-              <Sonner />
-              <BrowserRouter>
+            <Toaster />
+            <Sonner />
+            <BrowserRouter>
                 <div className="h-screen flex flex-col bg-background text-foreground overflow-hidden">
                   {/* Desktop Layout */}
                   <div className="hidden md:flex flex-1 pt-16 overflow-hidden">
@@ -79,7 +77,6 @@ const App = () => {
                   <YouTubePlayerContainer />
                 </div>
               </BrowserRouter>
-            </PiProvider>
           </PlayerProvider>
         </LanguageProvider>
       </TooltipProvider>
