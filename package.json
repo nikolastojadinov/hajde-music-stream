@@ -3,6 +3,7 @@
   "name": "hajde-music-stream-root",
   "version": "0.0.0",
   "workspaces": ["frontend", "backend"],
+  "dependencies": {},
   "scripts": {
     "dev": "cd frontend && npm run dev",
     "build:dev": "cd frontend && npm run build -- --mode development",
