@@ -30,14 +30,24 @@ export function PiProvider({ children }: { children: React.ReactNode }) {
 
   // Initialize Pi SDK once
   useEffect(() => {
-    try {
-      const sandbox = import.meta.env.VITE_PI_SANDBOX === 'true';
-      if (typeof window !== 'undefined' && window.Pi && typeof window.Pi.init === 'function') {
-        window.Pi.init({ version: '2.0', sandbox });
+    const initPi = async () => {
+      try {
+        const sandbox = import.meta.env.VITE_PI_SANDBOX === 'true';
+        if (typeof window !== 'undefined' && window.Pi && typeof window.Pi.init === 'function') {
+          // Add timeout to prevent hanging
+          const initPromise = Promise.resolve(window.Pi.init({ version: '2.0', sandbox }));
+          const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Pi SDK init timeout')), 5000)
+          );
+          await Promise.race([initPromise, timeoutPromise]);
+        }
+      } catch (e) {
+        // Silently ignore - not in Pi Browser or init failed
+        console.debug('Pi SDK not available:', e);
       }
-    } catch (_e) {
-      // ignore if not in Pi Browser
-    }
+    };
+    
+    initPi();
   }, []);
 
   const onIncompletePaymentFound = useCallback(async (_payment: PaymentDTO) => {
@@ -45,9 +55,13 @@ export function PiProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signIn = useCallback(async () => {
+    if (!window.Pi || typeof window.Pi.authenticate !== 'function') {
+      throw new Error('Pi SDK not available. Please open this app in Pi Browser.');
+    }
+    
     // Request scopes needed for app
     const scopes = ['username', 'payments', 'roles', 'in_app_notifications'];
-  const authResult: AuthResult = await window.Pi.authenticate(scopes, onIncompletePaymentFound);
+    const authResult: AuthResult = await window.Pi.authenticate(scopes, onIncompletePaymentFound);
 
     if (!backendBase) throw new Error('Missing VITE_BACKEND_URL');
     const res = await fetch(`${backendBase}/user/signin`, {
@@ -74,6 +88,9 @@ export function PiProvider({ children }: { children: React.ReactNode }) {
 
   const createPayment = useCallback(async ({ amount, memo, metadata }: { amount: number; memo: string; metadata?: Record<string, unknown> }) => {
     if (!user) throw new Error('Not signed in');
+    if (!window.Pi || typeof window.Pi.createPayment !== 'function') {
+      throw new Error('Pi SDK not available. Please open this app in Pi Browser.');
+    }
 
     const onReadyForServerApproval = (_paymentId: string) => {};
     const onReadyForServerCompletion = (_paymentId: string, _txid: string) => {};
