@@ -1,9 +1,13 @@
 {
-  "name": "hajde-music-stream",
   "private": true,
+  "name": "hajde-music-stream-root",
   "version": "0.0.0",
   "workspaces": ["frontend", "backend"],
   "scripts": {
+    "dev": "cd frontend && npm run dev",
+    "build:dev": "cd frontend && npm run build -- --mode development",
+    "build": "cd frontend && npm run build",
+    "preview": "cd frontend && npm run preview",
     "verify": "node verifySystem.js",
     "deploy:check": "node checkDeployReady.js"
   }
