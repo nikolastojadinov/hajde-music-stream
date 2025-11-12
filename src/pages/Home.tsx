@@ -5,9 +5,11 @@ import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { usePlaylists } from "@/hooks/usePlaylists";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useNavigate } from "react-router-dom";
 
 const Home = () => {
   const { t } = useLanguage();
+  const navigate = useNavigate();
   const { data: rockPlaylists, isLoading: isLoadingRock } = usePlaylists("rock");
   
   const categories = [
@@ -81,6 +83,7 @@ const Home = () => {
               type="text"
               placeholder={t("search_placeholder")}
               className="pl-12 h-12 bg-card border-border text-foreground placeholder:text-muted-foreground"
+              onFocus={() => navigate("/search")}
             />
           </div>
         </div>
