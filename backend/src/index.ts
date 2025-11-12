@@ -5,7 +5,9 @@ import express from 'express';
 import cookieParser from 'cookie-parser';
 import logger from 'morgan';
 import env from './environments';
-import mountPaymentsEndpoints from './handlers/payments';
+// Legacy payments endpoints removed in favor of /api/payments/verify
+// import mountPaymentsEndpoints from './handlers/payments';
+import mountPaymentsVerify from './handlers/paymentsVerify';
 import mountUserEndpoints from './handlers/users';
 import mountNotificationEndpoints from './handlers/notifications';
 import mountHealthEndpoints from './handlers/health';
@@ -83,10 +85,10 @@ app.use(async (req, res, next) => {
 // II. Mount app endpoints:
 //
 
-// Payments endpoint under /payments:
-const paymentsRouter = express.Router();
-mountPaymentsEndpoints(paymentsRouter);
-app.use('/payments', paymentsRouter);
+// Payments verification under /api/payments:
+const paymentsVerifyRouter = express.Router();
+mountPaymentsVerify(paymentsVerifyRouter);
+app.use('/api/payments', paymentsVerifyRouter);
 
 // User endpoints (e.g signin, signout) under /user:
 const userRouter = express.Router();

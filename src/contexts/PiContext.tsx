@@ -40,19 +40,9 @@ export function PiProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const onIncompletePaymentFound = useCallback(async (payment: PaymentDTO) => {
-    try {
-      if (!backendBase) return;
-      await fetch(`${backendBase}/payments/incomplete`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ payment }),
-      });
-    } catch (_e) {
-      // swallow
-    }
-  }, [backendBase]);
+  const onIncompletePaymentFound = useCallback(async (_payment: PaymentDTO) => {
+    // No-op: verification handled via /api/payments/verify
+  }, []);
 
   const signIn = useCallback(async () => {
     // Request scopes needed for app
@@ -84,34 +74,10 @@ export function PiProvider({ children }: { children: React.ReactNode }) {
 
   const createPayment = useCallback(async ({ amount, memo, metadata }: { amount: number; memo: string; metadata?: Record<string, unknown> }) => {
     if (!user) throw new Error('Not signed in');
-    if (!backendBase) throw new Error('Missing VITE_BACKEND_URL');
 
-    const onReadyForServerApproval = (paymentId: string) => {
-      fetch(`${backendBase}/payments/approve`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ paymentId, user_uid: (user as any).uid ?? user.uid }),
-      });
-    };
-
-    const onReadyForServerCompletion = (paymentId: string, txid: string) => {
-      fetch(`${backendBase}/payments/complete`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ paymentId, txid }),
-      });
-    };
-
-    const onCancel = (paymentId: string) => {
-      fetch(`${backendBase}/payments/cancelled_payment`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ paymentId }),
-      });
-    };
+    const onReadyForServerApproval = (_paymentId: string) => {};
+    const onReadyForServerCompletion = (_paymentId: string, _txid: string) => {};
+    const onCancel = (_paymentId: string) => {};
 
     const onError = (error: Error) => {
       console.error('Pi payment error', error);

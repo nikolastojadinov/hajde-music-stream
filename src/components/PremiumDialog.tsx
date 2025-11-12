@@ -2,6 +2,7 @@ import { Crown, Check, X } from "lucide-react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { useState } from "react";
 import { usePi } from "@/contexts/PiContext";
+import { usePiPayment } from "@/hooks/usePiPayment";
 
 interface PremiumDialogProps {
   open: boolean;
@@ -10,7 +11,8 @@ interface PremiumDialogProps {
 
 const PremiumDialog = ({ open, onOpenChange }: PremiumDialogProps) => {
   const [selectedPlan, setSelectedPlan] = useState<'weekly' | 'monthly' | 'yearly'>('monthly');
-  const { user, signIn, createPayment } = usePi();
+  const { user, signIn } = usePi();
+  const { createPayment } = usePiPayment();
   const [message, setMessage] = useState<string | null>(null);
 
   const plans = [
@@ -32,12 +34,35 @@ const PremiumDialog = ({ open, onOpenChange }: PremiumDialogProps) => {
 
     try {
       setMessage('Processing payment...');
-      await createPayment({
+      const payment = await createPayment({
         amount: priceMap[selectedPlan],
-        memo: `Premium ${selectedPlan}`,
-        metadata: { plan: selectedPlan },
+        memo: `Purple Music Premium (${selectedPlan})`,
+        metadata: { plan: selectedPlan, user: user?.username },
       });
-      setMessage('Payment initiated. Complete in Pi wallet.');
+
+      if (payment?.identifier) {
+        const backend = (import.meta as any).env.VITE_BACKEND_URL as string | undefined;
+        if (!backend) throw new Error('Missing VITE_BACKEND_URL');
+        const res = await fetch(`${backend.replace(/\/$/, '')}/api/payments/verify`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            paymentId: payment.identifier,
+            plan: selectedPlan,
+            amount: priceMap[selectedPlan],
+            user: { username: user?.username },
+          }),
+        });
+        const data = await res.json();
+        if (res.ok && data?.success) {
+          setMessage(`🎉 Premium activated until ${new Date(data.premium_until).toLocaleDateString()}`);
+        } else {
+          setMessage('⚠️ Payment verification failed.');
+        }
+      } else {
+        setMessage('⚠️ Payment not completed.');
+      }
     } catch (e) {
       setMessage('Payment failed to start.');
     }
