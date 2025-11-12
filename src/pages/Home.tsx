@@ -117,7 +117,7 @@ const Home = () => {
                         id={playlist.id}
                         title={playlist.title}
                         description={playlist.description || ""}
-                        imageUrl={playlist.image_url || undefined}
+                        imageUrl={'image_url' in playlist ? playlist.image_url || undefined : undefined}
                       />
                     </div>
                   ))
