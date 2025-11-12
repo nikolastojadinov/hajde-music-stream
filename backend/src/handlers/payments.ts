@@ -1,16 +1,16 @@
 import axios from "axios";
-import { Router } from "express";
+import type { Router, Request, Response } from "express";
 import platformAPIClient from "../services/platformAPIClient";
 import supabase from "../services/supabaseClient";
 
 export default function mountPaymentsEndpoints(router: Router) {
   // quick test endpoint
-  router.get('/test', (_req, res) => {
+  router.get('/test', (_req: Request, res: Response) => {
     return res.status(200).json({ message: 'Pi SDK integrated OK' });
   });
 
   // handle the incomplete payment
-  router.post('/incomplete', async (req, res) => {
+  router.post('/incomplete', async (req: Request, res: Response) => {
     const payment = req.body.payment;
     const paymentId = payment.identifier;
     const txid = payment.transaction && payment.transaction.txid;
@@ -38,7 +38,7 @@ export default function mountPaymentsEndpoints(router: Router) {
   });
 
   // approve the current payment
-  router.post('/approve', async (req, res) => {
+  router.post('/approve', async (req: Request, res: Response) => {
     if (!req.currentUser) {
       return res.status(401).json({ error: 'unauthorized', message: "User needs to sign in first" });
     }
@@ -61,7 +61,7 @@ export default function mountPaymentsEndpoints(router: Router) {
   });
 
   // complete the current payment
-  router.post('/complete', async (req, res) => {
+  router.post('/complete', async (req: Request, res: Response) => {
     const paymentId = req.body.paymentId;
     const txid = req.body.txid;
 
@@ -71,7 +71,7 @@ export default function mountPaymentsEndpoints(router: Router) {
   });
 
   // handle the cancelled payment
-  router.post('/cancelled_payment', async (req, res) => {
+  router.post('/cancelled_payment', async (req: Request, res: Response) => {
     const paymentId = req.body.paymentId;
     await supabase.from('orders').update({ cancelled: true }).eq('pi_payment_id', paymentId);
     return res.status(200).json({ message: `Cancelled the payment ${paymentId}` });

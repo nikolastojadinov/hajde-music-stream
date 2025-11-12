@@ -1,10 +1,10 @@
-import { Router } from 'express';
+import type { Router, Request, Response } from 'express';
 import platformAPIClient from '../services/platformAPIClient';
 import supabase from '../services/supabaseClient';
 
 export default function mountPaymentsVerify(router: Router) {
   // Verify Pi payment and update premium status
-  router.post('/verify', async (req, res) => {
+  router.post('/verify', async (req: Request, res: Response) => {
     try {
       const { paymentId, plan, amount, user } = req.body || {};
       if (!paymentId || !amount || !user?.username) {

@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import cors from 'cors';
-import express from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import cookieParser from 'cookie-parser';
 import logger from 'morgan';
 import env from './environments';
@@ -43,7 +43,7 @@ app.use(express.json())
 
 // Handle CORS:
 app.use(cors({
-  origin: (origin, cb) => {
+  origin: (origin: string | undefined, cb: (err: Error | null, allowed?: boolean) => void) => {
     const allowed = [env.frontend_url, 'https://sandbox.minepi.com', 'https://minepi.com'];
     if (!origin) return cb(null, true);
     if (allowed.includes(origin)) return cb(null, true);
@@ -56,7 +56,7 @@ app.use(cors({
 app.use(cookieParser());
 
 // Minimal cookie-based sessions stored in Supabase
-app.use(async (req, res, next) => {
+app.use(async (req: Request, _res: Response, next: NextFunction) => {
   const sid = req.cookies['sid'] as string | undefined;
   req.sid = sid || null;
   if (!sid) return next();
@@ -107,7 +107,7 @@ mountHealthEndpoints(healthRouter);
 app.use('/', healthRouter);
 
 // Hello World page to check everything works:
-app.get('/', async (_, res) => {
+app.get('/', async (_req: Request, res: Response) => {
   res.status(200).send({ message: "Hello, World!" });
 });
 

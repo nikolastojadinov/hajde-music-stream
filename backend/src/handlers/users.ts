@@ -1,11 +1,11 @@
-import { Router } from "express";
+import type { Router, Request, Response } from "express";
 import platformAPIClient from "../services/platformAPIClient";
 import supabase from "../services/supabaseClient";
 import { randomBytes } from "crypto";
 
 export default function mountUserEndpoints(router: Router) {
   // Sign in: verify token, upsert user, create session in Supabase and set cookie
-  router.post('/signin', async (req, res) => {
+  router.post('/signin', async (req: Request, res: Response) => {
     const auth = req.body?.authResult;
     if (!auth?.accessToken || !auth?.user?.uid) {
       return res.status(400).json({ error: 'invalid_request' });
@@ -45,7 +45,7 @@ export default function mountUserEndpoints(router: Router) {
   });
 
   // Sign out: delete session row and clear cookie
-  router.get('/signout', async (req, res) => {
+  router.get('/signout', async (req: Request, res: Response) => {
     const sid = req.cookies?.sid as string | undefined;
     if (sid) {
       await supabase.from('sessions').delete().eq('sid', sid);

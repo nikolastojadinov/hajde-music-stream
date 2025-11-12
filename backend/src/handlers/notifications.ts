@@ -1,8 +1,8 @@
-import { Router } from "express";
+import type { Router, Request, Response } from "express";
 import platformAPIClient from "../services/platformAPIClient";
 
 export default function mountNotificationEndpoints(router: Router) {
-  router.post("/send", async (req, res) => {
+  router.post("/send", async (req: Request, res: Response) => {
     try {
       const { notifications } = req.body || {};
 
