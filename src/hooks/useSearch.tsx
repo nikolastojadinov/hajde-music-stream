@@ -38,7 +38,7 @@ export function useSearch(searchTerm: string) {
       const { data: tracks, error: tracksError } = await supabase
         .from("tracks")
         .select("*")
-        .or(`title.ilike.${searchPattern},artist.ilike.${searchPattern}`)
+        .or(`title.ilike.%${searchTerm}%,artist.ilike.%${searchTerm}%`)
         .limit(20);
 
       if (tracksError) throw tracksError;
@@ -47,7 +47,7 @@ export function useSearch(searchTerm: string) {
       const { data: playlists, error: playlistsError } = await supabase
         .from("playlists")
         .select("*")
-        .or(`title.ilike.${searchPattern},description.ilike.${searchPattern}`)
+        .or(`title.ilike.%${searchTerm}%,description.ilike.%${searchTerm}%`)
         .limit(20);
 
       if (playlistsError) throw playlistsError;
