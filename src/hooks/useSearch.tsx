@@ -32,11 +32,27 @@ export function useSearch(searchTerm: string) {
     queryFn: async () => {
       console.log("🚀 queryFn executing for:", searchTerm);
       
+      // Ako nema search term-a, vrati SVE iz baze
       if (!searchTerm?.trim()) {
-        console.log("❌ Empty search term");
-        return { tracks: [], playlists: [] };
+        console.log("📦 Loading all content from database");
+        
+        const [tracksResult, playlistsResult] = await Promise.all([
+          supabase.from("tracks").select("*").order("created_at", { ascending: false }),
+          supabase.from("playlists").select("*").order("created_at", { ascending: false }),
+        ]);
+
+        console.log("✅ All content loaded:", { 
+          tracks: tracksResult.data?.length || 0, 
+          playlists: playlistsResult.data?.length || 0
+        });
+
+        return { 
+          tracks: tracksResult.data || [], 
+          playlists: playlistsResult.data || [] 
+        };
       }
 
+      // Search query
       const term = `%${searchTerm.trim()}%`;
       console.log("🔎 Searching with pattern:", term);
 
@@ -66,7 +82,6 @@ export function useSearch(searchTerm: string) {
 
       return { tracks, playlists };
     },
-    enabled: Boolean(searchTerm?.trim()),
     retry: false,
   });
 }
