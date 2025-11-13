@@ -166,10 +166,10 @@ const Player = () => {
         </button>
 
         <div className="flex items-center justify-between gap-4 max-w-screen-2xl mx-auto px-4 py-3 pt-8">
-          {/* YouTube Player Placeholder - responsive dimensions */}
+          {/* YouTube Player Placeholder - fixed minimal size */}
           <div className="flex items-center gap-4 flex-1 min-w-0">
-            {/* Mobile: 200x200, Tablet: 280x280, Desktop: 360x360 */}
-            <div className="w-[200px] h-[200px] sm:w-[280px] sm:h-[280px] lg:w-[360px] lg:h-[360px] flex-shrink-0 bg-secondary/20 rounded-lg" />
+            {/* Fixed 200x200 - YouTube minimum requirement */}
+            <div className="w-[200px] h-[200px] flex-shrink-0 bg-secondary/20 rounded-lg" />
             <div className="min-w-0 flex-1 hidden md:block">
               <p className="font-semibold text-foreground truncate">{currentVideoTitle || "Purple Dreams"}</p>
               <p className="text-sm text-muted-foreground truncate">{currentVideoArtist || "Electronic Beats"}</p>
