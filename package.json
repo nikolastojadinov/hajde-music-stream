@@ -79,8 +79,7 @@
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.38.0",
     "vite": "^5.4.19",
-    "node-fetch": "^3.3.2",
-    "@netlify/plugin-vite": "^2.0.0"
+    "node-fetch": "^3.3.2"
   }
   ,"engines": {
     "node": "20.x"

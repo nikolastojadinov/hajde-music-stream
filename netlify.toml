@@ -11,9 +11,6 @@
   # VITE_PI_APP_ID
   # VITE_FRONTEND_URL
 
-[[plugins]]
-  package = "@netlify/plugin-vite"
-
 # Dev settings (local netlify dev) - optional
 [dev]
   command = "npm run dev"
