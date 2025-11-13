@@ -1,29 +1,20 @@
-###############################################
-# Netlify configuration for Vite React app   #
-# Frontend lives at repository root           #
-# Backend deployed separately (Render)        #
-###############################################
-
 [build]
   command = "npm run build"
   publish = "build"
 
 [build.environment]
   NODE_VERSION = "18"
-  # The following variables must be set in the Netlify UI, not hardcoded here.
-  # Listed for clarity only (remove or adjust as needed):
-  # VITE_BACKEND_URL
+  # Set these in Netlify UI (DO NOT hardcode values):
   # VITE_SUPABASE_URL
   # VITE_SUPABASE_ANON_KEY
-  # VITE_SUPABASE_PUBLISHABLE_KEY
-  # VITE_SUPABASE_FUNCTIONS_URL
-  # VITE_PI_SANDBOX
+  # VITE_BACKEND_URL
+  # VITE_PI_APP_ID
+  # VITE_FRONTEND_URL
 
-# No Next.js plugin required (this is a Vite build)
-# If you later migrate to Next.js, replace publish with ".next" and add:
-# [[plugins]]
-#   package = "@netlify/plugin-nextjs"
+[[plugins]]
+  package = "@netlify/plugin-vite"
 
+# Dev settings (local netlify dev) - optional
 [dev]
   command = "npm run dev"
   port = 5173
