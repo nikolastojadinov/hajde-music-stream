@@ -166,15 +166,19 @@ const Player = () => {
         </button>
 
         <div className="flex items-center justify-between gap-4 max-w-screen-2xl mx-auto px-4 py-3 pt-8">
-          {/* Song info i controls */}
+          {/* YouTube Player Placeholder - responsive dimensions */}
           <div className="flex items-center gap-4 flex-1 min-w-0">
-            <div className="w-[200px] h-[200px] flex-shrink-0 bg-secondary/20 rounded-lg" />
+            {/* Mobile: 200x200, Tablet: 280x280, Desktop: 360x360 */}
+            <div className="w-[200px] h-[200px] sm:w-[280px] sm:h-[280px] lg:w-[360px] lg:h-[360px] flex-shrink-0 bg-secondary/20 rounded-lg" />
             <div className="min-w-0 flex-1 hidden md:block">
-              <p className="font-semibold text-foreground truncate">Purple Dreams</p>
-              <p className="text-sm text-muted-foreground truncate">Electronic Beats</p>
+              <p className="font-semibold text-foreground truncate">{currentVideoTitle || "Purple Dreams"}</p>
+              <p className="text-sm text-muted-foreground truncate">{currentVideoArtist || "Electronic Beats"}</p>
             </div>
-            <button className="text-muted-foreground hover:text-primary transition-colors flex-shrink-0 hidden md:block">
-              <Heart className="w-5 h-5" />
+            <button 
+              onClick={toggleLike}
+              className={`transition-colors flex-shrink-0 hidden md:block ${isLiked ? 'text-primary' : 'text-muted-foreground hover:text-primary'}`}
+            >
+              <Heart className={`w-5 h-5 ${isLiked ? 'fill-current' : ''}`} />
             </button>
           </div>
 
@@ -208,10 +212,10 @@ const Player = () => {
               </button>
             </div>
 
-            {/* Treći red: Like dugme */}
+            {/* Treći red: Like dugme (mobile only) */}
             <button 
               onClick={toggleLike}
-              className={`transition-colors ${isLiked ? 'text-primary' : 'text-muted-foreground hover:text-primary'}`}
+              className={`transition-colors md:hidden ${isLiked ? 'text-primary' : 'text-muted-foreground hover:text-primary'}`}
             >
               <Heart className={`w-6 h-6 ${isLiked ? 'fill-current' : ''}`} />
             </button>
