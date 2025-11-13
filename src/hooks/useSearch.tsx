@@ -41,29 +41,30 @@ export function useSearch(searchTerm: string) {
 
       const pattern = `%${term}%`;
 
-      // Fetch tracks (title OR artist) & playlists (title OR description) in parallel, each limited.
-      const [tracksTitleRes, tracksArtistRes, playlistsTitleRes, playlistsDescRes] = await Promise.all([
-        supabase.from('tracks').select('*').ilike('title', pattern).limit(15),
-        supabase.from('tracks').select('*').ilike('artist', pattern).limit(15),
-        supabase.from('playlists').select('*').ilike('title', pattern).limit(15),
-        supabase.from('playlists').select('*').ilike('description', pattern).limit(15),
+      // Fetch ALL tracks and playlists from entire Supabase database - NO LIMIT
+      // Use .or() to search across multiple fields in a single query
+      const [tracksRes, playlistsRes] = await Promise.all([
+        supabase
+          .from('tracks')
+          .select('*')
+          .or(`title.ilike.${pattern},artist.ilike.${pattern}`),
+        supabase
+          .from('playlists')
+          .select('*')
+          .or(`title.ilike.${pattern},description.ilike.${pattern}`),
       ]);
 
-      if (tracksTitleRes.error) throw tracksTitleRes.error;
-      if (tracksArtistRes.error) throw tracksArtistRes.error;
-      if (playlistsTitleRes.error) throw playlistsTitleRes.error;
-      if (playlistsDescRes.error) throw playlistsDescRes.error;
+      if (tracksRes.error) throw tracksRes.error;
+      if (playlistsRes.error) throw playlistsRes.error;
 
-      // Deduplicate by id within each group.
-      const tracksMap = new Map<string, Track>();
-      [...(tracksTitleRes.data || []), ...(tracksArtistRes.data || [])].forEach(t => tracksMap.set(t.id, t as Track));
-      const playlistsMap = new Map<string, Playlist>();
-      [...(playlistsTitleRes.data || []), ...(playlistsDescRes.data || [])].forEach(p => playlistsMap.set(p.id, p as Playlist));
+      const tracks = (tracksRes.data || []) as Track[];
+      const playlists = (playlistsRes.data || []) as Playlist[];
 
-      const tracks = Array.from(tracksMap.values());
-      const playlists = Array.from(playlistsMap.values());
-
-      console.log('Search results:', { term: searchTerm, trackCount: tracks.length, playlistCount: playlists.length });
+      console.log('Search results (full database):', { 
+        term: searchTerm, 
+        trackCount: tracks.length, 
+        playlistCount: playlists.length 
+      });
 
       return { tracks, playlists };
     },
