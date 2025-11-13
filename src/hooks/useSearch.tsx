@@ -32,46 +32,31 @@ export function useSearch(searchTerm: string) {
     queryFn: async () => {
       console.log("🚀 queryFn executing for:", searchTerm);
       
-      // Ako nema search term-a, vrati SVE iz baze
       if (!searchTerm?.trim()) {
-        console.log("📦 Loading all content from database");
-        
-        const [tracksResult, playlistsResult] = await Promise.all([
-          supabase.from("tracks").select("*").order("created_at", { ascending: false }),
-          supabase.from("playlists").select("*").order("created_at", { ascending: false }),
-        ]);
-
-        console.log("✅ All content loaded:", { 
-          tracks: tracksResult.data?.length || 0, 
-          playlists: playlistsResult.data?.length || 0
-        });
-
-        return { 
-          tracks: tracksResult.data || [], 
-          playlists: playlistsResult.data || [] 
-        };
+        console.log("❌ Empty search term");
+        return { tracks: [], playlists: [] };
       }
 
-      // Search query
+      // Search ENTIRE database without limits
       const term = `%${searchTerm.trim()}%`;
-      console.log("🔎 Searching with pattern:", term);
+      console.log("🔎 Searching entire database with pattern:", term);
 
       const [t1, t2, p1, p2] = await Promise.all([
-        supabase.from("tracks").select("*").ilike("title", term).limit(20),
-        supabase.from("tracks").select("*").ilike("artist", term).limit(20),
-        supabase.from("playlists").select("*").ilike("title", term).limit(20),
-        supabase.from("playlists").select("*").ilike("description", term).limit(20),
+        supabase.from("tracks").select("*").ilike("title", term),
+        supabase.from("tracks").select("*").ilike("artist", term),
+        supabase.from("playlists").select("*").ilike("title", term),
+        supabase.from("playlists").select("*").ilike("description", term),
       ]);
 
       const tracksMap = new Map();
       const allTracks = [...(t1.data || []), ...(t2.data || [])];
       allTracks.forEach(track => tracksMap.set(track.id, track));
-      const tracks = Array.from(tracksMap.values()).slice(0, 20);
+      const tracks = Array.from(tracksMap.values());
 
       const playlistsMap = new Map();
       const allPlaylists = [...(p1.data || []), ...(p2.data || [])];
       allPlaylists.forEach(pl => playlistsMap.set(pl.id, pl));
-      const playlists = Array.from(playlistsMap.values()).slice(0, 20);
+      const playlists = Array.from(playlistsMap.values());
 
       console.log("✅ Search complete:", { 
         tracks: tracks.length, 
@@ -82,6 +67,7 @@ export function useSearch(searchTerm: string) {
 
       return { tracks, playlists };
     },
+    enabled: Boolean(searchTerm?.trim()),
     retry: false,
   });
 }
