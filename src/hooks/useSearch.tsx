@@ -1,73 +1,85 @@
-import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { useQuery } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
+import type { Tables } from '@/integrations/supabase/types';
 
-interface Track {
-  id: string;
-  title: string;
-  artist: string;
-  youtube_id: string;
-  duration: number | null;
-  image_url: string | null;
-  playlist_id: string | null;
+export type Track = Tables<'tracks'>;
+export type Playlist = Tables<'playlists'>;
+
+export type SearchResult = (Track & { type: 'track' }) | (Playlist & { type: 'playlist' });
+
+function escapeIlike(term: string) {
+  // Escape % and _ which are wildcards in ILIKE
+  return term.replace(/[%_]/g, (m) => `\\${m}`);
 }
 
-interface Playlist {
-  id: string;
-  title: string;
-  description: string | null;
-  category: string | null;
-  image_url: string | null;
-}
-
-export interface SearchResults {
-  tracks: Track[];
-  playlists: Playlist[];
+function computeScore(term: string, fields: Array<string | null | undefined>): number {
+  const t = term.toLowerCase();
+  let best = 0;
+  for (const f of fields) {
+    if (!f) continue;
+    const v = f.toLowerCase();
+    if (v.startsWith(t)) {
+      best = Math.max(best, 3);
+    } else if (v.includes(t)) {
+      best = Math.max(best, 2);
+    }
+  }
+  return best;
 }
 
 export function useSearch(searchTerm: string) {
-  console.log("🔍 useSearch hook called with term:", searchTerm);
-  
-  return useQuery({
-    queryKey: ["search", searchTerm],
-    queryFn: async () => {
-      console.log("🚀 queryFn executing for:", searchTerm);
-      
-      if (!searchTerm?.trim()) {
-        console.log("❌ Empty search term");
-        return { tracks: [], playlists: [] };
-      }
+  const term = (searchTerm ?? '').trim();
 
-      // Search ENTIRE database without limits
-      const term = `%${searchTerm.trim()}%`;
-      console.log("🔎 Searching entire database with pattern:", term);
+  const query = useQuery<{ results: SearchResult[] }>(
+    {
+      queryKey: ['search', term],
+      enabled: term.length > 0,
+      staleTime: 5_000,
+      gcTime: 60_000,
+      refetchOnWindowFocus: false,
+      placeholderData: (prev) => prev,
+      queryFn: async () => {
+        const q = escapeIlike(term);
 
-      const [t1, t2, p1, p2] = await Promise.all([
-        supabase.from("tracks").select("*").ilike("title", term),
-        supabase.from("tracks").select("*").ilike("artist", term),
-        supabase.from("playlists").select("*").ilike("title", term),
-        supabase.from("playlists").select("*").ilike("description", term),
-      ]);
+        // Fetch tracks and playlists in parallel; limit each to 10 for performance
+        const [tracksRes, playlistsRes] = await Promise.all([
+          supabase
+            .from('tracks')
+            .select('*')
+            .or(`title.ilike.%${q}%,artist.ilike.%${q}%`)
+            .limit(10),
+          supabase
+            .from('playlists')
+            .select('*')
+            .or(`title.ilike.%${q}%,description.ilike.%${q}%`)
+            .limit(10),
+        ]);
 
-      const tracksMap = new Map();
-      const allTracks = [...(t1.data || []), ...(t2.data || [])];
-      allTracks.forEach(track => tracksMap.set(track.id, track));
-      const tracks = Array.from(tracksMap.values());
+        if (tracksRes.error) throw tracksRes.error;
+        if (playlistsRes.error) throw playlistsRes.error;
 
-      const playlistsMap = new Map();
-      const allPlaylists = [...(p1.data || []), ...(p2.data || [])];
-      allPlaylists.forEach(pl => playlistsMap.set(pl.id, pl));
-      const playlists = Array.from(playlistsMap.values());
+        const tracks: Array<Track & { type: 'track'; _score: number }> = (tracksRes.data ?? []).map((t) => ({
+          ...t,
+          type: 'track' as const,
+          _score: computeScore(term, [t.title, t.artist]),
+        }));
 
-      console.log("✅ Search complete:", { 
-        tracks: tracks.length, 
-        playlists: playlists.length,
-        trackSamples: tracks.slice(0, 2).map(t => t.title),
-        playlistSamples: playlists.slice(0, 2).map(p => p.title)
-      });
+        const playlists: Array<Playlist & { type: 'playlist'; _score: number }> = (playlistsRes.data ?? []).map((p) => ({
+          ...p,
+          type: 'playlist' as const,
+          _score: computeScore(term, [p.title, p.description ?? '']),
+        }));
 
-      return { tracks, playlists };
-    },
-    enabled: Boolean(searchTerm?.trim()),
-    retry: false,
-  });
+        // Combine, sort by relevance (desc), then cap to max 10 items total
+        const mixed = [...tracks, ...playlists]
+          .sort((a, b) => b._score - a._score)
+          .slice(0, 10)
+          .map(({ _score, ...item }) => item as SearchResult);
+
+        return { results: mixed };
+      },
+    }
+  );
+
+  return query.data ?? { results: [] };
 }
