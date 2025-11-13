@@ -3,7 +3,7 @@
   publish = "build"
 
 [build.environment]
-  NODE_VERSION = "18"
+  NODE_VERSION = "20"
   # Set these in Netlify UI (DO NOT hardcode values):
   # VITE_SUPABASE_URL
   # VITE_SUPABASE_ANON_KEY
