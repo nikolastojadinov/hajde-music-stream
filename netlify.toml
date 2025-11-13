@@ -1,26 +1,31 @@
+###############################################
+# Netlify configuration for Vite React app   #
+# Frontend lives at repository root           #
+# Backend deployed separately (Render)        #
+###############################################
+
 [build]
-  base = "."
   command = "npm run build"
   publish = "build"
-  environment = { NODE_ENV = "production" }
+
+[build.environment]
+  NODE_VERSION = "18"
+  # The following variables must be set in the Netlify UI, not hardcoded here.
+  # Listed for clarity only (remove or adjust as needed):
+  # VITE_BACKEND_URL
+  # VITE_SUPABASE_URL
+  # VITE_SUPABASE_ANON_KEY
+  # VITE_SUPABASE_PUBLISHABLE_KEY
+  # VITE_SUPABASE_FUNCTIONS_URL
+  # VITE_PI_SANDBOX
+
+# No Next.js plugin required (this is a Vite build)
+# If you later migrate to Next.js, replace publish with ".next" and add:
+# [[plugins]]
+#   package = "@netlify/plugin-nextjs"
 
 [dev]
-  base = "."
   command = "npm run dev"
-  port = 3000
+  port = 5173
   targetPort = 8080
   publish = "build"
-
-[context.production.environment]
-  NEXT_PUBLIC_BACKEND_URL = "https://purple-music-backend.onrender.com"
-  NEXT_PUBLIC_SUPABASE_URL = "https://ofkfygqrfenctzitigae.supabase.co"
-  NEXT_PUBLIC_SUPABASE_ANON_KEY = "your-anon-key"
-  NEXT_PUBLIC_PI_APP_ID = "your-pi-app-id"
-  NEXT_PUBLIC_FRONTEND_URL = "https://pmtestnet.netlify.app"
-  # Vite-specific env vars used by this app
-  VITE_BACKEND_URL = "https://purple-music-backend.onrender.com"
-  VITE_SUPABASE_URL = "https://ofkfygqrfenctzitigae.supabase.co"
-  VITE_SUPABASE_ANON_KEY = "your-anon-key"
-  VITE_SUPABASE_PUBLISHABLE_KEY = "your-anon-key"
-  VITE_SUPABASE_FUNCTIONS_URL = "https://ofkfygqrfenctzitigae.functions.supabase.co"
-  VITE_PI_SANDBOX = "false"
