@@ -10,65 +10,39 @@ import { useNavigate } from "react-router-dom";
 const Home = () => {
   const { t } = useLanguage();
   const navigate = useNavigate();
-  const { data: rockPlaylists, isLoading: isLoadingRock } = usePlaylists("rock");
+  
+  // Fetch different categories from Supabase
+  const { data: featuredPlaylists, isLoading: isLoadingFeatured } = usePlaylists("featured");
+  const { data: recentPlaylists, isLoading: isLoadingRecent } = usePlaylists("recent");
+  const { data: popularPlaylists, isLoading: isLoadingPopular } = usePlaylists("popular");
+  const { data: moodPlaylists, isLoading: isLoadingMood } = usePlaylists("mood");
+  const { data: genrePlaylists, isLoading: isLoadingGenre } = usePlaylists("genre");
   
   const categories = [
     {
       title: t("featured_for_you"),
-      playlists: rockPlaylists || [],
-      isLoading: isLoadingRock,
+      playlists: featuredPlaylists || [],
+      isLoading: isLoadingFeatured,
     },
     {
       title: t("recently_played"),
-      playlists: [
-        { id: 9, title: "Moja Plejlista #1", description: "50 pesama" },
-        { id: 10, title: "Road Trip", description: "Muzika za putovanje" },
-        { id: 11, title: "Summer Hits", description: "Ljetni hitovi" },
-        { id: 12, title: "Evening Jazz", description: "Opuštajući jazz" },
-        { id: 13, title: "Morning Coffee", description: "Jutarnja inspiracija" },
-        { id: 14, title: "Night Drive", description: "Noćna vožnja" },
-        { id: 15, title: "Study Session", description: "Fokus i koncentracija" },
-        { id: 16, title: "Dance Party", description: "Plesna zabava" },
-      ],
+      playlists: recentPlaylists || [],
+      isLoading: isLoadingRecent,
     },
     {
       title: t("popular_now"),
-      playlists: [
-        { id: 17, title: "Trending Now", description: "Najslušanije pesme" },
-        { id: 18, title: "Viral Hits", description: "Viralni hitovi" },
-        { id: 19, title: "New Releases", description: "Nova muzika" },
-        { id: 20, title: "Charts Global", description: "Svetske top liste" },
-        { id: 21, title: "Rising Stars", description: "Nove zvezde" },
-        { id: 22, title: "Hot 100", description: "Top 100 pesama" },
-        { id: 23, title: "Club Bangers", description: "Klubske pesme" },
-        { id: 24, title: "Radio Hits", description: "Radio hitovi" },
-      ],
+      playlists: popularPlaylists || [],
+      isLoading: isLoadingPopular,
     },
     {
       title: t("by_mood"),
-      playlists: [
-        { id: 25, title: "Happy Vibes", description: "Vesela atmosfera" },
-        { id: 26, title: "Sad Songs", description: "Emotivne pesme" },
-        { id: 27, title: "Energetic", description: "Puna energija" },
-        { id: 28, title: "Relaxing", description: "Relaksacija" },
-        { id: 29, title: "Romantic", description: "Romantične melodije" },
-        { id: 30, title: "Motivational", description: "Motivaciona muzika" },
-        { id: 31, title: "Melancholic", description: "Melanholične pesme" },
-        { id: 32, title: "Uplifting", description: "Podizanje raspoloženja" },
-      ],
+      playlists: moodPlaylists || [],
+      isLoading: isLoadingMood,
     },
     {
       title: t("by_genre"),
-      playlists: [
-        { id: 33, title: "Hip Hop Essentials", description: "Najbolji hip hop" },
-        { id: 34, title: "Electronic Beats", description: "Elektronska muzika" },
-        { id: 35, title: "Country Roads", description: "Kantri hitovi" },
-        { id: 36, title: "Classical Masters", description: "Klasična muzika" },
-        { id: 37, title: "Blues & Soul", description: "Blues i soul" },
-        { id: 38, title: "Latin Rhythms", description: "Latino ritmovi" },
-        { id: 39, title: "Metal Power", description: "Heavy metal" },
-        { id: 40, title: "Indie Vibes", description: "Indie muzika" },
-      ],
+      playlists: genrePlaylists || [],
+      isLoading: isLoadingGenre,
     },
   ];
 
