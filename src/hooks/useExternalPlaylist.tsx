@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
+import { externalSupabase } from '@/lib/externalSupabase';
 
 export interface Track {
   id: string;
@@ -31,8 +31,8 @@ export const useExternalPlaylist = (playlistId: string) => {
         throw new Error('Playlist ID is required');
       }
 
-      // Fetch playlist details from Lovable Cloud
-      const { data: playlistData, error: playlistError } = await supabase
+      // Fetch playlist details from external Supabase
+      const { data: playlistData, error: playlistError } = await externalSupabase
         .from('playlists')
         .select('*')
         .eq('id', playlistId)
@@ -48,7 +48,7 @@ export const useExternalPlaylist = (playlistId: string) => {
       }
 
       // Fetch tracks through playlist_tracks junction table
-      const { data: playlistTracks, error: tracksError } = await supabase
+      const { data: playlistTracks, error: tracksError } = await externalSupabase
         .from('playlist_tracks')
         .select(`
           position,
