@@ -30,24 +30,24 @@ export const useExternalPlaylist = (playlistId: string) => {
       // Fetch playlist details
       const { data: playlistData, error: playlistError } = await externalSupabase
         .from('playlists')
-        .select('id, title, description, category')
+        .select('id, title, description, category, cover_url')
         .eq('id', playlistId)
         .single();
 
       if (playlistError) throw playlistError;
 
-      // Fetch tracks for this playlist
+      // Fetch tracks for this playlist using playlist_cover instead of playlist_id
       const { data: tracksData, error: tracksError } = await externalSupabase
         .from('tracks')
         .select('*')
-        .eq('playlist_id', playlistId)
+        .eq('playlist_cover', playlistData.cover_url)
         .order('created_at', { ascending: true });
 
       if (tracksError) throw tracksError;
 
       return {
         ...playlistData,
-        image_url: tracksData?.[0]?.image_url || null,
+        image_url: playlistData.cover_url,
         tracks: tracksData || [],
       };
     },
