@@ -15,6 +15,9 @@ export function useCatalogSearch(searchTerm: string) {
   const [isLoading, setIsLoading] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const offsetRef = useRef(0);
+  const cacheRef = useRef<Map<string, { data: CatalogPlaylist[], timestamp: number }>>(new Map());
+
+  const CACHE_DURATION = 5 * 60 * 1000; // 5 minuta
 
   const performSearch = async (currentOffset: number, term: string) => {
     const trimmedTerm = term.trim();
@@ -22,6 +25,18 @@ export function useCatalogSearch(searchTerm: string) {
     if (!trimmedTerm) {
       setResults([]);
       return;
+    }
+
+    // Proveri cache za prvi offset
+    if (currentOffset === 0) {
+      const cached = cacheRef.current.get(trimmedTerm);
+      if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+        console.log('📦 Using cached results for:', trimmedTerm);
+        setResults(cached.data);
+        setHasMore(cached.data.length === RESULTS_PER_PAGE + 1);
+        offsetRef.current = RESULTS_PER_PAGE;
+        return;
+      }
     }
 
     console.log('🔍 Loading results, offset:', currentOffset, 'term:', trimmedTerm);
@@ -53,6 +68,15 @@ export function useCatalogSearch(searchTerm: string) {
       setResults(prev => {
         const newResults = currentOffset === 0 ? playlists : [...prev, ...playlists];
         console.log('📊 Total results now:', newResults.length);
+        
+        // Sačuvaj u cache samo za prvi offset
+        if (currentOffset === 0) {
+          cacheRef.current.set(trimmedTerm, {
+            data: newResults,
+            timestamp: Date.now()
+          });
+        }
+        
         return newResults;
       });
       
