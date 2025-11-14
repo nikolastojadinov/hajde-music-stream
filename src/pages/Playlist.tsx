@@ -105,10 +105,11 @@ const Playlist = () => {
 
   return (
     <div className="flex-1 overflow-y-auto pb-32">
-      {/* Header with gradient - Dark purple theme */}
-      <div className="relative h-80 bg-gradient-to-b from-purple-900/40 to-background p-8 flex items-end animate-fade-in">
-        <div className="flex items-end gap-6">
-          <div className="w-56 h-56 bg-gradient-to-br from-purple-600/30 to-purple-900/10 rounded-lg shadow-2xl flex-shrink-0 overflow-hidden">
+      {/* Header with gradient - Dark purple theme - Responsive */}
+      <div className="relative bg-gradient-to-b from-purple-900/40 to-background p-4 md:p-8 animate-fade-in">
+        <div className="flex flex-col md:flex-row md:items-end gap-4 md:gap-6 max-w-7xl">
+          {/* Cover Image - Smaller on all screens */}
+          <div className="w-40 h-40 md:w-48 md:h-48 bg-gradient-to-br from-purple-600/30 to-purple-900/10 rounded-lg shadow-2xl flex-shrink-0 overflow-hidden mx-auto md:mx-0">
             <img 
               src={cover} 
               alt={playlist.title} 
@@ -118,13 +119,14 @@ const Playlist = () => {
               }}
             />
           </div>
-          <div className="pb-4">
+          {/* Playlist Info - Below cover on mobile, beside on desktop */}
+          <div className="pb-4 text-center md:text-left">
             <p className="text-sm font-semibold mb-2 uppercase tracking-wider text-purple-300">
               Playlist
             </p>
-            <h1 className="text-6xl font-bold mb-4">{playlist.title}</h1>
-            <p className="text-muted-foreground mb-2">{playlist.description}</p>
-            <div className="flex items-center gap-2 text-sm">
+            <h1 className="text-3xl md:text-5xl lg:text-6xl font-bold mb-2 md:mb-4">{playlist.title}</h1>
+            <p className="text-muted-foreground mb-2 text-sm md:text-base">{playlist.description}</p>
+            <div className="flex items-center justify-center md:justify-start gap-2 text-sm">
               <span className="text-muted-foreground">{playlist.tracks.length} songs</span>
             </div>
           </div>
@@ -137,7 +139,7 @@ const Playlist = () => {
           onClick={() => {
             if (playlist.tracks.length > 0) {
               const tracksArray = playlist.tracks.map(t => ({ 
-                youtube_id: t.id, // Assuming track id maps to youtube_id
+                youtube_id: t.youtube_id,
                 title: t.title, 
                 artist: t.artist 
               }));
@@ -178,7 +180,7 @@ const Playlist = () => {
                 key={track.id}
                 onClick={() => {
                   const tracksArray = playlist.tracks.map(t => ({
-                    youtube_id: t.id, // Assuming track id maps to youtube_id
+                    youtube_id: t.youtube_id,
                     title: t.title,
                     artist: t.artist
                   }));
