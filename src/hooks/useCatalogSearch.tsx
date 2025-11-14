@@ -30,7 +30,7 @@ export function useCatalogSearch(searchTerm: string) {
     try {
       const { data, error } = await externalSupabase
         .from('playlists')
-        .select('id, title, image_url')
+        .select('id, title, cover_url')
         .ilike('title', `%${trimmedTerm}%`)
         .range(currentOffset, currentOffset + RESULTS_PER_PAGE);
 
@@ -45,7 +45,7 @@ export function useCatalogSearch(searchTerm: string) {
         id: playlist.id,
         title: playlist.title,
         track_count: 25,
-        image_url: playlist.image_url,
+        image_url: playlist.cover_url,
       }));
 
       console.log('✅ Processed:', playlists.length, 'playlists');
