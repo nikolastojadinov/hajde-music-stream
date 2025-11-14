@@ -10,7 +10,6 @@ interface Playlist {
   id: string;
   title: string;
   description: string | null;
-  image_url: string | null;
 }
 
 const FEATURED_PLAYLIST_IDS = [
@@ -30,7 +29,7 @@ const FeaturedForYou = () => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("playlists")
-        .select("id, title, description, image_url")
+        .select("id, title, description")
         .in("id", FEATURED_PLAYLIST_IDS);
 
       if (error) throw error;
@@ -85,7 +84,7 @@ const FeaturedForYou = () => {
                     id={playlist.id}
                     title={playlist.title}
                     description={playlist.description || ""}
-                    imageUrl={playlist.image_url || "/placeholder.svg"}
+                    imageUrl="/placeholder.svg"
                   />
                 </div>
               ))
