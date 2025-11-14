@@ -83,7 +83,36 @@ const Search = () => {
                   <h2 className="text-2xl font-bold mb-4">
                     Pronađene plejliste ({catalogResults.length})
                   </h2>
-                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
+                  
+                  {/* Mobile: Vertical list with images */}
+                  <div className="md:hidden space-y-2">
+                    {catalogResults.map((playlist: { id: string; title: string; track_count: number }) => (
+                      <div
+                        key={playlist.id}
+                        onClick={() => navigate(`/playlist/${playlist.id}`)}
+                        className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 active:bg-white/10 transition-colors cursor-pointer"
+                      >
+                        <div className="w-16 h-16 rounded-md bg-gradient-to-br from-primary/20 to-primary/5 flex-shrink-0 flex items-center justify-center overflow-hidden">
+                          <div className="text-center px-2">
+                            <p className="text-xs font-semibold text-foreground line-clamp-2">
+                              {playlist.title}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-medium text-sm line-clamp-1 mb-1">
+                            {playlist.title}
+                          </h3>
+                          <p className="text-xs text-muted-foreground">
+                            Plejlista • {playlist.track_count} pesama
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Desktop: Grid layout */}
+                  <div className="hidden md:grid md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
                     {catalogResults.map((playlist: { id: string; title: string; track_count: number }) => (
                       <div 
                         key={playlist.id}
