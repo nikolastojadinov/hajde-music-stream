@@ -15,7 +15,6 @@ const PlaylistCard = ({ id, title, description, imageUrl }: PlaylistCardProps) =
   const handlePlayClick = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    // TODO: Učitaj prvu pesmu iz playliste
     setIsPlayerVisible(true);
   };
 
@@ -33,7 +32,12 @@ const PlaylistCard = ({ id, title, description, imageUrl }: PlaylistCardProps) =
           )}
           <button 
             onClick={handlePlayClick}
-            className="absolute bottom-2 right-2 w-12 h-12 bg-primary rounded-full flex items-center justify-center opacity-0 invisible group-hover:opacity-100 group-hover:visible translate-y-2 group-hover:translate-y-0 transition-all duration-300 hover:scale-105 border-0 outline-none focus:outline-none shadow-none group-hover:shadow-lg pointer-events-none group-hover:pointer-events-auto"
+            onTouchEnd={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              handlePlayClick(e as any);
+            }}
+            className="absolute bottom-2 right-2 w-12 h-12 bg-primary rounded-full flex items-center justify-center opacity-0 md:opacity-0 md:invisible group-hover:opacity-100 group-hover:visible translate-y-2 group-hover:translate-y-0 transition-all duration-300 hover:scale-105 active:scale-95 border-0 outline-none focus:outline-none shadow-lg touch-auto"
           >
             <Play className="w-5 h-5 text-background fill-current ml-0.5" />
           </button>
