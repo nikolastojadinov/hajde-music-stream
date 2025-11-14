@@ -5,12 +5,31 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { useCatalogSearch, CatalogResult } from "@/hooks/useCatalogSearch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useNavigate } from "react-router-dom";
+import { externalSupabase } from "@/lib/externalSupabase";
 
 const Search = () => {
   const { t } = useLanguage();
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
+
+  // Calculate database statistics on mount
+  useEffect(() => {
+    (async () => {
+      const [pt, pl, tr] = await Promise.all([
+        externalSupabase.from('playlist_tracks').select('playlist_id'),
+        externalSupabase.from('playlists').select('*', { count: 'exact', head: true }),
+        externalSupabase.from('tracks').select('*', { count: 'exact', head: true })
+      ]);
+      
+      const withSongs = new Set(pt.data?.map((x: any) => x.playlist_id) || []).size;
+      const empty = (pl.count || 0) - withSongs;
+      
+      console.log(`Playliste sa pesmama: ${withSongs}`);
+      console.log(`Prazne playliste: ${empty}`);
+      console.log(`Ukupan broj pesama: ${tr.count || 0}`);
+    })();
+  }, []);
 
   useEffect(() => {
     const timer = setTimeout(() => {
