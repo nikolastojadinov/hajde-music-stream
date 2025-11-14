@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { externalSupabase } from "@/lib/externalSupabase";
 import PlaylistCard from "@/components/PlaylistCard";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -26,7 +26,7 @@ const FeaturedForYou = () => {
         "d46c18a1-c0bd-4be8-8aeb-039d0dfe82df"
       ];
 
-      const { data, error } = await supabase
+      const { data, error } = await externalSupabase
         .from("playlists")
         .select("id, title, description, cover_url")
         .in("id", featuredIds);
