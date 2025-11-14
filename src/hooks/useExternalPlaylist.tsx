@@ -27,6 +27,10 @@ export const useExternalPlaylist = (playlistId: string) => {
   return useQuery<PlaylistWithTracks>({
     queryKey: ['external-playlist', playlistId],
     queryFn: async () => {
+      if (!playlistId) {
+        throw new Error('Playlist ID is required');
+      }
+
       // Fetch playlist details
       const { data: playlistData, error: playlistError } = await externalSupabase
         .from('playlists')
@@ -34,7 +38,14 @@ export const useExternalPlaylist = (playlistId: string) => {
         .eq('id', playlistId)
         .single();
 
-      if (playlistError) throw playlistError;
+      if (playlistError) {
+        console.error('Playlist fetch error:', playlistError);
+        throw playlistError;
+      }
+
+      if (!playlistData) {
+        throw new Error('Playlist not found');
+      }
 
       // Fetch tracks through playlist_tracks junction table
       const { data: playlistTracks, error: tracksError } = await externalSupabase
@@ -53,32 +64,39 @@ export const useExternalPlaylist = (playlistId: string) => {
         .eq('playlist_id', playlistId)
         .order('position', { ascending: true });
 
-      if (tracksError) throw tracksError;
+      if (tracksError) {
+        console.error('Tracks fetch error:', tracksError);
+        throw tracksError;
+      }
 
       // Map tracks to expected format
-      const tracks = (playlistTracks || []).map((pt: any) => ({
-        id: pt.tracks.id,
-        title: pt.tracks.title,
-        artist: pt.tracks.artist,
-        youtube_id: pt.tracks.external_id,
-        duration: pt.tracks.duration,
-        image_url: pt.tracks.cover_url,
-        playlist_id: playlistId,
-      }));
+      const tracks = (playlistTracks || []).map((pt: any) => {
+        if (!pt.tracks) return null;
+        return {
+          id: pt.tracks.id,
+          title: pt.tracks.title,
+          artist: pt.tracks.artist,
+          youtube_id: pt.tracks.external_id,
+          duration: pt.tracks.duration,
+          image_url: pt.tracks.cover_url,
+          playlist_id: playlistId,
+        };
+      }).filter(Boolean) as Track[];
 
       return {
         id: playlistData.id,
         title: playlistData.title,
         description: playlistData.description,
         category: playlistData.category,
-        image_url: playlistData.cover_url,
+        image_url: playlistData.cover_url || null,
         tracks,
       };
     },
     enabled: Boolean(playlistId),
-    staleTime: 5 * 60 * 1000, // Podaci ostaju fresh 5 minuta
-    gcTime: 10 * 60 * 1000, // Cache se čuva 10 minuta
-    refetchOnWindowFocus: false, // Ne refetch-uj pri vraćanju fokusa
-    refetchOnMount: false, // Ne refetch-uj pri svakom mount-u ako su podaci fresh
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    retry: 1,
   });
 };
