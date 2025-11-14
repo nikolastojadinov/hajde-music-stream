@@ -20,6 +20,7 @@ import Favorites from "@/pages/Favorites";
 import Privacy from "@/pages/Privacy";
 import Terms from "@/pages/Terms";
 import NotFound from "@/pages/NotFound";
+import ImportCSV from "@/pages/ImportCSV";
 
 const queryClient = new QueryClient();
 
@@ -47,6 +48,7 @@ const App = () => {
                           <Route path="/playlist/:id" element={<Playlist />} />
                           <Route path="/create-playlist" element={<CreatePlaylist />} />
                           <Route path="/favorites" element={<Favorites />} />
+                          <Route path="/import-csv" element={<ImportCSV />} />
                           <Route path="/privacy" element={<Privacy />} />
                           <Route path="/terms" element={<Terms />} />
                           <Route path="*" element={<NotFound />} />
@@ -67,6 +69,7 @@ const App = () => {
                         <Route path="/playlist/:id" element={<Playlist />} />
                         <Route path="/create-playlist" element={<CreatePlaylist />} />
                         <Route path="/favorites" element={<Favorites />} />
+                        <Route path="/import-csv" element={<ImportCSV />} />
                         <Route path="/privacy" element={<Privacy />} />
                         <Route path="/terms" element={<Terms />} />
                         <Route path="*" element={<NotFound />} />
