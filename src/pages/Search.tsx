@@ -89,7 +89,13 @@ const Search = () => {
                     {catalogResults.map((result: CatalogResult) => (
                       <div
                         key={result.id}
-                        onClick={() => result.type === 'playlist' ? navigate(`/playlist/${result.id}`) : null}
+                        onClick={() => {
+                          if (result.type === 'playlist') {
+                            navigate(`/playlist/${result.id}`);
+                          } else {
+                            navigate(`/track/${result.id}`);
+                          }
+                        }}
                         className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 active:bg-white/10 transition-colors cursor-pointer"
                       >
                         <div className="w-16 h-16 rounded-md bg-card flex-shrink-0 overflow-hidden">
@@ -132,7 +138,13 @@ const Search = () => {
                     {catalogResults.map((result: CatalogResult) => (
                       <div 
                         key={result.id}
-                        onClick={() => result.type === 'playlist' ? navigate(`/playlist/${result.id}`) : null}
+                        onClick={() => {
+                          if (result.type === 'playlist') {
+                            navigate(`/playlist/${result.id}`);
+                          } else {
+                            navigate(`/track/${result.id}`);
+                          }
+                        }}
                         className="cursor-pointer group"
                       >
                         <div className="aspect-square bg-card rounded-lg mb-3 overflow-hidden transition-transform group-hover:scale-105">
