@@ -9,22 +9,18 @@ import { usePlayer } from "@/contexts/PlayerContext";
 
 interface Track {
   id: string;
+  youtube_id: string;
   title: string;
   artist: string;
   duration: number;
-  cover_url: string | null;
-}
-
-interface PlaylistTrack {
-  position: number;
-  tracks: Track;
+  image_url: string | null;
 }
 
 interface Playlist {
   id: string;
   title: string;
   description: string | null;
-  cover_url: string | null;
+  image_url: string | null;
 }
 
 interface PlaylistWithTracks extends Playlist {
@@ -40,59 +36,25 @@ const Playlist = () => {
     queryFn: async (): Promise<PlaylistWithTracks> => {
       if (!id) throw new Error("Playlist ID is required");
 
-      console.log("Fetching playlist with ID:", id);
-
-      // Fetch playlist data
       const { data: playlistData, error: playlistError } = await supabase
         .from("playlists")
-        .select("id, title, description, cover_url")
+        .select("id, title, description, image_url")
         .eq("id", id)
         .single();
 
-      if (playlistError) {
-        console.error("Playlist error:", playlistError);
-        throw playlistError;
-      }
+      if (playlistError) throw playlistError;
 
-      console.log("Playlist data:", playlistData);
-
-      // Fetch tracks with proper join and ordering
-      const { data: playlistTracks, error: tracksError } = await supabase
-        .from("playlist_tracks")
-        .select("position, tracks(id, title, artist, duration, cover_url)")
+      const { data: tracks, error: tracksError } = await supabase
+        .from("tracks")
+        .select("id, youtube_id, title, artist, duration, image_url")
         .eq("playlist_id", id)
-        .order("position", { ascending: true });
+        .order("created_at", { ascending: true });
 
-      if (tracksError) {
-        console.error("Tracks error:", tracksError);
-        // If playlist_tracks table doesn't exist or is empty, try direct tracks table
-        const { data: directTracks, error: directTracksError } = await supabase
-          .from("tracks")
-          .select("id, title, artist, duration, cover_url")
-          .eq("playlist_id", id)
-          .order("created_at", { ascending: true });
-
-        if (directTracksError) {
-          console.error("Direct tracks error:", directTracksError);
-          throw directTracksError;
-        }
-
-        console.log("Direct tracks data:", directTracks);
-
-        return {
-          ...playlistData,
-          tracks: directTracks || [],
-        };
-      }
-
-      // Transform the data structure from playlist_tracks join
-      const tracks = (playlistTracks as PlaylistTrack[])?.map(pt => pt.tracks) || [];
-      
-      console.log("Playlist tracks data:", tracks);
+      if (tracksError) throw tracksError;
 
       return {
         ...playlistData,
-        tracks,
+        tracks: tracks || [],
       };
     },
     enabled: !!id,
@@ -137,7 +99,7 @@ const Playlist = () => {
     );
   }
 
-  const cover = playlist.cover_url || "/placeholder.svg";
+  const cover = playlist.image_url || "/placeholder.svg";
 
   return (
     <div className="flex-1 overflow-y-auto pb-32">
@@ -175,11 +137,11 @@ const Playlist = () => {
           onClick={() => {
             if (playlist.tracks.length > 0) {
               const tracksArray = playlist.tracks.map(t => ({ 
-                youtube_id: t.id, // Assuming track id maps to youtube_id
+                youtube_id: t.youtube_id,
                 title: t.title, 
                 artist: t.artist 
               }));
-              playPlaylist(tracksArray);
+              playPlaylist(tracksArray, 0);
             }
           }}
           className="w-14 h-14 bg-purple-600 hover:bg-purple-700 rounded-full flex items-center justify-center hover:scale-105 transition-transform shadow-lg"
@@ -229,9 +191,9 @@ const Playlist = () => {
                 </div>
                 <div className="flex items-center gap-3 min-w-0">
                   <div className="w-10 h-10 rounded overflow-hidden flex-shrink-0 bg-purple-900/20">
-                    {track.cover_url && (
+                    {track.image_url && (
                       <img 
-                        src={track.cover_url} 
+                        src={track.image_url} 
                         alt={track.title}
                         className="w-full h-full object-cover"
                         onError={(e) => {

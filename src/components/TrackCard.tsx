@@ -11,11 +11,10 @@ interface TrackCardProps {
 }
 
 const TrackCard = ({ id, title, artist, imageUrl, youtubeId, duration }: TrackCardProps) => {
-  const { setIsPlayerVisible } = usePlayer();
+  const { playTrack } = usePlayer();
 
   const handlePlayClick = () => {
-    // TODO: Učitaj pesmu i pusti je
-    setIsPlayerVisible(true);
+    playTrack(youtubeId, title, artist);
   };
 
   const formatDuration = (seconds: number | null | undefined) => {

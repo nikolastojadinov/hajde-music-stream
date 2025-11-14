@@ -1,6 +1,7 @@
 import { Play } from "lucide-react";
 import { Link } from "react-router-dom";
 import { usePlayer } from "@/contexts/PlayerContext";
+import { supabase } from "@/integrations/supabase/client";
 
 interface PlaylistCardProps {
   id: string | number;
@@ -10,12 +11,21 @@ interface PlaylistCardProps {
 }
 
 const PlaylistCard = ({ id, title, description, imageUrl }: PlaylistCardProps) => {
-  const { setIsPlayerVisible } = usePlayer();
+  const { playPlaylist } = usePlayer();
 
-  const handlePlayClick = (e: React.MouseEvent) => {
+  const handlePlayClick = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    setIsPlayerVisible(true);
+    
+    const { data: tracks } = await supabase
+      .from("tracks")
+      .select("youtube_id, title, artist")
+      .eq("playlist_id", id)
+      .order("created_at", { ascending: true });
+    
+    if (tracks && tracks.length > 0) {
+      playPlaylist(tracks, 0);
+    }
   };
 
   return (
