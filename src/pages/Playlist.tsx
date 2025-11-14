@@ -84,29 +84,45 @@ const Playlist = () => {
           Pusti plejlistu
         </Button>
 
-        <div className="space-y-1">
+        <div className="space-y-2">
           {playlist.tracks.map((track, index) => {
             const isCurrent = currentTrackId === track.id;
             return (
               <div
                 key={track.id}
-                className={`group flex items-center gap-4 p-3 rounded-lg hover:bg-white/5 cursor-pointer ${isCurrent ? "bg-white/10" : ""}`}
+                className={`group flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 cursor-pointer ${isCurrent ? "bg-white/10" : ""}`}
                 onClick={() => handlePlayTrack(track, index)}
               >
-                <div className="w-8 text-center">
-                  {isCurrent ? (
-                    <button onClick={(e) => { e.stopPropagation(); togglePlay(); }} className="text-primary">
-                      {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-                    </button>
+                <div className="w-12 h-12 rounded overflow-hidden flex-shrink-0 bg-card relative">
+                  {track.image_url ? (
+                    <img 
+                      src={track.image_url} 
+                      alt={track.title}
+                      className="w-full h-full object-cover"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).src = playlist.image_url || "/placeholder.svg";
+                      }}
+                    />
                   ) : (
-                    <span className="text-sm text-muted-foreground group-hover:hidden">{index + 1}</span>
+                    <img 
+                      src={playlist.image_url || "/placeholder.svg"} 
+                      alt={track.title}
+                      className="w-full h-full object-cover opacity-50"
+                    />
+                  )}
+                  {isCurrent && (
+                    <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                      <button onClick={(e) => { e.stopPropagation(); togglePlay(); }} className="text-primary">
+                        {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
+                      </button>
+                    </div>
                   )}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className={`font-medium truncate ${isCurrent ? "text-primary" : ""}`}>{track.title}</div>
                   <div className="text-sm text-muted-foreground truncate">{track.artist}</div>
                 </div>
-                <div className="text-sm text-muted-foreground">{formatDuration(track.duration)}</div>
+                <div className="text-sm text-muted-foreground hidden sm:block">{formatDuration(track.duration)}</div>
               </div>
             );
           })}
