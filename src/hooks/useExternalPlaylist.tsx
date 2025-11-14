@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { externalSupabase } from '@/lib/externalSupabase';
+import { supabase } from '@/integrations/supabase/client';
 
 export interface Track {
   id: string;
@@ -31,8 +31,8 @@ export const useExternalPlaylist = (playlistId: string) => {
         throw new Error('Playlist ID is required');
       }
 
-      // Fetch playlist details
-      const { data: playlistData, error: playlistError } = await externalSupabase
+      // Fetch playlist details from Lovable Cloud
+      const { data: playlistData, error: playlistError } = await supabase
         .from('playlists')
         .select('*')
         .eq('id', playlistId)
@@ -48,7 +48,7 @@ export const useExternalPlaylist = (playlistId: string) => {
       }
 
       // Fetch tracks through playlist_tracks junction table
-      const { data: playlistTracks, error: tracksError } = await externalSupabase
+      const { data: playlistTracks, error: tracksError } = await supabase
         .from('playlist_tracks')
         .select(`
           position,
@@ -62,7 +62,7 @@ export const useExternalPlaylist = (playlistId: string) => {
           )
         `)
         .eq('playlist_id', playlistId)
-        .order('position', { ascending: true });
+        .order('position', { ascending: true});
 
       if (tracksError) {
         console.error('Tracks fetch error:', tracksError);
@@ -88,7 +88,7 @@ export const useExternalPlaylist = (playlistId: string) => {
         title: playlistData.title,
         description: playlistData.description,
         category: playlistData.category,
-        image_url: playlistData.cover_url || null,
+        image_url: playlistData.cover_url || playlistData.image_url || null,
         tracks,
       };
     },
