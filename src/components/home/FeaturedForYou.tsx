@@ -17,15 +17,33 @@ const FeaturedForYou = () => {
   const { data: playlists, isLoading, error } = useQuery({
     queryKey: ["featured-playlists"],
     queryFn: async () => {
-      // Fetch featured playlists that actually have tracks
+      // First, get playlists that have tracks in playlist_tracks junction table
+      const { data: playlistsWithTracks, error: junctionError } = await externalSupabase
+        .from("playlist_tracks")
+        .select("playlist_id")
+        .limit(1000);
+
+      if (junctionError) throw junctionError;
+
+      // Get unique playlist IDs that have tracks
+      const uniquePlaylistIds = [...new Set(playlistsWithTracks?.map((pt: any) => pt.playlist_id) || [])];
+      
+      console.log(`Found ${uniquePlaylistIds.length} playlists with tracks`);
+
+      if (uniquePlaylistIds.length === 0) {
+        return [];
+      }
+
+      // Now fetch only those playlists
       const { data, error } = await externalSupabase
         .from("playlists")
-        .select("id, title, description, cover_url, item_count")
-        .gt("item_count", 10)
+        .select("id, title, description, cover_url")
+        .in("id", uniquePlaylistIds.slice(0, 20))
         .order("item_count", { ascending: false })
         .limit(20);
 
       if (error) throw error;
+      console.log(`Showing ${data?.length} playlists on home page`);
       return data as Playlist[];
     },
   });
