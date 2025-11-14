@@ -13,14 +13,14 @@ interface Playlist {
 }
 
 const FEATURED_PLAYLIST_IDS = [
-  "7ee9ab59-ed8b-4afc-948b-9ab01b8d25cc",
-  "b176d691-9f3a-4965-900c-51df898a01ca",
-  "940157cd-e749-4401-84ea-c5e923f75768",
-  "919bc5f5-71ec-423d-81a3-f7a22aa05ca7",
-  "bec4dca2-2b80-41f6-82c8-0dc056c9cd82",
-  "b4506e1a-5141-4a2a-8460-84ef97c96ec7",
-  "8add5f32-ef1a-406d-bbf9-4d028337c59b",
-  "d46c18a1-c0bd-4be8-8aeb-039d0dfe82df"
+  "63e8c1f4-c544-4b76-9923-f276a8ca6b07", // Pop Hits 2024
+  "d74b476c-b1db-4cc7-bd3d-c79275847abe", // Classic Pop
+  "70744ef4-b8c8-4737-80ed-ddf45758ff7a", // Hip-Hop Essentials
+  "005c63c7-3a0c-4e8a-a64d-a09b5ff0029f", // Rap Kings
+  "c982e19c-2897-45ab-b254-6b20a8e3e601", // Smooth Jazz
+  "c9a35563-c1c1-4f22-baa1-b64d5815acb7", // Electronic Dreams
+  "70fc67b9-9889-40f1-82ef-d7ac25b8d2a4", // EDM Party
+  "eaf8a534-db9c-47ec-b667-ad2f25703e61", // Country Roads
 ];
 
 const FeaturedForYou = () => {
