@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { externalSupabase } from "@/lib/externalSupabase";
 import PlaylistCard from "@/components/PlaylistCard";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -10,37 +10,22 @@ interface Playlist {
   id: string;
   title: string;
   description: string | null;
-  image_url: string | null;
+  cover_url: string | null;
 }
-
-const FEATURED_PLAYLIST_IDS = [
-  "63e8c1f4-c544-4b76-9923-f276a8ca6b07", // Pop Hits 2024
-  "d74b476c-b1db-4cc7-bd3d-c79275847abe", // Classic Pop
-  "70744ef4-b8c8-4737-80ed-ddf45758ff7a", // Hip-Hop Essentials
-  "005c63c7-3a0c-4e8a-a64d-a09b5ff0029f", // Rap Kings
-  "c982e19c-2897-45ab-b254-6b20a8e3e601", // Smooth Jazz
-  "c9a35563-c1c1-4f22-baa1-b64d5815acb7", // Electronic Dreams
-  "70fc67b9-9889-40f1-82ef-d7ac25b8d2a4", // EDM Party
-  "eaf8a534-db9c-47ec-b667-ad2f25703e61", // Country Roads
-];
 
 const FeaturedForYou = () => {
   const { data: playlists, isLoading, error } = useQuery({
     queryKey: ["featured-playlists"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      // Fetch featured playlists from external database - top playlists by item count
+      const { data, error } = await externalSupabase
         .from("playlists")
-        .select("id, title, description, image_url")
-        .in("id", FEATURED_PLAYLIST_IDS);
+        .select("id, title, description, cover_url")
+        .order("item_count", { ascending: false })
+        .limit(12);
 
       if (error) throw error;
-      
-      const sortedData = FEATURED_PLAYLIST_IDS.map(id => {
-        const playlist = data?.find(p => p.id === id);
-        return playlist;
-      }).filter((playlist): playlist is Playlist => playlist !== undefined);
-      
-      return sortedData;
+      return data as Playlist[];
     },
   });
 
@@ -85,7 +70,7 @@ const FeaturedForYou = () => {
                     id={playlist.id}
                     title={playlist.title}
                     description={playlist.description || ""}
-                    imageUrl={playlist.image_url || "/placeholder.svg"}
+                    imageUrl={playlist.cover_url || "/placeholder.svg"}
                   />
                 </div>
               ))
