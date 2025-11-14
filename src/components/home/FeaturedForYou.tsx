@@ -16,14 +16,12 @@ interface Playlist {
 }
 
 const FEATURED_PLAYLIST_IDS = [
-  "7ee9ab59-ed8b-4afc-948b-9ab01b8d25cc",
-  "b176d691-9f3a-4965-900c-51df898a01ca",
-  "940157cd-e749-4401-84ea-c5e923f75768",
-  "919bc5f5-71ec-423d-81a3-f7a22aa05ca7",
-  "bec4dca2-2b80-41f6-82c8-0dc056c9cd82",
-  "b4506e1a-5141-4a2a-8460-84ef97c96ec7",
-  "8add5f32-ef1a-406d-bbf9-4d028337c59b",
-  "d46c18a1-c0bd-4be8-8aeb-039d0dfe82df"
+  "78c6d20d-f8ee-43d6-954f-a0723761c2ac", // Rock Classics
+  "ecb9716f-ab8d-47bf-b652-1c5ca61fed4c", // Hard Rock Anthems
+  "6325b238-545d-4aef-ab24-dcd7607ad919", // Alternative Rock
+  "63ecce76-dfa9-4c19-bea3-6ac2937bdccb", // Classic Rock Legends
+  "60d58675-779a-412c-b961-8a549a9f5a7b", // Rock Ballads
+  "2dd12dae-53b1-4d86-a314-c90f4804e48d"  // 90s Rock Hits
 ];
 
 const FeaturedForYou = () => {
