@@ -11,20 +11,16 @@ interface Track {
   id: string;
   title: string;
   artist: string;
-  duration: number;
-  cover_url: string | null;
-}
-
-interface PlaylistTrack {
-  position: number;
-  tracks: Track;
+  duration: number | null;
+  image_url: string | null;
+  youtube_id: string;
 }
 
 interface Playlist {
   id: string;
   title: string;
   description: string | null;
-  cover_url: string | null;
+  image_url: string | null;
 }
 
 interface PlaylistWithTracks extends Playlist {
@@ -43,33 +39,31 @@ const Playlist = () => {
       // Fetch playlist data
       const { data: playlistData, error: playlistError } = await supabase
         .from("playlists")
-        .select("id, title, description, cover_url")
+        .select("id, title, description, image_url")
         .eq("id", id)
         .single();
 
       if (playlistError) throw playlistError;
 
-      // Fetch tracks with proper join and ordering
-      const { data: playlistTracks, error: tracksError } = await supabase
-        .from("playlist_tracks")
-        .select("position, tracks(id, title, artist, duration, cover_url)")
+      // Fetch tracks directly from tracks table
+      const { data: tracks, error: tracksError } = await supabase
+        .from("tracks")
+        .select("id, title, artist, duration, image_url, youtube_id")
         .eq("playlist_id", id)
-        .order("position", { ascending: true });
+        .order("created_at", { ascending: true });
 
       if (tracksError) throw tracksError;
 
-      // Transform the data structure
-      const tracks = (playlistTracks as PlaylistTrack[])?.map(pt => pt.tracks) || [];
-
       return {
         ...playlistData,
-        tracks,
+        tracks: tracks || [],
       };
     },
     enabled: !!id,
   });
 
-  const formatDuration = (seconds: number) => {
+  const formatDuration = (seconds: number | null) => {
+    if (!seconds) return '0:00';
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins}:${secs.toString().padStart(2, '0')}`;
@@ -107,7 +101,7 @@ const Playlist = () => {
     );
   }
 
-  const cover = playlist.cover_url || "/placeholder.svg";
+  const cover = playlist.image_url || "/placeholder.svg";
 
   return (
     <div className="flex-1 overflow-y-auto pb-32">
@@ -197,9 +191,9 @@ const Playlist = () => {
                 </div>
                 <div className="flex items-center gap-3 min-w-0">
                   <div className="w-10 h-10 rounded overflow-hidden flex-shrink-0 bg-purple-900/20">
-                    {track.cover_url && (
+                    {track.image_url && (
                       <img 
-                        src={track.cover_url} 
+                        src={track.image_url} 
                         alt={track.title}
                         className="w-full h-full object-cover"
                         onError={(e) => {
