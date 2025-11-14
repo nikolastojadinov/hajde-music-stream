@@ -52,5 +52,9 @@ export const useExternalPlaylist = (playlistId: string) => {
       };
     },
     enabled: Boolean(playlistId),
+    staleTime: 5 * 60 * 1000, // Podaci ostaju fresh 5 minuta
+    gcTime: 10 * 60 * 1000, // Cache se čuva 10 minuta
+    refetchOnWindowFocus: false, // Ne refetch-uj pri vraćanju fokusa
+    refetchOnMount: false, // Ne refetch-uj pri svakom mount-u ako su podaci fresh
   });
 };
