@@ -21,6 +21,41 @@ export type CatalogResult = CatalogPlaylist | CatalogTrack;
 
 const RESULTS_PER_PAGE = 12;
 
+// Smart relevance scoring function
+function calculateRelevance(item: CatalogResult, searchTerm: string): number {
+  const term = searchTerm.toLowerCase().trim();
+  let score = 0;
+  
+  if (item.type === 'playlist') {
+    const title = item.title.toLowerCase();
+    if (title === term) score += 100; // Exact match
+    else if (title.startsWith(term)) score += 50; // Starts with
+    else if (title.includes(` ${term}`)) score += 40; // Word boundary
+    else if (title.includes(term)) score += 25; // Contains
+  } else {
+    const title = item.title.toLowerCase();
+    const artist = item.artist.toLowerCase();
+    
+    // Exact matches get highest priority
+    if (title === term) score += 100;
+    if (artist === term) score += 100;
+    
+    // Starts with search term
+    if (title.startsWith(term)) score += 60;
+    if (artist.startsWith(term)) score += 55;
+    
+    // Word boundary matches
+    if (title.includes(` ${term}`)) score += 45;
+    if (artist.includes(` ${term}`)) score += 40;
+    
+    // Contains anywhere
+    if (title.includes(term)) score += 30;
+    if (artist.includes(term)) score += 25;
+  }
+  
+  return score;
+}
+
 export function useCatalogSearch(searchTerm: string) {
   const [results, setResults] = useState<CatalogResult[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -54,18 +89,18 @@ export function useCatalogSearch(searchTerm: string) {
     setIsLoading(true);
     
     try {
-      // Pretraga playlista
+      // Search playlists by title
       const { data: playlistsData, error: playlistsError } = await externalSupabase
         .from('playlists')
         .select('id, title, cover_url')
         .ilike('title', `%${trimmedTerm}%`)
         .range(currentOffset, currentOffset + RESULTS_PER_PAGE);
 
-      // Pretraga pesama
+      // Search tracks by BOTH title AND artist (smart search)
       const { data: tracksData, error: tracksError } = await externalSupabase
         .from('tracks')
         .select('id, title, artist, cover_url')
-        .ilike('title', `%${trimmedTerm}%`)
+        .or(`title.ilike.%${trimmedTerm}%,artist.ilike.%${trimmedTerm}%`)
         .range(currentOffset, currentOffset + RESULTS_PER_PAGE);
 
       console.log('📦 Got playlists:', playlistsData?.length, 'tracks:', tracksData?.length);
@@ -96,9 +131,12 @@ export function useCatalogSearch(searchTerm: string) {
         image_url: track.cover_url,
       }));
 
-      const combined = [...playlists, ...tracks];
+      // Combine and sort by relevance (smart ranking)
+      const combined = [...playlists, ...tracks].sort((a, b) => 
+        calculateRelevance(b, trimmedTerm) - calculateRelevance(a, trimmedTerm)
+      );
 
-      console.log('✅ Processed:', playlists.length, 'playlists,', tracks.length, 'tracks');
+      console.log('✅ Processed:', playlists.length, 'playlists,', tracks.length, 'tracks, sorted by relevance');
       
       setResults(prev => {
         const newResults = currentOffset === 0 ? combined : [...prev, ...combined];
