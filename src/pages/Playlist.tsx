@@ -20,7 +20,6 @@ interface Playlist {
   id: string;
   title: string;
   description: string | null;
-  cover_url: string | null;
 }
 
 interface PlaylistWithTracks extends Playlist {
@@ -38,7 +37,7 @@ const Playlist = () => {
 
       const { data: playlistData, error: playlistError } = await supabase
         .from("playlists")
-        .select("id, title, description, cover_url")
+        .select("id, title, description")
         .eq("id", id)
         .single();
 
@@ -99,7 +98,7 @@ const Playlist = () => {
     );
   }
 
-  const cover = playlist.cover_url || "/placeholder.svg";
+  const cover = "/placeholder.svg";
 
   return (
     <div className="flex-1 overflow-y-auto pb-32">

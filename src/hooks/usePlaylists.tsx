@@ -6,7 +6,6 @@ export interface Playlist {
   title: string;
   description: string | null;
   category: string | null;
-  cover_url: string | null;
   created_at: string;
 }
 
