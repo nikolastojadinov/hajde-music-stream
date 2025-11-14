@@ -1,14 +1,14 @@
 import { useState, useEffect } from "react";
 import { Search as SearchIcon } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import PlaylistCard from "@/components/PlaylistCard";
-import TrackCard from "@/components/TrackCard";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { useSearch } from "@/hooks/useSearch";
+import { useCatalogSearch } from "@/hooks/useCatalogSearch";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useNavigate } from "react-router-dom";
 
 const Search = () => {
   const { t } = useLanguage();
+  const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
 
@@ -19,9 +19,9 @@ const Search = () => {
     return () => clearTimeout(timer);
   }, [searchTerm]);
 
-  const { data: searchResults, isLoading } = useSearch(debouncedSearch);
+  const { results: catalogResults, isLoading } = useCatalogSearch(debouncedSearch);
 
-  const hasResults = searchResults && (searchResults.tracks.length > 0 || searchResults.playlists.length > 0);
+  const hasResults = catalogResults.length > 0;
   const showEmptyState = debouncedSearch.length > 0 && !isLoading && !hasResults;
 
   const categories = [
@@ -56,26 +56,16 @@ const Search = () => {
         {debouncedSearch.length > 0 && (
           <div className="mb-12">
             {isLoading ? (
-              <div className="space-y-8">
-                <div>
-                  <Skeleton className="h-8 w-32 mb-4" />
-                  <div className="space-y-2">
-                    {[1, 2, 3, 4].map((i) => (
-                      <Skeleton key={i} className="h-20 w-full" />
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <Skeleton className="h-8 w-32 mb-4" />
-                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
-                    {[1, 2, 3, 4].map((i) => (
-                      <div key={i}>
-                        <Skeleton className="aspect-square rounded-lg mb-2" />
-                        <Skeleton className="h-4 w-3/4 mb-2" />
-                        <Skeleton className="h-3 w-full" />
-                      </div>
-                    ))}
-                  </div>
+              <div className="space-y-4">
+                <Skeleton className="h-8 w-48 mb-4" />
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
+                  {[1, 2, 3, 4, 5, 6].map((i) => (
+                    <div key={i}>
+                      <Skeleton className="aspect-square rounded-lg mb-2" />
+                      <Skeleton className="h-4 w-3/4 mb-2" />
+                      <Skeleton className="h-3 w-full" />
+                    </div>
+                  ))}
                 </div>
               </div>
             ) : showEmptyState ? (
@@ -88,73 +78,67 @@ const Search = () => {
                 </p>
               </div>
             ) : hasResults ? (
-              <div className="space-y-8 animate-fade-in">
-                {/* Tracks Results */}
-                {searchResults.tracks.length > 0 && (
-                  <section>
-                    <h2 className="text-2xl font-bold mb-4">
-                      Pesme ({searchResults.tracks.length})
-                    </h2>
-                    <div className="space-y-1">
-                      {searchResults.tracks.map((track) => (
-                        <TrackCard
-                          key={track.id}
-                          id={track.id}
-                          title={track.title}
-                          artist={track.artist}
-                          imageUrl={track.image_url}
-                          youtubeId={track.youtube_id}
-                          duration={track.duration}
-                        />
-                      ))}
-                    </div>
-                  </section>
-                )}
-
-                {/* Playlists Results */}
-                {searchResults.playlists.length > 0 && (
-                  <section>
-                    <h2 className="text-2xl font-bold mb-4">
-                      Plejliste ({searchResults.playlists.length})
-                    </h2>
-                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
-                      {searchResults.playlists.map((playlist) => (
-                        <PlaylistCard
-                          key={playlist.id}
-                          id={playlist.id}
-                          title={playlist.title}
-                          description={playlist.description || ""}
-                          imageUrl={playlist.image_url || undefined}
-                        />
-                      ))}
-                    </div>
-                  </section>
-                )}
+              <div className="space-y-6 animate-fade-in">
+                <section>
+                  <h2 className="text-2xl font-bold mb-4">
+                    Pronađene plejliste ({catalogResults.length})
+                  </h2>
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
+                    {catalogResults.map((playlist) => (
+                      <div 
+                        key={playlist.id}
+                        onClick={() => navigate(`/playlist/${playlist.id}`)}
+                        className="cursor-pointer group"
+                      >
+                        <div className="aspect-square bg-card rounded-lg mb-3 overflow-hidden transition-transform group-hover:scale-105">
+                          <div className="w-full h-full bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
+                            <div className="text-center p-4">
+                              <p className="font-semibold text-foreground line-clamp-2 mb-2">
+                                {playlist.title}
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                {playlist.track_count} pesama
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                        <h3 className="font-medium line-clamp-2 text-sm mb-1">
+                          {playlist.title}
+                        </h3>
+                        <p className="text-xs text-muted-foreground">
+                          {playlist.track_count} tracks
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </section>
               </div>
             ) : null}
           </div>
         )}
 
-        {/* Show categories only when not searching */}
-        {debouncedSearch.length === 0 && (
-          <>
-            <section className="animate-slide-up mb-12">
-              <h2 className="text-2xl font-bold mb-6">{t("search_genre")}</h2>
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                {categories.map((category) => (
+        {/* Browse by Genre */}
+        {!debouncedSearch && (
+          <div className="animate-fade-in">
+            <h2 className="text-2xl font-bold mb-6">{t("browse_all")}</h2>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+              {categories.map((category) => (
+                <div
+                  key={category.id}
+                  className="relative h-32 rounded-lg overflow-hidden cursor-pointer group hover:scale-105 transition-transform"
+                >
                   <div
-                    key={category.id}
-                    className="relative h-40 rounded-xl overflow-hidden cursor-pointer group"
-                  >
-                    <div className={`absolute inset-0 bg-gradient-to-br ${category.color} group-hover:scale-105 transition-transform duration-300`} />
-                    <div className="relative h-full p-4 flex items-end">
-                      <h3 className="text-2xl font-bold text-white">{category.title}</h3>
-                    </div>
+                    className={`absolute inset-0 bg-gradient-to-br ${category.color} opacity-80 group-hover:opacity-100 transition-opacity`}
+                  />
+                  <div className="relative h-full flex items-center justify-center p-4">
+                    <h3 className="text-white text-xl font-bold text-center">
+                      {category.title}
+                    </h3>
                   </div>
-                ))}
-              </div>
-            </section>
-          </>
+                </div>
+              ))}
+            </div>
+          </div>
         )}
       </div>
     </div>
