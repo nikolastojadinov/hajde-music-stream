@@ -1,31 +1,10 @@
 import { useState, useEffect } from 'react';
+import { externalSupabase } from '@/lib/externalSupabase';
 
 export interface CatalogPlaylist {
   id: string;
   title: string;
   track_count: number;
-}
-
-// Load the full catalog from the CSV file
-let fullCatalog: CatalogPlaylist[] = [];
-
-async function loadCatalog(): Promise<CatalogPlaylist[]> {
-  if (fullCatalog.length > 0) return fullCatalog;
-
-  try {
-    // Parse the CSV data (we'll embed it as a constant for now)
-    const response = await fetch('/playlist-catalog.json');
-    if (response.ok) {
-      const data = await response.json();
-      fullCatalog = data || [];
-      return fullCatalog;
-    }
-  } catch (e) {
-    console.error('Failed to load playlist catalog:', e);
-  }
-
-  // Fallback to empty array if loading fails
-  return [];
 }
 
 export function useCatalogSearch(searchTerm: string) {
@@ -34,7 +13,7 @@ export function useCatalogSearch(searchTerm: string) {
 
   useEffect(() => {
     const search = async () => {
-      const term = searchTerm.trim().toLowerCase();
+      const term = searchTerm.trim();
       
       if (!term) {
         setResults([]);
@@ -44,23 +23,35 @@ export function useCatalogSearch(searchTerm: string) {
       setIsLoading(true);
       
       try {
-        const catalog = await loadCatalog();
-        
-        // Filter playlists that match the search term
-        const filtered = (catalog || []).filter(playlist =>
-          playlist.title.toLowerCase().includes(term)
+        // Search playlists in the external database
+        const { data, error } = await externalSupabase
+          .from('playlists')
+          .select('id, title')
+          .ilike('title', `%${term}%`)
+          .limit(100);
+
+        if (error) throw error;
+
+        // Count tracks for each playlist
+        const playlistsWithCounts = await Promise.all(
+          (data || []).map(async (playlist) => {
+            const { count } = await externalSupabase
+              .from('tracks')
+              .select('*', { count: 'exact', head: true })
+              .eq('playlist_id', playlist.id);
+
+            return {
+              id: playlist.id,
+              title: playlist.title,
+              track_count: count || 0,
+            };
+          })
         );
 
-        // Sort by relevance (exact matches first, then by track count)
-        filtered.sort((a, b) => {
-          const aExact = a.title.toLowerCase() === term ? 1 : 0;
-          const bExact = b.title.toLowerCase() === term ? 1 : 0;
-          
-          if (aExact !== bExact) return bExact - aExact;
-          return b.track_count - a.track_count;
-        });
+        // Filter playlists with more than 20 tracks
+        const filtered = playlistsWithCounts.filter(p => p.track_count > 20);
 
-        setResults(filtered.slice(0, 100)); // Limit to 100 results
+        setResults(filtered);
       } catch (e) {
         console.error('Search error:', e);
         setResults([]);

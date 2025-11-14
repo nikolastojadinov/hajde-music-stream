@@ -84,7 +84,7 @@ const Search = () => {
                     Pronađene plejliste ({catalogResults.length})
                   </h2>
                   <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
-                    {catalogResults.map((playlist) => (
+                    {catalogResults.map((playlist: { id: string; title: string; track_count: number }) => (
                       <div 
                         key={playlist.id}
                         onClick={() => navigate(`/playlist/${playlist.id}`)}
