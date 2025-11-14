@@ -19,7 +19,7 @@ const Search = () => {
     return () => clearTimeout(timer);
   }, [searchTerm]);
 
-  const { results: catalogResults, isLoading } = useCatalogSearch(debouncedSearch);
+  const { results: catalogResults, isLoading, hasMore, loadMore } = useCatalogSearch(debouncedSearch);
 
   const hasResults = catalogResults.length > 0;
   const showEmptyState = debouncedSearch.length > 0 && !isLoading && !hasResults;
@@ -111,6 +111,25 @@ const Search = () => {
                       </div>
                     ))}
                   </div>
+                  
+                  {/* Load More Button */}
+                  {hasMore && !isLoading && (
+                    <div className="flex justify-center mt-8">
+                      <button
+                        onClick={loadMore}
+                        className="px-6 py-3 bg-card hover:bg-card/80 text-foreground rounded-lg transition-colors border border-border"
+                      >
+                        more...
+                      </button>
+                    </div>
+                  )}
+                  
+                  {/* Loading indicator for "Load More" */}
+                  {isLoading && catalogResults.length > 0 && (
+                    <div className="flex justify-center mt-8">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                    </div>
+                  )}
                 </section>
               </div>
             ) : null}
