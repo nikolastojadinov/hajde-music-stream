@@ -86,18 +86,31 @@ const Search = () => {
                   
                   {/* Mobile: Vertical list with images */}
                   <div className="md:hidden space-y-2">
-                    {catalogResults.map((playlist: { id: string; title: string; track_count: number }) => (
+                    {catalogResults.map((playlist: { id: string; title: string; track_count: number; image_url: string | null }) => (
                       <div
                         key={playlist.id}
                         onClick={() => navigate(`/playlist/${playlist.id}`)}
                         className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 active:bg-white/10 transition-colors cursor-pointer"
                       >
-                        <div className="w-16 h-16 rounded-md bg-gradient-to-br from-primary/20 to-primary/5 flex-shrink-0 flex items-center justify-center overflow-hidden">
-                          <div className="text-center px-2">
-                            <p className="text-xs font-semibold text-foreground line-clamp-2">
-                              {playlist.title}
-                            </p>
-                          </div>
+                        <div className="w-16 h-16 rounded-md bg-card flex-shrink-0 overflow-hidden">
+                          {playlist.image_url ? (
+                            <img 
+                              src={playlist.image_url} 
+                              alt={playlist.title}
+                              className="w-full h-full object-cover"
+                              onError={(e) => {
+                                (e.target as HTMLImageElement).src = "/placeholder.svg";
+                              }}
+                            />
+                          ) : (
+                            <div className="w-full h-full bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
+                              <div className="text-center px-2">
+                                <p className="text-xs font-semibold text-foreground line-clamp-2">
+                                  {playlist.title}
+                                </p>
+                              </div>
+                            </div>
+                          )}
                         </div>
                         <div className="flex-1 min-w-0">
                           <h3 className="font-medium text-sm line-clamp-1 mb-1">
@@ -113,23 +126,34 @@ const Search = () => {
 
                   {/* Desktop: Grid layout */}
                   <div className="hidden md:grid md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
-                    {catalogResults.map((playlist: { id: string; title: string; track_count: number }) => (
+                    {catalogResults.map((playlist: { id: string; title: string; track_count: number; image_url: string | null }) => (
                       <div 
                         key={playlist.id}
                         onClick={() => navigate(`/playlist/${playlist.id}`)}
                         className="cursor-pointer group"
                       >
                         <div className="aspect-square bg-card rounded-lg mb-3 overflow-hidden transition-transform group-hover:scale-105">
-                          <div className="w-full h-full bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
-                            <div className="text-center p-4">
-                              <p className="font-semibold text-foreground line-clamp-2 mb-2">
-                                {playlist.title}
-                              </p>
-                              <p className="text-xs text-muted-foreground">
-                                {playlist.track_count} pesama
-                              </p>
+                          {playlist.image_url ? (
+                            <img 
+                              src={playlist.image_url} 
+                              alt={playlist.title}
+                              className="w-full h-full object-cover"
+                              onError={(e) => {
+                                (e.target as HTMLImageElement).src = "/placeholder.svg";
+                              }}
+                            />
+                          ) : (
+                            <div className="w-full h-full bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
+                              <div className="text-center p-4">
+                                <p className="font-semibold text-foreground line-clamp-2 mb-2">
+                                  {playlist.title}
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                  {playlist.track_count} pesama
+                                </p>
+                              </div>
                             </div>
-                          </div>
+                          )}
                         </div>
                         <h3 className="font-medium line-clamp-2 text-sm mb-1">
                           {playlist.title}
