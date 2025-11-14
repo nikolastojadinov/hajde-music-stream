@@ -17,12 +17,13 @@ const FeaturedForYou = () => {
   const { data: playlists, isLoading, error } = useQuery({
     queryKey: ["featured-playlists"],
     queryFn: async () => {
-      // Fetch featured playlists from external database - top playlists by item count
+      // Fetch featured playlists that actually have tracks
       const { data, error } = await externalSupabase
         .from("playlists")
-        .select("id, title, description, cover_url")
+        .select("id, title, description, cover_url, item_count")
+        .gt("item_count", 10)
         .order("item_count", { ascending: false })
-        .limit(12);
+        .limit(20);
 
       if (error) throw error;
       return data as Playlist[];
