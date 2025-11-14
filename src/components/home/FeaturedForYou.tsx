@@ -10,8 +10,9 @@ interface Playlist {
   id: string;
   title: string;
   description: string | null;
-  cover_url: string | null;
   image_url: string | null;
+  category: string | null;
+  created_at: string;
 }
 
 const FEATURED_PLAYLIST_IDS = [
@@ -39,7 +40,7 @@ const FeaturedForYou = () => {
       // Sort playlists to match the order of FEATURED_PLAYLIST_IDS
       const sortedData = FEATURED_PLAYLIST_IDS.map(id => 
         data.find(playlist => playlist.id === id)
-      ).filter(Boolean) as Playlist[];
+      ).filter((playlist): playlist is Playlist => playlist !== undefined);
       
       return sortedData;
     },
@@ -78,7 +79,7 @@ const FeaturedForYou = () => {
                     id={playlist.id}
                     title={playlist.title}
                     description={playlist.description || ""}
-                    imageUrl={playlist.cover_url || playlist.image_url || "/placeholder-playlist.jpg"}
+                    imageUrl={playlist.image_url || "/placeholder-playlist.jpg"}
                   />
                 </div>
               ))
