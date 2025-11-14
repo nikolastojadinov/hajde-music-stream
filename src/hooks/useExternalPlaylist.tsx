@@ -30,25 +30,49 @@ export const useExternalPlaylist = (playlistId: string) => {
       // Fetch playlist details
       const { data: playlistData, error: playlistError } = await externalSupabase
         .from('playlists')
-        .select('id, title, description, category, cover_url')
+        .select('*')
         .eq('id', playlistId)
         .single();
 
       if (playlistError) throw playlistError;
 
-      // Fetch tracks for this playlist using playlist_cover instead of playlist_id
-      const { data: tracksData, error: tracksError } = await externalSupabase
-        .from('tracks')
-        .select('*')
-        .eq('playlist_cover', playlistData.cover_url)
-        .order('created_at', { ascending: true });
+      // Fetch tracks through playlist_tracks junction table
+      const { data: playlistTracks, error: tracksError } = await externalSupabase
+        .from('playlist_tracks')
+        .select(`
+          position,
+          tracks (
+            id,
+            title,
+            artist,
+            cover_url,
+            duration,
+            external_id
+          )
+        `)
+        .eq('playlist_id', playlistId)
+        .order('position', { ascending: true });
 
       if (tracksError) throw tracksError;
 
+      // Map tracks to expected format
+      const tracks = (playlistTracks || []).map((pt: any) => ({
+        id: pt.tracks.id,
+        title: pt.tracks.title,
+        artist: pt.tracks.artist,
+        youtube_id: pt.tracks.external_id,
+        duration: pt.tracks.duration,
+        image_url: pt.tracks.cover_url,
+        playlist_id: playlistId,
+      }));
+
       return {
-        ...playlistData,
+        id: playlistData.id,
+        title: playlistData.title,
+        description: playlistData.description,
+        category: playlistData.category,
         image_url: playlistData.cover_url,
-        tracks: tracksData || [],
+        tracks,
       };
     },
     enabled: Boolean(playlistId),
