@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { externalSupabase } from '@/lib/externalSupabase';
+import { supabase } from '@/integrations/supabase/client';
 
 export interface CatalogPlaylist {
   id: string;
@@ -43,9 +43,9 @@ export function useCatalogSearch(searchTerm: string) {
     setIsLoading(true);
     
     try {
-      const { data, error } = await externalSupabase
+      const { data, error } = await supabase
         .from('playlists')
-        .select('id, title, cover_url')
+        .select('id, title, cover_url, image_url')
         .ilike('title', `%${trimmedTerm}%`)
         .range(currentOffset, currentOffset + RESULTS_PER_PAGE);
 
@@ -60,7 +60,7 @@ export function useCatalogSearch(searchTerm: string) {
         id: playlist.id,
         title: playlist.title,
         track_count: 25,
-        image_url: playlist.cover_url,
+        image_url: playlist.cover_url || playlist.image_url,
       }));
 
       console.log('✅ Processed:', playlists.length, 'playlists');
