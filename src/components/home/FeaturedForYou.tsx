@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { externalSupabase } from "@/lib/externalSupabase";
+import { supabase } from "@/integrations/supabase/client";
 import PlaylistCard from "@/components/PlaylistCard";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -15,33 +15,23 @@ const FeaturedForYou = () => {
   const { data: playlists, isLoading, error } = useQuery({
     queryKey: ["featured-playlists"],
     queryFn: async () => {
-      // First, get playlists that have tracks in playlist_tracks junction table
-      const { data: playlistsWithTracks, error: junctionError } = await externalSupabase
-        .from("playlist_tracks")
-        .select("playlist_id")
-        .limit(1000);
+      const featuredIds = [
+        "7ee9ab59-ed8b-4afc-948b-9ab01b8d25cc",
+        "b176d691-9f3a-4965-900c-51df898a01ca",
+        "940157cd-e749-4401-84ea-c5e923f75768",
+        "919bc5f5-71ec-423d-81a3-f7a22aa05ca7",
+        "bec4dca2-2b80-41f6-82c8-0dc056c9cd82",
+        "b4506e1a-5141-4a2a-8460-84ef97c96ec7",
+        "8add5f32-ef1a-406d-bbf9-4d028337c59b",
+        "d46c18a1-c0bd-4be8-8aeb-039d0dfe82df"
+      ];
 
-      if (junctionError) throw junctionError;
-
-      // Get unique playlist IDs that have tracks
-      const uniquePlaylistIds = [...new Set(playlistsWithTracks?.map((pt: any) => pt.playlist_id) || [])];
-      
-      console.log(`Found ${uniquePlaylistIds.length} playlists with tracks`);
-
-      if (uniquePlaylistIds.length === 0) {
-        return [];
-      }
-
-      // Now fetch only those playlists
-      const { data, error } = await externalSupabase
+      const { data, error } = await supabase
         .from("playlists")
         .select("id, title, description, cover_url")
-        .in("id", uniquePlaylistIds.slice(0, 20))
-        .order("item_count", { ascending: false })
-        .limit(20);
+        .in("id", featuredIds);
 
       if (error) throw error;
-      console.log(`Showing ${data?.length} playlists on home page`);
       return data as Playlist[];
     },
   });
