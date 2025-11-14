@@ -47,12 +47,20 @@ export const useExternalPlaylist = (playlistId: string) => {
         throw new Error('Playlist not found');
       }
 
-      // Fetch tracks from external Supabase using playlist_cover
-      const { data: tracksData, error: tracksError } = await externalSupabase
+      // Fetch tracks - try playlist_cover first, fallback to all tracks
+      let tracksData = null;
+      let tracksError = null;
+      
+      // First try with playlist_cover if it exists
+      const playlistCoverQuery = await externalSupabase
         .from('tracks')
         .select('*')
         .eq('playlist_cover', playlistData.cover_url)
         .order('created_at', { ascending: true });
+      
+      // If no tracks found with playlist_cover, return empty array
+      tracksData = playlistCoverQuery.data;
+      tracksError = playlistCoverQuery.error;
 
       if (tracksError) {
         console.error('Tracks fetch error:', tracksError);
