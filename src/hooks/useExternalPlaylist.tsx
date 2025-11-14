@@ -30,7 +30,7 @@ export const useExternalPlaylist = (playlistId: string) => {
       // Fetch playlist details
       const { data: playlistData, error: playlistError } = await externalSupabase
         .from('playlists')
-        .select('id, title, description, category, cover_url')
+        .select('id, title, description, category')
         .eq('id', playlistId)
         .single();
 
@@ -47,7 +47,7 @@ export const useExternalPlaylist = (playlistId: string) => {
 
       return {
         ...playlistData,
-        image_url: playlistData.cover_url,
+        image_url: tracksData?.[0]?.image_url || null,
         tracks: tracksData || [],
       };
     },
