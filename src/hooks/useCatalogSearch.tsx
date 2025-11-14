@@ -2,20 +2,31 @@ import { useState, useEffect, useRef } from 'react';
 import { externalSupabase } from '@/lib/externalSupabase';
 
 export interface CatalogPlaylist {
+  type: 'playlist';
   id: string;
   title: string;
   track_count: number;
   image_url: string | null;
 }
 
+export interface CatalogTrack {
+  type: 'track';
+  id: string;
+  title: string;
+  artist: string;
+  image_url: string | null;
+}
+
+export type CatalogResult = CatalogPlaylist | CatalogTrack;
+
 const RESULTS_PER_PAGE = 12;
 
 export function useCatalogSearch(searchTerm: string) {
-  const [results, setResults] = useState<CatalogPlaylist[]>([]);
+  const [results, setResults] = useState<CatalogResult[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const offsetRef = useRef(0);
-  const cacheRef = useRef<Map<string, { data: CatalogPlaylist[], timestamp: number }>>(new Map());
+  const cacheRef = useRef<Map<string, { data: CatalogResult[], timestamp: number }>>(new Map());
 
   const CACHE_DURATION = 5 * 60 * 1000; // 5 minuta
 
@@ -43,30 +54,54 @@ export function useCatalogSearch(searchTerm: string) {
     setIsLoading(true);
     
     try {
-      const { data, error } = await externalSupabase
+      // Pretraga playlista
+      const { data: playlistsData, error: playlistsError } = await externalSupabase
         .from('playlists')
         .select('id, title, cover_url')
         .ilike('title', `%${trimmedTerm}%`)
         .range(currentOffset, currentOffset + RESULTS_PER_PAGE);
 
-      console.log('📦 Got data:', data?.length, 'items');
+      // Pretraga pesama
+      const { data: tracksData, error: tracksError } = await externalSupabase
+        .from('tracks')
+        .select('id, title, artist, cover_url')
+        .ilike('title', `%${trimmedTerm}%`)
+        .range(currentOffset, currentOffset + RESULTS_PER_PAGE);
 
-      if (error) {
-        console.error('❌ Error:', error);
-        throw error;
+      console.log('📦 Got playlists:', playlistsData?.length, 'tracks:', tracksData?.length);
+
+      if (playlistsError) {
+        console.error('❌ Playlists error:', playlistsError);
+        throw playlistsError;
       }
 
-      const playlists = (data || []).map(playlist => ({
+      if (tracksError) {
+        console.error('❌ Tracks error:', tracksError);
+        throw tracksError;
+      }
+
+      const playlists: CatalogPlaylist[] = (playlistsData || []).map(playlist => ({
+        type: 'playlist' as const,
         id: playlist.id,
         title: playlist.title,
         track_count: 25,
         image_url: playlist.cover_url,
       }));
 
-      console.log('✅ Processed:', playlists.length, 'playlists');
+      const tracks: CatalogTrack[] = (tracksData || []).map(track => ({
+        type: 'track' as const,
+        id: track.id,
+        title: track.title,
+        artist: track.artist,
+        image_url: track.cover_url,
+      }));
+
+      const combined = [...playlists, ...tracks];
+
+      console.log('✅ Processed:', playlists.length, 'playlists,', tracks.length, 'tracks');
       
       setResults(prev => {
-        const newResults = currentOffset === 0 ? playlists : [...prev, ...playlists];
+        const newResults = currentOffset === 0 ? combined : [...prev, ...combined];
         console.log('📊 Total results now:', newResults.length);
         
         // Sačuvaj u cache samo za prvi offset
@@ -80,7 +115,7 @@ export function useCatalogSearch(searchTerm: string) {
         return newResults;
       });
       
-      setHasMore(playlists.length === RESULTS_PER_PAGE + 1);
+      setHasMore(combined.length === RESULTS_PER_PAGE + 1);
       offsetRef.current = currentOffset + RESULTS_PER_PAGE;
       
     } catch (e) {
