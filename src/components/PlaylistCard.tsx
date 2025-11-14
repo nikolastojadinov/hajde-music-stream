@@ -1,7 +1,7 @@
 import { Play } from "lucide-react";
 import { Link } from "react-router-dom";
 import { usePlayer } from "@/contexts/PlayerContext";
-import { supabase } from "@/integrations/supabase/client";
+import { externalSupabase } from "@/lib/externalSupabase";
 
 interface PlaylistCardProps {
   id: string;
@@ -17,11 +17,50 @@ const PlaylistCard = ({ id, title, description, imageUrl }: PlaylistCardProps) =
     e.preventDefault();
     e.stopPropagation();
     
-    const { data: tracks } = await supabase
-      .from("tracks")
-      .select("youtube_id, title, artist")
-      .eq("playlist_id", id)
-      .order("created_at", { ascending: true });
+    // Try multiple methods to fetch tracks from external database
+    let tracks = null;
+    
+    // Method 1: Try playlist_tracks junction table
+    const playlistTracksResult = await externalSupabase
+      .from('playlist_tracks')
+      .select(`
+        position,
+        tracks (
+          id,
+          title,
+          artist,
+          external_id
+        )
+      `)
+      .eq('playlist_id', id)
+      .order('position', { ascending: true });
+    
+    if (playlistTracksResult.data && playlistTracksResult.data.length > 0) {
+      tracks = playlistTracksResult.data
+        .filter((pt: any) => pt.tracks)
+        .map((pt: any) => ({
+          youtube_id: pt.tracks.external_id,
+          title: pt.tracks.title,
+          artist: pt.tracks.artist
+        }));
+    }
+    
+    // Method 2: Try direct playlist_id in tracks table
+    if (!tracks || tracks.length === 0) {
+      const directResult = await externalSupabase
+        .from('tracks')
+        .select('external_id, title, artist')
+        .eq('playlist_id', id)
+        .order('created_at', { ascending: true });
+      
+      if (directResult.data && directResult.data.length > 0) {
+        tracks = directResult.data.map((t: any) => ({
+          youtube_id: t.external_id,
+          title: t.title,
+          artist: t.artist
+        }));
+      }
+    }
     
     if (tracks && tracks.length > 0) {
       playPlaylist(tracks, 0);
