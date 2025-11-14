@@ -4,7 +4,7 @@ import { usePlayer } from "@/contexts/PlayerContext";
 import { supabase } from "@/integrations/supabase/client";
 
 interface PlaylistCardProps {
-  id: string | number;
+  id: string;
   title: string;
   description: string;
   imageUrl?: string;

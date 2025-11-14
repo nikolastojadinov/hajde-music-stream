@@ -7,22 +7,22 @@ const Library = () => {
   const { t } = useLanguage();
   
   const playlists = [
-    { id: 1, title: "Moja Plejlista #1", description: "50 pesama" },
-    { id: 2, title: "Chill Vibes", description: "32 pesme" },
-    { id: 3, title: "Workout Mix", description: "45 pesama" },
-    { id: 4, title: "Party Hits", description: "67 pesama" },
+    { id: "1", title: "Moja Plejlista #1", description: "50 pesama" },
+    { id: "2", title: "Chill Vibes", description: "32 pesme" },
+    { id: "3", title: "Workout Mix", description: "45 pesama" },
+    { id: "4", title: "Party Hits", description: "67 pesama" },
   ];
 
   const albums = [
-    { id: 1, title: "Album 1", description: "Izvođač 1 • 2023" },
-    { id: 2, title: "Album 2", description: "Izvođač 2 • 2023" },
-    { id: 3, title: "Album 3", description: "Izvođač 3 • 2024" },
+    { id: "1", title: "Album 1", description: "Izvođač 1 • 2023" },
+    { id: "2", title: "Album 2", description: "Izvođač 2 • 2023" },
+    { id: "3", title: "Album 3", description: "Izvođač 3 • 2024" },
   ];
 
   const artists = [
-    { id: 1, title: "Izvođač 1", description: "1.2M pratilaca" },
-    { id: 2, title: "Izvođač 2", description: "856K pratilaca" },
-    { id: 3, title: "Izvođač 3", description: "2.1M pratilaca" },
+    { id: "1", title: "Izvođač 1", description: "1.2M pratilaca" },
+    { id: "2", title: "Izvođač 2", description: "856K pratilaca" },
+    { id: "3", title: "Izvođač 3", description: "2.1M pratilaca" },
   ];
 
   return (

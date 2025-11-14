@@ -12,7 +12,7 @@ interface Track {
   youtube_id: string;
   title: string;
   artist: string;
-  duration: number;
+  duration: number | null;
   image_url: string | null;
 }
 
