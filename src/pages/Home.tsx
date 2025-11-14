@@ -1,4 +1,5 @@
 import PlaylistCard from "@/components/PlaylistCard";
+import FeaturedForYou from "@/components/home/FeaturedForYou";
 import { Search as SearchIcon } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
@@ -11,19 +12,13 @@ const Home = () => {
   const { t } = useLanguage();
   const navigate = useNavigate();
   
-  // Fetch different categories from Supabase
-  const { data: featuredPlaylists, isLoading: isLoadingFeatured } = usePlaylists("featured");
+  // Fetch different categories from Supabase (excluding featured - now handled by FeaturedForYou component)
   const { data: recentPlaylists, isLoading: isLoadingRecent } = usePlaylists("recent");
   const { data: popularPlaylists, isLoading: isLoadingPopular } = usePlaylists("popular");
   const { data: moodPlaylists, isLoading: isLoadingMood } = usePlaylists("mood");
   const { data: genrePlaylists, isLoading: isLoadingGenre } = usePlaylists("genre");
   
   const categories = [
-    {
-      title: t("featured_for_you"),
-      playlists: featuredPlaylists || [],
-      isLoading: isLoadingFeatured,
-    },
     {
       title: t("recently_played"),
       playlists: recentPlaylists || [],
@@ -72,7 +67,12 @@ const Home = () => {
           </p>
         </div>
 
-        {/* Categories with horizontal scroll */}
+        {/* Featured For You Section */}
+        <div className="mb-8 md:mb-12 animate-slide-up">
+          <FeaturedForYou />
+        </div>
+
+        {/* Other Categories with horizontal scroll */}
         {categories.map((category, index) => (
           <section key={index} className="mb-8 md:mb-12 animate-slide-up">
             <h2 className="text-xl md:text-2xl font-bold mb-4 md:mb-6">{category.title}</h2>
