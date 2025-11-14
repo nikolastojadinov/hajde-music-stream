@@ -1,15 +1,73 @@
+"use client";
+
 import { Play, Heart, MoreHorizontal, Clock } from "lucide-react";
 import { useParams } from "react-router-dom";
-import { useLanguage } from "@/contexts/LanguageContext";
-import { usePlaylist } from "@/hooks/usePlaylist";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePlayer } from "@/contexts/PlayerContext";
 
+interface Track {
+  id: string;
+  title: string;
+  artist: string;
+  duration: number;
+  cover_url: string | null;
+}
+
+interface PlaylistTrack {
+  position: number;
+  tracks: Track;
+}
+
+interface Playlist {
+  id: string;
+  title: string;
+  description: string | null;
+  cover_url: string | null;
+}
+
+interface PlaylistWithTracks extends Playlist {
+  tracks: Track[];
+}
+
 const Playlist = () => {
-  const { t } = useLanguage();
   const { id } = useParams();
-  const { data: playlist, isLoading } = usePlaylist(id);
   const { playTrack, playPlaylist } = usePlayer();
+
+  const { data: playlist, isLoading, error } = useQuery({
+    queryKey: ["playlist", id],
+    queryFn: async (): Promise<PlaylistWithTracks> => {
+      if (!id) throw new Error("Playlist ID is required");
+
+      // Fetch playlist data
+      const { data: playlistData, error: playlistError } = await supabase
+        .from("playlists")
+        .select("id, title, description, cover_url")
+        .eq("id", id)
+        .single();
+
+      if (playlistError) throw playlistError;
+
+      // Fetch tracks with proper join and ordering
+      const { data: playlistTracks, error: tracksError } = await supabase
+        .from("playlist_tracks")
+        .select("position, tracks(id, title, artist, duration, cover_url)")
+        .eq("playlist_id", id)
+        .order("position", { ascending: true });
+
+      if (tracksError) throw tracksError;
+
+      // Transform the data structure
+      const tracks = (playlistTracks as PlaylistTrack[])?.map(pt => pt.tracks) || [];
+
+      return {
+        ...playlistData,
+        tracks,
+      };
+    },
+    enabled: !!id,
+  });
 
   const formatDuration = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -17,10 +75,11 @@ const Playlist = () => {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
+  // Loading state
   if (isLoading) {
     return (
       <div className="flex-1 overflow-y-auto pb-32">
-        <div className="relative h-80 bg-gradient-to-b from-primary/40 to-background p-8 flex items-end">
+        <div className="relative h-80 bg-gradient-to-b from-purple-900/40 to-background p-8 flex items-end">
           <div className="flex items-end gap-6">
             <Skeleton className="w-56 h-56 rounded-lg" />
             <div className="pb-4 space-y-3">
@@ -34,37 +93,45 @@ const Playlist = () => {
     );
   }
 
-  if (!playlist) {
+  // Error state
+  if (error || !playlist) {
     return (
       <div className="flex-1 overflow-y-auto pb-32 flex items-center justify-center">
-        <p className="text-muted-foreground">{t("playlist_not_found") || "Playlist not found"}</p>
+        <div className="text-center">
+          <h2 className="text-2xl font-bold mb-2">Playlist Not Found</h2>
+          <p className="text-muted-foreground">
+            The playlist you're looking for doesn't exist or has been removed.
+          </p>
+        </div>
       </div>
     );
   }
 
+  const cover = playlist.cover_url || "/placeholder.svg";
+
   return (
     <div className="flex-1 overflow-y-auto pb-32">
-      {/* Header with gradient */}
-      <div className="relative h-80 bg-gradient-to-b from-primary/40 to-background p-8 flex items-end animate-fade-in">
+      {/* Header with gradient - Dark purple theme */}
+      <div className="relative h-80 bg-gradient-to-b from-purple-900/40 to-background p-8 flex items-end animate-fade-in">
         <div className="flex items-end gap-6">
-          <div className="w-56 h-56 bg-gradient-to-br from-primary/30 to-primary/10 rounded-lg shadow-2xl flex-shrink-0 overflow-hidden">
-            {playlist.image_url ? (
-              <img 
-                src={playlist.image_url} 
-                alt={playlist.title} 
-                className="w-full h-full object-cover"
-              />
-            ) : (
-              <div className="w-full h-full bg-gradient-to-br from-primary/30 to-primary/10" />
-            )}
+          <div className="w-56 h-56 bg-gradient-to-br from-purple-600/30 to-purple-900/10 rounded-lg shadow-2xl flex-shrink-0 overflow-hidden">
+            <img 
+              src={cover} 
+              alt={playlist.title} 
+              className="w-full h-full object-cover"
+              onError={(e) => {
+                (e.target as HTMLImageElement).src = "/placeholder.svg";
+              }}
+            />
           </div>
           <div className="pb-4">
-            <p className="text-sm font-semibold mb-2 uppercase tracking-wider">{t("playlist")}</p>
+            <p className="text-sm font-semibold mb-2 uppercase tracking-wider text-purple-300">
+              Playlist
+            </p>
             <h1 className="text-6xl font-bold mb-4">{playlist.title}</h1>
             <p className="text-muted-foreground mb-2">{playlist.description}</p>
             <div className="flex items-center gap-2 text-sm">
-              <span className="font-semibold">{playlist.category}</span>
-              <span className="text-muted-foreground">• {playlist.tracks.length} {t("songs")}</span>
+              <span className="text-muted-foreground">{playlist.tracks.length} songs</span>
             </div>
           </div>
         </div>
@@ -73,16 +140,21 @@ const Playlist = () => {
       {/* Controls */}
       <div className="bg-background/95 backdrop-blur-sm sticky top-0 z-10 px-8 py-6 flex items-center gap-6 animate-slide-up">
         <button 
-          onClick={() => playPlaylist(playlist.tracks.map(t => ({ 
-            youtube_id: t.youtube_id, 
-            title: t.title, 
-            artist: t.artist 
-          })))}
-          className="w-14 h-14 bg-primary rounded-full flex items-center justify-center hover:scale-105 transition-transform shadow-lg"
+          onClick={() => {
+            if (playlist.tracks.length > 0) {
+              const tracksArray = playlist.tracks.map(t => ({ 
+                youtube_id: t.id, // Assuming track id maps to youtube_id
+                title: t.title, 
+                artist: t.artist 
+              }));
+              playPlaylist(tracksArray);
+            }
+          }}
+          className="w-14 h-14 bg-purple-600 hover:bg-purple-700 rounded-full flex items-center justify-center hover:scale-105 transition-transform shadow-lg"
         >
-          <Play className="w-6 h-6 text-background fill-current ml-0.5" />
+          <Play className="w-6 h-6 text-white fill-current ml-0.5" />
         </button>
-        <button className="text-muted-foreground hover:text-primary transition-colors">
+        <button className="text-muted-foreground hover:text-purple-400 transition-colors">
           <Heart className="w-8 h-8" />
         </button>
         <button className="text-muted-foreground hover:text-foreground transition-colors">
@@ -90,12 +162,12 @@ const Playlist = () => {
         </button>
       </div>
 
-      {/* Song list */}
+      {/* Track list */}
       <div className="px-8 pb-8">
         <div className="grid grid-cols-[16px_minmax(0,1fr)_3fr_minmax(120px,1fr)] gap-4 px-4 py-2 text-sm text-muted-foreground border-b border-border mb-2">
           <div>#</div>
-          <div>{t("title")}</div>
-          <div>{t("artist") || "Artist"}</div>
+          <div>Title</div>
+          <div>Artist</div>
           <div className="flex justify-end">
             <Clock className="w-4 h-4" />
           </div>
@@ -104,7 +176,7 @@ const Playlist = () => {
         <div className="space-y-1">
           {playlist.tracks.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
-              {t("no_tracks") || "No tracks in this playlist"}
+              No tracks in this playlist
             </div>
           ) : (
             playlist.tracks.map((track, index) => (
@@ -112,29 +184,32 @@ const Playlist = () => {
                 key={track.id}
                 onClick={() => {
                   const tracksArray = playlist.tracks.map(t => ({
-                    youtube_id: t.youtube_id,
+                    youtube_id: t.id, // Assuming track id maps to youtube_id
                     title: t.title,
                     artist: t.artist
                   }));
                   playPlaylist(tracksArray, index);
                 }}
-                className="grid grid-cols-[16px_minmax(0,1fr)_3fr_minmax(120px,1fr)] gap-4 px-4 py-3 rounded-md hover:bg-secondary/50 group cursor-pointer transition-colors"
+                className="grid grid-cols-[16px_minmax(0,1fr)_3fr_minmax(120px,1fr)] gap-4 px-4 py-3 rounded-md hover:bg-purple-900/20 group cursor-pointer transition-colors"
               >
                 <div className="flex items-center text-muted-foreground group-hover:text-foreground">
                   {index + 1}
                 </div>
                 <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-10 h-10 rounded overflow-hidden flex-shrink-0 bg-muted">
-                    {track.image_url && (
+                  <div className="w-10 h-10 rounded overflow-hidden flex-shrink-0 bg-purple-900/20">
+                    {track.cover_url && (
                       <img 
-                        src={track.image_url} 
+                        src={track.cover_url} 
                         alt={track.title}
                         className="w-full h-full object-cover"
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).style.display = 'none';
+                        }}
                       />
                     )}
                   </div>
                   <div className="min-w-0">
-                    <p className="font-medium truncate group-hover:text-primary transition-colors">
+                    <p className="font-medium truncate group-hover:text-purple-400 transition-colors">
                       {track.title}
                     </p>
                     <p className="text-sm text-muted-foreground truncate">{track.artist}</p>
