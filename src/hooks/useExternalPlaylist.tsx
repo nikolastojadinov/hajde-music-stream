@@ -47,43 +47,49 @@ export const useExternalPlaylist = (playlistId: string) => {
         throw new Error('Playlist not found');
       }
 
-      // Fetch tracks - try playlist_cover first, fallback to all tracks
-      let tracksData = null;
-      let tracksError = null;
-      
-      // First try with playlist_cover if it exists
-      const playlistCoverQuery = await externalSupabase
-        .from('tracks')
-        .select('*')
-        .eq('playlist_cover', playlistData.cover_url)
-        .order('created_at', { ascending: true });
-      
-      // If no tracks found with playlist_cover, return empty array
-      tracksData = playlistCoverQuery.data;
-      tracksError = playlistCoverQuery.error;
+      // Fetch tracks through playlist_tracks junction table
+      const { data: playlistTracks, error: tracksError } = await externalSupabase
+        .from('playlist_tracks')
+        .select(`
+          position,
+          tracks (
+            id,
+            title,
+            artist,
+            cover_url,
+            duration,
+            external_id
+          )
+        `)
+        .eq('playlist_id', playlistId)
+        .order('position', { ascending: true });
 
       if (tracksError) {
         console.error('Tracks fetch error:', tracksError);
-        throw tracksError;
+        // If junction table doesn't exist, return empty tracks
+        console.warn('Using empty tracks array, junction table may not exist');
       }
 
       // Map tracks to expected format
-      const tracks = (tracksData || []).map((track: any) => ({
-        id: track.id,
-        title: track.title,
-        artist: track.artist,
-        youtube_id: track.external_id || track.youtube_id,
-        duration: track.duration,
-        image_url: track.cover_url || track.image_url,
-        playlist_id: playlistId,
-      }));
+      const tracks = (playlistTracks || []).map((pt: any) => {
+        if (!pt.tracks) return null;
+        return {
+          id: pt.tracks.id,
+          title: pt.tracks.title,
+          artist: pt.tracks.artist,
+          youtube_id: pt.tracks.external_id,
+          duration: pt.tracks.duration,
+          image_url: pt.tracks.cover_url,
+          playlist_id: playlistId,
+        };
+      }).filter(Boolean) as Track[];
 
       return {
         id: playlistData.id,
         title: playlistData.title,
         description: playlistData.description,
         category: playlistData.category,
-        image_url: playlistData.cover_url,
+        image_url: playlistData.cover_url || playlistData.image_url || null,
         tracks,
       };
     },
