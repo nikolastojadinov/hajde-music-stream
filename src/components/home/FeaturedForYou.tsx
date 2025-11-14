@@ -10,7 +10,7 @@ interface Playlist {
   id: string;
   title: string;
   description: string | null;
-  cover_url: string | null;
+  image_url: string | null;
 }
 
 const FEATURED_PLAYLIST_IDS = [
@@ -28,38 +28,23 @@ const FeaturedForYou = () => {
   const { data: playlists, isLoading, error } = useQuery({
     queryKey: ["featured-playlists"],
     queryFn: async () => {
-      console.log("Fetching featured playlists with IDs:", FEATURED_PLAYLIST_IDS);
-      
       const { data, error } = await supabase
         .from("playlists")
-        .select("id, title, description, cover_url")
+        .select("id, title, description, image_url")
         .in("id", FEATURED_PLAYLIST_IDS);
 
-      if (error) {
-        console.error("Supabase error:", error);
-        throw error;
-      }
+      if (error) throw error;
       
-      console.log("Fetched playlists:", data);
-      
-      // Sort playlists to match the order of FEATURED_PLAYLIST_IDS
       const sortedData = FEATURED_PLAYLIST_IDS.map(id => {
         const playlist = data?.find(p => p.id === id);
-        if (!playlist) {
-          console.warn(`Playlist with ID ${id} not found in database`);
-        }
         return playlist;
       }).filter((playlist): playlist is Playlist => playlist !== undefined);
       
-      console.log("Sorted playlists:", sortedData);
       return sortedData;
     },
   });
 
-  console.log("FeaturedForYou render - isLoading:", isLoading, "error:", error, "playlists:", playlists);
-
   if (error) {
-    console.error("Error fetching featured playlists:", error);
     return (
       <div className="space-y-4">
         <h2 className="text-2xl font-bold text-white px-4 md:px-8">
@@ -100,7 +85,7 @@ const FeaturedForYou = () => {
                     id={playlist.id}
                     title={playlist.title}
                     description={playlist.description || ""}
-                    imageUrl={playlist.cover_url || "/placeholder.svg"}
+                    imageUrl={playlist.image_url || "/placeholder.svg"}
                   />
                 </div>
               ))

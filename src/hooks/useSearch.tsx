@@ -60,12 +60,6 @@ export function useSearch(searchTerm: string) {
       const tracks = (tracksRes.data || []) as Track[];
       const playlists = (playlistsRes.data || []) as Playlist[];
 
-      console.log('Search results (full database):', { 
-        term: searchTerm, 
-        trackCount: tracks.length, 
-        playlistCount: playlists.length 
-      });
-
       return { tracks, playlists };
     },
   });
