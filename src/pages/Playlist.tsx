@@ -11,16 +11,20 @@ interface Track {
   id: string;
   title: string;
   artist: string;
-  duration: number | null;
-  image_url: string | null;
-  youtube_id: string;
+  duration: number;
+  cover_url: string | null;
+}
+
+interface PlaylistTrack {
+  position: number;
+  tracks: Track;
 }
 
 interface Playlist {
   id: string;
   title: string;
   description: string | null;
-  image_url: string | null;
+  cover_url: string | null;
 }
 
 interface PlaylistWithTracks extends Playlist {
@@ -36,27 +40,59 @@ const Playlist = () => {
     queryFn: async (): Promise<PlaylistWithTracks> => {
       if (!id) throw new Error("Playlist ID is required");
 
+      console.log("Fetching playlist with ID:", id);
+
       // Fetch playlist data
       const { data: playlistData, error: playlistError } = await supabase
         .from("playlists")
-        .select("id, title, description, image_url")
+        .select("id, title, description, cover_url")
         .eq("id", id)
         .single();
 
-      if (playlistError) throw playlistError;
+      if (playlistError) {
+        console.error("Playlist error:", playlistError);
+        throw playlistError;
+      }
 
-      // Fetch tracks directly from tracks table
-      const { data: tracks, error: tracksError } = await supabase
-        .from("tracks")
-        .select("id, title, artist, duration, image_url, youtube_id")
+      console.log("Playlist data:", playlistData);
+
+      // Fetch tracks with proper join and ordering
+      const { data: playlistTracks, error: tracksError } = await supabase
+        .from("playlist_tracks")
+        .select("position, tracks(id, title, artist, duration, cover_url)")
         .eq("playlist_id", id)
-        .order("created_at", { ascending: true });
+        .order("position", { ascending: true });
 
-      if (tracksError) throw tracksError;
+      if (tracksError) {
+        console.error("Tracks error:", tracksError);
+        // If playlist_tracks table doesn't exist or is empty, try direct tracks table
+        const { data: directTracks, error: directTracksError } = await supabase
+          .from("tracks")
+          .select("id, title, artist, duration, cover_url")
+          .eq("playlist_id", id)
+          .order("created_at", { ascending: true });
+
+        if (directTracksError) {
+          console.error("Direct tracks error:", directTracksError);
+          throw directTracksError;
+        }
+
+        console.log("Direct tracks data:", directTracks);
+
+        return {
+          ...playlistData,
+          tracks: directTracks || [],
+        };
+      }
+
+      // Transform the data structure from playlist_tracks join
+      const tracks = (playlistTracks as PlaylistTrack[])?.map(pt => pt.tracks) || [];
+      
+      console.log("Playlist tracks data:", tracks);
 
       return {
         ...playlistData,
-        tracks: tracks || [],
+        tracks,
       };
     },
     enabled: !!id,
@@ -101,7 +137,7 @@ const Playlist = () => {
     );
   }
 
-  const cover = playlist.image_url || "/placeholder.svg";
+  const cover = playlist.cover_url || "/placeholder.svg";
 
   return (
     <div className="flex-1 overflow-y-auto pb-32">
@@ -139,7 +175,7 @@ const Playlist = () => {
           onClick={() => {
             if (playlist.tracks.length > 0) {
               const tracksArray = playlist.tracks.map(t => ({ 
-                youtube_id: t.youtube_id,
+                youtube_id: t.id, // Assuming track id maps to youtube_id
                 title: t.title, 
                 artist: t.artist 
               }));
@@ -193,9 +229,9 @@ const Playlist = () => {
                 </div>
                 <div className="flex items-center gap-3 min-w-0">
                   <div className="w-10 h-10 rounded overflow-hidden flex-shrink-0 bg-purple-900/20">
-                    {track.image_url && (
+                    {track.cover_url && (
                       <img 
-                        src={track.image_url} 
+                        src={track.cover_url} 
                         alt={track.title}
                         className="w-full h-full object-cover"
                         onError={(e) => {

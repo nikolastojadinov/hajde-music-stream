@@ -14,37 +14,62 @@ interface Playlist {
 }
 
 const FEATURED_PLAYLIST_IDS = [
-  "78c6d20d-f8ee-43d6-954f-a0723761c2ac", // Rock Classics
-  "ecb9716f-ab8d-47bf-b652-1c5ca61fed4c", // Hard Rock Anthems
-  "6325b238-545d-4aef-ab24-dcd7607ad919", // Alternative Rock
-  "63ecce76-dfa9-4c19-bea3-6ac2937bdccb", // Classic Rock Legends
-  "60d58675-779a-412c-b961-8a549a9f5a7b", // Rock Ballads
-  "2dd12dae-53b1-4d86-a314-c90f4804e48d"  // 90s Rock Hits
+  "7ee9ab59-ed8b-4afc-948b-9ab01b8d25cc",
+  "b176d691-9f3a-4965-900c-51df898a01ca",
+  "940157cd-e749-4401-84ea-c5e923f75768",
+  "919bc5f5-71ec-423d-81a3-f7a22aa05ca7",
+  "bec4dca2-2b80-41f6-82c8-0dc056c9cd82",
+  "b4506e1a-5141-4a2a-8460-84ef97c96ec7",
+  "8add5f32-ef1a-406d-bbf9-4d028337c59b",
+  "d46c18a1-c0bd-4be8-8aeb-039d0dfe82df"
 ];
 
 const FeaturedForYou = () => {
   const { data: playlists, isLoading, error } = useQuery({
     queryKey: ["featured-playlists"],
     queryFn: async () => {
+      console.log("Fetching featured playlists with IDs:", FEATURED_PLAYLIST_IDS);
+      
       const { data, error } = await supabase
         .from("playlists")
         .select("id, title, description, cover_url")
         .in("id", FEATURED_PLAYLIST_IDS);
 
-      if (error) throw error;
+      if (error) {
+        console.error("Supabase error:", error);
+        throw error;
+      }
+      
+      console.log("Fetched playlists:", data);
       
       // Sort playlists to match the order of FEATURED_PLAYLIST_IDS
-      const sortedData = FEATURED_PLAYLIST_IDS.map(id => 
-        data.find(playlist => playlist.id === id)
-      ).filter((playlist): playlist is Playlist => playlist !== undefined);
+      const sortedData = FEATURED_PLAYLIST_IDS.map(id => {
+        const playlist = data?.find(p => p.id === id);
+        if (!playlist) {
+          console.warn(`Playlist with ID ${id} not found in database`);
+        }
+        return playlist;
+      }).filter((playlist): playlist is Playlist => playlist !== undefined);
       
+      console.log("Sorted playlists:", sortedData);
       return sortedData;
     },
   });
 
+  console.log("FeaturedForYou render - isLoading:", isLoading, "error:", error, "playlists:", playlists);
+
   if (error) {
     console.error("Error fetching featured playlists:", error);
-    return null;
+    return (
+      <div className="space-y-4">
+        <h2 className="text-2xl font-bold text-white px-4 md:px-8">
+          featured for you
+        </h2>
+        <div className="px-4 md:px-8 text-red-500">
+          Error loading playlists: {error.message}
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -67,9 +92,9 @@ const FeaturedForYou = () => {
                   </div>
                 </div>
               ))
-            ) : (
+            ) : playlists && playlists.length > 0 ? (
               // Render playlist cards
-              playlists?.map((playlist) => (
+              playlists.map((playlist) => (
                 <div key={playlist.id} className="w-48">
                   <PlaylistCard
                     id={playlist.id}
@@ -79,6 +104,11 @@ const FeaturedForYou = () => {
                   />
                 </div>
               ))
+            ) : (
+              // No playlists found
+              <div className="text-white/60 py-8">
+                No featured playlists found. Please check if the playlists exist in the database.
+              </div>
             )}
           </div>
           <ScrollBar orientation="horizontal" />
