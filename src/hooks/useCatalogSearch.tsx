@@ -96,6 +96,18 @@ export function useCatalogSearch(searchTerm: string) {
         .ilike('title', `%${trimmedTerm}%`)
         .range(currentOffset, currentOffset + RESULTS_PER_PAGE);
 
+      // Filter out empty playlists (playlists with 0 tracks)
+      let filteredPlaylistsData = playlistsData;
+      if (playlistsData && playlistsData.length > 0) {
+        const { data: playlistsWithTracks } = await externalSupabase
+          .from('playlist_tracks')
+          .select('playlist_id')
+          .in('playlist_id', playlistsData.map(p => p.id));
+        
+        const validPlaylistIds = new Set(playlistsWithTracks?.map(pt => pt.playlist_id) || []);
+        filteredPlaylistsData = playlistsData.filter(p => validPlaylistIds.has(p.id));
+      }
+
       // Search tracks by BOTH title AND artist (smart search)
       const { data: tracksData, error: tracksError } = await externalSupabase
         .from('tracks')
@@ -103,7 +115,7 @@ export function useCatalogSearch(searchTerm: string) {
         .or(`title.ilike.%${trimmedTerm}%,artist.ilike.%${trimmedTerm}%`)
         .range(currentOffset, currentOffset + RESULTS_PER_PAGE);
 
-      console.log('📦 Got playlists:', playlistsData?.length, 'tracks:', tracksData?.length);
+      console.log('📦 Got playlists:', filteredPlaylistsData?.length, 'tracks:', tracksData?.length);
 
       if (playlistsError) {
         console.error('❌ Playlists error:', playlistsError);
@@ -115,7 +127,7 @@ export function useCatalogSearch(searchTerm: string) {
         throw tracksError;
       }
 
-      const playlists: CatalogPlaylist[] = (playlistsData || []).map(playlist => ({
+      const playlists: CatalogPlaylist[] = (filteredPlaylistsData || []).map(playlist => ({
         type: 'playlist' as const,
         id: playlist.id,
         title: playlist.title,
