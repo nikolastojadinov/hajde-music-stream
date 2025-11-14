@@ -15,6 +15,8 @@ export function useCatalogSearch(searchTerm: string) {
     const search = async () => {
       const term = searchTerm.trim();
       
+      console.log('🔍 Search started with term:', term);
+      
       if (!term) {
         setResults([]);
         return;
@@ -23,37 +25,33 @@ export function useCatalogSearch(searchTerm: string) {
       setIsLoading(true);
       
       try {
+        console.log('📡 Calling external Supabase...');
+        
         // Search playlists in the external database
         const { data, error } = await externalSupabase
           .from('playlists')
           .select('id, title')
           .ilike('title', `%${term}%`)
-          .limit(100);
+          .limit(50);
 
-        if (error) throw error;
+        console.log('📦 Search response:', { data, error });
 
-        // Count tracks for each playlist
-        const playlistsWithCounts = await Promise.all(
-          (data || []).map(async (playlist) => {
-            const { count } = await externalSupabase
-              .from('tracks')
-              .select('*', { count: 'exact', head: true })
-              .eq('playlist_id', playlist.id);
+        if (error) {
+          console.error('❌ Search error:', error);
+          throw error;
+        }
 
-            return {
-              id: playlist.id,
-              title: playlist.title,
-              track_count: count || 0,
-            };
-          })
-        );
+        // Return results with placeholder track count
+        const playlists = (data || []).map(playlist => ({
+          id: playlist.id,
+          title: playlist.title,
+          track_count: 25, // Placeholder, we'll load actual count on click
+        }));
 
-        // Filter playlists with more than 20 tracks
-        const filtered = playlistsWithCounts.filter(p => p.track_count > 20);
-
-        setResults(filtered);
+        console.log('✅ Found playlists:', playlists.length);
+        setResults(playlists);
       } catch (e) {
-        console.error('Search error:', e);
+        console.error('💥 Search exception:', e);
         setResults([]);
       } finally {
         setIsLoading(false);
