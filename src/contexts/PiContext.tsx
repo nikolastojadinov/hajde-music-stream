@@ -32,39 +32,81 @@ export function PiProvider({ children }: { children: React.ReactNode }) {
     return payment;
   }, []);
 
-  // 1. Initialize Pi SDK
+  // 1. Initialize Pi SDK - wait for it to load
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
-    if (!window.Pi) {
-      setSdkError('Please open this app in Pi Browser to continue');
-      return;
-    }
+    const initSDK = () => {
+      if (!window.Pi) {
+        console.log('[Pi] SDK not available, waiting...');
+        return false;
+      }
 
-    try {
-      const sandbox = import.meta.env.VITE_PI_SANDBOX === 'true';
-      window.Pi.init({ version: '2.0', sandbox });
-      setSdkReady(true);
-    } catch (error) {
-      setSdkError('Failed to initialize Pi SDK');
-    }
+      try {
+        const sandbox = import.meta.env.VITE_PI_SANDBOX === 'true';
+        console.log('[Pi] Initializing SDK v2.0, sandbox:', sandbox);
+        window.Pi.init({ version: '2.0', sandbox });
+        setSdkReady(true);
+        setSdkError(null);
+        console.log('[Pi] SDK initialized successfully');
+        return true;
+      } catch (error) {
+        console.error('[Pi] SDK init error:', error);
+        setSdkError('Failed to initialize Pi SDK');
+        return false;
+      }
+    };
+
+    // Try immediate init
+    if (initSDK()) return;
+
+    // If not ready, poll for SDK
+    const checkInterval = setInterval(() => {
+      if (initSDK()) {
+        clearInterval(checkInterval);
+      }
+    }, 100);
+
+    // Give up after 10 seconds
+    const timeout = setTimeout(() => {
+      clearInterval(checkInterval);
+      if (!window.Pi) {
+        console.error('[Pi] SDK not loaded after 10s');
+        setSdkError('Please open this app in Pi Browser to continue');
+      }
+    }, 10000);
+
+    return () => {
+      clearInterval(checkInterval);
+      clearTimeout(timeout);
+    };
   }, []);
 
   // 2. Auto-login after SDK ready
   useEffect(() => {
     if (!sdkReady || user !== null) return;
 
+    console.log('[Pi] SDK ready, starting auto-login...');
+
     const autoLogin = async () => {
       try {
+        console.log('[Pi] Calling authenticate...');
         const authResult: AuthResult = await window.Pi.authenticate(
           ['username', 'payments'],
           { onIncompletePaymentFound }
         );
 
+        console.log('[Pi] Authenticate result:', { 
+          hasAccessToken: !!authResult?.accessToken,
+          username: authResult?.user?.username 
+        });
+
         if (!authResult?.accessToken) {
+          console.warn('[Pi] No accessToken received');
           return;
         }
 
+        console.log('[Pi] Sending to backend:', `${backendBase}/signin`);
         const res = await fetch(`${backendBase}/signin`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -72,16 +114,24 @@ export function PiProvider({ children }: { children: React.ReactNode }) {
           body: JSON.stringify({ authResult }),
         });
 
-        if (!res.ok) return;
+        console.log('[Pi] Backend response:', res.status);
+        if (!res.ok) {
+          const errorText = await res.text();
+          console.error('[Pi] Backend error:', errorText);
+          return;
+        }
 
         const data = await res.json();
+        console.log('[Pi] Backend data:', data);
+        
         if (data?.user) {
           setUser(data.user);
           setShowWelcomeModal(true);
           setTimeout(() => setShowWelcomeModal(false), 3000);
+          console.log('[Pi] Login successful!');
         }
       } catch (error) {
-        // Silently fail auto-login
+        console.error('[Pi] Auto-login error:', error);
       }
     };
 
