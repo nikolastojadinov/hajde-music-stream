@@ -22,82 +22,90 @@ export default function mountUserEndpoints(router: Router) {
       return res.status(401).json({ error: "Invalid access token" });
     }
 
-    // Upsert user into Supabase users table
-    const { data: existingUser, error: queryError } = await supabase
-      .from('users')
-      .select('*')
-      .eq('pi_uid', auth.user.uid)
-      .single();
-
     let userData;
-    if (existingUser) {
-      // Update existing user
-      const { data, error } = await supabase
-        .from('users')
-        .update({ 
-          username: auth.user.username,
-          updated_at: new Date().toISOString()
-        })
-        .eq('pi_uid', auth.user.uid)
-        .select()
-        .single();
-      
-      if (error) {
-        console.error('[Backend] Error updating user:', error);
-        return res.status(500).json({ error: 'Failed to update user' });
-      }
-      userData = data;
-    } else {
-      // Insert new user
-      const { data, error } = await supabase
-        .from('users')
-        .insert({
-          pi_uid: auth.user.uid,
-          username: auth.user.username,
-          wallet_address: null,
-        })
-        .select()
-        .single();
-      
-      if (error) {
-        console.error('[Backend] Error creating user:', error);
-        return res.status(500).json({ error: 'Failed to create user' });
-      }
-      userData = data;
-    }
 
-    // Create session
-    const sid = randomBytes(24).toString('hex');
-    const { error: sessionError } = await supabase
-      .from('sessions')
-      .insert({ 
-        session_id: sid, 
-        user_id: userData.id,
-        created_at: new Date().toISOString() 
+    try {
+      // Upsert user into Supabase users table
+      const { data: existingUser } = await supabase
+        .from('users')
+        .select('*')
+        .eq('pi_uid', auth.user.uid)
+        .single();
+
+      if (existingUser) {
+        // Update existing user
+        const { data, error } = await supabase
+          .from('users')
+          .update({ 
+            username: auth.user.username,
+            updated_at: new Date().toISOString()
+          })
+          .eq('pi_uid', auth.user.uid)
+          .select()
+          .single();
+        
+        if (error) {
+          console.error('[Backend] Error updating user:', error);
+          return res.status(500).json({ error: 'Failed to update user' });
+        }
+        userData = data;
+      } else {
+        // Insert new user
+        const { data, error } = await supabase
+          .from('users')
+          .insert({
+            pi_uid: auth.user.uid,
+            username: auth.user.username,
+            wallet_address: null,
+          })
+          .select()
+          .single();
+        
+        if (error) {
+          console.error('[Backend] Error creating user:', error);
+          return res.status(500).json({ error: 'Failed to create user' });
+        }
+        userData = data;
+      }
+
+      // Create session
+      const sid = randomBytes(24).toString('hex');
+      const { error: sessionError } = await supabase
+        .from('sessions')
+        .insert({ 
+          session_id: sid, 
+          user_id: userData.id,
+          created_at: new Date().toISOString() 
+        });
+
+      if (sessionError) {
+        console.error('[Backend] Error creating session:', sessionError);
+        return res.status(500).json({ error: 'Failed to create session' });
+      }
+
+      // Set cookie for cross-site usage (Netlify -> Render)
+      res.cookie('sid', sid, {
+        httpOnly: true,
+        secure: true,
+        sameSite: 'none',
+        maxAge: 30 * 24 * 3600 * 1000,
       });
 
-    if (sessionError) {
-      console.error('[Backend] Error creating session:', sessionError);
-      return res.status(500).json({ error: 'Failed to create session' });
+      console.log('[Backend] signin ok');
+      
+      // ALWAYS return user object
+      return res.status(200).json({ 
+        user: {
+          uid: userData.pi_uid,
+          username: userData.username,
+          roles: []
+        },
+        message: "ok"
+      });
+    } catch (err) {
+      console.error('[Backend] Database error:', err);
+      return res.status(500).json({ error: 'Database operation failed' });
     }
-
-    // Set cookie for cross-site usage (Netlify -> Render)
-    res.cookie('sid', sid, {
-      httpOnly: true,
-      secure: true,
-      sameSite: 'none',
-      maxAge: 30 * 24 * 3600 * 1000,
-    });
-
-    console.log('[Backend] Sign-in successful for user:', auth.user.username);
-    return res.status(200).json({ 
-      message: "User signed in",
-      user: {
-        uid: userData.pi_uid,
-        username: userData.username,
-        roles: []
-      }
-    });
   });
 
   // Sign out: delete session row and clear cookie

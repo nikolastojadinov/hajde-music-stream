@@ -41,14 +41,12 @@ app.use(logger('common', {
 // Enable response bodies to be sent as JSON:
 app.use(express.json())
 
-// Handle CORS:
+// Handle CORS - MUST BE BEFORE ROUTES
 app.use(cors({
-  origin: (origin: string | undefined, cb: (err: Error | null, allowed?: boolean) => void) => {
-    const allowed = [env.frontend_url, 'https://sandbox.minepi.com', 'https://minepi.com'];
-    if (!origin) return cb(null, true);
-    if (allowed.includes(origin)) return cb(null, true);
-    return cb(null, false);
-  },
+  origin: [
+    'https://purplemusictestnet.netlify.app',
+    'http://localhost:3000'
+  ],
   credentials: true
 }));
 
