@@ -169,26 +169,33 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           },
           events: {
             onReady: (event: any) => {
+              console.log('🎬 YouTube player ready');
               event.target.setVolume(volume);
               setPlayerReady(true);
               
               if (pendingVideoRef.current) {
-                setCurrentVideoTitle(pendingVideoRef.current.title);
-                setCurrentVideoArtist(pendingVideoRef.current.artist);
-                setCurrentYoutubeId(pendingVideoRef.current.id);
-                event.target.loadVideoById(pendingVideoRef.current.id);
+                const videoToLoad = pendingVideoRef.current;
+                setCurrentVideoTitle(videoToLoad.title);
+                setCurrentVideoArtist(videoToLoad.artist);
+                setCurrentYoutubeId(videoToLoad.id);
                 
-                // Ako postoji sačuvano vreme, pozicioniraj player nakon učitavanja
+                console.log('📼 Loading video:', videoToLoad.id);
+                
+                // Ako postoji sačuvano vreme, koristi startSeconds opciju
                 if (savedSeekTimeRef.current !== null) {
                   const seekTime = savedSeekTimeRef.current;
-                  console.log('⏩ Seeking to saved position:', seekTime);
+                  console.log('⏩ Loading video at position:', seekTime);
                   
-                  // Čekaj da se video učita pre nego što pozicioniraš
-                  setTimeout(() => {
-                    event.target.seekTo(seekTime, true);
-                    event.target.playVideo();
-                    savedSeekTimeRef.current = null;
-                  }, 500);
+                  // loadVideoById sa startSeconds automatski pokreće video od te pozicije
+                  event.target.loadVideoById({
+                    videoId: videoToLoad.id,
+                    startSeconds: seekTime
+                  });
+                  
+                  savedSeekTimeRef.current = null;
+                } else {
+                  // Normalno učitavanje bez seek-a
+                  event.target.loadVideoById(videoToLoad.id);
                 }
                 
                 pendingVideoRef.current = null;
