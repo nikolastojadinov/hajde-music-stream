@@ -114,6 +114,13 @@ export function PiProvider({ children }: { children: React.ReactNode }) {
 
         console.log('[Pi] auth ok');
 
+        console.log('[Pi] Preparing fetch to:', `${backendBase}/user/signin`);
+        console.log('[Pi] Auth result to send:', {
+          hasAccessToken: !!authResult.accessToken,
+          hasUser: !!authResult.user,
+          uid: authResult.user?.uid
+        });
+
         const res = await fetch(`${backendBase}/user/signin`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -121,17 +128,34 @@ export function PiProvider({ children }: { children: React.ReactNode }) {
           body: JSON.stringify({ authResult }),
         });
 
-        console.log('[Pi] Backend response status:', res.status);
+        console.log('[Pi] Fetch completed, status:', res.status);
+        console.log('[Pi] Response headers:', {
+          contentType: res.headers.get('content-type'),
+          setCookie: res.headers.get('set-cookie')
+        });
+
+        console.log('[Pi] Fetch completed, status:', res.status);
+        console.log('[Pi] Response headers:', {
+          contentType: res.headers.get('content-type'),
+          setCookie: res.headers.get('set-cookie')
+        });
 
         if (!res.ok) {
-          const errorText = await res.text();
-          console.error('[Pi] Backend error:', res.status, errorText);
-          setSdkError('Backend authentication failed');
+          console.error('[Pi] Backend returned error status:', res.status);
+          let errorText = '';
+          try {
+            errorText = await res.text();
+            console.error('[Pi] Backend error body:', errorText);
+          } catch (e) {
+            console.error('[Pi] Could not read error body:', e);
+          }
+          setSdkError(`Backend error: ${res.status}`);
           return;
         }
 
+        console.log('[Pi] Response is OK, parsing JSON...');
         const data = await res.json();
-        console.log('[Pi] Backend response data:', data);
+        console.log('[Pi] Backend response data:', JSON.stringify(data, null, 2));
         
         if (data?.user) {
           setUser(data.user);
