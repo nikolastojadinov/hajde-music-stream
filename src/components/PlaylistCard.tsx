@@ -1,7 +1,4 @@
-import { Play } from "lucide-react";
 import { Link } from "react-router-dom";
-import { usePlayer } from "@/contexts/PlayerContext";
-import { externalSupabase } from "@/lib/externalSupabase";
 
 interface PlaylistCardProps {
   id: string;
@@ -11,61 +8,6 @@ interface PlaylistCardProps {
 }
 
 const PlaylistCard = ({ id, title, description, imageUrl }: PlaylistCardProps) => {
-  const { playPlaylist } = usePlayer();
-
-  const handlePlayClick = async (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    
-    // Try multiple methods to fetch tracks from external database
-    let tracks = null;
-    
-    // Method 1: Try playlist_tracks junction table
-    const playlistTracksResult = await externalSupabase
-      .from('playlist_tracks')
-      .select(`
-        position,
-        tracks (
-          id,
-          title,
-          artist,
-          external_id
-        )
-      `)
-      .eq('playlist_id', id)
-      .order('position', { ascending: true });
-    
-    if (playlistTracksResult.data && playlistTracksResult.data.length > 0) {
-      tracks = playlistTracksResult.data
-        .filter((pt: any) => pt.tracks)
-        .map((pt: any) => ({
-          youtube_id: pt.tracks.external_id,
-          title: pt.tracks.title,
-          artist: pt.tracks.artist
-        }));
-    }
-    
-    // Method 2: Try direct playlist_id in tracks table
-    if (!tracks || tracks.length === 0) {
-      const directResult = await externalSupabase
-        .from('tracks')
-        .select('external_id, title, artist')
-        .eq('playlist_id', id)
-        .order('created_at', { ascending: true });
-      
-      if (directResult.data && directResult.data.length > 0) {
-        tracks = directResult.data.map((t: any) => ({
-          youtube_id: t.external_id,
-          title: t.title,
-          artist: t.artist
-        }));
-      }
-    }
-    
-    if (tracks && tracks.length > 0) {
-      playPlaylist(tracks, 0);
-    }
-  };
 
   return (
     <Link
@@ -79,17 +21,6 @@ const PlaylistCard = ({ id, title, description, imageUrl }: PlaylistCardProps) =
           ) : (
             <div className="w-full h-full bg-gradient-to-br from-primary/20 to-primary/5" />
           )}
-          <button 
-            onClick={handlePlayClick}
-            onTouchEnd={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              handlePlayClick(e as any);
-            }}
-            className="absolute bottom-2 right-2 w-12 h-12 bg-primary rounded-full flex items-center justify-center opacity-0 md:opacity-0 md:invisible group-hover:opacity-100 group-hover:visible translate-y-2 group-hover:translate-y-0 transition-all duration-300 hover:scale-105 active:scale-95 border-0 outline-none focus:outline-none shadow-lg touch-auto"
-          >
-            <Play className="w-5 h-5 text-background fill-current ml-0.5" />
-          </button>
         </div>
         <h3 className="font-semibold text-foreground mb-1 truncate">{title}</h3>
         <p className="text-sm text-muted-foreground line-clamp-2">{description}</p>
