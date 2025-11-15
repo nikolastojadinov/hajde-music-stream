@@ -79,7 +79,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const savedState = localStorage.getItem('player-state');
     if (savedState) {
       try {
-        const { youtubeId, title, artist, time, playlist, index } = JSON.parse(savedState);
+        const { youtubeId, title, artist, time, playlist, index, isFullscreen: savedFullscreen } = JSON.parse(savedState);
         if (youtubeId && time >= 0) {
           savedSeekTimeRef.current = time;
           pendingVideoRef.current = { id: youtubeId, title: title || "", artist: artist || "" };
@@ -94,8 +94,13 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             currentIndexRef.current = index || 0;
           }
           
+          // Restauriraj fullscreen stanje
+          if (savedFullscreen !== undefined) {
+            setIsFullscreen(savedFullscreen);
+          }
+          
           setIsPlayerVisible(true);
-          console.log('🔄 Restored player state:', { youtubeId, time, title });
+          console.log('🔄 Restored player state:', { youtubeId, time, title, isFullscreen: savedFullscreen });
         }
       } catch (e) {
         console.error('Failed to restore player state:', e);
@@ -145,7 +150,8 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
               artist: currentVideoArtist,
               time: time,
               playlist: currentPlaylistRef.current,
-              index: currentIndexRef.current
+              index: currentIndexRef.current,
+              isFullscreen: isFullscreen
             };
             localStorage.setItem('player-state', JSON.stringify(stateToSave));
           }
@@ -156,7 +162,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [currentYoutubeId, currentVideoTitle, currentVideoArtist]);
+  }, [currentYoutubeId, currentVideoTitle, currentVideoArtist, isFullscreen]);
 
   // Kreiraj player samo kada postane vidljiv
   useEffect(() => {
