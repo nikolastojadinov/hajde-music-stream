@@ -43,17 +43,27 @@ export function PiProvider({ children }: { children: React.ReactNode }) {
 
     try {
       const scopes = ['username', 'payments'];
-      const authResult: AuthResult = await window.Pi.authenticate(scopes, () => {});
+      const onIncompletePaymentFound = (payment: PaymentDTO) => {
+        console.log('[Pi Auto-Login] Incomplete payment found:', payment);
+      };
 
-      console.log('[Pi Auto-Login] Authentication successful:', {
+      const authResult: AuthResult = await window.Pi.authenticate(scopes, onIncompletePaymentFound);
+
+      console.log('[Pi Auto-Login] Authentication result:', {
         uid: authResult.user.uid,
-        username: authResult.user.username
+        username: authResult.user.username,
+        hasAccessToken: !!authResult.accessToken
       });
+
+      if (!authResult.accessToken) {
+        console.error('[Pi Auto-Login] No accessToken received from Pi SDK');
+        throw new Error('No accessToken received from Pi SDK');
+      }
 
       if (!backendBase) throw new Error('Backend URL not configured');
 
       console.log('[Pi Auto-Login] Sending auth result to backend...');
-      const res = await fetch(`${backendBase}/user/signin`, {
+      const res = await fetch(`${backendBase}/signin`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -90,8 +100,13 @@ export function PiProvider({ children }: { children: React.ReactNode }) {
           window.Pi.init({ version: '2.0', sandbox });
           setSdkReady(true);
           setSdkError(null);
-          console.log('[Pi SDK] Initialization successful, starting auto-login...');
-          autoLogin();
+          console.log('[Pi SDK] Initialization successful');
+          
+          // Delay auto-login to ensure SDK is fully ready
+          setTimeout(() => {
+            console.log('[Pi SDK] Starting auto-login after SDK initialization...');
+            autoLogin();
+          }, 500);
         } else {
           console.warn('[Pi SDK] window.Pi not available');
           setSdkError('Please open this app in Pi Browser to continue');
