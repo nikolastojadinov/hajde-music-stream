@@ -9,6 +9,7 @@ import { PiProvider } from "@/contexts/PiContext";
 import Sidebar from "@/components/Sidebar";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
+import WelcomeModal from "@/components/WelcomeModal";
 import Player from "@/components/Player";
 import { YouTubePlayerContainer } from "@/components/YouTubePlayerContainer";
 import Home from "@/pages/Home";
@@ -33,6 +34,7 @@ const App = () => {
             <PiProvider>
               <Toaster />
               <Sonner />
+              <WelcomeModal />
               <BrowserRouter>
                 <div className="h-screen flex flex-col bg-background text-foreground overflow-hidden">
                   {/* Desktop Layout */}
