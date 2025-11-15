@@ -11,7 +11,7 @@ interface PremiumDialogProps {
 
 const PremiumDialog = ({ open, onOpenChange }: PremiumDialogProps) => {
   const [selectedPlan, setSelectedPlan] = useState<'weekly' | 'monthly' | 'yearly'>('monthly');
-  const { user, signIn } = usePi();
+  const { user, signIn, sdkReady, sdkError } = usePi();
   const { createPayment } = usePiPayment();
   const [message, setMessage] = useState<string | null>(null);
 
@@ -22,6 +22,11 @@ const PremiumDialog = ({ open, onOpenChange }: PremiumDialogProps) => {
   ];
 
   const handleActivate = async () => {
+    if (!sdkReady) {
+      setMessage(sdkError || 'Pi SDK is not available. Please open this app in Pi Browser.');
+      return;
+    }
+
     const priceMap = {
       weekly: 1,
       monthly: 3.14,
@@ -29,7 +34,12 @@ const PremiumDialog = ({ open, onOpenChange }: PremiumDialogProps) => {
     } as const;
 
     if (!user) {
-      await signIn();
+      try {
+        await signIn();
+      } catch (err: any) {
+        setMessage(err.message || 'Failed to sign in');
+        return;
+      }
     }
 
     try {
@@ -63,8 +73,8 @@ const PremiumDialog = ({ open, onOpenChange }: PremiumDialogProps) => {
       } else {
         setMessage('⚠️ Payment not completed.');
       }
-    } catch (e) {
-      setMessage('Payment failed to start.');
+    } catch (e: any) {
+      setMessage(e.message || 'Payment failed to start.');
     }
   };
 

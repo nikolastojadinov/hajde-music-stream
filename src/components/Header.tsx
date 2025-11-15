@@ -15,7 +15,7 @@ const Header = () => {
   } = useLanguage();
   const [languageDialogOpen, setLanguageDialogOpen] = useState(false);
   const [premiumDialogOpen, setPremiumDialogOpen] = useState(false);
-  const { user, signIn, signOut } = usePi();
+  const { user, signIn, signOut, sdkReady, sdkError } = usePi();
   return <header className="fixed top-0 left-0 right-0 h-16 bg-background/80 backdrop-blur-md border-b border-border/50 z-50">
       <div className="h-full px-4 md:px-6 flex items-center justify-between">
         {/* Logo */}
@@ -48,14 +48,33 @@ const Header = () => {
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             {user ? (
-              <DropdownMenuItem className="cursor-pointer py-3">
-                <User className="w-4 h-4 mr-3" />
-                <span>@{user.username}</span>
-              </DropdownMenuItem>
+              <>
+                <DropdownMenuItem className="cursor-pointer py-3">
+                  <User className="w-4 h-4 mr-3" />
+                  <span>@{user.username}</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => signOut()} className="cursor-pointer py-3">
+                  <User className="w-4 h-4 mr-3" />
+                  <span>Sign out</span>
+                </DropdownMenuItem>
+              </>
             ) : (
-              <DropdownMenuItem onClick={() => signIn()} className="cursor-pointer py-3">
+              <DropdownMenuItem 
+                onClick={() => {
+                  if (!sdkReady) {
+                    alert(sdkError || 'Pi SDK is not available. Please open this app in Pi Browser.');
+                    return;
+                  }
+                  signIn().catch(err => {
+                    console.error('Sign in error:', err);
+                    alert(err.message || 'Failed to sign in with Pi');
+                  });
+                }} 
+                className="cursor-pointer py-3"
+                disabled={!sdkReady}
+              >
                 <User className="w-4 h-4 mr-3" />
-                <span>Sign in with Pi</span>
+                <span>{sdkReady ? 'Sign in with Pi' : 'Pi SDK Loading...'}</span>
               </DropdownMenuItem>
             )}
             
