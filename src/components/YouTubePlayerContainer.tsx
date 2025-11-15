@@ -1,54 +1,32 @@
 import { usePlayer } from "@/contexts/PlayerContext";
-import { useState, useEffect } from "react";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 export const YouTubePlayerContainer = () => {
   const { isFullscreen, isPlayerVisible } = usePlayer();
-  const [isMobile, setIsMobile] = useState(false);
-  const [scaleFactor, setScaleFactor] = useState(1);
-
-  // Detect mobile device and calculate PPI scale factor
-  useEffect(() => {
-    const updateDimensions = () => {
-      const width = window.innerWidth;
-      const mobile = width < 900;
-      setIsMobile(mobile);
-
-      if (mobile) {
-        const dpr = window.devicePixelRatio || 1;
-        // Scale based on PPI breakpoints
-        let factor = 1;
-        if (dpr >= 3.0) {
-          factor = 1.3; // +30% for high-end devices
-        } else if (dpr >= 2.0) {
-          factor = 1.2; // +20% for retina displays
-        } else if (dpr >= 1.5) {
-          factor = 1.1; // +10% for mid-range displays
-        }
-        setScaleFactor(factor);
-      } else {
-        setScaleFactor(1); // No scaling on desktop/tablet
-      }
-    };
-
-    updateDimensions();
-    window.addEventListener('resize', updateDimensions);
-    return () => window.removeEventListener('resize', updateDimensions);
-  }, []);
+  const isMobile = useIsMobile();
 
   if (!isPlayerVisible) return null;
 
-  // Calculate scaled dimensions for mini player on mobile
-  const baseMiniSize = 200; // YouTube minimum
-  const scaledMiniSize = isMobile ? Math.max(200, Math.floor(baseMiniSize * scaleFactor)) : baseMiniSize;
-
-  // Fixed minimal dimensions for mini player (200x200 - YouTube minimum)
-  const miniPlayerStyles = {
+  // Mini player wrapper dimensions - smaller on mobile to match YouTube app
+  const miniPlayerWrapperStyles = {
     bottom: 'calc(5rem + 12px)',
     left: '16px',
-    transform: 'none',
-    width: `${scaledMiniSize}px`,
-    height: `${scaledMiniSize}px`,
+    width: isMobile ? '120px' : '200px',
+    height: isMobile ? '120px' : '200px',
   };
+
+  // Inner iframe stays at 200x200 (YouTube minimum) but scales down visually on mobile
+  const miniPlayerIframeStyles = isMobile
+    ? {
+        width: '200px',
+        height: '200px',
+        transform: 'scale(0.55)',
+        transformOrigin: 'top left',
+      }
+    : {
+        width: '100%',
+        height: '100%',
+      };
 
   // Fullscreen dimensions - responsive and proportional
   const fullscreenStyles = {
@@ -66,10 +44,13 @@ export const YouTubePlayerContainer = () => {
       className="fixed transition-all duration-300 ease-in-out bg-black rounded-lg overflow-hidden"
       style={{
         zIndex: isFullscreen ? 55 : 31,
-        ...(isFullscreen ? fullscreenStyles : miniPlayerStyles),
+        ...(isFullscreen ? fullscreenStyles : miniPlayerWrapperStyles),
       }}
     >
-      <div id="yt-player" style={{ width: '100%', height: '100%' }} />
+      <div 
+        id="yt-player" 
+        style={isFullscreen ? { width: '100%', height: '100%' } : miniPlayerIframeStyles} 
+      />
     </div>
   );
 };
