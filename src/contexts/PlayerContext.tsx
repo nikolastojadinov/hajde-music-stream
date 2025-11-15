@@ -55,6 +55,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [currentIndex, setCurrentIndex] = useState(0);
   const [currentVideoTitle, setCurrentVideoTitle] = useState("");
   const [currentVideoArtist, setCurrentVideoArtist] = useState("");
+  const [currentYoutubeId, setCurrentYoutubeId] = useState("");
   const [isLiked, setIsLiked] = useState(false);
   const [isPlayerVisible, setIsPlayerVisible] = useState(false);
   const initAttempted = useRef(false);
@@ -62,6 +63,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [currentPlaylist, setCurrentPlaylist] = useState<Array<{ youtube_id: string; title: string; artist: string }>>([]);
   const currentPlaylistRef = useRef<Array<{ youtube_id: string; title: string; artist: string }>>([]);
   const currentIndexRef = useRef(0);
+  const savedSeekTimeRef = useRef<number | null>(null);
   
   // Sinhronizuj refs sa state
   useEffect(() => {
@@ -71,6 +73,35 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   useEffect(() => {
     currentIndexRef.current = currentIndex;
   }, [currentIndex]);
+
+  // Učitaj sačuvano stanje iz localStorage na mount
+  useEffect(() => {
+    const savedState = localStorage.getItem('player-state');
+    if (savedState) {
+      try {
+        const { youtubeId, title, artist, time, playlist, index } = JSON.parse(savedState);
+        if (youtubeId && time >= 0) {
+          savedSeekTimeRef.current = time;
+          pendingVideoRef.current = { id: youtubeId, title: title || "", artist: artist || "" };
+          setCurrentVideoTitle(title || "");
+          setCurrentVideoArtist(artist || "");
+          setCurrentYoutubeId(youtubeId);
+          
+          if (playlist && Array.isArray(playlist)) {
+            currentPlaylistRef.current = playlist;
+            setCurrentPlaylist(playlist);
+            setCurrentIndex(index || 0);
+            currentIndexRef.current = index || 0;
+          }
+          
+          setIsPlayerVisible(true);
+          console.log('🔄 Restored player state:', { youtubeId, time, title });
+        }
+      } catch (e) {
+        console.error('Failed to restore player state:', e);
+      }
+    }
+  }, []);
 
   useEffect(() => {
     if (initAttempted.current) return;
@@ -87,21 +118,34 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     loadYouTubeAPI();
 
-    // Ažuriraj vreme
+    // Ažuriraj vreme i čuvaj stanje u localStorage
     const interval = setInterval(() => {
       if (playerRef.current && playerRef.current.getCurrentTime) {
         try {
           const time = playerRef.current.getCurrentTime() || 0;
           setCurrentTime(time);
           setDuration(playerRef.current.getDuration() || 0);
+          
+          // Čuvaj stanje u localStorage svakih 1-2 sekunde
+          if (currentYoutubeId && time > 0) {
+            const stateToSave = {
+              youtubeId: currentYoutubeId,
+              title: currentVideoTitle,
+              artist: currentVideoArtist,
+              time: time,
+              playlist: currentPlaylistRef.current,
+              index: currentIndexRef.current
+            };
+            localStorage.setItem('player-state', JSON.stringify(stateToSave));
+          }
         } catch (e) {
           // ignore
         }
       }
-    }, 1000);
+    }, 1500);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [currentYoutubeId, currentVideoTitle, currentVideoArtist]);
 
   // Kreiraj player samo kada postane vidljiv
   useEffect(() => {
@@ -131,7 +175,22 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
               if (pendingVideoRef.current) {
                 setCurrentVideoTitle(pendingVideoRef.current.title);
                 setCurrentVideoArtist(pendingVideoRef.current.artist);
+                setCurrentYoutubeId(pendingVideoRef.current.id);
                 event.target.loadVideoById(pendingVideoRef.current.id);
+                
+                // Ako postoji sačuvano vreme, pozicioniraj player nakon učitavanja
+                if (savedSeekTimeRef.current !== null) {
+                  const seekTime = savedSeekTimeRef.current;
+                  console.log('⏩ Seeking to saved position:', seekTime);
+                  
+                  // Čekaj da se video učita pre nego što pozicioniraš
+                  setTimeout(() => {
+                    event.target.seekTo(seekTime, true);
+                    event.target.playVideo();
+                    savedSeekTimeRef.current = null;
+                  }, 500);
+                }
+                
                 pendingVideoRef.current = null;
               }
             },
@@ -149,6 +208,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
                   setCurrentIndex(nextIndex);
                   setCurrentVideoTitle(nextTrack.title);
                   setCurrentVideoArtist(nextTrack.artist);
+                  setCurrentYoutubeId(nextTrack.youtube_id);
                   playerRef.current.loadVideoById(nextTrack.youtube_id);
                   setIsLiked(false);
                 }
@@ -190,6 +250,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setCurrentIndex(nextIndex);
     setCurrentVideoTitle(nextTrack.title);
     setCurrentVideoArtist(nextTrack.artist);
+    setCurrentYoutubeId(nextTrack.youtube_id);
     playerRef.current.loadVideoById(nextTrack.youtube_id);
     setIsLiked(false);
   };
@@ -203,6 +264,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setCurrentIndex(prevIndex);
     setCurrentVideoTitle(prevTrack.title);
     setCurrentVideoArtist(prevTrack.artist);
+    setCurrentYoutubeId(prevTrack.youtube_id);
     playerRef.current.loadVideoById(prevTrack.youtube_id);
     setIsLiked(false);
   };
@@ -233,6 +295,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const playTrack = (youtubeId: string, title: string, artist: string) => {
     setCurrentVideoTitle(title);
     setCurrentVideoArtist(artist);
+    setCurrentYoutubeId(youtubeId);
     
     if (playerRef.current && playerReady && playerRef.current.loadVideoById) {
       playerRef.current.loadVideoById(youtubeId);
