@@ -42,7 +42,7 @@ export const useExternalPlaylist = (playlistId: string) => {
 
       if (playlistError) {
         console.error('❌ Playlist fetch error:', playlistError);
-        throw playlistError;
+        throw new Error(`Failed to fetch playlist: ${playlistError.message}`);
       }
 
       if (!playlistData) {
