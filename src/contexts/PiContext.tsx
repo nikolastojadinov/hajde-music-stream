@@ -43,52 +43,43 @@ export function PiProvider({ children }: { children: React.ReactNode }) {
     return payment;
   }, []);
 
-  // Initialize Pi SDK - wait for window.Pi to be available
+  // Wait for Pi SDK to load
+  const waitForPi = useCallback(() => {
+    return new Promise<typeof window.Pi>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error('Pi SDK not loaded after 5 seconds'));
+      }, 5000);
+
+      const check = () => {
+        if (window.Pi) {
+          clearTimeout(timeout);
+          resolve(window.Pi);
+        } else {
+          setTimeout(check, 50);
+        }
+      };
+      check();
+    });
+  }, []);
+
+  // Initialize Pi SDK
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
-    const initSDK = () => {
-      if (!window.Pi) {
-        return false;
-      }
-
+    (async () => {
       try {
+        const Pi = await waitForPi();
         const sandbox = import.meta.env.VITE_PI_SANDBOX === 'true';
-        window.Pi.init({ version: '2.0', sandbox });
+        Pi.init({ version: '2.0', sandbox });
         setSdkReady(true);
         setSdkError(null);
         console.log('[Pi] SDK ready');
-        return true;
       } catch (error) {
         console.error('[Pi] SDK init error:', error);
-        setSdkError('Failed to initialize Pi SDK');
-        return false;
-      }
-    };
-
-    // Try immediate init
-    if (initSDK()) return;
-
-    // Poll for SDK availability
-    const checkInterval = setInterval(() => {
-      if (initSDK()) {
-        clearInterval(checkInterval);
-      }
-    }, 100);
-
-    // Timeout after 10 seconds
-    const timeout = setTimeout(() => {
-      clearInterval(checkInterval);
-      if (!window.Pi) {
         setSdkError('Please open this app in Pi Browser to continue');
       }
-    }, 10000);
-
-    return () => {
-      clearInterval(checkInterval);
-      clearTimeout(timeout);
-    };
-  }, []);
+    })();
+  }, [waitForPi]);
 
   // Auto-login after SDK is ready
   useEffect(() => {

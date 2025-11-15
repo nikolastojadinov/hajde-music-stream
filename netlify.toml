@@ -2,6 +2,11 @@
   command = "npm run build"
   publish = "build"
 
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Content-Security-Policy = "default-src * data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://sdk.minepi.com https://sdk.pipay.com; connect-src *; img-src * data: blob:; style-src 'self' 'unsafe-inline' *"
+
 [[redirects]]
   from = "/*"
   to = "/index.html"
