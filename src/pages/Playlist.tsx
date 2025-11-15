@@ -11,7 +11,11 @@ const Playlist = () => {
   const { playPlaylist, isPlaying, togglePlay } = usePlayer();
   const [currentTrackId, setCurrentTrackId] = useState<string | null>(null);
 
+  console.log('🎵 Playlist page mounted, ID:', id);
+  
   const { data: playlist, isLoading, error } = useExternalPlaylist(id || "");
+  
+  console.log('📊 Playlist state:', { isLoading, hasError: !!error, hasPlaylist: !!playlist, trackCount: playlist?.tracks?.length });
 
   const formatDuration = (seconds: number | null) => {
     if (!seconds) return "0:00";
@@ -54,11 +58,33 @@ const Playlist = () => {
     );
   }
 
-  if (error || !playlist) {
+  if (error) {
+    console.error('❌ Playlist error:', error);
     return (
       <div className="flex-1 overflow-y-auto pb-32 flex items-center justify-center">
-        <div className="text-center">
+        <div className="text-center p-4">
+          <h2 className="text-2xl font-bold mb-2">Greška pri učitavanju plejliste</h2>
+          <p className="text-muted-foreground mb-4">
+            {error instanceof Error ? error.message : 'Nepoznata greška'}
+          </p>
+          <Button onClick={() => window.location.reload()}>
+            Pokušaj ponovo
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!playlist) {
+    console.warn('⚠️ Playlist not found');
+    return (
+      <div className="flex-1 overflow-y-auto pb-32 flex items-center justify-center">
+        <div className="text-center p-4">
           <h2 className="text-2xl font-bold mb-2">Plejlista nije pronađena</h2>
+          <p className="text-muted-foreground mb-4">ID: {id}</p>
+          <Button onClick={() => window.history.back()}>
+            Nazad
+          </Button>
         </div>
       </div>
     );
