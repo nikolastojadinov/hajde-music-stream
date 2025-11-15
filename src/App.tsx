@@ -5,7 +5,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { LanguageProvider } from "@/contexts/LanguageContext";
 import { PlayerProvider } from "@/contexts/PlayerContext";
-import { PiProvider } from "@/contexts/PiContext";
 import Sidebar from "@/components/Sidebar";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
@@ -31,39 +30,17 @@ const App = () => {
       <TooltipProvider>
         <LanguageProvider>
           <PlayerProvider>
-            <PiProvider>
-              <Toaster />
-              <Sonner />
-              <WelcomeModal />
-              <BrowserRouter>
-                <div className="h-screen flex flex-col bg-background text-foreground overflow-hidden">
-                  {/* Desktop Layout */}
-                  <div className="hidden md:flex flex-1 pt-16 overflow-hidden">
-                    <Sidebar />
-                    <div className="flex-1 flex flex-col overflow-hidden">
-                      <Header />
-                      <main className="flex-1 overflow-y-auto">
-                        <Routes>
-                          <Route path="/" element={<Home />} />
-                          <Route path="/search" element={<Search />} />
-                          <Route path="/library" element={<Library />} />
-                          <Route path="/playlist/:id" element={<Playlist />} />
-                          <Route path="/create-playlist" element={<CreatePlaylist />} />
-                          <Route path="/favorites" element={<Favorites />} />
-                          <Route path="/import-csv" element={<ImportCSV />} />
-                          <Route path="/privacy" element={<Privacy />} />
-                          <Route path="/terms" element={<Terms />} />
-                          <Route path="*" element={<NotFound />} />
-                        </Routes>
-                      </main>
-                      <Player />
-                    </div>
-                  </div>
-
-                  {/* Mobile Layout */}
-                  <div className="md:hidden flex flex-col flex-1 overflow-hidden">
+            <Toaster />
+            <Sonner />
+            <WelcomeModal />
+            <BrowserRouter>
+              <div className="h-screen flex flex-col bg-background text-foreground overflow-hidden">
+                {/* Desktop Layout */}
+                <div className="hidden md:flex flex-1 pt-16 overflow-hidden">
+                  <Sidebar />
+                  <div className="flex-1 flex flex-col overflow-hidden">
                     <Header />
-                    <main className="flex-1 overflow-y-auto pt-16 pb-32">
+                    <main className="flex-1 overflow-y-auto">
                       <Routes>
                         <Route path="/" element={<Home />} />
                         <Route path="/search" element={<Search />} />
@@ -77,14 +54,34 @@ const App = () => {
                         <Route path="*" element={<NotFound />} />
                       </Routes>
                     </main>
-                    <Footer />
                     <Player />
                   </div>
-                  
-                  <YouTubePlayerContainer />
                 </div>
-              </BrowserRouter>
-            </PiProvider>
+
+                {/* Mobile Layout */}
+                <div className="md:hidden flex flex-col flex-1 overflow-hidden">
+                  <Header />
+                  <main className="flex-1 overflow-y-auto pt-16 pb-32">
+                    <Routes>
+                      <Route path="/" element={<Home />} />
+                      <Route path="/search" element={<Search />} />
+                      <Route path="/library" element={<Library />} />
+                      <Route path="/playlist/:id" element={<Playlist />} />
+                      <Route path="/create-playlist" element={<CreatePlaylist />} />
+                      <Route path="/favorites" element={<Favorites />} />
+                      <Route path="/import-csv" element={<ImportCSV />} />
+                      <Route path="/privacy" element={<Privacy />} />
+                      <Route path="/terms" element={<Terms />} />
+                      <Route path="*" element={<NotFound />} />
+                    </Routes>
+                  </main>
+                  <Footer />
+                  <Player />
+                </div>
+                
+                <YouTubePlayerContainer />
+              </div>
+            </BrowserRouter>
           </PlayerProvider>
         </LanguageProvider>
       </TooltipProvider>
