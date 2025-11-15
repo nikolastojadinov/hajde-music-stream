@@ -11,7 +11,7 @@ interface PremiumDialogProps {
 
 const PremiumDialog = ({ open, onOpenChange }: PremiumDialogProps) => {
   const [selectedPlan, setSelectedPlan] = useState<'weekly' | 'monthly' | 'yearly'>('monthly');
-  const { user, signIn, sdkReady, sdkError } = usePi();
+  const { user, sdkReady, sdkError } = usePi();
   const { createPayment } = usePiPayment();
   const [message, setMessage] = useState<string | null>(null);
 
@@ -27,20 +27,16 @@ const PremiumDialog = ({ open, onOpenChange }: PremiumDialogProps) => {
       return;
     }
 
+    if (!user) {
+      setMessage('Please wait for automatic authentication to complete...');
+      return;
+    }
+
     const priceMap = {
       weekly: 1,
       monthly: 3.14,
       yearly: 31.4,
     } as const;
-
-    if (!user) {
-      try {
-        await signIn();
-      } catch (err: any) {
-        setMessage(err.message || 'Failed to sign in');
-        return;
-      }
-    }
 
     try {
       setMessage('Processing payment...');
