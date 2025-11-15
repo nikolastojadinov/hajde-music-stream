@@ -117,16 +117,27 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     };
 
     loadYouTubeAPI();
+  }, []);
 
-    // Ažuriraj vreme i čuvaj stanje u localStorage
+  // Poseban useEffect za ažuriranje vremena i čuvanje stanja
+  useEffect(() => {
     const interval = setInterval(() => {
       if (playerRef.current && playerRef.current.getCurrentTime) {
         try {
-          const time = playerRef.current.getCurrentTime() || 0;
-          setCurrentTime(time);
-          setDuration(playerRef.current.getDuration() || 0);
+          const time = playerRef.current.getCurrentTime();
+          const dur = playerRef.current.getDuration();
           
-          // Čuvaj stanje u localStorage svakih 1-2 sekunde
+          console.log('⏱️ Time update:', { time, duration: dur, youtubeId: currentYoutubeId });
+          
+          if (time !== undefined && time !== null) {
+            setCurrentTime(time);
+          }
+          
+          if (dur !== undefined && dur !== null && dur > 0) {
+            setDuration(dur);
+          }
+          
+          // Čuvaj stanje u localStorage samo ako ima validno vreme
           if (currentYoutubeId && time > 0) {
             const stateToSave = {
               youtubeId: currentYoutubeId,
@@ -139,10 +150,10 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             localStorage.setItem('player-state', JSON.stringify(stateToSave));
           }
         } catch (e) {
-          // ignore
+          console.error('❌ Error updating time:', e);
         }
       }
-    }, 1500);
+    }, 1000);
 
     return () => clearInterval(interval);
   }, [currentYoutubeId, currentVideoTitle, currentVideoArtist]);
@@ -202,9 +213,22 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
               }
             },
             onStateChange: (event: any) => {
-              setIsPlaying(event.data === 1);
+              const state = event.data;
+              console.log('📺 Player state changed:', state, '(1=playing, 2=paused, 0=ended)');
               
-              if (event.data === 0) {
+              setIsPlaying(state === 1);
+              
+              // Kada se video učita (state 1 ili 2), proveri duration
+              if ((state === 1 || state === 2) && playerRef.current) {
+                const dur = playerRef.current.getDuration();
+                console.log('🎬 Video loaded, duration:', dur);
+                if (dur > 0) {
+                  setDuration(dur);
+                }
+              }
+              
+              // Završen video - pređi na sledeći
+              if (state === 0) {
                 const playlist = currentPlaylistRef.current;
                 const index = currentIndexRef.current;
                 
