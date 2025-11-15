@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useRef, useEffect } from "react";
+import { supabase } from "@/integrations/supabase/client";
 
 declare global {
   interface Window {
@@ -43,11 +44,9 @@ const PlayerContext = createContext<PlayerContextType | undefined>(undefined);
 
 export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const playerRef = useRef<any>(null);
+  const [userId, setUserId] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [volume, setVolumeState] = useState(() => {
-    const saved = localStorage.getItem('player-volume');
-    return saved ? Number(saved) : 70;
-  });
+  const [volume, setVolumeState] = useState(70);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -64,6 +63,19 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const currentPlaylistRef = useRef<Array<{ youtube_id: string; title: string; artist: string }>>([]);
   const currentIndexRef = useRef(0);
   const savedSeekTimeRef = useRef<number | null>(null);
+
+  // Helper funkcije za localStorage ključeve
+  const getStateKey = (uid: string) => `pmstate_${uid}_state`;
+  const getVolumeKey = (uid: string) => `pmstate_${uid}_volume`;
+  
+  // Očisti stare globalne ključeve
+  const cleanupOldKeys = () => {
+    localStorage.removeItem('player-state');
+    localStorage.removeItem('player-volume');
+    localStorage.removeItem('lastTrackId');
+    localStorage.removeItem('lastPlayerTime');
+    localStorage.removeItem('lastPlayerMode');
+  };
   
   // Sinhronizuj refs sa state
   useEffect(() => {
@@ -74,38 +86,76 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     currentIndexRef.current = currentIndex;
   }, [currentIndex]);
 
-  // Učitaj sačuvano stanje iz localStorage na mount
+  // Učitaj user ID i inicijalizuj player state
   useEffect(() => {
-    const savedState = localStorage.getItem('player-state');
-    if (savedState) {
-      try {
-        const { youtubeId, title, artist, time, playlist, index, isFullscreen: savedFullscreen } = JSON.parse(savedState);
-        if (youtubeId && time >= 0) {
-          savedSeekTimeRef.current = time;
-          pendingVideoRef.current = { id: youtubeId, title: title || "", artist: artist || "" };
-          setCurrentVideoTitle(title || "");
-          setCurrentVideoArtist(artist || "");
-          setCurrentYoutubeId(youtubeId);
-          
-          if (playlist && Array.isArray(playlist)) {
-            currentPlaylistRef.current = playlist;
-            setCurrentPlaylist(playlist);
-            setCurrentIndex(index || 0);
-            currentIndexRef.current = index || 0;
-          }
-          
-          // Restauriraj fullscreen stanje
-          if (savedFullscreen !== undefined) {
-            setIsFullscreen(savedFullscreen);
-          }
-          
-          setIsPlayerVisible(true);
-          console.log('🔄 Restored player state:', { youtubeId, time, title, isFullscreen: savedFullscreen });
+    const initAuth = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (user?.id) {
+        setUserId(user.id);
+        cleanupOldKeys();
+        
+        // Učitaj volume za ovog korisnika
+        const savedVolume = localStorage.getItem(getVolumeKey(user.id));
+        if (savedVolume) {
+          setVolumeState(Number(savedVolume));
         }
-      } catch (e) {
-        console.error('Failed to restore player state:', e);
+        
+        // Učitaj player state za ovog korisnika
+        const savedState = localStorage.getItem(getStateKey(user.id));
+        if (savedState) {
+          try {
+            const { youtubeId, title, artist, time, playlist, index, isFullscreen: savedFullscreen } = JSON.parse(savedState);
+            if (youtubeId && time >= 0) {
+              savedSeekTimeRef.current = time;
+              pendingVideoRef.current = { id: youtubeId, title: title || "", artist: artist || "" };
+              setCurrentVideoTitle(title || "");
+              setCurrentVideoArtist(artist || "");
+              setCurrentYoutubeId(youtubeId);
+              
+              if (playlist && Array.isArray(playlist)) {
+                currentPlaylistRef.current = playlist;
+                setCurrentPlaylist(playlist);
+                setCurrentIndex(index || 0);
+                currentIndexRef.current = index || 0;
+              }
+              
+              if (savedFullscreen !== undefined) {
+                setIsFullscreen(savedFullscreen);
+              }
+              
+              setIsPlayerVisible(true);
+              console.log('🔄 Restored player state for user:', user.id, { youtubeId, time, title, isFullscreen: savedFullscreen });
+            }
+          } catch (e) {
+            console.error('Failed to restore player state:', e);
+          }
+        }
+      } else {
+        console.log('⚠️ No user logged in - player state will not be persisted');
       }
-    }
+    };
+
+    initAuth();
+
+    // Slušaj promene auth stanja
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_IN' && session?.user?.id) {
+        setUserId(session.user.id);
+        cleanupOldKeys();
+      } else if (event === 'SIGNED_OUT') {
+        setUserId(null);
+        // Resetuj player state kada se user izloguje
+        setIsPlayerVisible(false);
+        setCurrentYoutubeId("");
+        setCurrentVideoTitle("");
+        setCurrentVideoArtist("");
+        setCurrentTime(0);
+        setDuration(0);
+      }
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
   useEffect(() => {
@@ -132,7 +182,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           const time = playerRef.current.getCurrentTime();
           const dur = playerRef.current.getDuration();
           
-          console.log('⏱️ Time update:', { time, duration: dur, youtubeId: currentYoutubeId });
+          console.log('⏱️ Time update:', { time, duration: dur, youtubeId: currentYoutubeId, userId });
           
           if (time !== undefined && time !== null) {
             setCurrentTime(time);
@@ -142,8 +192,8 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             setDuration(dur);
           }
           
-          // Čuvaj stanje u localStorage samo ako ima validno vreme
-          if (currentYoutubeId && time > 0) {
+          // Čuvaj stanje SAMO ako je korisnik ulogovan
+          if (userId && currentYoutubeId && time > 0) {
             const stateToSave = {
               youtubeId: currentYoutubeId,
               title: currentVideoTitle,
@@ -153,7 +203,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
               index: currentIndexRef.current,
               isFullscreen: isFullscreen
             };
-            localStorage.setItem('player-state', JSON.stringify(stateToSave));
+            localStorage.setItem(getStateKey(userId), JSON.stringify(stateToSave));
           }
         } catch (e) {
           console.error('❌ Error updating time:', e);
@@ -162,7 +212,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [currentYoutubeId, currentVideoTitle, currentVideoArtist, isFullscreen]);
+  }, [currentYoutubeId, currentVideoTitle, currentVideoArtist, isFullscreen, userId]);
 
   // Kreiraj player samo kada postane vidljiv
   useEffect(() => {
@@ -310,7 +360,11 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (!playerRef.current) return;
     playerRef.current.setVolume(newVolume);
     setVolumeState(newVolume);
-    localStorage.setItem('player-volume', newVolume.toString());
+    
+    // Čuvaj volume SAMO ako je korisnik ulogovan
+    if (userId) {
+      localStorage.setItem(getVolumeKey(userId), newVolume.toString());
+    }
   };
 
   const seekTo = (seconds: number) => {
