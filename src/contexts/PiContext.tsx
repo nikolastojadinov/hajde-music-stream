@@ -89,13 +89,26 @@ export function PiProvider({ children }: { children: React.ReactNode }) {
       try {
         console.log('[Pi] Starting authenticate...');
         
+        if (!window.Pi || typeof window.Pi.authenticate !== 'function') {
+          console.error('[Pi] Pi.authenticate is not available');
+          setSdkError('Pi SDK authenticate method not available');
+          return;
+        }
+
         const authResult: AuthResult = await window.Pi.authenticate(
           ['username', 'payments'],
           { onIncompletePaymentFound }
         );
 
+        console.log('[Pi] Authenticate completed:', { 
+          hasAccessToken: !!authResult?.accessToken,
+          hasUser: !!authResult?.user,
+          username: authResult?.user?.username 
+        });
+
         if (!authResult?.accessToken) {
-          console.warn('[Pi] No access token received');
+          console.warn('[Pi] No access token received from authenticate');
+          setSdkError('No access token received from Pi');
           return;
         }
 
@@ -108,33 +121,43 @@ export function PiProvider({ children }: { children: React.ReactNode }) {
           body: JSON.stringify({ authResult }),
         });
 
+        console.log('[Pi] Backend response status:', res.status);
+
         if (!res.ok) {
           const errorText = await res.text();
-          console.error('[Pi] Backend error:', errorText);
+          console.error('[Pi] Backend error:', res.status, errorText);
           setSdkError('Backend authentication failed');
           return;
         }
 
         const data = await res.json();
+        console.log('[Pi] Backend response data:', data);
         
         if (data?.user) {
           setUser(data.user);
           setShowWelcomeModal(true);
           setTimeout(() => setShowWelcomeModal(false), 3000);
-          console.log('[Pi] backend ok');
+          console.log('[Pi] Login successful! User:', data.user.username);
         } else {
-          console.warn('[Pi] No user in response');
+          console.warn('[Pi] No user in backend response');
+          setSdkError('No user data received from backend');
         }
-      } catch (error) {
-        console.error('[Pi] Auto-login error:', error);
-        setSdkError('Authentication failed');
+      } catch (error: any) {
+        console.error('[Pi] Auto-login error:', {
+          message: error?.message,
+          stack: error?.stack,
+          error: error
+        });
+        setSdkError(error?.message || 'Authentication failed');
       }
     };
 
     // Debug logging
     console.log('[Pi Debug]', {
       sdkReady,
-      backendBase
+      backendBase,
+      hasPi: !!window.Pi,
+      hasAuthenticate: !!(window.Pi && typeof window.Pi.authenticate === 'function')
     });
 
     autoLogin();
