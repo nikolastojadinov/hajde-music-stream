@@ -11,7 +11,7 @@ interface PiContextValue {
   user: PiUser | null;
   signIn: () => Promise<void>;
   signOut: () => Promise<void>;
-  createPayment: (args: { amount: number; memo: string; metadata?: Record<string, unknown> }) => Promise<void>;
+  createPayment: (args: { amount: number; memo: string; metadata?: Record<string, unknown> }) => Promise<PaymentDTO>;
   sdkReady: boolean;
   sdkError: string | null;
 }
@@ -36,28 +36,33 @@ export function PiProvider({ children }: { children: React.ReactNode }) {
     const initializePiSDK = () => {
       try {
         if (typeof window !== 'undefined' && window.Pi && typeof window.Pi.init === 'function') {
+          // Always use production mode (sandbox: false) unless explicitly set to true
           const sandbox = import.meta.env.VITE_PI_SANDBOX === 'true';
-          console.log('Initializing Pi SDK with sandbox:', sandbox);
+          console.log('[Pi SDK] Initializing with version 2.0, sandbox:', sandbox);
           window.Pi.init({ version: '2.0', sandbox });
           setSdkReady(true);
           setSdkError(null);
+          console.log('[Pi SDK] Initialization successful');
         } else {
-          console.warn('Pi SDK not available');
-          setSdkError('Pi SDK is not available. Please open this app in Pi Browser.');
+          console.warn('[Pi SDK] window.Pi not available');
+          setSdkError('Please open this app in Pi Browser to sign in with Pi.');
         }
       } catch (e) {
-        console.error('Error initializing Pi SDK:', e);
-        setSdkError('Failed to initialize Pi SDK');
+        console.error('[Pi SDK] Initialization error:', e);
+        setSdkError('Failed to initialize Pi SDK. Please make sure you are in Pi Browser.');
       }
     };
 
     // Check if SDK is already loaded
     if (window.Pi) {
+      console.log('[Pi SDK] Script already loaded, initializing...');
       initializePiSDK();
     } else {
+      console.log('[Pi SDK] Waiting for script to load...');
       // Wait for SDK script to load
       const checkSDKInterval = setInterval(() => {
         if (window.Pi) {
+          console.log('[Pi SDK] Script loaded, initializing...');
           clearInterval(checkSDKInterval);
           initializePiSDK();
         }
@@ -67,8 +72,8 @@ export function PiProvider({ children }: { children: React.ReactNode }) {
       const timeout = setTimeout(() => {
         clearInterval(checkSDKInterval);
         if (!window.Pi) {
-          console.error('Pi SDK failed to load after 5 seconds');
-          setSdkError('Pi SDK failed to load. Please open this app in Pi Browser.');
+          console.error('[Pi SDK] Failed to load after 5 seconds');
+          setSdkError('Please open this app in Pi Browser to sign in with Pi.');
         }
       }, 5000);
 
@@ -85,38 +90,46 @@ export function PiProvider({ children }: { children: React.ReactNode }) {
 
   const signIn = useCallback(async () => {
     if (!sdkReady || !window.Pi || typeof window.Pi.authenticate !== 'function') {
-      throw new Error('Pi SDK not available. Please open this app in Pi Browser.');
+      throw new Error('Please open this app in Pi Browser to sign in with Pi.');
     }
     
-    console.log('Starting Pi authentication...');
+    console.log('[Pi Auth] Starting authentication...');
     
-    // Request scopes needed for app
-    const scopes = ['username', 'payments', 'roles', 'in_app_notifications'];
-    const authResult: AuthResult = await window.Pi.authenticate(scopes, onIncompletePaymentFound);
-    
-    console.log('Authentication successful:', authResult.user);
+    try {
+      // Request scopes needed for app - username and payments
+      const scopes = ['username', 'payments'];
+      const authResult: AuthResult = await window.Pi.authenticate(scopes, onIncompletePaymentFound);
+      
+      console.log('[Pi Auth] Authentication successful:', {
+        uid: authResult.user.uid,
+        username: authResult.user.username
+      });
 
-    if (!backendBase) throw new Error('Missing VITE_BACKEND_URL');
-    
-    console.log('Sending auth result to backend...');
-    const res = await fetch(`${backendBase}/user/signin`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ authResult }),
-    });
-    
-    if (!res.ok) {
-      const errorText = await res.text();
-      console.error('Backend sign-in failed:', errorText);
-      throw new Error('Pi sign-in failed on backend');
+      if (!backendBase) throw new Error('Backend URL not configured');
+      
+      console.log('[Pi Auth] Sending auth result to backend...');
+      const res = await fetch(`${backendBase}/user/signin`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ authResult }),
+      });
+      
+      if (!res.ok) {
+        const errorText = await res.text();
+        console.error('[Pi Auth] Backend sign-in failed:', res.status, errorText);
+        throw new Error(`Sign-in failed: ${res.status}`);
+      }
+      
+      const data = await res.json();
+      console.log('[Pi Auth] Backend sign-in successful:', data);
+      
+      // Use the user data from backend or fallback to auth result
+      setUser(data.user ?? authResult.user);
+    } catch (error) {
+      console.error('[Pi Auth] Sign-in error:', error);
+      throw error;
     }
-    
-    const data = await res.json();
-    console.log('Backend sign-in successful:', data);
-    
-    // optional: server could return user; fallback to auth result
-    setUser((data.user as PiUser) ?? authResult.user as any);
   }, [backendBase, onIncompletePaymentFound, sdkReady]);
 
   const signOut = useCallback(async () => {
@@ -128,26 +141,39 @@ export function PiProvider({ children }: { children: React.ReactNode }) {
   }, [backendBase]);
 
   const createPayment = useCallback(async ({ amount, memo, metadata }: { amount: number; memo: string; metadata?: Record<string, unknown> }) => {
-    if (!user) throw new Error('Not signed in');
-    if (!window.Pi || typeof window.Pi.createPayment !== 'function') {
-      throw new Error('Pi SDK not available. Please open this app in Pi Browser.');
+    if (!user) throw new Error('Please sign in first');
+    if (!sdkReady || !window.Pi || typeof window.Pi.createPayment !== 'function') {
+      throw new Error('Please open this app in Pi Browser to make payments.');
     }
 
-    const onReadyForServerApproval = (_paymentId: string) => {};
-    const onReadyForServerCompletion = (_paymentId: string, _txid: string) => {};
-    const onCancel = (_paymentId: string) => {};
+    console.log('[Pi Payment] Creating payment:', { amount, memo });
 
-    const onError = (error: Error) => {
-      console.error('Pi payment error', error);
+    const onReadyForServerApproval = (_paymentId: string) => {
+      console.log('[Pi Payment] Ready for server approval:', _paymentId);
+    };
+    
+    const onReadyForServerCompletion = (_paymentId: string, _txid: string) => {
+      console.log('[Pi Payment] Ready for completion:', _paymentId, _txid);
+    };
+    
+    const onCancel = (_paymentId: string) => {
+      console.log('[Pi Payment] Cancelled:', _paymentId);
     };
 
-    await window.Pi.createPayment({ amount, memo, metadata: metadata ?? {} }, {
+    const onError = (error: Error) => {
+      console.error('[Pi Payment] Error:', error);
+    };
+
+    const payment = await window.Pi.createPayment({ amount, memo, metadata: metadata ?? {} }, {
       onReadyForServerApproval,
       onReadyForServerCompletion,
       onCancel,
       onError,
     });
-  }, [user]);
+    
+    console.log('[Pi Payment] Payment created:', payment);
+    return payment;
+  }, [user, sdkReady]);
 
   const value = useMemo(() => ({ user, signIn, signOut, createPayment, sdkReady, sdkError }), [user, signIn, signOut, createPayment, sdkReady, sdkError]);
 
