@@ -7,12 +7,13 @@ export type PiUser = {
   roles: string[];
 };
 
-
 interface PiContextValue {
   user: PiUser | null;
   signIn: () => Promise<void>;
   signOut: () => Promise<void>;
   createPayment: (args: { amount: number; memo: string; metadata?: Record<string, unknown> }) => Promise<void>;
+  sdkReady: boolean;
+  sdkError: string | null;
 }
 
 const PiContext = createContext<PiContextValue | undefined>(undefined);
@@ -25,19 +26,56 @@ const getBackendBaseUrl = () => {
 
 export function PiProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<PiUser | null>(null);
+  const [sdkReady, setSdkReady] = useState(false);
+  const [sdkError, setSdkError] = useState<string | null>(null);
 
   const backendBase = useMemo(() => getBackendBaseUrl(), []);
 
-  // Initialize Pi SDK once
+  // Wait for Pi SDK script to load and initialize
   useEffect(() => {
-    try {
-      const sandbox = import.meta.env.VITE_PI_SANDBOX === 'true';
-      if (typeof window !== 'undefined' && window.Pi && typeof window.Pi.init === 'function') {
-        // Call init - it may timeout in console but won't block the app
-        window.Pi.init({ version: '2.0', sandbox });
+    const initializePiSDK = () => {
+      try {
+        if (typeof window !== 'undefined' && window.Pi && typeof window.Pi.init === 'function') {
+          const sandbox = import.meta.env.VITE_PI_SANDBOX === 'true';
+          console.log('Initializing Pi SDK with sandbox:', sandbox);
+          window.Pi.init({ version: '2.0', sandbox });
+          setSdkReady(true);
+          setSdkError(null);
+        } else {
+          console.warn('Pi SDK not available');
+          setSdkError('Pi SDK is not available. Please open this app in Pi Browser.');
+        }
+      } catch (e) {
+        console.error('Error initializing Pi SDK:', e);
+        setSdkError('Failed to initialize Pi SDK');
       }
-    } catch (e) {
-      // Silently ignore - not in Pi Browser
+    };
+
+    // Check if SDK is already loaded
+    if (window.Pi) {
+      initializePiSDK();
+    } else {
+      // Wait for SDK script to load
+      const checkSDKInterval = setInterval(() => {
+        if (window.Pi) {
+          clearInterval(checkSDKInterval);
+          initializePiSDK();
+        }
+      }, 100);
+
+      // Timeout after 5 seconds
+      const timeout = setTimeout(() => {
+        clearInterval(checkSDKInterval);
+        if (!window.Pi) {
+          console.error('Pi SDK failed to load after 5 seconds');
+          setSdkError('Pi SDK failed to load. Please open this app in Pi Browser.');
+        }
+      }, 5000);
+
+      return () => {
+        clearInterval(checkSDKInterval);
+        clearTimeout(timeout);
+      };
     }
   }, []);
 
@@ -46,28 +84,40 @@ export function PiProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signIn = useCallback(async () => {
-    if (!window.Pi || typeof window.Pi.authenticate !== 'function') {
+    if (!sdkReady || !window.Pi || typeof window.Pi.authenticate !== 'function') {
       throw new Error('Pi SDK not available. Please open this app in Pi Browser.');
     }
+    
+    console.log('Starting Pi authentication...');
     
     // Request scopes needed for app
     const scopes = ['username', 'payments', 'roles', 'in_app_notifications'];
     const authResult: AuthResult = await window.Pi.authenticate(scopes, onIncompletePaymentFound);
+    
+    console.log('Authentication successful:', authResult.user);
 
     if (!backendBase) throw new Error('Missing VITE_BACKEND_URL');
+    
+    console.log('Sending auth result to backend...');
     const res = await fetch(`${backendBase}/user/signin`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
       body: JSON.stringify({ authResult }),
     });
+    
     if (!res.ok) {
-      throw new Error('Pi sign-in failed');
+      const errorText = await res.text();
+      console.error('Backend sign-in failed:', errorText);
+      throw new Error('Pi sign-in failed on backend');
     }
+    
     const data = await res.json();
+    console.log('Backend sign-in successful:', data);
+    
     // optional: server could return user; fallback to auth result
     setUser((data.user as PiUser) ?? authResult.user as any);
-  }, [backendBase, onIncompletePaymentFound]);
+  }, [backendBase, onIncompletePaymentFound, sdkReady]);
 
   const signOut = useCallback(async () => {
     setUser(null);
@@ -99,7 +149,7 @@ export function PiProvider({ children }: { children: React.ReactNode }) {
     });
   }, [user]);
 
-  const value = useMemo(() => ({ user, signIn, signOut, createPayment }), [user, signIn, signOut, createPayment]);
+  const value = useMemo(() => ({ user, signIn, signOut, createPayment, sdkReady, sdkError }), [user, signIn, signOut, createPayment, sdkReady, sdkError]);
 
   return <PiContext.Provider value={value}>{children}</PiContext.Provider>;
 }
