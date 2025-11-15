@@ -6,8 +6,26 @@ import { randomBytes } from "crypto";
 export default function mountUserEndpoints(router: Router) {
   // Sign in: verify token, upsert user, create session in Supabase and set cookie
   router.post('/signin', async (req: Request, res: Response) => {
+    console.log('[Backend] /signin called');
+    console.log('[Backend] Request body:', JSON.stringify(req.body, null, 2));
+    console.log('[Backend] Request headers:', req.headers);
+    
     const auth = req.body?.authResult;
+    
+    if (!auth) {
+      console.log('[Backend] ERROR: No authResult in request body');
+      return res.status(400).json({ error: 'Missing authResult' });
+    }
+    
+    console.log('[Backend] authResult received:', {
+      hasAccessToken: !!auth.accessToken,
+      hasUser: !!auth.user,
+      uid: auth.user?.uid,
+      username: auth.user?.username
+    });
+    
     if (!auth?.accessToken || !auth?.user?.uid) {
+      console.log('[Backend] ERROR: Invalid authResult structure');
       return res.status(400).json({ error: 'invalid_request' });
     }
 

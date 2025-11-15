@@ -100,26 +100,14 @@ export function PiProvider({ children }: { children: React.ReactNode }) {
           { onIncompletePaymentFound }
         );
 
-        console.log('[Pi] Authenticate completed:', { 
-          hasAccessToken: !!authResult?.accessToken,
-          hasUser: !!authResult?.user,
-          username: authResult?.user?.username 
-        });
+        console.log('[Pi] Auth result:', authResult);
+        console.log('[Pi] Sending to backend:', JSON.stringify({ authResult }));
 
         if (!authResult?.accessToken) {
-          console.warn('[Pi] No access token received from authenticate');
+          console.warn('[Pi] No access token in authResult');
           setSdkError('No access token received from Pi');
           return;
         }
-
-        console.log('[Pi] auth ok');
-
-        console.log('[Pi] Preparing fetch to:', `${backendBase}/user/signin`);
-        console.log('[Pi] Auth result to send:', {
-          hasAccessToken: !!authResult.accessToken,
-          hasUser: !!authResult.user,
-          uid: authResult.user?.uid
-        });
 
         const res = await fetch(`${backendBase}/user/signin`, {
           method: 'POST',
@@ -129,23 +117,12 @@ export function PiProvider({ children }: { children: React.ReactNode }) {
         });
 
         console.log('[Pi] Fetch completed, status:', res.status);
-        console.log('[Pi] Response headers:', {
-          contentType: res.headers.get('content-type'),
-          setCookie: res.headers.get('set-cookie')
-        });
-
-        console.log('[Pi] Fetch completed, status:', res.status);
-        console.log('[Pi] Response headers:', {
-          contentType: res.headers.get('content-type'),
-          setCookie: res.headers.get('set-cookie')
-        });
 
         if (!res.ok) {
-          console.error('[Pi] Backend returned error status:', res.status);
           let errorText = '';
           try {
             errorText = await res.text();
-            console.error('[Pi] Backend error body:', errorText);
+            console.error('[Pi] Backend error:', res.status, errorText);
           } catch (e) {
             console.error('[Pi] Could not read error body:', e);
           }
@@ -153,15 +130,14 @@ export function PiProvider({ children }: { children: React.ReactNode }) {
           return;
         }
 
-        console.log('[Pi] Response is OK, parsing JSON...');
         const data = await res.json();
-        console.log('[Pi] Backend response data:', JSON.stringify(data, null, 2));
+        console.log('[Pi] Backend response:', JSON.stringify(data, null, 2));
         
         if (data?.user) {
           setUser(data.user);
           setShowWelcomeModal(true);
           setTimeout(() => setShowWelcomeModal(false), 3000);
-          console.log('[Pi] Login successful! User:', data.user.username);
+          console.log('[Pi] Login successful!');
         } else {
           console.warn('[Pi] No user in backend response');
           setSdkError('No user data received from backend');
@@ -176,14 +152,7 @@ export function PiProvider({ children }: { children: React.ReactNode }) {
       }
     };
 
-    // Debug logging
-    console.log('[Pi Debug]', {
-      sdkReady,
-      backendBase,
-      hasPi: !!window.Pi,
-      hasAuthenticate: !!(window.Pi && typeof window.Pi.authenticate === 'function')
-    });
-
+    console.log('[Pi Debug] Starting auto-login, backendBase:', backendBase);
     autoLogin();
   }, [sdkReady, user, onIncompletePaymentFound]);
 
