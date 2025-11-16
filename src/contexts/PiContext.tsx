@@ -10,7 +10,7 @@ export type PiUser = {
 interface PiContextValue {
   user: PiUser | null;
   signOut: () => Promise<void>;
-  createPayment: (args: { amount: number; memo: string; metadata?: Record<string, unknown> }) => Promise<void>;
+  createPayment: (args: { amount: number; memo: string; metadata?: Record<string, unknown> }) => Promise<PaymentDTO>;
   sdkReady: boolean;
   sdkError: string | null;
   showWelcomeModal: boolean;
@@ -40,7 +40,7 @@ export function PiProvider({ children }: { children: React.ReactNode }) {
   const [showWelcomeModal, setShowWelcomeModal] = useState(false);
 
   const onIncompletePaymentFound = useCallback((payment: PaymentDTO) => {
-    return payment;
+    console.log('[Pi] Incomplete payment found:', payment);
   }, []);
 
   // Wait for Pi SDK to load
@@ -97,7 +97,7 @@ export function PiProvider({ children }: { children: React.ReactNode }) {
 
         const authResult: AuthResult = await window.Pi.authenticate(
           ['username', 'payments'],
-          { onIncompletePaymentFound }
+          onIncompletePaymentFound
         );
 
         console.log('[Pi] Auth result:', authResult);
