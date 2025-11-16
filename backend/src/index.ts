@@ -11,6 +11,7 @@ import mountNotificationEndpoints from './handlers/notifications';
 import mountHealthEndpoints from './handlers/health';
 import supabase from './services/supabaseClient';
 import createPaymentHandler from './routes/payments/createPayment';
+import mountPaymentRoutes from './routes/payment';
 
 declare global {
   namespace Express {
@@ -75,6 +76,11 @@ app.use(async (req: Request, _res: Response, next: NextFunction) => {
 });
 
 // Mount endpoints
+// NEW: Clean payment routes (approve, complete, cancel)
+const paymentRouter = express.Router();
+mountPaymentRoutes(paymentRouter);
+app.use('/payments', paymentRouter);
+
 const paymentsVerifyRouter = express.Router();
 mountPaymentsVerify(paymentsVerifyRouter);
 app.use('/api/payments', paymentsVerifyRouter);

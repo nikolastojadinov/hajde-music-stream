@@ -8,16 +8,55 @@ export function usePiPayment() {
     if (!backendUrl) throw new Error('Missing VITE_BACKEND_URL');
     const base = backendUrl.replace(/\/$/, '');
 
-    const onReadyForServerApproval = (paymentId: string) => {
-      fetch(`${base}/payments/approve`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ paymentId }) });
+    const onReadyForServerApproval = async (paymentId: string) => {
+      console.log('[Payment] Approving payment:', paymentId);
+      try {
+        const response = await fetch(`${base}/payments/approve`, { 
+          method: 'POST', 
+          headers: { 'Content-Type': 'application/json' }, 
+          credentials: 'include', 
+          body: JSON.stringify({ paymentId }) 
+        });
+        const result = await response.json();
+        console.log('[Payment] Approval result:', result);
+      } catch (error) {
+        console.error('[Payment] Approval failed:', error);
+      }
     };
-    const onReadyForServerCompletion = (paymentId: string, txid: string) => {
-      fetch(`${base}/payments/complete`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ paymentId, txid }) });
+    
+    const onReadyForServerCompletion = async (paymentId: string, txid: string) => {
+      console.log('[Payment] Completing payment:', paymentId, txid);
+      try {
+        const response = await fetch(`${base}/payments/complete`, { 
+          method: 'POST', 
+          headers: { 'Content-Type': 'application/json' }, 
+          credentials: 'include', 
+          body: JSON.stringify({ paymentId, txid }) 
+        });
+        const result = await response.json();
+        console.log('[Payment] Completion result:', result);
+      } catch (error) {
+        console.error('[Payment] Completion failed:', error);
+      }
     };
-    const onCancel = (paymentId: string) => {
-      fetch(`${base}/payments/cancelled_payment`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ paymentId }) });
+    
+    const onCancel = async (paymentId: string) => {
+      console.log('[Payment] Cancelling payment:', paymentId);
+      try {
+        await fetch(`${base}/payments/cancel`, { 
+          method: 'POST', 
+          headers: { 'Content-Type': 'application/json' }, 
+          credentials: 'include', 
+          body: JSON.stringify({ paymentId }) 
+        });
+      } catch (error) {
+        console.error('[Payment] Cancel failed:', error);
+      }
     };
-    const onError = (error: Error) => { console.error('Pi payment error', error); };
+    
+    const onError = (error: Error) => { 
+      console.error('[Payment] Pi payment error:', error); 
+    };
 
     const payment: PaymentDTO = await window.Pi.createPayment({ amount, memo, metadata: metadata ?? {} }, { onReadyForServerApproval, onReadyForServerCompletion, onCancel, onError });
     return payment;

@@ -182,16 +182,63 @@ export function PiProvider({ children }: { children: React.ReactNode }) {
       throw new Error('Pi SDK not available. Please open this app in Pi Browser.');
     }
 
-    const onReadyForServerApproval = (paymentId: string) => {
+    const onReadyForServerApproval = async (paymentId: string) => {
       console.log('[Pi] Payment ready for approval:', paymentId);
+      
+      try {
+        const response = await fetch(`${backendBase}/payments/approve`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ paymentId }),
+        });
+        
+        const result = await response.json();
+        console.log('[Pi] Approval response:', result);
+        
+        if (!result.success) {
+          console.error('[Pi] Approval failed:', result.error);
+        }
+      } catch (error) {
+        console.error('[Pi] Approval request failed:', error);
+      }
     };
 
-    const onReadyForServerCompletion = (paymentId: string, txid: string) => {
+    const onReadyForServerCompletion = async (paymentId: string, txid: string) => {
       console.log('[Pi] Payment ready for completion:', paymentId, txid);
+      
+      try {
+        const response = await fetch(`${backendBase}/payments/complete`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ paymentId, txid }),
+        });
+        
+        const result = await response.json();
+        console.log('[Pi] Completion response:', result);
+        
+        if (!result.success) {
+          console.error('[Pi] Completion failed:', result.error);
+        }
+      } catch (error) {
+        console.error('[Pi] Completion request failed:', error);
+      }
     };
 
-    const onCancel = (paymentId: string) => {
+    const onCancel = async (paymentId: string) => {
       console.log('[Pi] Payment cancelled:', paymentId);
+      
+      try {
+        await fetch(`${backendBase}/payments/cancel`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ paymentId }),
+        });
+      } catch (error) {
+        console.error('[Pi] Cancel request failed:', error);
+      }
     };
 
     const onError = (error: Error, payment?: PaymentDTO) => {
