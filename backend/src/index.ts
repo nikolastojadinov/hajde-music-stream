@@ -5,7 +5,6 @@ import express, { Request, Response, NextFunction } from 'express';
 import cookieParser from 'cookie-parser';
 import logger from 'morgan';
 import env from './environments';
-import mountPaymentsVerify from './handlers/paymentsVerify';
 import userRouter from './routes/user';
 import mountNotificationEndpoints from './handlers/notifications';
 import mountHealthEndpoints from './handlers/health';
@@ -80,10 +79,6 @@ app.use(async (req: Request, _res: Response, next: NextFunction) => {
 const paymentRouter = express.Router();
 mountPaymentRoutes(paymentRouter);
 app.use('/payments', paymentRouter);
-
-const paymentsVerifyRouter = express.Router();
-mountPaymentsVerify(paymentsVerifyRouter);
-app.use('/api/payments', paymentsVerifyRouter);
 
 // Payment creation endpoint
 app.post('/payments/create', createPaymentHandler);
