@@ -110,7 +110,7 @@ export function PiProvider({ children }: { children: React.ReactNode }) {
           return;
         }
 
-        const res = await fetch(`${backendBase}/signin`, {
+        const res = await fetch(`${backendBase}/user/signin`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
