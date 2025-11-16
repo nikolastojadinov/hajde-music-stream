@@ -5,12 +5,13 @@ export type PiUser = {
   uid: string;
   username: string;
   roles: string[];
+  premium_until?: string | null;
 };
 
 interface PiContextValue {
   user: PiUser | null;
   signOut: () => Promise<void>;
-  createPayment: (args: { amount: number; memo: string; metadata?: Record<string, unknown> }) => Promise<void>;
+  createPayment: (args: { amount: number; memo: string; metadata?: Record<string, unknown> }) => Promise<PaymentDTO>;
   sdkReady: boolean;
   sdkError: string | null;
   showWelcomeModal: boolean;
@@ -97,7 +98,7 @@ export function PiProvider({ children }: { children: React.ReactNode }) {
 
         const authResult: AuthResult = await window.Pi.authenticate(
           ['username', 'payments'],
-          { onIncompletePaymentFound }
+          onIncompletePaymentFound
         );
 
         console.log('[Pi] Auth result:', authResult);
@@ -109,7 +110,7 @@ export function PiProvider({ children }: { children: React.ReactNode }) {
           return;
         }
 
-        const res = await fetch(`${backendBase}/user/signin`, {
+        const res = await fetch(`${backendBase}/signin`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
