@@ -74,6 +74,16 @@ async function resolvePaymentContext(paymentId: string): Promise<{
   const paymentResponse = await platformAPIClient.get(`/v2/payments/${paymentId}`);
   const payment = paymentResponse.data;
 
+  // DETALJNO LOGOVANJE - vidi šta tačno stigne od Pi Platform API
+  log('Pi Platform API response (FULL PAYMENT OBJECT):', {
+    payment_id: paymentId,
+    full_payment: payment,
+    payment_metadata: payment?.metadata,
+    payment_user: payment?.user,
+    payment_amount: payment?.amount,
+    payment_memo: payment?.memo,
+  });
+
   // b) Pokušaj da pročitaš piUid iz payment objekta
   let piUid: string | null = payment?.metadata?.user_uid ?? null;
   if (!piUid && payment?.user?.uid) {
