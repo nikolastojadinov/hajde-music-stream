@@ -87,7 +87,7 @@ export async function handleSignin(req: Request, res: Response) {
     // Check if user exists
     const { data: existingUser, error: selectError } = await supabase
       .from('users')
-      .select('*')
+      .select('id, pi_uid, username, wallet_address, premium_until, created_at, updated_at')
       .eq('pi_uid', pi_uid)
       .maybeSingle();
 
