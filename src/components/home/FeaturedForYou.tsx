@@ -3,6 +3,7 @@ import { externalSupabase } from "@/lib/externalSupabase";
 import PlaylistCard from "@/components/PlaylistCard";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface Playlist {
   id: string;
@@ -12,6 +13,7 @@ interface Playlist {
 }
 
 const FeaturedForYou = () => {
+  const { t } = useLanguage();
   const { data: playlists, isLoading, error } = useQuery({
     queryKey: ["featured-playlists"],
     queryFn: async () => {
@@ -39,8 +41,8 @@ const FeaturedForYou = () => {
   if (error) {
     return (
       <div className="space-y-4">
-        <h2 className="text-2xl font-bold text-white px-4 md:px-8">
-          featured for you
+        <h2 className="text-2xl font-bold text-foreground px-4 md:px-8">
+          {t("featured_for_you")}
         </h2>
         <div className="px-4 md:px-8 text-red-500">
           Error loading playlists: {error.message}
@@ -51,8 +53,8 @@ const FeaturedForYou = () => {
 
   return (
     <div className="space-y-4">
-      <h2 className="text-2xl font-bold text-white px-4 md:px-8">
-        featured for you
+      <h2 className="text-2xl font-bold text-foreground px-4 md:px-8">
+        {t("featured_for_you")}
       </h2>
       
       <div className="px-4 md:px-8">
@@ -83,7 +85,7 @@ const FeaturedForYou = () => {
               ))
             ) : (
               // No playlists found
-              <div className="text-white/60 py-8">
+              <div className="text-foreground/60 py-8">
                 No featured playlists found. Please check if the playlists exist in the database.
               </div>
             )}
