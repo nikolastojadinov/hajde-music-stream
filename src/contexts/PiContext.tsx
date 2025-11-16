@@ -5,6 +5,7 @@ export type PiUser = {
   uid: string;
   username: string;
   roles: string[];
+  premium_until?: string | null;
 };
 
 interface PiContextValue {
@@ -97,7 +98,7 @@ export function PiProvider({ children }: { children: React.ReactNode }) {
 
         const authResult: AuthResult = await window.Pi.authenticate(
           ['username', 'payments'],
-          { onIncompletePaymentFound }
+          onIncompletePaymentFound
         );
 
         console.log('[Pi] Auth result:', authResult);
@@ -173,7 +174,7 @@ export function PiProvider({ children }: { children: React.ReactNode }) {
     amount: number; 
     memo: string; 
     metadata?: Record<string, unknown> 
-  }) => {
+  }): Promise<void> => {
     if (!user) {
       throw new Error('Not signed in');
     }
@@ -246,7 +247,7 @@ export function PiProvider({ children }: { children: React.ReactNode }) {
       throw error;
     };
 
-    const payment = await window.Pi.createPayment(
+    await window.Pi.createPayment(
       { 
         amount, 
         memo, 
@@ -262,8 +263,6 @@ export function PiProvider({ children }: { children: React.ReactNode }) {
         onError,
       }
     );
-
-    return payment;
   }, [user, sdkReady]);
 
   const value = useMemo(
