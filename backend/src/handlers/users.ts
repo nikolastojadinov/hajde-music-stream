@@ -8,6 +8,16 @@ export default function mountUserEndpoints(router: Router) {
       console.log('[Backend] /signin called');
       console.log('[Backend] Request body:', JSON.stringify(req.body, null, 2));
       
+      // Check if Supabase is configured
+      if (!supabase) {
+        console.error('[Backend] CRITICAL: Supabase client not initialized!');
+        return res.status(500).json({ 
+          success: false, 
+          error: 'Database not configured',
+          details: 'SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY missing'
+        });
+      }
+      
       const { authResult } = req.body;
       
       if (!authResult) {
@@ -71,20 +81,35 @@ export default function mountUserEndpoints(router: Router) {
       } else {
         // User doesn't exist - create new
         console.log('[Backend] Creating new user...');
+        
+        const newUser = {
+          pi_uid: user.uid,
+          username: user.username,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        };
+        
+        console.log('[Backend] Inserting user data:', JSON.stringify(newUser, null, 2));
+        
         const { data, error: insertError } = await supabase
           .from('users')
-          .insert({
-            pi_uid: user.uid,
-            username: user.username,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          })
+          .insert(newUser)
           .select()
           .single();
 
         if (insertError) {
-          console.error('[Backend] Error creating user:', insertError);
-          return res.status(500).json({ success: false, error: 'Failed to create user' });
+          console.error('[Backend] Error creating user - FULL ERROR:', {
+            message: insertError.message,
+            details: insertError.details,
+            hint: insertError.hint,
+            code: insertError.code,
+            fullError: JSON.stringify(insertError)
+          });
+          return res.status(500).json({ 
+            success: false, 
+            error: 'Failed to create user',
+            details: insertError.message 
+          });
         }
 
         userData = data;
