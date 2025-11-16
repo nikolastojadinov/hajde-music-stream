@@ -45,11 +45,16 @@ export function DebugWheel() {
     <>
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="fixed bottom-4 right-4 bg-gray-900/80 rounded-full p-3 shadow-xl hover:bg-gray-800/90 transition-colors"
-        style={{ zIndex: 99999 }}
+        className="fixed bg-primary/90 hover:bg-primary rounded-full p-4 shadow-2xl transition-all hover:scale-110 backdrop-blur-sm border-2 border-white/20"
+        style={{ 
+          zIndex: 99999,
+          bottom: 'calc(5rem + 80px)', // Above player on mobile
+          right: '16px'
+        }}
         aria-label="Debug Console"
+        title="Open Debug Console"
       >
-        <span className="text-2xl">⚙️</span>
+        <span className="text-2xl">🐛</span>
       </button>
       {isOpen && <DebugConsoleOverlay onClose={() => setIsOpen(false)} />}
     </>
