@@ -76,6 +76,9 @@ const PremiumDialog = ({ open, onOpenChange }: PremiumDialogProps) => {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-[95vw] w-full max-h-[95vh] p-0 border border-border bg-background overflow-y-auto scrollbar-hide">
+        <div className="sr-only">
+          <h2 id="premium-dialog-title">Purple Music Premium</h2>
+        </div>
         <div className="relative w-full mx-auto p-4 md:p-6">
           {/* Close button */}
           <button

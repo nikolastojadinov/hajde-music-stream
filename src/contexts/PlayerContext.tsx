@@ -216,14 +216,23 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   // Kreiraj player samo kada postane vidljiv
   useEffect(() => {
+    console.log('🎬 [PlayerContext] isPlayerVisible changed:', isPlayerVisible);
+    console.log('🎬 [PlayerContext] playerRef.current exists:', !!playerRef.current);
+    
     if (!isPlayerVisible || playerRef.current) return;
 
     const createPlayer = () => {
+      console.log('🎬 [PlayerContext] createPlayer called');
       const container = document.getElementById("yt-player");
+      console.log('🎬 [PlayerContext] Container found:', !!container);
+      console.log('🎬 [PlayerContext] Window.YT available:', !!window.YT);
+      console.log('🎬 [PlayerContext] Window.YT.Player available:', !!window.YT?.Player);
+      
       if (!container || playerRef.current) return;
 
       // Uzmi video ID iz pending ili default
       const videoId = pendingVideoRef.current?.id || playlist[0].id;
+      console.log('🎬 [PlayerContext] Creating player with video ID:', videoId);
 
       try {
         playerRef.current = new window.YT.Player("yt-player", {
@@ -304,15 +313,19 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           },
         });
       } catch (error) {
-        // Player creation failed
+        console.error('❌ [PlayerContext] Player creation failed:', error);
       }
     };
 
     // Čekaj da se API učita
+    console.log('🎬 [PlayerContext] Checking YouTube API availability...');
     if (window.YT && window.YT.Player) {
+      console.log('✅ [PlayerContext] YouTube API already loaded, creating player in 300ms');
       setTimeout(createPlayer, 300);
     } else {
+      console.log('⏳ [PlayerContext] YouTube API not loaded yet, waiting for onYouTubeIframeAPIReady');
       window.onYouTubeIframeAPIReady = () => {
+        console.log('✅ [PlayerContext] YouTube API loaded via callback');
         setTimeout(createPlayer, 300);
       };
     }
@@ -384,22 +397,42 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   const playTrack = (youtubeId: string, title: string, artist: string) => {
+    console.log('🎵 [PlayerContext] playTrack called:', { youtubeId, title, artist });
+    console.log('🎵 [PlayerContext] Player state:', { 
+      playerReady, 
+      hasPlayerRef: !!playerRef.current,
+      hasLoadMethod: !!playerRef.current?.loadVideoById,
+      isPlayerVisible
+    });
+    
     setCurrentVideoTitle(title);
     setCurrentVideoArtist(artist);
     setCurrentYoutubeId(youtubeId);
     
     if (playerRef.current && playerReady && playerRef.current.loadVideoById) {
+      console.log('✅ [PlayerContext] Loading video directly');
       playerRef.current.loadVideoById(youtubeId);
       setIsPlaying(true);
     } else {
+      console.log('⏳ [PlayerContext] Player not ready, setting pendingVideoRef');
       pendingVideoRef.current = { id: youtubeId, title, artist };
     }
     
     setIsPlayerVisible(true);
+    console.log('👀 [PlayerContext] Player visibility set to true');
   };
 
   const playPlaylist = (tracks: Array<{ youtube_id: string; title: string; artist: string }>, startIndex = 0) => {
-    if (tracks.length === 0) return;
+    console.log('🎵 [PlayerContext] playPlaylist called:', { 
+      trackCount: tracks.length, 
+      startIndex,
+      firstTrack: tracks[0]
+    });
+    
+    if (tracks.length === 0) {
+      console.warn('⚠️ [PlayerContext] Empty playlist provided');
+      return;
+    }
     
     currentPlaylistRef.current = tracks;
     currentIndexRef.current = startIndex;
@@ -408,6 +441,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setCurrentIndex(startIndex);
     
     const track = tracks[startIndex];
+    console.log('🎵 [PlayerContext] Starting track:', track);
     playTrack(track.youtube_id, track.title, track.artist);
   };
 
