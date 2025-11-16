@@ -59,17 +59,12 @@ All colors MUST be HSL.
 
 @layer base {
   * {
-    /* Replace invalid @apply of arbitrary class with explicit border color */
     border-color: hsl(var(--border));
+    color: hsl(var(--foreground));
   }
 
   body {
     @apply bg-background text-foreground;
-  }
-
-  /* Global golden text override for all UI elements */
-  * {
-    color: hsl(var(--foreground));
   }
 
   /* Allow buttons and interactive elements to use their own colors */
