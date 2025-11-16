@@ -20,11 +20,12 @@ interface PiContextValue {
 const PiContext = createContext<PiContextValue | undefined>(undefined);
 
 // Get backend base URL with proper validation
-function getBackendBaseUrl(): string {
+function getBackendBaseUrl(): string | null {
   const url = import.meta.env.VITE_BACKEND_URL;
   
   if (!url || typeof url !== 'string') {
-    throw new Error('Backend URL missing');
+    console.warn('VITE_BACKEND_URL not configured - Pi payments will not work');
+    return null;
   }
   
   // Trim whitespace and remove trailing slash
@@ -109,6 +110,12 @@ export function PiProvider({ children }: { children: React.ReactNode }) {
           return;
         }
 
+        if (!backendBase) {
+          console.warn('[Pi] Backend URL not configured - skipping authentication');
+          setSdkError('Backend not configured');
+          return;
+        }
+
         const res = await fetch(`${backendBase}/user/signin`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -158,6 +165,10 @@ export function PiProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = useCallback(async () => {
     setUser(null);
+    if (!backendBase) {
+      console.warn('[Pi] Backend URL not configured - skipping signout request');
+      return;
+    }
     try {
       await fetch(`${backendBase}/user/signout`, { credentials: 'include' });
     } catch (error) {
@@ -185,6 +196,11 @@ export function PiProvider({ children }: { children: React.ReactNode }) {
     const onReadyForServerApproval = async (paymentId: string) => {
       console.log('[Pi] Payment ready for approval:', paymentId);
       
+      if (!backendBase) {
+        console.warn('[Pi] Backend URL not configured - skipping approval');
+        return;
+      }
+      
       try {
         const response = await fetch(`${backendBase}/payments/approve`, {
           method: 'POST',
@@ -207,6 +223,11 @@ export function PiProvider({ children }: { children: React.ReactNode }) {
     const onReadyForServerCompletion = async (paymentId: string, txid: string) => {
       console.log('[Pi] Payment ready for completion:', paymentId, txid);
       
+      if (!backendBase) {
+        console.warn('[Pi] Backend URL not configured - skipping completion');
+        return;
+      }
+      
       try {
         const response = await fetch(`${backendBase}/payments/complete`, {
           method: 'POST',
@@ -228,6 +249,11 @@ export function PiProvider({ children }: { children: React.ReactNode }) {
 
     const onCancel = async (paymentId: string) => {
       console.log('[Pi] Payment cancelled:', paymentId);
+      
+      if (!backendBase) {
+        console.warn('[Pi] Backend URL not configured - skipping cancel');
+        return;
+      }
       
       try {
         await fetch(`${backendBase}/payments/cancel`, {
