@@ -85,9 +85,12 @@ async function resolvePaymentContext(paymentId: string): Promise<{
   });
 
   // b) Pokušaj da pročitaš piUid iz payment objekta
-  let piUid: string | null = payment?.metadata?.user_uid ?? null;
-  if (!piUid && payment?.user?.uid) {
-    piUid = payment.user.uid;
+  // PRIORITET: payment.user.uid (Pi Platform API uvek vraća ovo)
+  let piUid: string | null = payment?.user?.uid ?? null;
+  
+  // Fallback: metadata.user_uid (može biti dostupno u nekim slučajevima)
+  if (!piUid && payment?.metadata?.user_uid) {
+    piUid = payment.metadata.user_uid;
   }
 
   // c) Pokušaj da pročitaš plan iz payment.metadata.plan
@@ -127,10 +130,11 @@ async function resolvePaymentContext(paymentId: string): Promise<{
 
   log('resolvePaymentContext RESULT', {
     payment_id: paymentId,
-    has_metadata_user_uid: !!payment?.metadata?.user_uid,
     has_payment_user_uid: !!payment?.user?.uid,
+    has_metadata_user_uid: !!payment?.metadata?.user_uid,
     resolved_piUid: piUid,
     resolved_plan: plan,
+    source: payment?.user?.uid ? 'payment.user.uid' : payment?.metadata?.user_uid ? 'metadata.user_uid' : 'orders_table',
   });
 
   return { payment, piUid, plan };
