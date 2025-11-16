@@ -2,8 +2,9 @@ services:
   - type: web
     name: purple-music-backend
     env: node
-    buildCommand: yarn install
-    startCommand: yarn start
+    rootDir: backend
+    buildCommand: yarn install && yarn build
+    startCommand: node build/index.js
     plan: free
     region: frankfurt
     branch: main
