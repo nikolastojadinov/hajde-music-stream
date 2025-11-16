@@ -10,6 +10,7 @@ import userRouter from './routes/user';
 import mountNotificationEndpoints from './handlers/notifications';
 import mountHealthEndpoints from './handlers/health';
 import supabase from './services/supabaseClient';
+import createPaymentHandler from './routes/payments/createPayment';
 
 declare global {
   namespace Express {
@@ -77,6 +78,9 @@ app.use(async (req: Request, _res: Response, next: NextFunction) => {
 const paymentsVerifyRouter = express.Router();
 mountPaymentsVerify(paymentsVerifyRouter);
 app.use('/api/payments', paymentsVerifyRouter);
+
+// Payment creation endpoint
+app.post('/payments/create', createPaymentHandler);
 
 // Use new clean routes/user router instead of handlers
 app.use('/user', userRouter);
