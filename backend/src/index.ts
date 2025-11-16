@@ -6,7 +6,7 @@ import cookieParser from 'cookie-parser';
 import logger from 'morgan';
 import env from './environments';
 import mountPaymentsVerify from './handlers/paymentsVerify';
-import mountUserEndpoints from './handlers/users';
+import userRouter from './routes/user/index.js';
 import mountNotificationEndpoints from './handlers/notifications';
 import mountHealthEndpoints from './handlers/health';
 import supabase from './services/supabaseClient';
@@ -78,8 +78,7 @@ const paymentsVerifyRouter = express.Router();
 mountPaymentsVerify(paymentsVerifyRouter);
 app.use('/api/payments', paymentsVerifyRouter);
 
-const userRouter = express.Router();
-mountUserEndpoints(userRouter);
+// Use new clean routes/user router instead of handlers
 app.use('/user', userRouter);
 
 const notificationRouter = express.Router();
