@@ -77,7 +77,7 @@ export const useExternalPlaylist = (playlistId: string) => {
         // Step 3: Fetch actual track details
         const { data: tracksData, error: tracksError } = await externalSupabase
           .from('tracks')
-          .select('id, title, artist, youtube_id, duration, playlist_id')
+          .select('*')
           .in('id', trackIds);
 
         if (tracksError) {
@@ -103,9 +103,9 @@ export const useExternalPlaylist = (playlistId: string) => {
                 id: trackDetail.id,
                 title: trackDetail.title,
                 artist: trackDetail.artist,
-                youtube_id: trackDetail.youtube_id,
+                youtube_id: trackDetail.external_id || trackDetail.video_id || '',
                 duration: trackDetail.duration,
-                image_url: null, // tracks table doesn't have image_url
+                image_url: trackDetail.cover_url || null,
                 playlist_id: playlistId,
               };
             })
@@ -119,7 +119,7 @@ export const useExternalPlaylist = (playlistId: string) => {
         // FALLBACK: Try direct playlist_id in tracks table
         const { data: directTracks, error: directError } = await externalSupabase
           .from('tracks')
-          .select('id, title, artist, youtube_id, duration, playlist_id')
+          .select('*')
           .eq('playlist_id', playlistId)
           .order('created_at', { ascending: true });
 
@@ -129,9 +129,9 @@ export const useExternalPlaylist = (playlistId: string) => {
             id: t.id,
             title: t.title,
             artist: t.artist,
-            youtube_id: t.youtube_id,
+            youtube_id: t.external_id || t.video_id || '',
             duration: t.duration,
-            image_url: null,
+            image_url: t.cover_url || null,
             playlist_id: playlistId,
           }));
         } else {
