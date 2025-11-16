@@ -88,6 +88,9 @@ export const useExternalPlaylist = (playlistId: string) => {
         console.log(`📦 [useExternalPlaylist] Loaded ${tracksData?.length || 0} track details`);
 
         if (tracksData && tracksData.length > 0) {
+          console.log('📦 [useExternalPlaylist] First track from DB:', tracksData[0]);
+          console.log('📦 [useExternalPlaylist] Track fields:', Object.keys(tracksData[0]));
+          
           // Create a map for quick lookup
           const tracksMap = new Map(tracksData.map((t) => [t.id, t]));
 
@@ -99,11 +102,20 @@ export const useExternalPlaylist = (playlistId: string) => {
                 console.warn(`⚠️ [useExternalPlaylist] Track not found for ID: ${junction.track_id}`);
                 return null;
               }
+              
+              const youtubeId = trackDetail.external_id || trackDetail.video_id || trackDetail.youtube_id || '';
+              console.log(`🔍 [useExternalPlaylist] Track "${trackDetail.title}":`, {
+                external_id: trackDetail.external_id,
+                video_id: trackDetail.video_id,
+                youtube_id: trackDetail.youtube_id,
+                final: youtubeId
+              });
+              
               return {
                 id: trackDetail.id,
                 title: trackDetail.title,
                 artist: trackDetail.artist,
-                youtube_id: trackDetail.external_id || trackDetail.video_id || '',
+                youtube_id: youtubeId,
                 duration: trackDetail.duration,
                 image_url: trackDetail.cover_url || null,
                 playlist_id: playlistId,
@@ -112,6 +124,7 @@ export const useExternalPlaylist = (playlistId: string) => {
             .filter(Boolean) as Track[];
 
           console.log(`✅ [useExternalPlaylist] Mapped ${tracks.length} tracks with correct order`);
+          console.log('✅ [useExternalPlaylist] First mapped track:', tracks[0]);
         }
       } else {
         console.warn('⚠️ [useExternalPlaylist] No junction records found, trying fallback...');
