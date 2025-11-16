@@ -45,7 +45,7 @@ const Header = () => {
                   <DropdownMenuItem className="py-3 bg-gradient-to-r from-amber-500/10 to-yellow-600/10 border border-amber-500/20">
                     <Crown className="w-4 h-4 mr-3 text-amber-500" />
                     <div className="flex flex-col">
-                      <span className="bg-gradient-to-b from-amber-500 via-amber-600 to-yellow-700 bg-clip-text text-transparent font-semibold text-xs">Premium member until:</span>
+                      <span className="bg-gradient-to-b from-amber-500 via-amber-600 to-yellow-700 bg-clip-text text-transparent font-semibold text-xs">{t("premium_member_until")}:</span>
                       <span className="text-xs text-muted-foreground">{new Date(user.premium_until).toLocaleDateString()}</span>
                     </div>
                   </DropdownMenuItem>
@@ -55,13 +55,13 @@ const Header = () => {
                     className="cursor-pointer py-3 bg-gradient-to-r from-amber-500/10 to-yellow-600/10 hover:from-amber-500/20 hover:to-yellow-600/20 border border-amber-500/20"
                   >
                     <Crown className="w-4 h-4 mr-3 text-amber-500" />
-                    <span className="bg-gradient-to-b from-amber-500 via-amber-600 to-yellow-700 bg-clip-text text-transparent font-semibold">Go Premium</span>
+                    <span className="bg-gradient-to-b from-amber-500 via-amber-600 to-yellow-700 bg-clip-text text-transparent font-semibold">{t("go_premium")}</span>
                   </DropdownMenuItem>
                 )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => signOut()} className="cursor-pointer py-3">
                   <User className="w-4 h-4 mr-3" />
-                  <span>Sign out</span>
+                  <span>{t("sign_out")}</span>
                 </DropdownMenuItem>
               </>
             ) : sdkError ? (
