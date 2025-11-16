@@ -9,28 +9,28 @@ All colors MUST be HSL.
 @layer base {
   :root {
     --background: 220 18% 8%;
-    --foreground: 51 100% 50%;
+    --foreground: 330 60% 75%;
 
     --card: 220 15% 12%;
-    --card-foreground: 51 100% 50%;
+    --card-foreground: 330 60% 75%;
 
     --popover: 220 18% 10%;
-    --popover-foreground: 51 100% 50%;
+    --popover-foreground: 330 60% 75%;
 
     --primary: 330 72% 56%;
-    --primary-foreground: 51 100% 50%;
+    --primary-foreground: 220 18% 8%;
 
     --secondary: 220 15% 16%;
-    --secondary-foreground: 51 100% 50%;
+    --secondary-foreground: 330 60% 75%;
 
     --muted: 220 15% 16%;
-    --muted-foreground: 51 100% 50%;
+    --muted-foreground: 330 55% 70%;
 
     --accent: 320 65% 60%;
-    --accent-foreground: 51 100% 50%;
+    --accent-foreground: 220 18% 8%;
 
     --destructive: 0 72% 51%;
-    --destructive-foreground: 51 100% 50%;
+    --destructive-foreground: 330 60% 75%;
 
     --border: 220 15% 18%;
     --input: 220 15% 18%;
@@ -39,16 +39,15 @@ All colors MUST be HSL.
     --radius: 0.75rem;
 
     --sidebar-background: 220 18% 8%;
-    --sidebar-foreground: 51 100% 50%;
+    --sidebar-foreground: 330 60% 75%;
     --sidebar-primary: 330 72% 56%;
-    --sidebar-primary-foreground: 51 100% 50%;
+    --sidebar-primary-foreground: 220 18% 8%;
     --sidebar-accent: 220 15% 14%;
-    --sidebar-accent-foreground: 51 100% 50%;
+    --sidebar-accent-foreground: 330 60% 75%;
     --sidebar-border: 220 15% 15%;
     --sidebar-ring: 330 72% 56%;
 
     /* Custom tokens */
-    --gold: 51 100% 50%;
     --gradient-primary: linear-gradient(135deg, hsl(330 72% 56%), hsl(320 65% 60%));
     --gradient-card: linear-gradient(145deg, hsl(220 15% 14%), hsl(220 15% 10%));
     --shadow-glow: 0 0 40px hsl(330 72% 56% / 0.15);
@@ -59,17 +58,12 @@ All colors MUST be HSL.
 
 @layer base {
   * {
+    /* Replace invalid @apply of arbitrary class with explicit border color */
     border-color: hsl(var(--border));
-    color: hsl(var(--foreground));
   }
 
   body {
     @apply bg-background text-foreground;
-  }
-
-  /* Allow buttons and interactive elements to use their own colors */
-  button, a, input, textarea, select {
-    color: inherit;
   }
 
   .scrollbar-hide {

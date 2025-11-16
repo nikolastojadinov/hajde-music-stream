@@ -84,10 +84,10 @@ export async function handleSignin(req: Request, res: Response) {
       hasAccessToken: !!accessToken
     });
 
-    // Check if user exists - include premium_until field
+    // Check if user exists
     const { data: existingUser, error: selectError } = await supabase
       .from('users')
-      .select('id, pi_uid, username, wallet_address, premium_until, created_at, updated_at')
+      .select('*')
       .eq('pi_uid', pi_uid)
       .maybeSingle();
 
@@ -122,7 +122,7 @@ export async function handleSignin(req: Request, res: Response) {
         .from('users')
         .update(updateData)
         .eq('pi_uid', pi_uid)
-        .select('id, pi_uid, username, wallet_address, premium_until, created_at, updated_at')
+        .select()
         .single();
 
       if (updateError) {
@@ -162,7 +162,7 @@ export async function handleSignin(req: Request, res: Response) {
       const { data, error: insertError } = await supabase
         .from('users')
         .insert(newUser)
-        .select('id, pi_uid, username, wallet_address, premium_until, created_at, updated_at')
+        .select()
         .single();
 
       if (insertError) {
@@ -194,15 +194,10 @@ export async function handleSignin(req: Request, res: Response) {
 
     console.log('[Signin] Success - returning user data');
 
-    // Return success response with user data including premium_until
+    // Return success response
     return res.status(200).json({
       success: true,
-      user: {
-        uid: userData.pi_uid,
-        username: userData.username,
-        roles: [],
-        premium_until: userData.premium_until || null
-      }
+      user: userData
     });
 
   } catch (error: any) {
