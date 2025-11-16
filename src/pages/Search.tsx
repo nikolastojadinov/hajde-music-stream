@@ -5,12 +5,29 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { useCatalogSearch, CatalogResult } from "@/hooks/useCatalogSearch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useNavigate } from "react-router-dom";
+import { usePlayer } from "@/contexts/PlayerContext";
 
 const Search = () => {
   const { t } = useLanguage();
   const navigate = useNavigate();
+  const { playPlaylist } = usePlayer();
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
+
+  const handleResultClick = (result: CatalogResult) => {
+    if (result.type === 'playlist') {
+      navigate(`/playlist/${result.id}`);
+    } else {
+      // Play track directly
+      const trackData = [{
+        youtube_id: result.external_id || '',
+        title: result.title,
+        artist: result.artist || 'Unknown Artist'
+      }];
+      console.log('🎵 [Search] Playing track:', trackData[0]);
+      playPlaylist(trackData, 0);
+    }
+  };
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -89,13 +106,7 @@ const Search = () => {
                     {catalogResults.map((result: CatalogResult) => (
                       <div
                         key={result.id}
-                        onClick={() => {
-                          if (result.type === 'playlist') {
-                            navigate(`/playlist/${result.id}`);
-                          } else {
-                            navigate(`/track/${result.id}`);
-                          }
-                        }}
+                        onClick={() => handleResultClick(result)}
                         className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 active:bg-white/10 transition-colors cursor-pointer"
                       >
                         <div className="w-16 h-16 rounded-md bg-card flex-shrink-0 overflow-hidden">
@@ -138,13 +149,7 @@ const Search = () => {
                     {catalogResults.map((result: CatalogResult) => (
                       <div 
                         key={result.id}
-                        onClick={() => {
-                          if (result.type === 'playlist') {
-                            navigate(`/playlist/${result.id}`);
-                          } else {
-                            navigate(`/track/${result.id}`);
-                          }
-                        }}
+                        onClick={() => handleResultClick(result)}
                         className="cursor-pointer group"
                       >
                         <div className="aspect-square bg-card rounded-lg mb-3 overflow-hidden transition-transform group-hover:scale-105">

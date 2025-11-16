@@ -15,6 +15,7 @@ export interface CatalogTrack {
   title: string;
   artist: string;
   image_url: string | null;
+  external_id: string;
 }
 
 export type CatalogResult = CatalogPlaylist | CatalogTrack;
@@ -111,7 +112,7 @@ export function useCatalogSearch(searchTerm: string) {
       // Search tracks by BOTH title AND artist (smart search)
       const { data: tracksData, error: tracksError } = await externalSupabase
         .from('tracks')
-        .select('id, title, artist, cover_url')
+        .select('id, title, artist, cover_url, external_id')
         .or(`title.ilike.%${trimmedTerm}%,artist.ilike.%${trimmedTerm}%`)
         .range(currentOffset, currentOffset + RESULTS_PER_PAGE);
 
@@ -141,6 +142,7 @@ export function useCatalogSearch(searchTerm: string) {
         title: track.title,
         artist: track.artist,
         image_url: track.cover_url,
+        external_id: track.external_id || '',
       }));
 
       // Combine and sort by relevance (smart ranking)
