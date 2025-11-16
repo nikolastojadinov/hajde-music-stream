@@ -349,35 +349,4 @@ export default function mountPaymentRoutes(router: Router) {
       message: 'Payment routes operational',
     });
   });
-
-  // EMERGENCY DEBUG ENDPOINT - shows what Pi Platform API returns
-  router.post('/debug-payment', async (req: Request, res: Response) => {
-    try {
-      const { paymentId } = req.body;
-      if (!paymentId) {
-        return res.status(400).json({ error: 'Missing paymentId' });
-      }
-
-      log('DEBUG: Fetching payment from Pi Platform API', { payment_id: paymentId });
-      
-      const paymentResponse = await platformAPIClient.get(`/v2/payments/${paymentId}`);
-      const payment = paymentResponse.data;
-
-      return res.status(200).json({
-        success: true,
-        payment_id: paymentId,
-        full_response: payment,
-        user_object: payment?.user,
-        metadata_object: payment?.metadata,
-        user_uid_extracted: payment?.user?.uid,
-        metadata_user_uid_extracted: payment?.metadata?.user_uid,
-      });
-    } catch (error: any) {
-      log('DEBUG ERROR', error?.message);
-      return res.status(500).json({
-        success: false,
-        error: error?.message || 'Debug failed',
-      });
-    }
-  });
 }

@@ -167,7 +167,6 @@ export type Database = {
           created_at: string | null
           id: string
           pi_uid: string
-          premium_until: string | null
           updated_at: string | null
           username: string
           wallet_address: string | null
@@ -176,7 +175,6 @@ export type Database = {
           created_at?: string | null
           id?: string
           pi_uid: string
-          premium_until?: string | null
           updated_at?: string | null
           username: string
           wallet_address?: string | null
@@ -185,7 +183,6 @@ export type Database = {
           created_at?: string | null
           id?: string
           pi_uid?: string
-          premium_until?: string | null
           updated_at?: string | null
           username?: string
           wallet_address?: string | null
