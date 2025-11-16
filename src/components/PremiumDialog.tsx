@@ -2,7 +2,6 @@ import { Crown, Check, X } from "lucide-react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { useState } from "react";
 import { usePi } from "@/contexts/PiContext";
-import { usePiPayment } from "@/hooks/usePiPayment";
 
 interface PremiumDialogProps {
   open: boolean;
@@ -11,9 +10,10 @@ interface PremiumDialogProps {
 
 const PremiumDialog = ({ open, onOpenChange }: PremiumDialogProps) => {
   const [selectedPlan, setSelectedPlan] = useState<'weekly' | 'monthly' | 'yearly'>('monthly');
-  const { user, sdkReady, sdkError } = usePi();
-  const { createPayment } = usePiPayment();
+  const { user, sdkReady, sdkError, createPayment } = usePi();
   const [message, setMessage] = useState<string | null>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [premiumUntil, setPremiumUntil] = useState<string | null>(null);
 
   const plans = [
     { id: 'weekly' as const, name: 'Weekly Plan', price: '1π', duration: '7 days access' },
@@ -38,39 +38,38 @@ const PremiumDialog = ({ open, onOpenChange }: PremiumDialogProps) => {
       yearly: 31.4,
     } as const;
 
+    setIsProcessing(true);
+    setMessage('Opening Pi Wallet...');
+    setPremiumUntil(null);
+
     try {
-      setMessage('Processing payment...');
-      const payment = await createPayment({
+      // Create payment with Pi SDK
+      // The callbacks in PiContext will handle approve/complete automatically
+      await createPayment({
         amount: priceMap[selectedPlan],
         memo: `Purple Music Premium (${selectedPlan})`,
-        metadata: { plan: selectedPlan, user: user?.username },
+        metadata: { 
+          plan: selectedPlan, 
+          user_uid: user.uid,
+          username: user.username 
+        },
       });
 
-      if (payment?.identifier) {
-        const backend = (import.meta as any).env.VITE_BACKEND_URL as string | undefined;
-        if (!backend) throw new Error('Missing VITE_BACKEND_URL');
-        const res = await fetch(`${backend.replace(/\/$/, '')}/api/payments/verify`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({
-            paymentId: payment.identifier,
-            plan: selectedPlan,
-            amount: priceMap[selectedPlan],
-            user: { username: user?.username },
-          }),
-        });
-        const data = await res.json();
-        if (res.ok && data?.success) {
-          setMessage(`🎉 Premium activated until ${new Date(data.premium_until).toLocaleDateString()}`);
-        } else {
-          setMessage('⚠️ Payment verification failed.');
-        }
-      } else {
-        setMessage('⚠️ Payment not completed.');
-      }
+      // Payment was successful - the backend already updated premium_until
+      // We just need to show success message
+      setMessage('✅ Payment completed! Premium activated.');
+      
+      // Wait a moment then close dialog
+      setTimeout(() => {
+        onOpenChange(false);
+        setMessage(null);
+        setIsProcessing(false);
+      }, 2000);
+
     } catch (e: any) {
-      setMessage(e.message || 'Payment failed to start.');
+      console.error('[PremiumDialog] Payment error:', e);
+      setMessage(`❌ ${e.message || 'Payment failed'}`);
+      setIsProcessing(false);
     }
   };
 

@@ -247,7 +247,14 @@ export function PiProvider({ children }: { children: React.ReactNode }) {
     };
 
     const payment = await window.Pi.createPayment(
-      { amount, memo, metadata: metadata ?? {} },
+      { 
+        amount, 
+        memo, 
+        metadata: {
+          ...metadata,
+          user_uid: user.uid, // Always include user UID for backend
+        }
+      },
       {
         onReadyForServerApproval,
         onReadyForServerCompletion,

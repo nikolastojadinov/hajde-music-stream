@@ -12,6 +12,7 @@
 import type { Router, Request, Response } from 'express';
 import platformAPIClient from '../services/platformAPIClient';
 import supabase from '../services/supabaseClient';
+import { calculatePremiumUntil, type PremiumPlan } from '../lib/premium';
 
 /**
  * Log with timestamp for debugging
@@ -145,12 +146,16 @@ export default function mountPaymentRoutes(router: Router) {
    * Called by Pi SDK when payment has a transaction ID.
    * Must complete the payment with Pi API and update database.
    * 
+   * CRITICAL: This updates the user's premium_until in the database!
+   * 
    * Flow:
    * 1. Validate paymentId and txid
-   * 2. Update database with txid and paid status
-   * 3. Complete payment with Pi API
-   * 4. Update user premium status if applicable
-   * 5. Return success
+   * 2. Get payment details from Pi API to extract metadata
+   * 3. Determine plan from metadata
+   * 4. Calculate premium_until using helper
+   * 5. Update database with txid, paid status, AND premium_until
+   * 6. Complete payment with Pi API
+   * 7. Return success with premium_until
    */
   router.post('/complete', async (req: Request, res: Response) => {
     const startTime = Date.now();
@@ -169,7 +174,42 @@ export default function mountPaymentRoutes(router: Router) {
       
       log('Completing payment:', { paymentId, txid });
       
-      // Step 1: Update database with transaction ID
+      // Step 1: Get payment details from Pi API to extract plan from metadata
+      log('Fetching payment details from Pi API...');
+      let plan: PremiumPlan = 'weekly'; // default
+      let userUid: string | null = null;
+      
+      try {
+        const paymentResponse = await platformAPIClient.get(`/v2/payments/${paymentId}`);
+        const payment = paymentResponse.data;
+        
+        log('Payment metadata:', payment.metadata);
+        
+        // Extract plan from metadata
+        if (payment.metadata?.plan) {
+          const metadataPlan = payment.metadata.plan.toLowerCase();
+          if (metadataPlan === 'weekly' || metadataPlan === 'monthly' || metadataPlan === 'yearly') {
+            plan = metadataPlan as PremiumPlan;
+          }
+        }
+        
+        // Extract user UID
+        if (payment.metadata?.user_uid) {
+          userUid = payment.metadata.user_uid;
+        }
+        
+        log('Extracted from payment:', { plan, userUid });
+      } catch (error: any) {
+        log('Error fetching payment details (using defaults):', error?.message);
+      }
+      
+      // Step 2: Get user UID from session if not in metadata
+      if (!userUid && req.currentUser?.uid) {
+        userUid = req.currentUser.uid;
+        log('Using user from session:', userUid);
+      }
+      
+      // Step 3: Update database with transaction ID
       log('Updating database with txid...');
       const { data: orders, error: fetchError } = await supabase
         .from('orders')
@@ -182,6 +222,19 @@ export default function mountPaymentRoutes(router: Router) {
       }
       
       const order = orders && orders[0];
+      
+      // If we have product_id in order, try to extract plan from it
+      if (order?.product_id && !plan) {
+        const productId = order.product_id.toLowerCase();
+        if (productId.includes('weekly')) plan = 'weekly';
+        else if (productId.includes('monthly')) plan = 'monthly';
+        else if (productId.includes('yearly')) plan = 'yearly';
+      }
+      
+      // If we have user_uid in order, use it
+      if (order?.user_uid && !userUid) {
+        userUid = order.user_uid;
+      }
       
       const { error: updateError } = await supabase
         .from('orders')
@@ -197,45 +250,53 @@ export default function mountPaymentRoutes(router: Router) {
         log('Database updated with txid successfully');
       }
       
-      // Step 2: Complete payment with Pi API
+      // Step 4: Complete payment with Pi API
       log('Calling Pi API complete...');
       await platformAPIClient.post(`/v2/payments/${paymentId}/complete`, { txid });
       log('Payment completed with Pi API successfully!');
       
-      // Step 3: Update user premium status if this was a premium purchase
-      if (order && order.user_uid && order.product_id) {
+      // Step 5: CRITICAL - Update user premium status
+      let premiumUntil: string | null = null;
+      
+      if (userUid) {
+        log('Calculating premium_until for plan:', plan);
+        premiumUntil = calculatePremiumUntil(plan);
+        
         log('Updating user premium status...', { 
-          user_uid: order.user_uid, 
-          product_id: order.product_id 
+          user_uid: userUid, 
+          plan,
+          premium_until: premiumUntil
         });
         
         try {
-          const now = new Date();
-          const premiumUntil = new Date(now);
-          
-          // Determine premium duration based on product_id
-          if (order.product_id.includes('monthly') || order.product_id.includes('1month')) {
-            premiumUntil.setMonth(now.getMonth() + 1);
-          } else if (order.product_id.includes('yearly') || order.product_id.includes('1year')) {
-            premiumUntil.setFullYear(now.getFullYear() + 1);
-          } else {
-            premiumUntil.setDate(now.getDate() + 7); // Default: 7 days
-          }
-          
-          // Update users table (pi_users or users depending on schema)
+          // Try updating pi_users first
           const { error: premiumError } = await supabase
             .from('pi_users')
-            .update({ premium_until: premiumUntil.toISOString() })
-            .eq('uid', order.user_uid);
+            .update({ premium_until: premiumUntil })
+            .eq('uid', userUid);
           
           if (premiumError) {
-            log('Error updating premium status:', premiumError);
+            log('Error updating pi_users premium (trying users table):', premiumError);
+            
+            // Try users table as fallback
+            const { error: usersError } = await supabase
+              .from('users')
+              .update({ premium_until: premiumUntil })
+              .eq('pi_uid', userUid);
+            
+            if (usersError) {
+              log('Error updating users premium:', usersError);
+            } else {
+              log('Premium status updated in users table until:', premiumUntil);
+            }
           } else {
-            log('Premium status updated until:', premiumUntil.toISOString());
+            log('Premium status updated in pi_users table until:', premiumUntil);
           }
         } catch (premiumError) {
           log('Error updating premium (non-critical):', premiumError);
         }
+      } else {
+        log('WARNING: No user UID available, cannot update premium status');
       }
       
       const elapsed = Date.now() - startTime;
@@ -243,9 +304,11 @@ export default function mountPaymentRoutes(router: Router) {
       
       return res.status(200).json({ 
         success: true,
-        message: 'Payment completed',
+        message: 'Premium activated',
         paymentId,
         txid,
+        premium_until: premiumUntil,
+        plan,
         elapsed_ms: elapsed
       });
       
