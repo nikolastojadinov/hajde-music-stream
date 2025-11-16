@@ -78,17 +78,17 @@ async function resolvePaymentContext(paymentId: string): Promise<{
   log('Pi Platform API response (FULL PAYMENT OBJECT):', {
     payment_id: paymentId,
     full_payment: payment,
+    payment_user_uid: payment?.user_uid,  // TOP-LEVEL field (CORRECT!)
     payment_metadata: payment?.metadata,
-    payment_user: payment?.user,
     payment_amount: payment?.amount,
     payment_memo: payment?.memo,
   });
 
   // b) Pokušaj da pročitaš piUid iz payment objekta
-  // PRIORITET: payment.user.uid (Pi Platform API uvek vraća ovo)
-  let piUid: string | null = payment?.user?.uid ?? null;
+  // PRIORITET: payment.user_uid (Pi Platform API top-level field)
+  let piUid: string | null = payment?.user_uid ?? null;
   
-  // Fallback: metadata.user_uid (može biti dostupno u nekim slučajevima)
+  // Fallback: metadata.user_uid (može biti dostupno ako smo ga setovali)
   if (!piUid && payment?.metadata?.user_uid) {
     piUid = payment.metadata.user_uid;
   }
@@ -130,11 +130,11 @@ async function resolvePaymentContext(paymentId: string): Promise<{
 
   log('resolvePaymentContext RESULT', {
     payment_id: paymentId,
-    has_payment_user_uid: !!payment?.user?.uid,
+    has_payment_user_uid: !!payment?.user_uid,  // Top-level field
     has_metadata_user_uid: !!payment?.metadata?.user_uid,
     resolved_piUid: piUid,
     resolved_plan: plan,
-    source: payment?.user?.uid ? 'payment.user.uid' : payment?.metadata?.user_uid ? 'metadata.user_uid' : 'orders_table',
+    source: payment?.user_uid ? 'payment.user_uid' : payment?.metadata?.user_uid ? 'metadata.user_uid' : 'orders_table',
   });
 
   return { payment, piUid, plan };
@@ -367,9 +367,8 @@ export default function mountPaymentRoutes(router: Router) {
         success: true,
         payment_id: paymentId,
         full_response: payment,
-        user_object: payment?.user,
+        user_uid_top_level: payment?.user_uid,  // CORRECT field name
         metadata_object: payment?.metadata,
-        user_uid_extracted: payment?.user?.uid,
         metadata_user_uid_extracted: payment?.metadata?.user_uid,
       });
     } catch (error: any) {
