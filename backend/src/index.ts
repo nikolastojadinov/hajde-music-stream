@@ -6,7 +6,7 @@ import cookieParser from 'cookie-parser';
 import logger from 'morgan';
 import env from './environments';
 import mountPaymentsVerify from './handlers/paymentsVerify';
-import userRouter from './routes/user/index.js';
+import userRouter from './routes/user';
 import mountNotificationEndpoints from './handlers/notifications';
 import mountHealthEndpoints from './handlers/health';
 import supabase from './services/supabaseClient';

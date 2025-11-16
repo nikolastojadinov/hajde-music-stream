@@ -1,11 +1,10 @@
+import type { Request, Response } from 'express';
 import { createClient } from '@supabase/supabase-js';
-
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+import env from '../../environments';
 
 // Initialize Supabase client
-const supabase = supabaseUrl && supabaseKey
-  ? createClient(supabaseUrl, supabaseKey, { auth: { persistSession: false } })
+const supabase = env.supabase_url && env.supabase_service_role_key
+  ? createClient(env.supabase_url, env.supabase_service_role_key, { auth: { persistSession: false } })
   : null;
 
 /**
@@ -17,7 +16,7 @@ const supabase = supabaseUrl && supabaseKey
  * 
  * Response: { success: true, user: {...} }
  */
-export async function handleSignin(req, res) {
+export async function handleSignin(req: Request, res: Response) {
   try {
     console.log('[Signin] Request received');
     console.log('[Signin] Body:', JSON.stringify(req.body, null, 2));
@@ -112,7 +111,7 @@ export async function handleSignin(req, res) {
       // User exists - update username and optional fields
       console.log('[Signin] User exists, updating...');
 
-      const updateData = {
+      const updateData: any = {
         username,
         ...(country && { country }),
         ...(language && { language }),
@@ -147,7 +146,7 @@ export async function handleSignin(req, res) {
       // User does not exist - create new
       console.log('[Signin] Creating new user...');
 
-      const newUser = {
+      const newUser: any = {
         pi_uid,
         username,
         wallet,
@@ -201,7 +200,7 @@ export async function handleSignin(req, res) {
       user: userData
     });
 
-  } catch (error) {
+  } catch (error: any) {
     console.error('[Signin] Unhandled exception:', {
       message: error?.message,
       stack: error?.stack,
