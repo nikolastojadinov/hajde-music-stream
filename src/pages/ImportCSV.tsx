@@ -112,7 +112,7 @@ export default function ImportCSV() {
               <CardContent className="pt-6">
                 <div className="space-y-3">
                   <div className="flex items-center gap-2">
-                    <CheckCircle className="w-5 h-5 text-green-500" />
+                    <CheckCircle className="w-5 h-5 text-foreground" />
                     <span className="font-medium">
                       Uspešno uvezeno: {importResult.inserted} pesama
                     </span>
@@ -120,7 +120,7 @@ export default function ImportCSV() {
                   
                   {importResult.errors > 0 && (
                     <div className="flex items-center gap-2">
-                      <XCircle className="w-5 h-5 text-red-500" />
+                      <XCircle className="w-5 h-5 text-foreground" />
                       <span className="font-medium">
                         Greške: {importResult.errors}
                       </span>

@@ -23,7 +23,7 @@ export default function PiAuthDemo() {
           disabled={loading}
         >{loading ? 'Signing in…' : 'Sign in with Pi'}</button>
       )}
-      {error && <p className="text-red-500">Error: {error}</p>}
+      {error && <p className="text-foreground">Error: {error}</p>}
     </div>
   );
 }

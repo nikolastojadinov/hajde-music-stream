@@ -99,7 +99,7 @@ const Playlist = () => {
           </div>
           <div>
             <h1 className="text-3xl md:text-5xl font-black">{playlist.title}</h1>
-            <p className="text-sm text-gray-400 mt-2">{playlist.tracks.length} pesama</p>
+            <p className="text-sm text-muted-foreground mt-2">{playlist.tracks.length} pesama</p>
           </div>
         </div>
       </div>

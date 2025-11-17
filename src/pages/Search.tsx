@@ -218,7 +218,7 @@ const Search = () => {
                     className={`absolute inset-0 bg-gradient-to-br ${category.color} opacity-80 group-hover:opacity-100 transition-opacity`}
                   />
                   <div className="relative h-full flex items-center justify-center p-4">
-                    <h3 className="text-white text-xl font-bold text-center">
+                    <h3 className="text-foreground text-xl font-bold text-center">
                       {category.title}
                     </h3>
                   </div>
