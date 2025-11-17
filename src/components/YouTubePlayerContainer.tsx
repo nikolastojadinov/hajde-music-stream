@@ -8,12 +8,13 @@ export const YouTubePlayerContainer = () => {
   if (!isPlayerVisible) return null;
 
   // Fixed minimal dimensions for mini player (200x200 - YouTube minimum)
+  // On mobile, wrapper is smaller (110px) to match scaled iframe visual size
   const miniPlayerStyles = {
     bottom: 'calc(5rem + 12px)',
     left: '16px',
     transform: 'none',
-    width: '200px',
-    height: '200px',
+    width: isMobile ? '110px' : '200px',
+    height: isMobile ? '110px' : '200px',
   };
 
   // Fullscreen dimensions - responsive and proportional
