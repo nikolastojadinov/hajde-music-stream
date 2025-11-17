@@ -26,13 +26,11 @@ const Playlist = () => {
 
   const handlePlayPlaylist = () => {
     if (playlist && playlist.tracks.length > 0) {
-      console.log('🎵 [Playlist] Playing playlist, first track:', playlist.tracks[0]);
       const trackData = playlist.tracks.map(t => ({
         youtube_id: t.youtube_id,
         title: t.title,
         artist: t.artist
       }));
-      console.log('🎵 [Playlist] Track data for player:', trackData[0]);
       playPlaylist(trackData, 0);
       setCurrentTrackId(playlist.tracks[0].id);
     }

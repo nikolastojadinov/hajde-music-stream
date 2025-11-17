@@ -46,7 +46,7 @@ export function useSearch(searchTerm: string) {
       const [tracksRes, playlistsRes] = await Promise.all([
         externalSupabase
           .from('tracks')
-          .select('*')
+          .select('id, title, artist, youtube_id, duration, playlist_id')
           .or(`title.ilike.${pattern},artist.ilike.${pattern}`),
         externalSupabase
           .from('playlists')
@@ -59,8 +59,7 @@ export function useSearch(searchTerm: string) {
 
       const tracks = (tracksRes.data || []).map(t => ({
         ...t,
-        image_url: t.cover_url || null,
-        youtube_id: t.external_id || t.video_id || ''
+        image_url: null
       })) as Track[];
       
       const playlists = (playlistsRes.data || []).map(p => ({

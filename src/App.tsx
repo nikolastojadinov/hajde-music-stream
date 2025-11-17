@@ -11,6 +11,7 @@ import Footer from "@/components/Footer";
 import WelcomeModal from "@/components/WelcomeModal";
 import Player from "@/components/Player";
 import { YouTubePlayerContainer } from "@/components/YouTubePlayerContainer";
+import { DebugWheel } from "@/components/DebugConsole";
 import Home from "@/pages/Home";
 import Search from "@/pages/Search";
 import Library from "@/pages/Library";
@@ -80,6 +81,7 @@ const App = () => {
                 </div>
                 
                 <YouTubePlayerContainer />
+                <DebugWheel />
               </div>
             </BrowserRouter>
           </PlayerProvider>
