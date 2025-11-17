@@ -7,14 +7,15 @@ export const YouTubePlayerContainer = () => {
 
   if (!isPlayerVisible) return null;
 
-  // Fixed minimal dimensions for mini player (200x200 - YouTube minimum)
-  // Wrapper stays 200x200 because scaled iframe still occupies that space
+  // Wrapper dimensions match visual size of scaled iframe
+  // On mobile: 110px (200 * 0.55 scale) to eliminate black background
+  // On desktop: 200px (no scaling)
   const miniPlayerStyles = {
     bottom: 'calc(5rem + 12px)',
     left: '16px',
     transform: 'none',
-    width: '200px',
-    height: '200px',
+    width: isMobile ? '110px' : '200px',
+    height: isMobile ? '110px' : '200px',
   };
 
   // Fullscreen dimensions - responsive and proportional
@@ -27,7 +28,7 @@ export const YouTubePlayerContainer = () => {
     maxHeight: 'calc(100vh - 240px)',
   };
 
-  // Mobile scale for mini player (55-60% visual size while maintaining 200x200 CSS pixels)
+  // Mobile scale for iframe (55% visual size while maintaining 200x200 CSS pixels)
   const mobileScale = isMobile && !isFullscreen ? 0.55 : 1;
   const playerTransform = mobileScale !== 1 
     ? `scale(${mobileScale})` 
@@ -36,19 +37,20 @@ export const YouTubePlayerContainer = () => {
   return (
     <div
       id="yt-player-wrapper"
-      className="fixed transition-all duration-300 ease-in-out bg-black rounded-lg overflow-hidden"
+      className="fixed transition-all duration-300 ease-in-out bg-black rounded-lg"
       style={{
         zIndex: isFullscreen ? 55 : 31,
+        overflow: isMobile && !isFullscreen ? 'visible' : 'hidden',
         ...(isFullscreen ? fullscreenStyles : miniPlayerStyles),
       }}
     >
       <div 
         id="yt-player" 
         style={{ 
-          width: '100%', 
-          height: '100%',
+          width: '200px',
+          height: '200px',
           transform: playerTransform,
-          transformOrigin: 'top center'
+          transformOrigin: 'top left'
         }} 
       />
     </div>
