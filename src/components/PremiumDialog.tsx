@@ -2,6 +2,7 @@ import { Crown, Check, X } from "lucide-react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { useState } from "react";
 import { usePi } from "@/contexts/PiContext";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface PremiumDialogProps {
   open: boolean;
@@ -11,12 +12,13 @@ interface PremiumDialogProps {
 const PremiumDialog = ({ open, onOpenChange }: PremiumDialogProps) => {
   const [selectedPlan, setSelectedPlan] = useState<'weekly' | 'monthly' | 'yearly'>('monthly');
   const { user, signIn, createPayment, isProcessingPayment } = usePi();
+  const { t } = useLanguage();
   const [message, setMessage] = useState<string | null>(null);
 
   const plans = [
-    { id: 'weekly' as const, name: 'Weekly Plan', price: '1π', duration: '7 days access' },
-    { id: 'monthly' as const, name: 'Monthly Plan', price: '3.14π', duration: '30 days access' },
-    { id: 'yearly' as const, name: 'Yearly Plan', price: '31.4π', duration: '365 days access' },
+    { id: 'weekly' as const, name: t('weekly_plan'), price: '1π', duration: `7 ${t('days_access')}` },
+    { id: 'monthly' as const, name: t('monthly_plan'), price: '3.14π', duration: `30 ${t('days_access')}` },
+    { id: 'yearly' as const, name: t('yearly_plan'), price: '31.4π', duration: `365 ${t('days_access')}` },
   ];
 
   const handleActivate = async () => {
@@ -27,13 +29,13 @@ const PremiumDialog = ({ open, onOpenChange }: PremiumDialogProps) => {
     } as const;
 
     if (!user) {
-      setMessage('Please sign in with Pi first...');
+      setMessage(t('please_sign_in'));
       await signIn();
       return;
     }
 
     try {
-      setMessage('Processing payment...');
+      setMessage(t('processing_payment'));
       
       await createPayment({
         amount: priceMap[selectedPlan],
@@ -44,7 +46,7 @@ const PremiumDialog = ({ open, onOpenChange }: PremiumDialogProps) => {
         },
       });
 
-      setMessage('🎉 Payment processing... Please check your Pi wallet!');
+      setMessage(t('payment_processing'));
       
       // Close dialog after a moment
       setTimeout(() => {
@@ -54,7 +56,7 @@ const PremiumDialog = ({ open, onOpenChange }: PremiumDialogProps) => {
 
     } catch (e: any) {
       console.error('[PremiumDialog] Payment error:', e);
-      setMessage(`⚠️ Payment failed: ${e.message || 'Unknown error'}`);
+      setMessage(`${t('payment_failed')} ${e.message || 'Unknown error'}`);
     }
   };
 
@@ -79,12 +81,12 @@ const PremiumDialog = ({ open, onOpenChange }: PremiumDialogProps) => {
 
             {/* Title */}
             <h2 className="text-2xl md:text-3xl font-bold text-foreground">
-              Premium Version
+              {t('premium_version')}
             </h2>
 
             {/* Description */}
             <p className="text-muted-foreground text-xs md:text-sm max-w-md px-4">
-              You'll get access to exclusive features and help improve Purple Music!
+              {t('premium_description')}
             </p>
 
             {/* Benefits */}
@@ -93,19 +95,19 @@ const PremiumDialog = ({ open, onOpenChange }: PremiumDialogProps) => {
                 <div className="w-5 h-5 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0">
                   <Check className="w-3 h-3 text-primary" />
                 </div>
-                <span className="text-foreground text-sm">Enjoy ad-free listening</span>
+                <span className="text-foreground text-sm">{t('ad_free')}</span>
               </div>
               <div className="flex items-center gap-3 text-left">
                 <div className="w-5 h-5 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0">
                   <Check className="w-3 h-3 text-primary" />
                 </div>
-                <span className="text-foreground text-sm">Support the developer</span>
+                <span className="text-foreground text-sm">{t('support_dev')}</span>
               </div>
               <div className="flex items-center gap-3 text-left">
                 <div className="w-5 h-5 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0">
                   <Check className="w-3 h-3 text-primary" />
                 </div>
-                <span className="text-foreground text-sm">More features coming soon</span>
+                <span className="text-foreground text-sm">{t('more_features')}</span>
               </div>
             </div>
 
@@ -138,7 +140,7 @@ const PremiumDialog = ({ open, onOpenChange }: PremiumDialogProps) => {
               disabled={isProcessingPayment}
               className="w-full max-w-md mx-4 py-3 rounded-full bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70 text-primary-foreground font-semibold text-base transition-all hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {isProcessingPayment ? 'Processing...' : `Activate ${plans.find(p => p.id === selectedPlan)?.name}`}
+              {isProcessingPayment ? t('processing') : `${t('activate')} ${plans.find(p => p.id === selectedPlan)?.name}`}
             </button>
 
             {message && (
@@ -147,7 +149,7 @@ const PremiumDialog = ({ open, onOpenChange }: PremiumDialogProps) => {
 
             {/* Footer note */}
             <p className="text-[10px] md:text-xs text-muted-foreground max-w-md px-4 pb-2">
-              Your Pi wallet will process a one-time payment. Premium auto-expires after the selected period.
+              {t('footer_note')}
             </p>
           </div>
         </div>

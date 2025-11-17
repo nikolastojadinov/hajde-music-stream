@@ -57,8 +57,8 @@ const Header = () => {
               <DropdownMenuItem className="cursor-pointer py-3 bg-gradient-to-r from-green-500/10 to-emerald-600/10 border border-green-500/20">
                 <Crown className="w-4 h-4 mr-3 text-foreground" />
                 <div className="flex flex-col">
-                  <span className="text-foreground font-semibold text-sm">Premium Member</span>
-                  <span className="text-xs text-muted-foreground">Until {new Date(user.premium_until!).toLocaleDateString()}</span>
+                  <span className="text-foreground font-semibold text-sm">{t("premium_member")}</span>
+                  <span className="text-xs text-muted-foreground">{t("until")} {new Date(user.premium_until!).toLocaleDateString()}</span>
                 </div>
               </DropdownMenuItem>
             ) : (
@@ -67,14 +67,14 @@ const Header = () => {
                 className="cursor-pointer py-3 bg-gradient-to-r from-amber-500/10 to-yellow-600/10 hover:from-amber-500/20 hover:to-yellow-600/20 border border-amber-500/20"
               >
                 <Crown className="w-4 h-4 mr-3 text-foreground" />
-                <span className="text-foreground font-semibold">Go Premium</span>
+                <span className="text-foreground font-semibold">{t("go_premium")}</span>
               </DropdownMenuItem>
             )}
             <DropdownMenuSeparator />
             {!user && (
               <DropdownMenuItem onClick={() => signIn()} className="cursor-pointer py-3">
                 <User className="w-4 h-4 mr-3" />
-                <span>Sign in with Pi</span>
+                <span>{t("sign_in_with_pi")}</span>
               </DropdownMenuItem>
             )}
             
@@ -123,7 +123,7 @@ const Header = () => {
             </Link>
             {user && (
               <DropdownMenuItem onClick={() => signOut()} className="cursor-pointer py-3 text-foreground">
-                <span>Sign out</span>
+                <span>{t("sign_out")}</span>
               </DropdownMenuItem>
             )}
           </DropdownMenuContent>
