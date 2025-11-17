@@ -105,9 +105,9 @@ const Search = () => {
                           className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 active:bg-white/10 transition-colors cursor-pointer"
                         >
                           <div className="w-16 h-16 rounded-md bg-card flex-shrink-0 overflow-hidden">
-                            {track.cover_url || track.image_url ? (
+                            {track.cover_url ? (
                               <img 
-                                src={track.cover_url || track.image_url || "/placeholder.svg"} 
+                                src={track.cover_url || "/placeholder.svg"} 
                                 alt={track.title}
                                 className="w-full h-full object-cover"
                                 onError={(e) => {
@@ -141,9 +141,9 @@ const Search = () => {
                           className="cursor-pointer group"
                         >
                           <div className="aspect-square bg-card rounded-lg mb-3 overflow-hidden transition-transform group-hover:scale-105">
-                            {track.cover_url || track.image_url ? (
+                            {track.cover_url ? (
                               <img 
-                                src={track.cover_url || track.image_url || "/placeholder.svg"} 
+                                src={track.cover_url || "/placeholder.svg"} 
                                 alt={track.title}
                                 className="w-full h-full object-cover"
                                 onError={(e) => {
@@ -187,9 +187,9 @@ const Search = () => {
                           className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 active:bg-white/10 transition-colors cursor-pointer"
                         >
                           <div className="w-16 h-16 rounded-md bg-card flex-shrink-0 overflow-hidden">
-                            {playlist.cover_url || playlist.image_url ? (
+                            {playlist.cover_url ? (
                               <img 
-                                src={playlist.cover_url || playlist.image_url || "/placeholder.svg"} 
+                                src={playlist.cover_url || "/placeholder.svg"} 
                                 alt={playlist.title}
                                 className="w-full h-full object-cover"
                                 onError={(e) => {
@@ -223,9 +223,9 @@ const Search = () => {
                           className="cursor-pointer group"
                         >
                           <div className="aspect-square bg-card rounded-lg mb-3 overflow-hidden transition-transform group-hover:scale-105">
-                            {playlist.cover_url || playlist.image_url ? (
+                            {playlist.cover_url ? (
                               <img 
-                                src={playlist.cover_url || playlist.image_url || "/placeholder.svg"} 
+                                src={playlist.cover_url || "/placeholder.svg"} 
                                 alt={playlist.title}
                                 className="w-full h-full object-cover"
                                 onError={(e) => {
@@ -277,9 +277,9 @@ const Search = () => {
                                 className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 active:bg-white/10 transition-colors cursor-pointer"
                               >
                                 <div className="w-12 h-12 rounded-md bg-card flex-shrink-0 overflow-hidden">
-                                  {track.cover_url || track.image_url ? (
+                                  {track.cover_url ? (
                                     <img 
-                                      src={track.cover_url || track.image_url || "/placeholder.svg"} 
+                                      src={track.cover_url || "/placeholder.svg"} 
                                       alt={track.title}
                                       className="w-full h-full object-cover"
                                       onError={(e) => {
@@ -310,9 +310,9 @@ const Search = () => {
                                 className="cursor-pointer group"
                               >
                                 <div className="aspect-square bg-card rounded-lg mb-3 overflow-hidden transition-transform group-hover:scale-105">
-                                  {track.cover_url || track.image_url ? (
+                                  {track.cover_url ? (
                                     <img 
-                                      src={track.cover_url || track.image_url || "/placeholder.svg"} 
+                                      src={track.cover_url || "/placeholder.svg"} 
                                       alt={track.title}
                                       className="w-full h-full object-cover"
                                       onError={(e) => {

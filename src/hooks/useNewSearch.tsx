@@ -7,7 +7,6 @@ export interface SearchTrack {
   title: string;
   artist: string;
   external_id: string;
-  image_url: string | null;
   cover_url: string | null;
 }
 
@@ -16,7 +15,6 @@ export interface SearchPlaylist {
   id: string;
   title: string;
   description: string | null;
-  image_url: string | null;
   cover_url: string | null;
   track_count: number;
 }
@@ -50,14 +48,14 @@ export function useNewSearch(searchTerm: string) {
         // Query 1: Tracks sa title ili artist ILIKE match
         externalSupabase
           .from('tracks')
-          .select('id, title, artist, external_id, image_url, cover_url')
+          .select('id, title, artist, external_id, cover_url')
           .or(`title.ilike.${pattern},artist.ilike.${pattern}`)
           .order('title', { ascending: true }),
 
         // Query 2: Playlists sa JOIN-om za brojanje track_count
         externalSupabase
           .from('playlists')
-          .select('id, title, description, image_url, cover_url, playlist_tracks(count)')
+          .select('id, title, description, cover_url, playlist_tracks(count)')
           .ilike('title', pattern)
           .order('title', { ascending: true }),
       ]);
@@ -79,7 +77,6 @@ export function useNewSearch(searchTerm: string) {
         title: track.title,
         artist: track.artist,
         external_id: track.external_id,
-        image_url: track.image_url,
         cover_url: track.cover_url,
       }));
 
@@ -94,7 +91,6 @@ export function useNewSearch(searchTerm: string) {
           id: playlist.id,
           title: playlist.title,
           description: playlist.description,
-          image_url: playlist.image_url,
           cover_url: playlist.cover_url,
           track_count: playlist.playlist_tracks?.[0]?.count || 0,
         }));

@@ -95,7 +95,7 @@ const Playlist = () => {
       <div className="relative bg-gradient-to-b from-purple-900/40 to-background p-4 md:p-8">
         <div className="flex flex-col md:flex-row md:items-end gap-4">
           <div className="w-40 h-40 md:w-48 md:h-48 rounded-lg overflow-hidden">
-            <img src={playlist.image_url || "/placeholder.svg"} alt={playlist.title} className="w-full h-full object-cover" />
+            <img src={playlist.cover_url || "/placeholder.svg"} alt={playlist.title} className="w-full h-full object-cover" />
           </div>
           <div>
             <h1 className="text-3xl md:text-5xl font-black">{playlist.title}</h1>
@@ -120,18 +120,18 @@ const Playlist = () => {
                 onClick={() => handlePlayTrack(track, index)}
               >
                 <div className="w-12 h-12 rounded overflow-hidden flex-shrink-0 bg-card relative">
-                  {track.image_url ? (
+                  {track.cover_url ? (
                     <img 
-                      src={track.image_url} 
+                      src={track.cover_url} 
                       alt={track.title}
                       className="w-full h-full object-cover"
                       onError={(e) => {
-                        (e.target as HTMLImageElement).src = playlist.image_url || "/placeholder.svg";
+                        (e.target as HTMLImageElement).src = playlist.cover_url || "/placeholder.svg";
                       }}
                     />
                   ) : (
                     <img 
-                      src={playlist.image_url || "/placeholder.svg"} 
+                      src={playlist.cover_url || "/placeholder.svg"} 
                       alt={track.title}
                       className="w-full h-full object-cover opacity-50"
                     />

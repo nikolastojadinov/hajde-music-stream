@@ -7,7 +7,7 @@ export interface Track {
   artist: string;
   external_id: string;
   duration: number | null;
-  image_url: string | null;
+  cover_url: string | null;
   playlist_id: string | null;
 }
 
@@ -16,7 +16,7 @@ export interface Playlist {
   title: string;
   description: string | null;
   category: string | null;
-  image_url: string | null;
+  cover_url: string | null;
 }
 
 export interface PlaylistWithTracks extends Playlist {
@@ -84,7 +84,7 @@ export const useExternalPlaylist = (playlistId: string) => {
               artist: pt.tracks.artist,
               external_id: pt.tracks.external_id,
               duration: pt.tracks.duration,
-              image_url: pt.tracks.cover_url,
+              cover_url: pt.tracks.cover_url,
               playlist_id: playlistId,
             };
           })
@@ -115,7 +115,7 @@ export const useExternalPlaylist = (playlistId: string) => {
             artist: t.artist,
             external_id: t.external_id,
             duration: t.duration,
-            image_url: t.cover_url,
+            cover_url: t.cover_url,
             playlist_id: playlistId,
           }));
           console.log('✅ Using tracks from direct method:', tracks.length);
@@ -141,7 +141,7 @@ export const useExternalPlaylist = (playlistId: string) => {
             artist: t.artist,
             external_id: t.external_id,
             duration: t.duration,
-            image_url: t.cover_url,
+            cover_url: t.cover_url,
             playlist_id: playlistId,
           }));
           console.log('✅ Using tracks from external_id method:', tracks.length);
@@ -161,7 +161,7 @@ export const useExternalPlaylist = (playlistId: string) => {
         title: playlistData.title,
         description: playlistData.description,
         category: playlistData.category,
-        image_url: playlistData.cover_url || playlistData.image_url || null,
+        cover_url: playlistData.cover_url || null,
         tracks,
       };
     },
