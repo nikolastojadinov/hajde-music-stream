@@ -53,4 +53,46 @@ export default function mountUserEndpoints(router: Router) {
     res.clearCookie('sid', { sameSite: 'none', secure: true });
     return res.status(200).json({ message: "User signed out" });
   });
+
+  // Get user data by UID (for refreshing user data after payment)
+  router.get('/:uid', async (req: Request, res: Response) => {
+    const { uid } = req.params;
+    
+    if (!uid) {
+      return res.status(400).json({ error: 'Missing user UID' });
+    }
+
+    try {
+      // Fetch user from Supabase
+      const { data: userRows, error } = await supabase
+        .from('users')
+        .select('uid, username, premium, premium_until')
+        .eq('uid', uid)
+        .limit(1);
+
+      if (error) {
+        console.error('[Users] Error fetching user:', error);
+        return res.status(500).json({ error: 'Failed to fetch user data' });
+      }
+
+      if (!userRows || userRows.length === 0) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+
+      const user = userRows[0];
+      
+      return res.status(200).json({ 
+        user: {
+          uid: user.uid,
+          username: user.username,
+          premium: user.premium || false,
+          premium_until: user.premium_until || null,
+        }
+      });
+
+    } catch (err) {
+      console.error('[Users] Error:', err);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+  });
 }

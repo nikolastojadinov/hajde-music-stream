@@ -183,11 +183,33 @@ export function usePiAuth(): UsePiAuthReturn {
         return;
       }
 
-      // Re-authenticate to get fresh user data
-      await authenticate();
+      // Fetch fresh user data from backend without re-authenticating
+      const response = await fetch(`${BACKEND_URL}/user/${user.uid}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        console.error('[Pi] Failed to refresh user data from backend');
+        // If refresh fails, fall back to re-authentication
+        await authenticate();
+        return;
+      }
+
+      const data = await response.json();
+      console.log('[Pi] User data refreshed:', data.user);
+      setUser(data.user);
       
     } catch (err) {
       console.error('[Pi] Failed to refresh user:', err);
+      // If refresh fails, fall back to re-authentication
+      try {
+        await authenticate();
+      } catch (authErr) {
+        console.error('[Pi] Re-authentication also failed:', authErr);
+      }
     }
   }, [user?.uid, authenticate]);
 

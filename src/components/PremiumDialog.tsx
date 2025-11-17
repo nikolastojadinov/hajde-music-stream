@@ -46,13 +46,11 @@ const PremiumDialog = ({ open, onOpenChange }: PremiumDialogProps) => {
         },
       });
 
-      setMessage(t('payment_processing'));
-      
-      // Close dialog after a moment
-      setTimeout(() => {
-        onOpenChange(false);
-        setMessage(null);
-      }, 3000);
+      // Payment successful and user data refreshed
+      // Close dialog immediately
+      console.log('[PremiumDialog] Payment successful, closing dialog');
+      onOpenChange(false);
+      setMessage(null);
 
     } catch (e: any) {
       console.error('[PremiumDialog] Payment error:', e);

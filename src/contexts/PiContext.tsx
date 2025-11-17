@@ -101,7 +101,19 @@ export function PiProvider({ children }: { children: React.ReactNode }) {
     console.log('[PiContext] Payment completed, refreshing user data...');
     await refreshUser();
     
-  }, [user, createPiPayment, refreshUser]);
+    // Show success toast after refresh completes
+    console.log('[PiContext] Showing premium activation toast');
+    const welcomeTitle = t('welcome_user').replace('{username}', user.username);
+    const premiumMessage = t('premium_access_message');
+    
+    toast({
+      title: welcomeTitle,
+      description: premiumMessage,
+      duration: 7000,
+    });
+    
+  }, [user, createPiPayment, refreshUser, t]);
+
 
   const value = useMemo(() => ({
     user,
