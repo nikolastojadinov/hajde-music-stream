@@ -19,8 +19,6 @@ export default function mountHealthEndpoints(router: Router) {
       status: 'ok',
       ok: true,
       service: 'backend',
-      version: '2025-11-16-payment-fix-v2',
-      git_commit: '3dc830f',
       time: new Date().toISOString(),
       supabase: { configured, dbOk, url: env.supabase_url || null },
     });

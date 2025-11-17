@@ -83,38 +83,6 @@ export type Database = {
         }
         Relationships: []
       }
-      sessions: {
-        Row: {
-          created_at: string | null
-          expires_at: string | null
-          id: string
-          session_id: string
-          user_id: string | null
-        }
-        Insert: {
-          created_at?: string | null
-          expires_at?: string | null
-          id?: string
-          session_id: string
-          user_id?: string | null
-        }
-        Update: {
-          created_at?: string | null
-          expires_at?: string | null
-          id?: string
-          session_id?: string
-          user_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "sessions_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "users"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       tracks: {
         Row: {
           artist: string
@@ -161,36 +129,6 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
-      }
-      users: {
-        Row: {
-          created_at: string | null
-          id: string
-          pi_uid: string
-          premium_until: string | null
-          updated_at: string | null
-          username: string
-          wallet_address: string | null
-        }
-        Insert: {
-          created_at?: string | null
-          id?: string
-          pi_uid: string
-          premium_until?: string | null
-          updated_at?: string | null
-          username: string
-          wallet_address?: string | null
-        }
-        Update: {
-          created_at?: string | null
-          id?: string
-          pi_uid?: string
-          premium_until?: string | null
-          updated_at?: string | null
-          username?: string
-          wallet_address?: string | null
-        }
-        Relationships: []
       }
     }
     Views: {

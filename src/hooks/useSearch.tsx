@@ -1,7 +1,7 @@
 // Simplified live search hook: returns { tracks, playlists }
 // Meets directive: no relevance scoring, no pattern escaping, limited Supabase queries.
 import { useQuery } from '@tanstack/react-query';
-import { externalSupabase } from '@/lib/externalSupabase';
+import { supabase } from '@/integrations/supabase/client';
 
 export interface Track {
   id: string;
@@ -41,31 +41,24 @@ export function useSearch(searchTerm: string) {
 
       const pattern = `%${term}%`;
 
-      // Fetch ALL tracks and playlists from external Supabase database - NO LIMIT
+      // Fetch ALL tracks and playlists from entire Supabase database - NO LIMIT
       // Use .or() to search across multiple fields in a single query
       const [tracksRes, playlistsRes] = await Promise.all([
-        externalSupabase
+        supabase
           .from('tracks')
-          .select('id, title, artist, youtube_id, duration, playlist_id')
+          .select('*')
           .or(`title.ilike.${pattern},artist.ilike.${pattern}`),
-        externalSupabase
+        supabase
           .from('playlists')
-          .select('id, title, description, category, cover_url')
+          .select('*')
           .or(`title.ilike.${pattern},description.ilike.${pattern}`),
       ]);
 
       if (tracksRes.error) throw tracksRes.error;
       if (playlistsRes.error) throw playlistsRes.error;
 
-      const tracks = (tracksRes.data || []).map(t => ({
-        ...t,
-        image_url: null
-      })) as Track[];
-      
-      const playlists = (playlistsRes.data || []).map(p => ({
-        ...p,
-        image_url: p.cover_url || null
-      })) as Playlist[];
+      const tracks = (tracksRes.data || []) as Track[];
+      const playlists = (playlistsRes.data || []) as Playlist[];
 
       return { tracks, playlists };
     },

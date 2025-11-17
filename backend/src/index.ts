@@ -5,12 +5,14 @@ import express, { Request, Response, NextFunction } from 'express';
 import cookieParser from 'cookie-parser';
 import logger from 'morgan';
 import env from './environments';
-import userRouter from './routes/user';
+// Legacy payments endpoints removed in favor of /api/payments/verify
+// import mountPaymentsEndpoints from './handlers/payments';
+import mountPaymentsVerify from './handlers/paymentsVerify';
+import mountUserEndpoints from './handlers/users';
 import mountNotificationEndpoints from './handlers/notifications';
 import mountHealthEndpoints from './handlers/health';
 import supabase from './services/supabaseClient';
-import createPaymentHandler from './routes/payments/createPayment';
-import mountPaymentRoutes from './routes/payment';
+import { randomBytes } from 'crypto';
 
 declare global {
   namespace Express {
@@ -21,35 +23,39 @@ declare global {
   }
 }
 
+
+//
+// I. Initialize and set up the express app and various middlewares and packages:
+//
+
 const app: express.Application = express();
 
-// Trust proxy - required for secure cookies on Render
-app.set('trust proxy', 1);
-
-// Logging
+// Log requests to the console in a compact format:
 app.use(logger('dev'));
+
+// Full log of all requests to /log/access.log:
 app.use(logger('common', {
   stream: fs.createWriteStream(path.join(__dirname, '..', 'log', 'access.log'), { flags: 'a' }),
 }));
 
-// Parse JSON bodies
-app.use(express.json());
+// Enable response bodies to be sent as JSON:
+app.use(express.json())
 
-// CORS configuration - allow Netlify frontend with credentials
+// Handle CORS:
 app.use(cors({
-  origin: [
-    'https://purplemusictestnet.netlify.app',
-    'http://localhost:5173'
-  ],
-  credentials: true,
-  methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  origin: (origin: string | undefined, cb: (err: Error | null, allowed?: boolean) => void) => {
+    const allowed = [env.frontend_url, 'https://sandbox.minepi.com', 'https://minepi.com'];
+    if (!origin) return cb(null, true);
+    if (allowed.includes(origin)) return cb(null, true);
+    return cb(null, false);
+  },
+  credentials: true
 }));
 
-// Cookie parser - must be before session middleware
+// Handle cookies 🍪
 app.use(cookieParser());
 
-// Session middleware - read sid cookie and load user from Supabase
+// Minimal cookie-based sessions stored in Supabase
 app.use(async (req: Request, _res: Response, next: NextFunction) => {
   const sid = req.cookies['sid'] as string | undefined;
   req.sid = sid || null;
@@ -74,32 +80,42 @@ app.use(async (req: Request, _res: Response, next: NextFunction) => {
   next();
 });
 
-// Mount endpoints
-// NEW: Clean payment routes (approve, complete, cancel)
-const paymentRouter = express.Router();
-mountPaymentRoutes(paymentRouter);
-app.use('/payments', paymentRouter);
 
-// Payment creation endpoint
-app.post('/payments/create', createPaymentHandler);
+//
+// II. Mount app endpoints:
+//
 
-// Use new clean routes/user router instead of handlers
+// Payments verification under /api/payments:
+const paymentsVerifyRouter = express.Router();
+mountPaymentsVerify(paymentsVerifyRouter);
+app.use('/api/payments', paymentsVerifyRouter);
+
+// User endpoints (e.g signin, signout) under /user:
+const userRouter = express.Router();
+mountUserEndpoints(userRouter);
 app.use('/user', userRouter);
 
+
+// Notification endpoints under /notifications:
 const notificationRouter = express.Router();
 mountNotificationEndpoints(notificationRouter);
-app.use('/notifications', notificationRouter);
+app.use("/notifications", notificationRouter);
 
+// Health endpoint under /health:
 const healthRouter = express.Router();
 mountHealthEndpoints(healthRouter);
 app.use('/', healthRouter);
 
+// Hello World page to check everything works:
 app.get('/', async (_req: Request, res: Response) => {
   res.status(200).send({ message: "Hello, World!" });
 });
 
-// Start server
+
+// III. Boot up the app:
+
 app.listen(env.port, async () => {
-  console.log(`Backend listening on port ${env.port}`);
-  console.log(`CORS enabled for: https://purplemusictestnet.netlify.app`);
+  console.log(`Connected to Supabase at ${env.supabase_url}`);
+  console.log(`App backend listening on port ${env.port}!`);
+  console.log(`CORS config: configured to respond to a frontend hosted on ${env.frontend_url}`);
 });

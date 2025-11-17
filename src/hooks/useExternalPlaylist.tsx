@@ -31,17 +31,17 @@ export const useExternalPlaylist = (playlistId: string) => {
         throw new Error('Playlist ID is required');
       }
 
-      console.log('🔍 [useExternalPlaylist] Fetching playlist:', playlistId);
+      console.log('🔍 Fetching playlist:', playlistId);
 
-      // Step 1: Fetch playlist metadata
+      // Fetch playlist details from external Supabase
       const { data: playlistData, error: playlistError } = await externalSupabase
         .from('playlists')
-        .select('id, title, description, category, cover_url')
+        .select('*')
         .eq('id', playlistId)
         .single();
 
       if (playlistError) {
-        console.error('❌ [useExternalPlaylist] Playlist fetch error:', playlistError);
+        console.error('❌ Playlist fetch error:', playlistError);
         throw new Error(`Failed to fetch playlist: ${playlistError.message}`);
       }
 
@@ -49,110 +49,125 @@ export const useExternalPlaylist = (playlistId: string) => {
         throw new Error('Playlist not found');
       }
 
-      console.log('✅ [useExternalPlaylist] Playlist found:', playlistData.title);
-
-      // Step 2: Fetch tracks via playlist_tracks junction table
-      console.log('🔄 [useExternalPlaylist] Fetching tracks from playlist_tracks...');
-      
-      const { data: junctionData, error: junctionError } = await externalSupabase
-        .from('playlist_tracks')
-        .select('track_id, position')
-        .eq('playlist_id', playlistId)
-        .order('position', { ascending: true });
-
-      if (junctionError) {
-        console.error('❌ [useExternalPlaylist] Junction table error:', junctionError);
-        throw new Error(`Failed to fetch playlist tracks: ${junctionError.message}`);
-      }
-
-      console.log(`📦 [useExternalPlaylist] Found ${junctionData?.length || 0} junction records`);
+      console.log('✅ Playlist found:', playlistData.title);
 
       let tracks: Track[] = [];
 
-      if (junctionData && junctionData.length > 0) {
-        // Extract track IDs
-        const trackIds = junctionData.map((item) => item.track_id);
-        console.log(`🔑 [useExternalPlaylist] Track IDs to fetch:`, trackIds);
+      // METHOD 1: Try playlist_tracks junction table
+      console.log('🔄 Method 1: Trying playlist_tracks junction table...');
+      const { data: playlistTracks, error: junctionError } = await externalSupabase
+        .from('playlist_tracks')
+        .select(`
+          position,
+          track_id,
+          tracks (
+            id,
+            title,
+            artist,
+            cover_url,
+            duration,
+            external_id
+          )
+        `)
+        .eq('playlist_id', playlistId)
+        .order('position', { ascending: true });
 
-        // Step 3: Fetch actual track details
-        const { data: tracksData, error: tracksError } = await externalSupabase
-          .from('tracks')
-          .select('id, title, artist, youtube_id, duration, playlist_id')
-          .in('id', trackIds);
-
-        if (tracksError) {
-          console.error('❌ [useExternalPlaylist] Tracks fetch error:', tracksError);
-          throw new Error(`Failed to fetch track details: ${tracksError.message}`);
-        }
-
-        console.log(`📦 [useExternalPlaylist] Loaded ${tracksData?.length || 0} track details`);
-
-        if (tracksData && tracksData.length > 0) {
-          // Create a map for quick lookup
-          const tracksMap = new Map(tracksData.map((t) => [t.id, t]));
-
-          // Map junction data to track details, preserving order
-          tracks = junctionData
-            .map((junction) => {
-              const trackDetail = tracksMap.get(junction.track_id);
-              if (!trackDetail) {
-                console.warn(`⚠️ [useExternalPlaylist] Track not found for ID: ${junction.track_id}`);
-                return null;
-              }
-              return {
-                id: trackDetail.id,
-                title: trackDetail.title,
-                artist: trackDetail.artist,
-                youtube_id: trackDetail.youtube_id,
-                duration: trackDetail.duration,
-                image_url: null, // tracks table doesn't have image_url
-                playlist_id: playlistId,
-              };
-            })
-            .filter(Boolean) as Track[];
-
-          console.log(`✅ [useExternalPlaylist] Mapped ${tracks.length} tracks with correct order`);
+      if (!junctionError && playlistTracks && playlistTracks.length > 0) {
+        console.log(`📦 Found ${playlistTracks.length} tracks via junction table`);
+        
+        const mappedTracks = playlistTracks
+          .map((pt: any) => {
+            if (!pt.tracks) return null;
+            return {
+              id: pt.tracks.id,
+              title: pt.tracks.title,
+              artist: pt.tracks.artist,
+              youtube_id: pt.tracks.external_id,
+              duration: pt.tracks.duration,
+              image_url: pt.tracks.cover_url,
+              playlist_id: playlistId,
+            };
+          })
+          .filter(Boolean) as Track[];
+        
+        if (mappedTracks.length > 0) {
+          tracks = mappedTracks;
+          console.log('✅ Using tracks from junction table:', tracks.length);
         }
       } else {
-        console.warn('⚠️ [useExternalPlaylist] No junction records found, trying fallback...');
+        console.warn('⚠️ Junction table method failed or returned no results');
+      }
 
-        // FALLBACK: Try direct playlist_id in tracks table
+      // METHOD 2: If no tracks found, try direct playlist_id in tracks table
+      if (tracks.length === 0) {
+        console.log('🔄 Method 2: Trying direct playlist_id in tracks table...');
         const { data: directTracks, error: directError } = await externalSupabase
           .from('tracks')
-          .select('id, title, artist, youtube_id, duration, playlist_id')
+          .select('id, title, artist, cover_url, duration, external_id')
           .eq('playlist_id', playlistId)
           .order('created_at', { ascending: true });
 
         if (!directError && directTracks && directTracks.length > 0) {
-          console.log(`📦 [useExternalPlaylist] Found ${directTracks.length} tracks via fallback method`);
-          tracks = directTracks.map((t) => ({
+          console.log(`📦 Found ${directTracks.length} tracks via direct method`);
+          tracks = directTracks.map((t: any) => ({
             id: t.id,
             title: t.title,
             artist: t.artist,
-            youtube_id: t.youtube_id,
+            youtube_id: t.external_id,
             duration: t.duration,
-            image_url: null,
+            image_url: t.cover_url,
             playlist_id: playlistId,
           }));
+          console.log('✅ Using tracks from direct method:', tracks.length);
         } else {
-          console.warn('⚠️ [useExternalPlaylist] Fallback method also returned no results');
+          console.warn('⚠️ Direct method failed or returned no results');
         }
       }
 
-      console.log(`🎵 [useExternalPlaylist] Final track count: ${tracks.length}`);
+      // METHOD 3: Try matching external_id
+      if (tracks.length === 0 && playlistData.external_id) {
+        console.log('🔄 Method 3: Trying external_id match...');
+        const { data: externalTracks, error: externalError } = await externalSupabase
+          .from('tracks')
+          .select('id, title, artist, cover_url, duration, external_id')
+          .eq('playlist_external_id', playlistData.external_id)
+          .order('created_at', { ascending: true });
+
+        if (!externalError && externalTracks && externalTracks.length > 0) {
+          console.log(`📦 Found ${externalTracks.length} tracks via external_id`);
+          tracks = externalTracks.map((t: any) => ({
+            id: t.id,
+            title: t.title,
+            artist: t.artist,
+            youtube_id: t.external_id,
+            duration: t.duration,
+            image_url: t.cover_url,
+            playlist_id: playlistId,
+          }));
+          console.log('✅ Using tracks from external_id method:', tracks.length);
+        } else {
+          console.warn('⚠️ External_id method failed or returned no results');
+        }
+      }
+
+      if (tracks.length === 0) {
+        console.warn('⚠️ No tracks found for playlist:', playlistId);
+      }
+
+      console.log(`🎵 Final track count: ${tracks.length}`);
 
       return {
         id: playlistData.id,
         title: playlistData.title,
         description: playlistData.description,
         category: playlistData.category,
-        image_url: playlistData.cover_url || null,
+        image_url: playlistData.cover_url || playlistData.image_url || null,
         tracks,
       };
     },
     enabled: Boolean(playlistId),
-    staleTime: 5 * 60 * 1000, // Cache for 5 minutes
-    gcTime: 10 * 60 * 1000, // Keep in cache for 10 minutes
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
     refetchOnWindowFocus: false,
     refetchOnMount: false,
     retry: 1,

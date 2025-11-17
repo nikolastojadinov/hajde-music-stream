@@ -7,277 +7,99 @@ export type PiUser = {
   roles: string[];
 };
 
+
 interface PiContextValue {
   user: PiUser | null;
+  signIn: () => Promise<void>;
   signOut: () => Promise<void>;
-  createPayment: (args: { amount: number; memo: string; metadata?: Record<string, unknown> }) => Promise<PaymentDTO>;
-  sdkReady: boolean;
-  sdkError: string | null;
-  showWelcomeModal: boolean;
-  setShowWelcomeModal: (show: boolean) => void;
+  createPayment: (args: { amount: number; memo: string; metadata?: Record<string, unknown> }) => Promise<void>;
 }
 
 const PiContext = createContext<PiContextValue | undefined>(undefined);
 
-// Get backend base URL with proper validation
-function getBackendBaseUrl(): string {
-  const url = import.meta.env.VITE_BACKEND_URL;
-  
-  if (!url || typeof url !== 'string') {
-    throw new Error('Backend URL missing');
-  }
-  
-  // Trim whitespace and remove trailing slash
-  return url.trim().replace(/\/$/, '');
-}
-
-const backendBase = getBackendBaseUrl();
+const getBackendBaseUrl = () => {
+  const url = import.meta.env.VITE_BACKEND_URL as string | undefined;
+  if (!url) return '';
+  return url.replace(/\/$/, '');
+};
 
 export function PiProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<PiUser | null>(null);
-  const [sdkReady, setSdkReady] = useState(false);
-  const [sdkError, setSdkError] = useState<string | null>(null);
-  const [showWelcomeModal, setShowWelcomeModal] = useState(false);
 
-  const onIncompletePaymentFound = useCallback((payment: PaymentDTO) => {
-    console.log('[Pi] Incomplete payment found:', payment);
+  const backendBase = useMemo(() => getBackendBaseUrl(), []);
+
+  // Initialize Pi SDK once
+  useEffect(() => {
+    try {
+      const sandbox = import.meta.env.VITE_PI_SANDBOX === 'true';
+      if (typeof window !== 'undefined' && window.Pi && typeof window.Pi.init === 'function') {
+        // Call init - it may timeout in console but won't block the app
+        window.Pi.init({ version: '2.0', sandbox });
+      }
+    } catch (e) {
+      // Silently ignore - not in Pi Browser
+    }
   }, []);
 
-  // Wait for Pi SDK to load
-  const waitForPi = useCallback(() => {
-    return new Promise<typeof window.Pi>((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        reject(new Error('Pi SDK not loaded after 5 seconds'));
-      }, 5000);
+  const onIncompletePaymentFound = useCallback(async (_payment: PaymentDTO) => {
+    // No-op: verification handled via /api/payments/verify
+  }, []);
 
-      const check = () => {
-        if (window.Pi) {
-          clearTimeout(timeout);
-          resolve(window.Pi);
-        } else {
-          setTimeout(check, 50);
-        }
-      };
-      check();
+  const signIn = useCallback(async () => {
+    if (!window.Pi || typeof window.Pi.authenticate !== 'function') {
+      throw new Error('Pi SDK not available. Please open this app in Pi Browser.');
+    }
+    
+    // Request scopes needed for app
+    const scopes = ['username', 'payments', 'roles', 'in_app_notifications'];
+    const authResult: AuthResult = await window.Pi.authenticate(scopes, onIncompletePaymentFound);
+
+    if (!backendBase) throw new Error('Missing VITE_BACKEND_URL');
+    const res = await fetch(`${backendBase}/user/signin`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ authResult }),
     });
-  }, []);
-
-  // Initialize Pi SDK
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-
-    (async () => {
-      try {
-        const Pi = await waitForPi();
-        const sandbox = import.meta.env.VITE_PI_SANDBOX === 'true';
-        Pi.init({ version: '2.0', sandbox });
-        setSdkReady(true);
-        setSdkError(null);
-        console.log('[Pi] SDK ready');
-      } catch (error) {
-        console.error('[Pi] SDK init error:', error);
-        setSdkError('Please open this app in Pi Browser to continue');
-      }
-    })();
-  }, [waitForPi]);
-
-  // Auto-login after SDK is ready
-  useEffect(() => {
-    if (!sdkReady || user !== null) return;
-
-    const autoLogin = async () => {
-      try {
-        console.log('[Pi] Starting authenticate...');
-        
-        if (!window.Pi || typeof window.Pi.authenticate !== 'function') {
-          console.error('[Pi] Pi.authenticate is not available');
-          setSdkError('Pi SDK authenticate method not available');
-          return;
-        }
-
-        const authResult: AuthResult = await window.Pi.authenticate(
-          ['username', 'payments'],
-          onIncompletePaymentFound
-        );
-
-        console.log('[Pi] Auth result:', authResult);
-        console.log('[Pi] Sending to backend:', JSON.stringify({ authResult }));
-
-        if (!authResult?.accessToken) {
-          console.warn('[Pi] No access token in authResult');
-          setSdkError('No access token received from Pi');
-          return;
-        }
-
-        const res = await fetch(`${backendBase}/user/signin`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({ authResult }),
-        });
-
-        console.log('[Pi] Fetch completed, status:', res.status);
-
-        if (!res.ok) {
-          let errorText = '';
-          try {
-            errorText = await res.text();
-            console.error('[Pi] Backend error:', res.status, errorText);
-          } catch (e) {
-            console.error('[Pi] Could not read error body:', e);
-          }
-          setSdkError(`Backend error: ${res.status}`);
-          return;
-        }
-
-        const data = await res.json();
-        console.log('[Pi] Backend response:', JSON.stringify(data, null, 2));
-        
-        if (data?.user) {
-          setUser(data.user);
-          setShowWelcomeModal(true);
-          setTimeout(() => setShowWelcomeModal(false), 3000);
-          console.log('[Pi] Login successful!');
-        } else {
-          console.warn('[Pi] No user in backend response');
-          setSdkError('No user data received from backend');
-        }
-      } catch (error: any) {
-        console.error('[Pi] Auto-login error:', {
-          message: error?.message,
-          stack: error?.stack,
-          error: error
-        });
-        setSdkError(error?.message || 'Authentication failed');
-      }
-    };
-
-    console.log('[Pi Debug] Starting auto-login, backendBase:', backendBase);
-    autoLogin();
-  }, [sdkReady, user, onIncompletePaymentFound]);
+    if (!res.ok) {
+      throw new Error('Pi sign-in failed');
+    }
+    const data = await res.json();
+    // optional: server could return user; fallback to auth result
+    setUser((data.user as PiUser) ?? authResult.user as any);
+  }, [backendBase, onIncompletePaymentFound]);
 
   const signOut = useCallback(async () => {
     setUser(null);
+    if (!backendBase) return;
     try {
       await fetch(`${backendBase}/user/signout`, { credentials: 'include' });
-    } catch (error) {
-      console.error('[Pi] Signout error:', error);
-    }
-  }, []);
+    } catch (_e) {}
+  }, [backendBase]);
 
-  const createPayment = useCallback(async ({ 
-    amount, 
-    memo, 
-    metadata 
-  }: { 
-    amount: number; 
-    memo: string; 
-    metadata?: Record<string, unknown> 
-  }) => {
-    if (!user) {
-      throw new Error('Not signed in');
-    }
-
-    if (!sdkReady || !window.Pi?.createPayment) {
+  const createPayment = useCallback(async ({ amount, memo, metadata }: { amount: number; memo: string; metadata?: Record<string, unknown> }) => {
+    if (!user) throw new Error('Not signed in');
+    if (!window.Pi || typeof window.Pi.createPayment !== 'function') {
       throw new Error('Pi SDK not available. Please open this app in Pi Browser.');
     }
 
-    const onReadyForServerApproval = async (paymentId: string) => {
-      console.log('[Pi] Payment ready for approval:', paymentId);
-      
-      try {
-        const response = await fetch(`${backendBase}/payments/approve`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({ paymentId }),
-        });
-        
-        const result = await response.json();
-        console.log('[Pi] Approval response:', result);
-        
-        if (!result.success) {
-          console.error('[Pi] Approval failed:', result.error);
-        }
-      } catch (error) {
-        console.error('[Pi] Approval request failed:', error);
-      }
+    const onReadyForServerApproval = (_paymentId: string) => {};
+    const onReadyForServerCompletion = (_paymentId: string, _txid: string) => {};
+    const onCancel = (_paymentId: string) => {};
+
+    const onError = (error: Error) => {
+      console.error('Pi payment error', error);
     };
 
-    const onReadyForServerCompletion = async (paymentId: string, txid: string) => {
-      console.log('[Pi] Payment ready for completion:', paymentId, txid);
-      
-      try {
-        const response = await fetch(`${backendBase}/payments/complete`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({ paymentId, txid }),
-        });
-        
-        const result = await response.json();
-        console.log('[Pi] Completion response:', result);
-        
-        if (!result.success) {
-          console.error('[Pi] Completion failed:', result.error);
-        }
-      } catch (error) {
-        console.error('[Pi] Completion request failed:', error);
-      }
-    };
+    await window.Pi.createPayment({ amount, memo, metadata: metadata ?? {} }, {
+      onReadyForServerApproval,
+      onReadyForServerCompletion,
+      onCancel,
+      onError,
+    });
+  }, [user]);
 
-    const onCancel = async (paymentId: string) => {
-      console.log('[Pi] Payment cancelled:', paymentId);
-      
-      try {
-        await fetch(`${backendBase}/payments/cancel`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({ paymentId }),
-        });
-      } catch (error) {
-        console.error('[Pi] Cancel request failed:', error);
-      }
-    };
-
-    const onError = (error: Error, payment?: PaymentDTO) => {
-      console.error('[Pi] Payment error:', error);
-      throw error;
-    };
-
-    const payment = await window.Pi.createPayment(
-      { 
-        amount, 
-        memo, 
-        metadata: {
-          ...metadata,
-          user_uid: user.uid, // Always include user UID for backend
-        }
-      },
-      {
-        onReadyForServerApproval,
-        onReadyForServerCompletion,
-        onCancel,
-        onError,
-      }
-    );
-
-    return payment;
-  }, [user, sdkReady]);
-
-  const value = useMemo(
-    () => ({
-      user,
-      signOut,
-      createPayment,
-      sdkReady,
-      sdkError,
-      showWelcomeModal,
-      setShowWelcomeModal,
-    }),
-    [user, signOut, createPayment, sdkReady, sdkError, showWelcomeModal]
-  );
+  const value = useMemo(() => ({ user, signIn, signOut, createPayment }), [user, signIn, signOut, createPayment]);
 
   return <PiContext.Provider value={value}>{children}</PiContext.Provider>;
 }

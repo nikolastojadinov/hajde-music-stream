@@ -1,32 +1,18 @@
 import { usePlayer } from "@/contexts/PlayerContext";
-import { useIsMobile } from "@/hooks/use-mobile";
 
 export const YouTubePlayerContainer = () => {
   const { isFullscreen, isPlayerVisible } = usePlayer();
-  const isMobile = useIsMobile();
 
   if (!isPlayerVisible) return null;
 
-  // Mini player wrapper dimensions - smaller on mobile to match YouTube app
-  const miniPlayerWrapperStyles = {
+  // Fixed minimal dimensions for mini player (200x200 - YouTube minimum)
+  const miniPlayerStyles = {
     bottom: 'calc(5rem + 12px)',
     left: '16px',
-    width: isMobile ? '120px' : '200px',
-    height: isMobile ? '120px' : '200px',
+    transform: 'none',
+    width: '200px',
+    height: '200px',
   };
-
-  // Inner iframe stays at 200x200 (YouTube minimum) but scales down visually on mobile
-  const miniPlayerIframeStyles = isMobile
-    ? {
-        width: '200px',
-        height: '200px',
-        transform: 'scale(0.55)',
-        transformOrigin: 'top left',
-      }
-    : {
-        width: '100%',
-        height: '100%',
-      };
 
   // Fullscreen dimensions - responsive and proportional
   const fullscreenStyles = {
@@ -44,13 +30,10 @@ export const YouTubePlayerContainer = () => {
       className="fixed transition-all duration-300 ease-in-out bg-black rounded-lg overflow-hidden"
       style={{
         zIndex: isFullscreen ? 55 : 31,
-        ...(isFullscreen ? fullscreenStyles : miniPlayerWrapperStyles),
+        ...(isFullscreen ? fullscreenStyles : miniPlayerStyles),
       }}
     >
-      <div 
-        id="yt-player" 
-        style={isFullscreen ? { width: '100%', height: '100%' } : miniPlayerIframeStyles} 
-      />
+      <div id="yt-player" style={{ width: '100%', height: '100%' }} />
     </div>
   );
 };

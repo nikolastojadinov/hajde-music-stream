@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { externalSupabase } from "@/lib/externalSupabase";
+import { supabase } from "@/integrations/supabase/client";
 
 export interface Playlist {
   id: string;
@@ -14,9 +14,9 @@ export const usePlaylists = (category?: string) => {
   return useQuery({
     queryKey: ["playlists", category],
     queryFn: async () => {
-      let query = externalSupabase
+      let query = supabase
         .from("playlists")
-        .select("id, title, description, category, cover_url, created_at")
+        .select("*")
         .order("created_at", { ascending: false });
 
       if (category) {
@@ -26,14 +26,7 @@ export const usePlaylists = (category?: string) => {
       const { data, error } = await query;
 
       if (error) throw error;
-      
-      // Map cover_url to image_url for compatibility
-      const playlists = (data || []).map(p => ({
-        ...p,
-        image_url: p.cover_url || null
-      }));
-      
-      return playlists as Playlist[];
+      return data as Playlist[];
     },
   });
 };
