@@ -30,9 +30,21 @@ router.post('/auth', async (req: Request, res: Response) => {
 
     const { uid, username } = payload;
 
-    console.log('[Pi Auth] Upserting user to Supabase:', uid);
+    console.log('[Pi Auth] Upserting user to Supabase:', uid, 'username:', username);
+    console.log('[Pi Auth] Supabase URL:', process.env.SUPABASE_URL);
+    console.log('[Pi Auth] Service role key exists:', !!process.env.SUPABASE_SERVICE_ROLE_KEY);
+
+    // Check if Supabase client is configured
+    if (!supabase) {
+      console.error('[Pi Auth] Supabase client not initialized!');
+      return res.status(500).json({ 
+        error: 'database_error',
+        details: 'Supabase client not configured'
+      });
+    }
 
     // Upsert user into Supabase users table
+    console.log('[Pi Auth] Executing upsert...');
     const { data: userData, error: upsertError } = await supabase
       .from('users')
       .upsert(
@@ -51,10 +63,16 @@ router.post('/auth', async (req: Request, res: Response) => {
       .single();
 
     if (upsertError) {
-      console.error('[Pi Auth] Supabase upsert error:', upsertError);
+      console.error('[Pi Auth] Supabase upsert error FULL:', JSON.stringify(upsertError, null, 2));
+      console.error('[Pi Auth] Error code:', upsertError.code);
+      console.error('[Pi Auth] Error message:', upsertError.message);
+      console.error('[Pi Auth] Error details:', upsertError.details);
+      console.error('[Pi Auth] Error hint:', upsertError.hint);
       return res.status(500).json({ 
         error: 'database_error',
-        details: upsertError.message 
+        details: upsertError.message,
+        code: upsertError.code,
+        hint: upsertError.hint
       });
     }
 

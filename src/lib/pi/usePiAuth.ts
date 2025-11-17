@@ -81,7 +81,11 @@ export function usePiAuth(): UsePiAuthReturn {
 
           if (!response.ok) {
             const errorData = await response.json();
-            throw new Error(errorData.error || 'Backend authentication failed');
+            console.error('[Pi] Backend error response:', errorData);
+            const errorMsg = errorData.details 
+              ? `${errorData.error}: ${errorData.details}` 
+              : errorData.error || 'Backend authentication failed';
+            throw new Error(errorMsg);
           }
 
           data = await response.json();
