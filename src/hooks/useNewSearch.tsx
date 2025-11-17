@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
+import { externalSupabase } from '@/lib/externalSupabase';
 
 export interface SearchTrack {
   type: 'track';
@@ -48,14 +48,14 @@ export function useNewSearch(searchTerm: string) {
       // Single combined query for tracks and playlists
       const [tracksRes, playlistsWithCountRes] = await Promise.all([
         // Query 1: Tracks sa title ili artist ILIKE match
-        supabase
+        externalSupabase
           .from('tracks')
           .select('id, title, artist, youtube_id, image_url, cover_url')
           .or(`title.ilike.${pattern},artist.ilike.${pattern}`)
           .order('title', { ascending: true }),
 
         // Query 2: Playlists sa JOIN-om za brojanje track_count
-        supabase
+        externalSupabase
           .from('playlists')
           .select('id, title, description, image_url, cover_url, playlist_tracks(count)')
           .ilike('title', pattern)
