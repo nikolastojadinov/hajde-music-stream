@@ -1,6 +1,7 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef } from 'react';
 import { usePiAuth } from '@/lib/pi/usePiAuth';
 import { usePiPayments } from '@/lib/pi/usePiPayments';
+import { toast } from '@/hooks/use-toast';
 
 export type PiUser = {
   uid: string;
@@ -40,6 +41,26 @@ export function PiProvider({ children }: { children: React.ReactNode }) {
   // Use new Pi payments hook
   const { isProcessing: isProcessingPayment, error: paymentError, createPayment: createPiPayment } = usePiPayments();
 
+  // Track if we've shown welcome message to avoid showing it multiple times
+  const hasShownWelcome = useRef(false);
+
+  // Show welcome toast when user logs in
+  useEffect(() => {
+    if (user && !hasShownWelcome.current) {
+      hasShownWelcome.current = true;
+      
+      toast({
+        title: `Dobrodošli, ${user.username}! 👋`,
+        description: user.premium 
+          ? 'Imate Premium pristup - uživajte u muzici bez ograničenja!' 
+          : 'Prijavljeni ste. Uživajte u muzici!',
+        duration: 5000,
+      });
+      
+      console.log('[PiContext] Welcome toast shown for user:', user.username);
+    }
+  }, [user]);
+
   const signIn = useCallback(async () => {
     console.log('[PiContext] Manual sign-in requested');
     await authenticate();
@@ -47,6 +68,8 @@ export function PiProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = useCallback(async () => {
     console.log('[PiContext] Sign-out requested');
+    // Reset welcome flag
+    hasShownWelcome.current = false;
     // For now, just reload the page to clear state
     window.location.reload();
   }, []);

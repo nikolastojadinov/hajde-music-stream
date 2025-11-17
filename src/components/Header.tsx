@@ -4,10 +4,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Link } from "react-router-dom";
 import appLogo from "@/assets/app-logo.png";
 import { useLanguage, languages } from "@/contexts/LanguageContext";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import PremiumDialog from "./PremiumDialog";
 import { usePi } from "@/contexts/PiContext";
-import { useToast } from "@/hooks/use-toast";
+
 const Header = () => {
   const {
     t,
@@ -17,20 +17,6 @@ const Header = () => {
   const [languageDialogOpen, setLanguageDialogOpen] = useState(false);
   const [premiumDialogOpen, setPremiumDialogOpen] = useState(false);
   const { user, signIn, signOut } = usePi();
-  const { toast } = useToast();
-  const [hasShownWelcome, setHasShownWelcome] = useState(false);
-
-  // Show welcome toast when user logs in
-  useEffect(() => {
-    if (user && !hasShownWelcome) {
-      toast({
-        title: `Welcome ${user.username}!`,
-        description: user.premium ? `Premium member until ${new Date(user.premium_until!).toLocaleDateString()}` : "Enjoy browsing music!",
-        duration: 5000,
-      });
-      setHasShownWelcome(true);
-    }
-  }, [user, hasShownWelcome, toast]);
   return <header className="fixed top-0 left-0 right-0 h-16 bg-background/80 backdrop-blur-md border-b border-border/50 z-50">
       <div className="h-full px-4 md:px-6 flex items-center justify-between">
         {/* Logo */}

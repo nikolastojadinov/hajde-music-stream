@@ -51,25 +51,65 @@ export function usePiAuth(): UsePiAuthReturn {
 
       console.log('[Pi] Authentication successful:', authResult.user.uid);
 
-      // Send auth result to backend
+      // Send auth result to backend with timeout and retry
       console.log('[Pi] Sending auth to backend:', `${BACKEND_URL}/pi/auth`);
 
-      const response = await fetch(`${BACKEND_URL}/pi/auth`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(authResult),
-      });
+      let data: any = null;
+      let lastError: Error | null = null;
+      const maxRetries = 2;
+      const timeout = 45000; // 45 seconds (Render može biti spor na cold start)
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Backend authentication failed');
+      for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+          if (attempt > 0) {
+            console.log(`[Pi] Retry attempt ${attempt}/${maxRetries}...`);
+          }
+
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+          const response = await fetch(`${BACKEND_URL}/pi/auth`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(authResult),
+            signal: controller.signal,
+          });
+
+          clearTimeout(timeoutId);
+
+          if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Backend authentication failed');
+          }
+
+          data = await response.json();
+          console.log('[Pi] Backend authentication successful:', data.user);
+          break; // Success, exit retry loop
+
+        } catch (err: any) {
+          lastError = err;
+          
+          if (err.name === 'AbortError') {
+            console.warn(`[Pi] Request timeout (${timeout}ms) - attempt ${attempt + 1}/${maxRetries + 1}`);
+          } else {
+            console.error(`[Pi] Backend error on attempt ${attempt + 1}:`, err.message);
+          }
+
+          // Don't retry on last attempt
+          if (attempt === maxRetries) {
+            throw err;
+          }
+
+          // Wait before retry (exponential backoff)
+          await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
+        }
       }
 
-      const data = await response.json();
-
-      console.log('[Pi] Backend authentication successful:', data.user);
+      if (!data) {
+        throw lastError || new Error('Failed to authenticate with backend');
+      }
 
       setUser(data.user);
       setIsLoading(false);
