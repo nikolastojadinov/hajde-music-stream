@@ -74,4 +74,23 @@ All colors MUST be HSL.
   .scrollbar-hide::-webkit-scrollbar {
     display: none;
   }
+
+  /* Fullscreen YouTube Player Styles - DO NOT TOUCH MINI PLAYER */
+  .fullscreen-youtube-container iframe {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    border: none !important;
+  }
+
+  .fullscreen-youtube-player iframe {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    border: none !important;
+  }
 }

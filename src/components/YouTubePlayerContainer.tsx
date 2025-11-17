@@ -8,6 +8,7 @@ export const YouTubePlayerContainer = () => {
   if (!isPlayerVisible) return null;
 
   // Mini player - mobile optimized with scale, desktop 200x200
+  // Uses id="yt-player" for YouTube API initialization
   if (!isFullscreen) {
     // Mobile: wrapper 110px (scaled down from 200px with 0.55 scale)
     // Desktop: wrapper 200px (no scaling)
@@ -16,7 +17,7 @@ export const YouTubePlayerContainer = () => {
 
     return (
       <div
-        id="yt-player-wrapper"
+        id="yt-player-wrapper-mini"
         className="fixed transition-all duration-300 ease-in-out bg-black rounded-lg"
         style={{
           zIndex: 31,
@@ -38,20 +39,15 @@ export const YouTubePlayerContainer = () => {
             })
           }} 
         />
-        <style>{`
-          #yt-player iframe {
-            width: 200px !important;
-            height: 200px !important;
-          }
-        `}</style>
       </div>
     );
   }
 
   // Fullscreen player - fills entire container with proper aspect ratio
+  // Uses id="yt-player" for YouTube API initialization when in fullscreen mode
   return (
     <div
-      id="yt-player-wrapper"
+      id="yt-player-wrapper-fullscreen"
       className="fixed transition-all duration-300 ease-in-out"
       style={{
         zIndex: 55,
@@ -64,6 +60,7 @@ export const YouTubePlayerContainer = () => {
     >
       {/* Aspect ratio container for 16:9 */}
       <div 
+        className="fullscreen-youtube-container"
         style={{ 
           position: 'relative',
           width: '100%',
@@ -75,6 +72,7 @@ export const YouTubePlayerContainer = () => {
       >
         <div 
           id="yt-player" 
+          className="fullscreen-youtube-player"
           style={{ 
             position: 'absolute',
             top: 0,
@@ -84,13 +82,6 @@ export const YouTubePlayerContainer = () => {
           }} 
         />
       </div>
-      <style>{`
-        #yt-player iframe {
-          width: 100% !important;
-          height: 100% !important;
-        }
-      `}</style>
     </div>
   );
-};
 };
