@@ -112,7 +112,7 @@ router.post('/complete', async (req: Request, res: Response) => {
 
     // Update user premium status in Supabase
     const plan = metadata.plan || 'weekly'; // Default to weekly
-    const daysToAdd = plan === 'monthly' ? 30 : 7;
+    const daysToAdd = plan === 'monthly' ? 30 : plan === 'yearly' ? 365 : 7;
 
     // Calculate new premium_until date
     const newPremiumUntil = new Date();
@@ -149,6 +149,37 @@ router.post('/complete', async (req: Request, res: Response) => {
     }
     res.status(500).json({ 
       error: 'completion_failed',
+      message: error.message 
+    });
+  }
+});
+
+/**
+ * POST /pi/payments/cancelled
+ * Called when payment is cancelled by user
+ */
+router.post('/cancelled', async (req: Request, res: Response) => {
+  console.log('[Pi Payments] Payment cancelled request received');
+  
+  try {
+    const { paymentId } = req.body;
+
+    if (!paymentId) {
+      return res.status(400).json({ error: 'missing_payment_id' });
+    }
+
+    console.log('[Pi Payments] Payment cancelled:', paymentId);
+
+    // Just log it - no action needed
+    res.json({ 
+      acknowledged: true,
+      paymentId 
+    });
+
+  } catch (error: any) {
+    console.error('[Pi Payments ERROR] Cancel handler failed:', error.message);
+    res.status(500).json({ 
+      error: 'cancel_handler_failed',
       message: error.message 
     });
   }

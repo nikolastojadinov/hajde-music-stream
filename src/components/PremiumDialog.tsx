@@ -2,7 +2,6 @@ import { Crown, Check, X } from "lucide-react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { useState } from "react";
 import { usePi } from "@/contexts/PiContext";
-import { usePiPayment } from "@/hooks/usePiPayment";
 
 interface PremiumDialogProps {
   open: boolean;
@@ -11,8 +10,7 @@ interface PremiumDialogProps {
 
 const PremiumDialog = ({ open, onOpenChange }: PremiumDialogProps) => {
   const [selectedPlan, setSelectedPlan] = useState<'weekly' | 'monthly' | 'yearly'>('monthly');
-  const { user, signIn } = usePi();
-  const { createPayment } = usePiPayment();
+  const { user, signIn, createPayment, isProcessingPayment } = usePi();
   const [message, setMessage] = useState<string | null>(null);
 
   const plans = [
@@ -29,42 +27,34 @@ const PremiumDialog = ({ open, onOpenChange }: PremiumDialogProps) => {
     } as const;
 
     if (!user) {
+      setMessage('Please sign in with Pi first...');
       await signIn();
+      return;
     }
 
     try {
       setMessage('Processing payment...');
-      const payment = await createPayment({
+      
+      await createPayment({
         amount: priceMap[selectedPlan],
         memo: `Purple Music Premium (${selectedPlan})`,
-        metadata: { plan: selectedPlan, user: user?.username },
+        metadata: { 
+          plan: selectedPlan,
+          amount: priceMap[selectedPlan]
+        },
       });
 
-      if (payment?.identifier) {
-        const backend = (import.meta as any).env.VITE_BACKEND_URL as string | undefined;
-        if (!backend) throw new Error('Missing VITE_BACKEND_URL');
-        const res = await fetch(`${backend.replace(/\/$/, '')}/api/payments/verify`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({
-            paymentId: payment.identifier,
-            plan: selectedPlan,
-            amount: priceMap[selectedPlan],
-            user: { username: user?.username },
-          }),
-        });
-        const data = await res.json();
-        if (res.ok && data?.success) {
-          setMessage(`🎉 Premium activated until ${new Date(data.premium_until).toLocaleDateString()}`);
-        } else {
-          setMessage('⚠️ Payment verification failed.');
-        }
-      } else {
-        setMessage('⚠️ Payment not completed.');
-      }
-    } catch (e) {
-      setMessage('Payment failed to start.');
+      setMessage('🎉 Payment processing... Please check your Pi wallet!');
+      
+      // Close dialog after a moment
+      setTimeout(() => {
+        onOpenChange(false);
+        setMessage(null);
+      }, 3000);
+
+    } catch (e: any) {
+      console.error('[PremiumDialog] Payment error:', e);
+      setMessage(`⚠️ Payment failed: ${e.message || 'Unknown error'}`);
     }
   };
 
@@ -145,9 +135,10 @@ const PremiumDialog = ({ open, onOpenChange }: PremiumDialogProps) => {
             {/* Activate Button */}
             <button
               onClick={handleActivate}
-              className="w-full max-w-md mx-4 py-3 rounded-full bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70 text-primary-foreground font-semibold text-base transition-all hover:scale-[1.02]"
+              disabled={isProcessingPayment}
+              className="w-full max-w-md mx-4 py-3 rounded-full bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70 text-primary-foreground font-semibold text-base transition-all hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Activate {plans.find(p => p.id === selectedPlan)?.name}
+              {isProcessingPayment ? 'Processing...' : `Activate ${plans.find(p => p.id === selectedPlan)?.name}`}
             </button>
 
             {message && (
