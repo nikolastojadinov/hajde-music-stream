@@ -47,8 +47,10 @@ export const YouTubePlayerContainer = () => {
         style={{ 
           width: isFullscreen ? '100%' : '200px',
           height: isFullscreen ? '100%' : '200px',
-          transform: playerTransform,
-          transformOrigin: playerTransform ? 'top left' : undefined
+          ...(playerTransform && { 
+            transform: playerTransform,
+            transformOrigin: 'top left'
+          })
         }} 
       />
     </div>
