@@ -21,6 +21,7 @@ import Privacy from "@/pages/Privacy";
 import Terms from "@/pages/Terms";
 import NotFound from "@/pages/NotFound";
 import ImportCSV from "@/pages/ImportCSV";
+import DebugFloatingLogger from "@/components/DebugFloatingLogger";
 
 const queryClient = new QueryClient();
 
@@ -80,6 +81,7 @@ const App = () => {
                   </div>
                   
                   <YouTubePlayerContainer />
+                  <DebugFloatingLogger />
                 </div>
               </BrowserRouter>
             </PiProvider>
