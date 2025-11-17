@@ -44,6 +44,7 @@ export const YouTubePlayerContainer = () => {
     >
       <div 
         id="yt-player" 
+        className={isFullscreen ? 'w-full h-full' : ''}
         style={{ 
           width: isFullscreen ? '100%' : '200px',
           height: isFullscreen ? '100%' : '200px',
@@ -53,6 +54,19 @@ export const YouTubePlayerContainer = () => {
           })
         }} 
       />
+      <style>{`
+        ${isFullscreen ? `
+          #yt-player iframe {
+            width: 100% !important;
+            height: 100% !important;
+          }
+        ` : `
+          #yt-player iframe {
+            width: 200px !important;
+            height: 200px !important;
+          }
+        `}
+      `}</style>
     </div>
   );
 };
