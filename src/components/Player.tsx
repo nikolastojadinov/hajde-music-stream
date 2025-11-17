@@ -168,10 +168,10 @@ const Player = () => {
         </button>
 
         <div className="flex items-center justify-between gap-4 max-w-screen-2xl mx-auto px-4 py-3 pt-8">
-          {/* YouTube Player Placeholder - matches iframe container size */}
+          {/* YouTube Player Placeholder - matches wrapper visual size */}
           <div className="flex items-center gap-4 flex-1 min-w-0">
-            {/* Placeholder is 200x200 to match iframe container (iframe scales inside) */}
-            <div className="w-[200px] h-[200px] flex-shrink-0 bg-secondary/20 rounded-lg" />
+            {/* Placeholder matches wrapper: 110px on mobile, 200px on desktop */}
+            <div className={`${isMobile ? 'w-[110px] h-[110px]' : 'w-[200px] h-[200px]'} flex-shrink-0 bg-secondary/20 rounded-lg`} />
             <div className="min-w-0 flex-1 hidden md:block">
               <p className="font-semibold text-foreground truncate">{currentVideoTitle || "Purple Dreams"}</p>
               <p className="text-sm text-muted-foreground truncate">{currentVideoArtist || "Electronic Beats"}</p>
