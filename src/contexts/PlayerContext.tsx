@@ -154,6 +154,14 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setCurrentVideoArtist("");
         setCurrentTime(0);
         setDuration(0);
+        
+        // Cleanup player
+        if (playerRef.current && playerRef.current.destroy) {
+          console.log('🧹 Destroying player on sign out');
+          playerRef.current.destroy();
+        }
+        playerRef.current = null;
+        setPlayerReady(false);
       }
     });
 
@@ -216,13 +224,45 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return () => clearInterval(interval);
   }, [currentYoutubeId, currentVideoTitle, currentVideoArtist, isFullscreen, userId]);
 
+  // Cleanup player kada se zatvori (isPlayerVisible = false)
+  useEffect(() => {
+    if (!isPlayerVisible && playerRef.current) {
+      console.log('🧹 Player hidden - cleaning up player instance');
+      
+      // Destroy YouTube player instance
+      if (playerRef.current.destroy) {
+        try {
+          playerRef.current.destroy();
+        } catch (e) {
+          console.error('Error destroying player:', e);
+        }
+      }
+      
+      playerRef.current = null;
+      setPlayerReady(false);
+      console.log('✅ Player cleanup complete');
+    }
+  }, [isPlayerVisible]);
+
   // Kreiraj player samo kada postane vidljiv
   useEffect(() => {
-    if (!isPlayerVisible || playerRef.current) return;
+    // Ne kreiraj player ako nije vidljiv
+    if (!isPlayerVisible) return;
+    
+    // Ako player već postoji, ne kreiraj ponovo
+    if (playerRef.current) return;
 
     const createPlayer = () => {
       const container = document.getElementById("yt-player");
-      if (!container || playerRef.current) return;
+      if (!container) {
+        console.log('⚠️ yt-player container not found');
+        return;
+      }
+      
+      if (playerRef.current) {
+        console.log('⚠️ Player already exists');
+        return;
+      }
 
       // Uzmi video ID iz pending ili default
       const videoId = pendingVideoRef.current?.id || playlist[0].id;
@@ -427,7 +467,14 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   const playTrack = (youtubeId: string, title: string, artist: string) => {
-    console.log('🎵 playTrack called:', { youtubeId, title, artist, playerReady });
+    console.log('🎵 playTrack called:', { 
+      youtubeId, 
+      title, 
+      artist, 
+      playerReady, 
+      playerExists: !!playerRef.current,
+      isPlayerVisible 
+    });
     
     setCurrentVideoTitle(title);
     setCurrentVideoArtist(artist);
@@ -440,6 +487,9 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     currentIndexRef.current = 0;
     setCurrentIndex(0);
     
+    // Prvo postavi player kao visible
+    setIsPlayerVisible(true);
+    
     if (playerRef.current && playerReady && playerRef.current.loadVideoById) {
       console.log('✅ Player ready - loading video:', youtubeId);
       playerRef.current.loadVideoById(youtubeId);
@@ -451,11 +501,19 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }, 100);
       setIsPlaying(true);
     } else {
-      console.log('⏳ Player not ready - queuing video');
+      console.log('⏳ Player not ready - queuing video', {
+        hasPlayer: !!playerRef.current,
+        playerReady,
+        hasLoadMethod: !!(playerRef.current?.loadVideoById)
+      });
       pendingVideoRef.current = { id: youtubeId, title, artist };
+      
+      // Ako player ne postoji ali je bio vidljiv, resetuj playerReady
+      if (!playerRef.current && isPlayerVisible) {
+        console.log('🔄 Resetting playerReady flag');
+        setPlayerReady(false);
+      }
     }
-    
-    setIsPlayerVisible(true);
   };
 
   const playPlaylist = (tracks: Array<{ external_id: string; title: string; artist: string }>, startIndex = 0) => {
