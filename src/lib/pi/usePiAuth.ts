@@ -42,7 +42,7 @@ export function usePiAuth(): UsePiAuthReturn {
 
       // Authenticate with Pi Browser
       const authResult: AuthResult = await window.Pi.authenticate(
-        ['username', 'payments', 'platform'],
+        ['username', 'payments'],
         async (payment) => {
           console.log('[Pi] Incomplete payment found:', payment);
           // Handle incomplete payments if needed
@@ -77,7 +77,15 @@ export function usePiAuth(): UsePiAuthReturn {
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Authentication failed';
       console.error('[Pi ERROR] Authentication failed:', errorMessage);
-      setError(errorMessage);
+      
+      // If user cancelled consent, don't show as error - just stay logged out
+      if (errorMessage.includes('cancelled') || errorMessage.includes('canceled')) {
+        console.log('[Pi] User cancelled authentication - app can be used without login');
+        setError(null); // Don't show error for user cancellation
+      } else {
+        setError(errorMessage);
+      }
+      
       setIsLoading(false);
     }
   }, []);
@@ -94,8 +102,7 @@ export function usePiAuth(): UsePiAuthReturn {
       attempts++;
       
       if (attempts > maxAttempts) {
-        console.error('[Pi ERROR] Pi SDK not available after 5 seconds');
-        setError('Pi SDK not available');
+        console.log('[Pi] Pi SDK not available after 5 seconds - app will work without login');
         setIsLoading(false);
         return;
       }
