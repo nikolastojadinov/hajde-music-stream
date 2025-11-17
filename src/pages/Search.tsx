@@ -1,27 +1,30 @@
 import { useState, useEffect } from "react";
-import { Search as SearchIcon } from "lucide-react";
+import { Search as SearchIcon, Music, ListMusic, User } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { useCatalogSearch, CatalogResult } from "@/hooks/useCatalogSearch";
+import { useNewSearch, SearchTrack, SearchPlaylist } from "@/hooks/useNewSearch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useNavigate } from "react-router-dom";
+import { usePlayer } from "@/contexts/PlayerContext";
 
 const Search = () => {
   const { t } = useLanguage();
   const navigate = useNavigate();
+  const { playTrack } = usePlayer();
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
 
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearch(searchTerm);
-    }, 300);
+    }, 250);
     return () => clearTimeout(timer);
   }, [searchTerm]);
 
-  const { results: catalogResults, isLoading, hasMore, loadMore } = useCatalogSearch(debouncedSearch);
+  const { data, isLoading } = useNewSearch(debouncedSearch);
+  const { songs = [], playlists = [], artistGroups = [] } = data || {};
 
-  const hasResults = catalogResults.length > 0;
+  const hasResults = songs.length > 0 || playlists.length > 0 || artistGroups.length > 0;
   const showEmptyState = debouncedSearch.length > 0 && !isLoading && !hasResults;
 
   const categories = [
@@ -56,17 +59,21 @@ const Search = () => {
         {debouncedSearch.length > 0 && (
           <div className="mb-12">
             {isLoading ? (
-              <div className="space-y-4">
-                <Skeleton className="h-8 w-48 mb-4" />
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
-                  {[1, 2, 3, 4, 5, 6].map((i) => (
-                    <div key={i}>
-                      <Skeleton className="aspect-square rounded-lg mb-2" />
-                      <Skeleton className="h-4 w-3/4 mb-2" />
-                      <Skeleton className="h-3 w-full" />
+              <div className="space-y-8">
+                {[1, 2, 3].map((section) => (
+                  <div key={section}>
+                    <Skeleton className="h-8 w-48 mb-4" />
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
+                      {[1, 2, 3, 4].map((i) => (
+                        <div key={i}>
+                          <Skeleton className="aspect-square rounded-lg mb-2" />
+                          <Skeleton className="h-4 w-3/4 mb-2" />
+                          <Skeleton className="h-3 w-full" />
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
+                  </div>
+                ))}
               </div>
             ) : showEmptyState ? (
               <div className="text-center py-12">
@@ -78,127 +85,257 @@ const Search = () => {
                 </p>
               </div>
             ) : hasResults ? (
-              <div className="space-y-6 animate-fade-in">
-                <section>
-                  <h2 className="text-2xl font-bold mb-4">
-                    Pronađene plejliste ({catalogResults.length})
-                  </h2>
-                  
-                  {/* Mobile: Vertical list with images */}
-                  <div className="md:hidden space-y-2">
-                    {catalogResults.map((result: CatalogResult) => (
-                      <div
-                        key={result.id}
-                        onClick={() => {
-                          if (result.type === 'playlist') {
-                            navigate(`/playlist/${result.id}`);
-                          } else {
-                            navigate(`/track/${result.id}`);
-                          }
-                        }}
-                        className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 active:bg-white/10 transition-colors cursor-pointer"
-                      >
-                        <div className="w-16 h-16 rounded-md bg-card flex-shrink-0 overflow-hidden">
-                          {result.image_url ? (
-                            <img 
-                              src={result.image_url} 
-                              alt={result.title}
-                              className="w-full h-full object-cover"
-                              onError={(e) => {
-                                (e.target as HTMLImageElement).src = "/placeholder.svg";
-                              }}
-                            />
-                          ) : (
-                            <div className="w-full h-full bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
-                              <div className="text-center px-2">
-                                <p className="text-xs font-semibold text-foreground line-clamp-2">
-                                  {result.title}
-                                </p>
+              <div className="space-y-10 animate-fade-in">
+                {/* SONGS Section */}
+                {songs.length > 0 && (
+                  <section>
+                    <div className="flex items-center gap-2 mb-4">
+                      <Music className="w-6 h-6 text-primary" />
+                      <h2 className="text-2xl font-bold">
+                        Pesme ({songs.length})
+                      </h2>
+                    </div>
+                    
+                    {/* Mobile: Vertical list */}
+                    <div className="md:hidden space-y-2">
+                      {songs.map((track: SearchTrack) => (
+                        <div
+                          key={track.id}
+                          onClick={() => playTrack(track.youtube_id, track.title, track.artist)}
+                          className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 active:bg-white/10 transition-colors cursor-pointer"
+                        >
+                          <div className="w-16 h-16 rounded-md bg-card flex-shrink-0 overflow-hidden">
+                            {track.cover_url || track.image_url ? (
+                              <img 
+                                src={track.cover_url || track.image_url || "/placeholder.svg"} 
+                                alt={track.title}
+                                className="w-full h-full object-cover"
+                                onError={(e) => {
+                                  (e.target as HTMLImageElement).src = "/placeholder.svg";
+                                }}
+                              />
+                            ) : (
+                              <div className="w-full h-full bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
+                                <Music className="w-6 h-6 text-primary/50" />
                               </div>
-                            </div>
-                          )}
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <h3 className="font-medium text-sm line-clamp-1 mb-1">
+                              {track.title}
+                            </h3>
+                            <p className="text-xs text-muted-foreground">
+                              {track.artist}
+                            </p>
+                          </div>
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <h3 className="font-medium text-sm line-clamp-1 mb-1">
-                            {result.title}
+                      ))}
+                    </div>
+
+                    {/* Desktop: Grid layout */}
+                    <div className="hidden md:grid md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
+                      {songs.map((track: SearchTrack) => (
+                        <div 
+                          key={track.id}
+                          onClick={() => playTrack(track.youtube_id, track.title, track.artist)}
+                          className="cursor-pointer group"
+                        >
+                          <div className="aspect-square bg-card rounded-lg mb-3 overflow-hidden transition-transform group-hover:scale-105">
+                            {track.cover_url || track.image_url ? (
+                              <img 
+                                src={track.cover_url || track.image_url || "/placeholder.svg"} 
+                                alt={track.title}
+                                className="w-full h-full object-cover"
+                                onError={(e) => {
+                                  (e.target as HTMLImageElement).src = "/placeholder.svg";
+                                }}
+                              />
+                            ) : (
+                              <div className="w-full h-full bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
+                                <Music className="w-8 h-8 text-primary/50" />
+                              </div>
+                            )}
+                          </div>
+                          <h3 className="font-medium line-clamp-2 text-sm mb-1">
+                            {track.title}
                           </h3>
-                          <p className="text-xs text-muted-foreground">
-                            {result.type === 'playlist' 
-                              ? `Plejlista • ${result.track_count} pesama`
-                              : `Pesma • ${result.artist}`
-                            }
+                          <p className="text-xs text-muted-foreground line-clamp-1">
+                            {track.artist}
                           </p>
                         </div>
-                      </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                  </section>
+                )}
 
-                  {/* Desktop: Grid layout */}
-                  <div className="hidden md:grid md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
-                    {catalogResults.map((result: CatalogResult) => (
-                      <div 
-                        key={result.id}
-                        onClick={() => {
-                          if (result.type === 'playlist') {
-                            navigate(`/playlist/${result.id}`);
-                          } else {
-                            navigate(`/track/${result.id}`);
-                          }
-                        }}
-                        className="cursor-pointer group"
-                      >
-                        <div className="aspect-square bg-card rounded-lg mb-3 overflow-hidden transition-transform group-hover:scale-105">
-                          {result.image_url ? (
-                            <img 
-                              src={result.image_url} 
-                              alt={result.title}
-                              className="w-full h-full object-cover"
-                              onError={(e) => {
-                                (e.target as HTMLImageElement).src = "/placeholder.svg";
-                              }}
-                            />
-                          ) : (
-                            <div className="w-full h-full bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
-                              <div className="text-center p-4">
-                                <p className="font-semibold text-foreground line-clamp-2 mb-2">
-                                  {result.title}
-                                </p>
-                                <p className="text-xs text-muted-foreground">
-                                  {result.type === 'playlist' ? `${result.track_count} pesama` : result.artist}
-                                </p>
+                {/* PLAYLISTS Section */}
+                {playlists.length > 0 && (
+                  <section>
+                    <div className="flex items-center gap-2 mb-4">
+                      <ListMusic className="w-6 h-6 text-primary" />
+                      <h2 className="text-2xl font-bold">
+                        Plejliste ({playlists.length})
+                      </h2>
+                    </div>
+                    
+                    {/* Mobile: Vertical list */}
+                    <div className="md:hidden space-y-2">
+                      {playlists.map((playlist: SearchPlaylist) => (
+                        <div
+                          key={playlist.id}
+                          onClick={() => navigate(`/playlist/${playlist.id}`)}
+                          className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 active:bg-white/10 transition-colors cursor-pointer"
+                        >
+                          <div className="w-16 h-16 rounded-md bg-card flex-shrink-0 overflow-hidden">
+                            {playlist.cover_url || playlist.image_url ? (
+                              <img 
+                                src={playlist.cover_url || playlist.image_url || "/placeholder.svg"} 
+                                alt={playlist.title}
+                                className="w-full h-full object-cover"
+                                onError={(e) => {
+                                  (e.target as HTMLImageElement).src = "/placeholder.svg";
+                                }}
+                              />
+                            ) : (
+                              <div className="w-full h-full bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
+                                <ListMusic className="w-6 h-6 text-primary/50" />
                               </div>
-                            </div>
-                          )}
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <h3 className="font-medium text-sm line-clamp-1 mb-1">
+                              {playlist.title}
+                            </h3>
+                            <p className="text-xs text-muted-foreground">
+                              {playlist.track_count} pesama
+                            </p>
+                          </div>
                         </div>
-                        <h3 className="font-medium line-clamp-2 text-sm mb-1">
-                          {result.title}
-                        </h3>
-                        <p className="text-xs text-muted-foreground">
-                          {result.type === 'playlist' ? `${result.track_count} tracks` : result.artist}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                  
-                  {/* Load More Button */}
-                  {hasMore && !isLoading && (
-                    <div className="flex justify-center mt-8">
-                      <button
-                        onClick={loadMore}
-                        className="px-6 py-3 bg-card hover:bg-card/80 text-foreground rounded-lg transition-colors border border-border"
-                      >
-                        more...
-                      </button>
+                      ))}
                     </div>
-                  )}
-                  
-                  {/* Loading indicator for "Load More" */}
-                  {isLoading && catalogResults.length > 0 && (
-                    <div className="flex justify-center mt-8">
-                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+
+                    {/* Desktop: Grid layout */}
+                    <div className="hidden md:grid md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
+                      {playlists.map((playlist: SearchPlaylist) => (
+                        <div 
+                          key={playlist.id}
+                          onClick={() => navigate(`/playlist/${playlist.id}`)}
+                          className="cursor-pointer group"
+                        >
+                          <div className="aspect-square bg-card rounded-lg mb-3 overflow-hidden transition-transform group-hover:scale-105">
+                            {playlist.cover_url || playlist.image_url ? (
+                              <img 
+                                src={playlist.cover_url || playlist.image_url || "/placeholder.svg"} 
+                                alt={playlist.title}
+                                className="w-full h-full object-cover"
+                                onError={(e) => {
+                                  (e.target as HTMLImageElement).src = "/placeholder.svg";
+                                }}
+                              />
+                            ) : (
+                              <div className="w-full h-full bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
+                                <ListMusic className="w-8 h-8 text-primary/50" />
+                              </div>
+                            )}
+                          </div>
+                          <h3 className="font-medium line-clamp-2 text-sm mb-1">
+                            {playlist.title}
+                          </h3>
+                          <p className="text-xs text-muted-foreground">
+                            {playlist.track_count} pesama
+                          </p>
+                        </div>
+                      ))}
                     </div>
-                  )}
-                </section>
+                  </section>
+                )}
+
+                {/* ARTISTS Section */}
+                {artistGroups.length > 0 && (
+                  <section>
+                    <div className="flex items-center gap-2 mb-4">
+                      <User className="w-6 h-6 text-primary" />
+                      <h2 className="text-2xl font-bold">
+                        Izvođači ({artistGroups.length})
+                      </h2>
+                    </div>
+                    
+                    <div className="space-y-6">
+                      {artistGroups.map((group) => (
+                        <div key={group.artist} className="space-y-3">
+                          {/* Artist name - NOT CLICKABLE */}
+                          <h3 className="text-lg font-semibold text-muted-foreground px-2">
+                            {group.artist}
+                          </h3>
+                          
+                          {/* Mobile: Vertical list of tracks */}
+                          <div className="md:hidden space-y-2">
+                            {group.tracks.map((track: SearchTrack) => (
+                              <div
+                                key={track.id}
+                                onClick={() => playTrack(track.youtube_id, track.title, track.artist)}
+                                className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 active:bg-white/10 transition-colors cursor-pointer"
+                              >
+                                <div className="w-12 h-12 rounded-md bg-card flex-shrink-0 overflow-hidden">
+                                  {track.cover_url || track.image_url ? (
+                                    <img 
+                                      src={track.cover_url || track.image_url || "/placeholder.svg"} 
+                                      alt={track.title}
+                                      className="w-full h-full object-cover"
+                                      onError={(e) => {
+                                        (e.target as HTMLImageElement).src = "/placeholder.svg";
+                                      }}
+                                    />
+                                  ) : (
+                                    <div className="w-full h-full bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
+                                      <Music className="w-4 h-4 text-primary/50" />
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <h4 className="font-medium text-sm line-clamp-1">
+                                    {track.title}
+                                  </h4>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+
+                          {/* Desktop: Grid layout of tracks */}
+                          <div className="hidden md:grid md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
+                            {group.tracks.map((track: SearchTrack) => (
+                              <div 
+                                key={track.id}
+                                onClick={() => playTrack(track.youtube_id, track.title, track.artist)}
+                                className="cursor-pointer group"
+                              >
+                                <div className="aspect-square bg-card rounded-lg mb-3 overflow-hidden transition-transform group-hover:scale-105">
+                                  {track.cover_url || track.image_url ? (
+                                    <img 
+                                      src={track.cover_url || track.image_url || "/placeholder.svg"} 
+                                      alt={track.title}
+                                      className="w-full h-full object-cover"
+                                      onError={(e) => {
+                                        (e.target as HTMLImageElement).src = "/placeholder.svg";
+                                      }}
+                                    />
+                                  ) : (
+                                    <div className="w-full h-full bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
+                                      <Music className="w-8 h-8 text-primary/50" />
+                                    </div>
+                                  )}
+                                </div>
+                                <h4 className="font-medium line-clamp-2 text-sm">
+                                  {track.title}
+                                </h4>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                )}
               </div>
             ) : null}
           </div>
