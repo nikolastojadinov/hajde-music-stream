@@ -3,9 +3,9 @@
  * Handles automatic login from Pi Browser
  */
 
-const express = require('express');
-const { validatePiAuth } = require('../../lib/piValidator');
-const supabase = require('../../services/supabaseClient').default;
+import express, { Request, Response } from 'express';
+import { validatePiAuth } from '../../lib/piValidator';
+import supabase from '../../services/supabaseClient';
 
 const router = express.Router();
 
@@ -14,7 +14,7 @@ const router = express.Router();
  * Receives Pi authentication result from frontend
  * Validates and upserts user into Supabase
  */
-router.post('/auth', async (req, res) => {
+router.post('/auth', async (req: Request, res: Response) => {
   console.log('[Pi Auth] Received authentication request');
   
   try {
@@ -28,7 +28,7 @@ router.post('/auth', async (req, res) => {
       return res.status(401).json({ error: 'invalid_pi_auth' });
     }
 
-    const { uid, username, accessToken } = payload;
+    const { uid, username } = payload;
 
     console.log('[Pi Auth] Upserting user to Supabase:', uid);
 
@@ -71,7 +71,7 @@ router.post('/auth', async (req, res) => {
       }
     });
 
-  } catch (error) {
+  } catch (error: any) {
     console.error('[Pi Auth ERROR]', error);
     res.status(500).json({ 
       error: 'authentication_failed',
@@ -80,4 +80,4 @@ router.post('/auth', async (req, res) => {
   }
 });
 
-module.exports = router;
+export default router;

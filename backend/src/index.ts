@@ -15,8 +15,8 @@ import supabase from './services/supabaseClient';
 import { randomBytes } from 'crypto';
 
 // Pi Network routes
-const piAuthRouter = require('./routes/pi/auth');
-const piPaymentsRouter = require('./routes/pi/payments');
+import piAuthRouter from './routes/pi/auth';
+import piPaymentsRouter from './routes/pi/payments';
 
 declare global {
   namespace Express {

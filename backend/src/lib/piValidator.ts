@@ -3,14 +3,30 @@
  * Validates Pi authentication tokens and payment data
  */
 
-const PI_APP_ID = 'hajde-app'; // Your Pi App ID
+interface AuthResult {
+  user: {
+    uid: string;
+    username?: string;
+  };
+  accessToken: string;
+}
+
+interface PaymentData {
+  identifier: string;
+  user_uid: string;
+  amount: number;
+  metadata?: Record<string, any>;
+}
+
+interface ValidationResult {
+  valid: boolean;
+  payload: any;
+}
 
 /**
  * Validate Pi authentication response
- * @param {Object} authResult - Result from Pi.authenticate()
- * @returns {Object} { valid: boolean, payload: Object }
  */
-function validatePiAuth(authResult) {
+export function validatePiAuth(authResult: AuthResult): ValidationResult {
   console.log('[Pi Validator] Validating authentication:', JSON.stringify(authResult, null, 2));
 
   if (!authResult) {
@@ -29,8 +45,6 @@ function validatePiAuth(authResult) {
     throw new Error('Missing access token');
   }
 
-  // In production, you would verify the access token with Pi Platform API
-  // For now, we perform basic validation
   console.log('[Pi Validator] Authentication valid for user:', user.uid);
 
   return {
@@ -45,10 +59,8 @@ function validatePiAuth(authResult) {
 
 /**
  * Validate Pi payment data
- * @param {Object} paymentData - Payment data from Pi SDK
- * @returns {Object} { valid: boolean, payload: Object }
  */
-function validatePiPayment(paymentData) {
+export function validatePiPayment(paymentData: PaymentData): ValidationResult {
   console.log('[Pi Validator] Validating payment:', JSON.stringify(paymentData, null, 2));
 
   if (!paymentData || !paymentData.identifier) {
@@ -78,8 +90,3 @@ function validatePiPayment(paymentData) {
     }
   };
 }
-
-module.exports = {
-  validatePiAuth,
-  validatePiPayment
-};

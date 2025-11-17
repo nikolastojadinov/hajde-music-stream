@@ -3,10 +3,10 @@
  * Handles payment approval and completion webhooks
  */
 
-const express = require('express');
-const { validatePiPayment } = require('../../lib/piValidator');
-const platformAPIClient = require('../../services/platformAPIClient').default;
-const supabase = require('../../services/supabaseClient').default;
+import express, { Request, Response } from 'express';
+import { validatePiPayment } from '../../lib/piValidator';
+import platformAPIClient from '../../services/platformAPIClient';
+import supabase from '../../services/supabaseClient';
 
 const router = express.Router();
 
@@ -14,11 +14,11 @@ const router = express.Router();
  * POST /pi/payments/approve
  * Called when payment is ready for server approval
  */
-router.post('/approve', async (req, res) => {
+router.post('/approve', async (req: Request, res: Response) => {
   console.log('[Pi Payments] Approve request received');
   
   try {
-    const { paymentId, payment } = req.body;
+    const { paymentId } = req.body;
 
     if (!paymentId) {
       return res.status(400).json({ error: 'missing_payment_id' });
@@ -60,7 +60,7 @@ router.post('/approve', async (req, res) => {
       paymentId 
     });
 
-  } catch (error) {
+  } catch (error: any) {
     console.error('[Pi Payments ERROR] Approve failed:', error.message);
     if (error.response) {
       console.error('[Pi Payments ERROR] Response:', error.response.data);
@@ -76,7 +76,7 @@ router.post('/approve', async (req, res) => {
  * POST /pi/payments/complete
  * Called when payment is ready for server completion
  */
-router.post('/complete', async (req, res) => {
+router.post('/complete', async (req: Request, res: Response) => {
   console.log('[Pi Payments] Complete request received');
   
   try {
@@ -114,10 +114,14 @@ router.post('/complete', async (req, res) => {
     const plan = metadata.plan || 'weekly'; // Default to weekly
     const daysToAdd = plan === 'monthly' ? 30 : 7;
 
+    // Calculate new premium_until date
+    const newPremiumUntil = new Date();
+    newPremiumUntil.setDate(newPremiumUntil.getDate() + daysToAdd);
+
     const { data: userData, error: updateError } = await supabase
       .from('users')
       .update({
-        premium_until: supabase.raw(`NOW() + INTERVAL '${daysToAdd} days'`)
+        premium_until: newPremiumUntil.toISOString()
       })
       .eq('wallet', userUid)
       .select()
@@ -138,7 +142,7 @@ router.post('/complete', async (req, res) => {
       premium_until: userData?.premium_until || null
     });
 
-  } catch (error) {
+  } catch (error: any) {
     console.error('[Pi Payments ERROR] Complete failed:', error.message);
     if (error.response) {
       console.error('[Pi Payments ERROR] Response:', error.response.data);
@@ -150,4 +154,4 @@ router.post('/complete', async (req, res) => {
   }
 });
 
-module.exports = router;
+export default router;
