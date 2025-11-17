@@ -22,26 +22,23 @@ interface PiContextValue {
 
 const PiContext = createContext<PiContextValue | undefined>(undefined);
 
+// Initialize Pi SDK IMMEDIATELY (before any hooks run)
+if (typeof window !== 'undefined' && window.Pi && typeof window.Pi.init === 'function') {
+  try {
+    const sandbox = import.meta.env.VITE_PI_SANDBOX === 'true';
+    window.Pi.init({ version: '2.0', sandbox });
+    console.log('[PiContext] Pi SDK initialized early, sandbox:', sandbox);
+  } catch (e) {
+    console.log('[PiContext] Pi SDK early init failed:', e);
+  }
+}
+
 export function PiProvider({ children }: { children: React.ReactNode }) {
   // Use new Pi authentication hook (auto-login on mount)
   const { user, isLoading, error, authenticate } = usePiAuth();
   
   // Use new Pi payments hook
   const { isProcessing: isProcessingPayment, error: paymentError, createPayment: createPiPayment } = usePiPayments();
-
-  // Initialize Pi SDK once
-  useEffect(() => {
-    console.log('[PiContext] Initializing Pi SDK...');
-    try {
-      const sandbox = import.meta.env.VITE_PI_SANDBOX === 'true';
-      if (typeof window !== 'undefined' && window.Pi && typeof window.Pi.init === 'function') {
-        window.Pi.init({ version: '2.0', sandbox });
-        console.log('[PiContext] Pi SDK initialized, sandbox:', sandbox);
-      }
-    } catch (e) {
-      console.log('[PiContext] Pi SDK init failed (not in Pi Browser):', e);
-    }
-  }, []);
 
   const signIn = useCallback(async () => {
     console.log('[PiContext] Manual sign-in requested');

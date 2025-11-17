@@ -86,13 +86,34 @@ export function usePiAuth(): UsePiAuthReturn {
   useEffect(() => {
     console.log('[Pi] Auto-login: Checking Pi SDK...');
 
-    // Wait for Pi SDK to be ready
+    let attempts = 0;
+    const maxAttempts = 50; // 5 seconds max
+
+    // Wait for Pi SDK to be ready AND initialized
     const checkPiSdk = () => {
+      attempts++;
+      
+      if (attempts > maxAttempts) {
+        console.error('[Pi ERROR] Pi SDK not available after 5 seconds');
+        setError('Pi SDK not available');
+        setIsLoading(false);
+        return;
+      }
+
       if (window.Pi) {
+        // SDK exists, but we need to wait a bit for init() to complete
+        // PiContext calls init() around the same time
+        if (attempts < 3) {
+          // Give init() time to execute (300ms)
+          console.log('[Pi] Pi SDK found, waiting for init()...', attempts);
+          setTimeout(checkPiSdk, 100);
+          return;
+        }
+
         console.log('[Pi] Pi SDK ready, starting auto-login...');
         authenticate();
       } else {
-        console.log('[Pi] Pi SDK not ready, retrying in 100ms...');
+        console.log('[Pi] Pi SDK not ready, retrying in 100ms...', attempts);
         setTimeout(checkPiSdk, 100);
       }
     };
