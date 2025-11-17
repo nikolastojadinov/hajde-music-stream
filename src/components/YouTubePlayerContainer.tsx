@@ -46,11 +46,12 @@ export const YouTubePlayerContainer = () => {
     >
       <div 
         id="yt-player" 
+        className={isFullscreen ? 'w-full h-full' : ''}
         style={{ 
-          width: isFullscreen ? '100%' : '200px',
-          height: isFullscreen ? '100%' : '200px',
-          transform: playerTransform,
-          transformOrigin: playerTransform ? 'top left' : undefined
+          width: isFullscreen ? undefined : '200px',
+          height: isFullscreen ? undefined : '200px',
+          transform: isFullscreen ? undefined : playerTransform,
+          transformOrigin: (playerTransform && !isFullscreen) ? 'top left' : undefined
         }} 
       />
     </div>
