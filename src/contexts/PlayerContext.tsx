@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useState, useRef, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
+// Player context for managing YouTube player state
+
 declare global {
   interface Window {
     YT: any;
