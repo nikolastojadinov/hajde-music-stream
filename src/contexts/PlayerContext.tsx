@@ -325,6 +325,32 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, [isPlayerVisible, volume]);
 
+  // Force resize YouTube iframe when switching between mini and fullscreen
+  useEffect(() => {
+    if (!playerRef.current) return;
+
+    const resizeIframe = () => {
+      const iframe = document.querySelector('#yt-player iframe') as HTMLIFrameElement;
+      if (!iframe) return;
+
+      if (isFullscreen) {
+        // Fullscreen mode - iframe should fill the aspect ratio container
+        console.log('🎬 Resizing iframe to fullscreen mode');
+        // The CSS will handle sizing, but we trigger reflow
+        iframe.style.width = '100%';
+        iframe.style.height = '100%';
+      } else {
+        // Mini mode - iframe should be 200x200
+        console.log('🎬 Resizing iframe to mini mode');
+        iframe.style.width = '200px';
+        iframe.style.height = '200px';
+      }
+    };
+
+    // Delay to allow DOM to update
+    setTimeout(resizeIframe, 100);
+  }, [isFullscreen]);
+
   const togglePlay = () => {
     if (!playerRef.current) return;
     
