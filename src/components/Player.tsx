@@ -118,9 +118,9 @@ const Player = () => {
           <X className="w-5 h-5" />
         </button>
 
-        <div className="flex items-center justify-between gap-4 max-w-screen-2xl mx-auto px-4 pt-6 py-[13px]">
+        <div className="flex items-center justify-between gap-2 max-w-screen-2xl mx-auto px-4 pt-3 py-1.5">
           {/* YouTube Player Placeholder - matches wrapper visual size */}
-          <div className="flex items-center gap-4 flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-1 min-w-0">
             {/* Placeholder matches wrapper: 110px on mobile, 200px on desktop */}
             <div className={`${isMobile ? 'w-[110px] h-[110px]' : 'w-[200px] h-[200px]'} flex-shrink-0 bg-secondary/20 rounded-lg`} />
             <div className="min-w-0 flex-1 hidden md:block">
@@ -130,21 +130,21 @@ const Player = () => {
           </div>
 
           {/* Controls - horizontal layout: Previous | Play | Next | Like */}
-          <div className="flex items-center gap-3 flex-1 justify-center">
+          <div className="flex items-center gap-4 flex-1 justify-center">
             <button onClick={skipBackward} className="text-foreground hover:text-primary transition-colors">
-              <SkipBack className="w-5 h-5" />
+              <SkipBack className="w-6 h-6" />
             </button>
             
-            <button onClick={togglePlay} className="w-10 h-10 bg-primary rounded-full flex items-center justify-center text-background hover:scale-105 transition-transform">
-              {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 fill-current ml-0.5" />}
+            <button onClick={togglePlay} className="w-12 h-12 bg-primary rounded-full flex items-center justify-center text-background hover:scale-105 transition-transform">
+              {isPlaying ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6 fill-current ml-0.5" />}
             </button>
             
             <button onClick={skipForward} className="text-foreground hover:text-primary transition-colors">
-              <SkipForward className="w-5 h-5" />
+              <SkipForward className="w-6 h-6" />
             </button>
             
             <button onClick={toggleLike} className={`transition-colors ${isLiked ? 'text-primary' : 'text-muted-foreground hover:text-primary'}`}>
-              <Heart className={`w-5 h-5 ${isLiked ? 'fill-current' : ''}`} />
+              <Heart className={`w-6 h-6 ${isLiked ? 'fill-current' : ''}`} />
             </button>
           </div>
 
