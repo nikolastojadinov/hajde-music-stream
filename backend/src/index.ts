@@ -14,6 +14,10 @@ import mountHealthEndpoints from './handlers/health';
 import supabase from './services/supabaseClient';
 import { randomBytes } from 'crypto';
 
+// Pi Network routes
+const piAuthRouter = require('./routes/pi/auth');
+const piPaymentsRouter = require('./routes/pi/payments');
+
 declare global {
   namespace Express {
     interface Request {
@@ -100,6 +104,10 @@ app.use('/user', userRouter);
 const notificationRouter = express.Router();
 mountNotificationEndpoints(notificationRouter);
 app.use("/notifications", notificationRouter);
+
+// Pi Network routes under /pi:
+app.use('/pi', piAuthRouter);
+app.use('/pi/payments', piPaymentsRouter);
 
 // Health endpoint under /health:
 const healthRouter = express.Router();
