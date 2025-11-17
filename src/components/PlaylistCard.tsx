@@ -8,7 +8,6 @@ interface PlaylistCardProps {
 }
 
 const PlaylistCard = ({ id, title, description, imageUrl }: PlaylistCardProps) => {
-
   return (
     <Link
       to={`/playlist/${id}`}
