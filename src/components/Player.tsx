@@ -176,17 +176,17 @@ const Player = () => {
               <p className="font-semibold text-foreground truncate">{currentVideoTitle || "Purple Dreams"}</p>
               <p className="text-sm text-muted-foreground truncate">{currentVideoArtist || "Electronic Beats"}</p>
             </div>
-            <button 
-              onClick={toggleLike}
-              className={`transition-colors flex-shrink-0 hidden md:block ${isLiked ? 'text-primary' : 'text-muted-foreground hover:text-primary'}`}
-            >
-              <Heart className={`w-5 h-5 ${isLiked ? 'fill-current' : ''}`} />
-            </button>
           </div>
 
-          {/* Controls */}
-          <div className="flex flex-col items-center gap-3 flex-1 justify-center">
-            {/* Prvi red: Play dugme */}
+          {/* Controls - horizontal layout: Previous | Play | Next | Like */}
+          <div className="flex items-center gap-4 flex-1 justify-center">
+            <button 
+              onClick={skipBackward}
+              className="text-foreground hover:text-primary transition-colors"
+            >
+              <SkipBack className="w-6 h-6" />
+            </button>
+            
             <button 
               onClick={togglePlay}
               className="w-12 h-12 bg-primary rounded-full flex items-center justify-center text-background hover:scale-105 transition-transform"
@@ -197,27 +197,17 @@ const Player = () => {
                 <Play className="w-6 h-6 fill-current ml-0.5" />
               )}
             </button>
-
-            {/* Drugi red: Skip backward i Skip forward */}
-            <div className="flex items-center gap-6">
-              <button 
-                onClick={skipBackward}
-                className="text-foreground hover:text-primary transition-colors"
-              >
-                <SkipBack className="w-6 h-6" />
-              </button>
-              <button 
-                onClick={skipForward}
-                className="text-foreground hover:text-primary transition-colors"
-              >
-                <SkipForward className="w-6 h-6" />
-              </button>
-            </div>
-
-            {/* Treći red: Like dugme (mobile only) */}
+            
+            <button 
+              onClick={skipForward}
+              className="text-foreground hover:text-primary transition-colors"
+            >
+              <SkipForward className="w-6 h-6" />
+            </button>
+            
             <button 
               onClick={toggleLike}
-              className={`transition-colors md:hidden ${isLiked ? 'text-primary' : 'text-muted-foreground hover:text-primary'}`}
+              className={`transition-colors ${isLiked ? 'text-primary' : 'text-muted-foreground hover:text-primary'}`}
             >
               <Heart className={`w-6 h-6 ${isLiked ? 'fill-current' : ''}`} />
             </button>
