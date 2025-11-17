@@ -29,10 +29,8 @@ export const YouTubePlayerContainer = () => {
   };
 
   // Mobile scale for iframe (55% visual size while maintaining 200x200 CSS pixels)
-  const mobileScale = isMobile && !isFullscreen ? 0.55 : 1;
-  const playerTransform = mobileScale !== 1 
-    ? `scale(${mobileScale})` 
-    : undefined;
+  // Only apply transform to mini-player, not fullscreen
+  const playerTransform = (isMobile && !isFullscreen) ? `scale(0.55)` : undefined;
 
   return (
     <div
