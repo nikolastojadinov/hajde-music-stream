@@ -1,7 +1,9 @@
 import { usePlayer } from "@/contexts/PlayerContext";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 export const YouTubePlayerContainer = () => {
   const { isFullscreen, isPlayerVisible } = usePlayer();
+  const isMobile = useIsMobile();
 
   if (!isPlayerVisible) return null;
 
@@ -24,6 +26,12 @@ export const YouTubePlayerContainer = () => {
     maxHeight: 'calc(100vh - 240px)',
   };
 
+  // Mobile scale for mini player (55-60% visual size while maintaining 200x200 CSS pixels)
+  const mobileScale = isMobile && !isFullscreen ? 0.55 : 1;
+  const playerTransform = mobileScale !== 1 
+    ? `scale(${mobileScale})` 
+    : undefined;
+
   return (
     <div
       id="yt-player-wrapper"
@@ -33,7 +41,15 @@ export const YouTubePlayerContainer = () => {
         ...(isFullscreen ? fullscreenStyles : miniPlayerStyles),
       }}
     >
-      <div id="yt-player" style={{ width: '100%', height: '100%' }} />
+      <div 
+        id="yt-player" 
+        style={{ 
+          width: '100%', 
+          height: '100%',
+          transform: playerTransform,
+          transformOrigin: 'top center'
+        }} 
+      />
     </div>
   );
 };
