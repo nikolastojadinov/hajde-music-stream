@@ -297,6 +297,11 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
                   setCurrentVideoArtist(nextTrack.artist);
                   setCurrentYoutubeId(nextTrack.youtube_id);
                   playerRef.current.loadVideoById(nextTrack.youtube_id);
+                  setTimeout(() => {
+                    if (playerRef.current && playerRef.current.playVideo) {
+                      playerRef.current.playVideo();
+                    }
+                  }, 100);
                   setIsLiked(false);
                 }
               }
@@ -339,6 +344,11 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setCurrentVideoArtist(nextTrack.artist);
     setCurrentYoutubeId(nextTrack.youtube_id);
     playerRef.current.loadVideoById(nextTrack.youtube_id);
+    setTimeout(() => {
+      if (playerRef.current && playerRef.current.playVideo) {
+        playerRef.current.playVideo();
+      }
+    }, 100);
     setIsLiked(false);
   };
 
@@ -353,6 +363,11 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setCurrentVideoArtist(prevTrack.artist);
     setCurrentYoutubeId(prevTrack.youtube_id);
     playerRef.current.loadVideoById(prevTrack.youtube_id);
+    setTimeout(() => {
+      if (playerRef.current && playerRef.current.playVideo) {
+        playerRef.current.playVideo();
+      }
+    }, 100);
     setIsLiked(false);
   };
 
@@ -390,6 +405,11 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     
     if (playerRef.current && playerReady && playerRef.current.loadVideoById) {
       playerRef.current.loadVideoById(youtubeId);
+      setTimeout(() => {
+        if (playerRef.current && playerRef.current.playVideo) {
+          playerRef.current.playVideo();
+        }
+      }, 100);
       setIsPlaying(true);
     } else {
       pendingVideoRef.current = { id: youtubeId, title, artist };
