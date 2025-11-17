@@ -126,7 +126,6 @@ export type Database = {
           image_url: string | null
           playlist_id: string | null
           title: string
-          youtube_id: string
         }
         Insert: {
           artist: string
@@ -138,7 +137,6 @@ export type Database = {
           image_url?: string | null
           playlist_id?: string | null
           title: string
-          youtube_id: string
         }
         Update: {
           artist?: string
@@ -150,7 +148,6 @@ export type Database = {
           image_url?: string | null
           playlist_id?: string | null
           title?: string
-          youtube_id?: string
         }
         Relationships: [
           {

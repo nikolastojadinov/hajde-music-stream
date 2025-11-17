@@ -101,7 +101,7 @@ const Search = () => {
                       {songs.map((track: SearchTrack) => (
                         <div
                           key={track.id}
-                          onClick={() => playTrack(track.youtube_id, track.title, track.artist)}
+                          onClick={() => playTrack(track.external_id, track.title, track.artist)}
                           className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 active:bg-white/10 transition-colors cursor-pointer"
                         >
                           <div className="w-16 h-16 rounded-md bg-card flex-shrink-0 overflow-hidden">
@@ -137,7 +137,7 @@ const Search = () => {
                       {songs.map((track: SearchTrack) => (
                         <div 
                           key={track.id}
-                          onClick={() => playTrack(track.youtube_id, track.title, track.artist)}
+                          onClick={() => playTrack(track.external_id, track.title, track.artist)}
                           className="cursor-pointer group"
                         >
                           <div className="aspect-square bg-card rounded-lg mb-3 overflow-hidden transition-transform group-hover:scale-105">
@@ -273,7 +273,7 @@ const Search = () => {
                             {group.tracks.map((track: SearchTrack) => (
                               <div
                                 key={track.id}
-                                onClick={() => playTrack(track.youtube_id, track.title, track.artist)}
+                                onClick={() => playTrack(track.external_id, track.title, track.artist)}
                                 className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 active:bg-white/10 transition-colors cursor-pointer"
                               >
                                 <div className="w-12 h-12 rounded-md bg-card flex-shrink-0 overflow-hidden">
@@ -306,7 +306,7 @@ const Search = () => {
                             {group.tracks.map((track: SearchTrack) => (
                               <div 
                                 key={track.id}
-                                onClick={() => playTrack(track.youtube_id, track.title, track.artist)}
+                                onClick={() => playTrack(track.external_id, track.title, track.artist)}
                                 className="cursor-pointer group"
                               >
                                 <div className="aspect-square bg-card rounded-lg mb-3 overflow-hidden transition-transform group-hover:scale-105">

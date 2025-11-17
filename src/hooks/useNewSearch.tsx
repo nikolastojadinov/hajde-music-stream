@@ -6,7 +6,7 @@ export interface SearchTrack {
   id: string;
   title: string;
   artist: string;
-  youtube_id: string;
+  external_id: string;
   image_url: string | null;
   cover_url: string | null;
 }
@@ -50,7 +50,7 @@ export function useNewSearch(searchTerm: string) {
         // Query 1: Tracks sa title ili artist ILIKE match
         externalSupabase
           .from('tracks')
-          .select('id, title, artist, youtube_id, image_url, cover_url')
+          .select('id, title, artist, external_id, image_url, cover_url')
           .or(`title.ilike.${pattern},artist.ilike.${pattern}`)
           .order('title', { ascending: true }),
 
@@ -78,7 +78,7 @@ export function useNewSearch(searchTerm: string) {
         id: track.id,
         title: track.title,
         artist: track.artist,
-        youtube_id: track.youtube_id,
+        external_id: track.external_id,
         image_url: track.image_url,
         cover_url: track.cover_url,
       }));

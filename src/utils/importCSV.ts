@@ -65,7 +65,7 @@ export function parseCSV(csvContent: string) {
     
     const track = {
       id: values[0],
-      youtube_id: values[1] || null,
+      external_id: values[1] || null,
       title: values[2] || 'Unknown',
       artist: values[3] || 'Unknown',
       cover_url: values[4] || null,

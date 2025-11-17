@@ -27,7 +27,7 @@ const Playlist = () => {
   const handlePlayPlaylist = () => {
     if (playlist && playlist.tracks.length > 0) {
       const trackData = playlist.tracks.map(t => ({
-        youtube_id: t.youtube_id,
+        external_id: t.external_id,
         title: t.title,
         artist: t.artist
       }));
@@ -39,7 +39,7 @@ const Playlist = () => {
   const handlePlayTrack = (track: any, index: number) => {
     if (playlist) {
       const trackData = playlist.tracks.map(t => ({
-        youtube_id: t.youtube_id,
+        external_id: t.external_id,
         title: t.title,
         artist: t.artist
       }));

@@ -5,7 +5,7 @@ export interface Track {
   id: string;
   title: string;
   artist: string;
-  youtube_id: string;
+  external_id: string;
   duration: number | null;
   image_url: string | null;
   playlist_id: string | null;
@@ -82,7 +82,7 @@ export const useExternalPlaylist = (playlistId: string) => {
               id: pt.tracks.id,
               title: pt.tracks.title,
               artist: pt.tracks.artist,
-              youtube_id: pt.tracks.external_id,
+              external_id: pt.tracks.external_id,
               duration: pt.tracks.duration,
               image_url: pt.tracks.cover_url,
               playlist_id: playlistId,
@@ -113,7 +113,7 @@ export const useExternalPlaylist = (playlistId: string) => {
             id: t.id,
             title: t.title,
             artist: t.artist,
-            youtube_id: t.external_id,
+            external_id: t.external_id,
             duration: t.duration,
             image_url: t.cover_url,
             playlist_id: playlistId,
@@ -139,7 +139,7 @@ export const useExternalPlaylist = (playlistId: string) => {
             id: t.id,
             title: t.title,
             artist: t.artist,
-            youtube_id: t.external_id,
+            external_id: t.external_id,
             duration: t.duration,
             image_url: t.cover_url,
             playlist_id: playlistId,

@@ -31,7 +31,7 @@ type PlayerContextType = {
   setIsPlayerVisible: (visible: boolean) => void;
   playerReady: boolean;
   playTrack: (youtubeId: string, title: string, artist: string) => void;
-  playPlaylist: (tracks: Array<{ youtube_id: string; title: string; artist: string }>, startIndex?: number) => void;
+  playPlaylist: (tracks: Array<{ external_id: string; title: string; artist: string }>, startIndex?: number) => void;
 };
 
 const playlist = [
@@ -61,8 +61,8 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [isPlayerVisible, setIsPlayerVisible] = useState(false);
   const initAttempted = useRef(false);
   const pendingVideoRef = useRef<{ id: string; title: string; artist: string } | null>(null);
-  const [currentPlaylist, setCurrentPlaylist] = useState<Array<{ youtube_id: string; title: string; artist: string }>>([]);
-  const currentPlaylistRef = useRef<Array<{ youtube_id: string; title: string; artist: string }>>([]);
+  const [currentPlaylist, setCurrentPlaylist] = useState<Array<{ external_id: string; title: string; artist: string }>>([]);
+  const currentPlaylistRef = useRef<Array<{ external_id: string; title: string; artist: string }>>([]);
   const currentIndexRef = useRef(0);
   const savedSeekTimeRef = useRef<number | null>(null);
 
@@ -297,8 +297,8 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
                   setCurrentIndex(nextIndex);
                   setCurrentVideoTitle(nextTrack.title);
                   setCurrentVideoArtist(nextTrack.artist);
-                  setCurrentYoutubeId(nextTrack.youtube_id);
-                  playerRef.current.loadVideoById(nextTrack.youtube_id);
+                  setCurrentYoutubeId(nextTrack.external_id);
+                  playerRef.current.loadVideoById(nextTrack.external_id);
                   setTimeout(() => {
                     if (playerRef.current && playerRef.current.playVideo) {
                       playerRef.current.playVideo();
@@ -370,8 +370,8 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setCurrentIndex(nextIndex);
     setCurrentVideoTitle(nextTrack.title);
     setCurrentVideoArtist(nextTrack.artist);
-    setCurrentYoutubeId(nextTrack.youtube_id);
-    playerRef.current.loadVideoById(nextTrack.youtube_id);
+    setCurrentYoutubeId(nextTrack.external_id);
+    playerRef.current.loadVideoById(nextTrack.external_id);
     setTimeout(() => {
       if (playerRef.current && playerRef.current.playVideo) {
         playerRef.current.playVideo();
@@ -389,8 +389,8 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setCurrentIndex(prevIndex);
     setCurrentVideoTitle(prevTrack.title);
     setCurrentVideoArtist(prevTrack.artist);
-    setCurrentYoutubeId(prevTrack.youtube_id);
-    playerRef.current.loadVideoById(prevTrack.youtube_id);
+    setCurrentYoutubeId(prevTrack.external_id);
+    playerRef.current.loadVideoById(prevTrack.external_id);
     setTimeout(() => {
       if (playerRef.current && playerRef.current.playVideo) {
         playerRef.current.playVideo();
@@ -446,7 +446,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setIsPlayerVisible(true);
   };
 
-  const playPlaylist = (tracks: Array<{ youtube_id: string; title: string; artist: string }>, startIndex = 0) => {
+  const playPlaylist = (tracks: Array<{ external_id: string; title: string; artist: string }>, startIndex = 0) => {
     if (tracks.length === 0) return;
     
     currentPlaylistRef.current = tracks;
@@ -456,7 +456,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setCurrentIndex(startIndex);
     
     const track = tracks[startIndex];
-    playTrack(track.youtube_id, track.title, track.artist);
+    playTrack(track.external_id, track.title, track.artist);
   };
 
   return (
