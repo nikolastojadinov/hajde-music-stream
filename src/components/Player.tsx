@@ -53,11 +53,15 @@ const Player = () => {
           </button>
         </div>
 
-        {/* Content */}
-        <div className="flex-1 flex flex-col items-center justify-center p-4">
-          {/* YouTube Player je renderovan u YouTubePlayerContainer komponenti */}
-          {/* Ovde samo ostavljamo prostor za njega */}
-          <div style={{ height: '120px' }} /> {/* Spacer za pozicioniranje playera */}
+        {/* Content - stacked vertically, not centered */}
+        <div className="flex-1 flex flex-col items-center overflow-y-auto p-4 pt-8">
+          {/* YouTube Player space - YouTubePlayerContainer renders here as fixed element */}
+          {/* Reserve space for the video player at top */}
+          <div className="w-full max-w-4xl mb-8" style={{ 
+            aspectRatio: '16/9',
+            minHeight: '300px',
+            maxHeight: '70vh'
+          }} />
           
           <div className="w-full max-w-md text-center mb-6">
             <h2 className="text-2xl font-bold mb-1 text-foreground">{currentVideoTitle}</h2>

@@ -51,23 +51,27 @@ export const YouTubePlayerContainer = () => {
       className="fixed transition-all duration-300 ease-in-out"
       style={{
         zIndex: 55,
-        top: '120px',
+        top: '80px', // Below header (64px header + 16px padding)
         left: '50%',
         transform: 'translateX(-50%)',
         width: 'min(896px, 90vw)',
-        height: 'auto',
+        maxWidth: '100%',
       }}
     >
-      {/* Aspect ratio container for 16:9 */}
+      {/* Aspect ratio container for 16:9 - fullscreen dedicated wrapper */}
       <div 
-        className="fullscreen-youtube-container"
+        className="fullscreen-yt-wrapper"
         style={{ 
           position: 'relative',
           width: '100%',
-          paddingBottom: '56.25%', // 16:9 aspect ratio
+          aspectRatio: '16 / 9',
+          maxHeight: '60vh',
           backgroundColor: '#000',
           borderRadius: '0.5rem',
           overflow: 'hidden',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
         }}
       >
         <div 

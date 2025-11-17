@@ -85,9 +85,24 @@ All colors MUST be HSL.
     display: block;
   }
 
-  #yt-player-wrapper-fullscreen .fullscreen-youtube-container {
+  /* New dedicated fullscreen wrapper */
+  .fullscreen-yt-wrapper {
     position: relative;
     width: 100%;
+    max-width: 100%;
+    aspect-ratio: 16 / 9;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+
+  .fullscreen-yt-wrapper iframe {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    border: none !important;
   }
 
   #yt-player-wrapper-fullscreen .fullscreen-youtube-player {
@@ -100,7 +115,7 @@ All colors MUST be HSL.
 
   /* Force iframe inside fullscreen container to fill entire space */
   #yt-player-wrapper-fullscreen iframe,
-  #yt-player-wrapper-fullscreen .fullscreen-youtube-container iframe,
+  #yt-player-wrapper-fullscreen .fullscreen-yt-wrapper iframe,
   #yt-player-wrapper-fullscreen .fullscreen-youtube-player iframe {
     position: absolute !important;
     top: 0 !important;
@@ -118,6 +133,13 @@ All colors MUST be HSL.
   /* Additional selector for YouTube's specific iframe structure */
   #yt-player-wrapper-fullscreen #yt-player iframe {
     position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    border: none !important;
+  }
+}
     top: 0 !important;
     left: 0 !important;
     width: 100% !important;
