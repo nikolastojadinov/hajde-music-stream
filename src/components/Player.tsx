@@ -1,8 +1,10 @@
 import { Play, Pause, SkipBack, SkipForward, Volume2, Repeat, Shuffle, Heart, X, ChevronUp, ChevronDown } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { usePlayer } from "@/contexts/PlayerContext";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 const Player = () => {
+  const isMobile = useIsMobile();
   const {
     isPlaying,
     volume,
@@ -166,10 +168,10 @@ const Player = () => {
         </button>
 
         <div className="flex items-center justify-between gap-4 max-w-screen-2xl mx-auto px-4 py-3 pt-8">
-          {/* YouTube Player Placeholder - fixed minimal size */}
+          {/* YouTube Player Placeholder - responsive to scaled iframe */}
           <div className="flex items-center gap-4 flex-1 min-w-0">
-            {/* Fixed 200x200 - YouTube minimum requirement */}
-            <div className="w-[200px] h-[200px] flex-shrink-0 bg-secondary/20 rounded-lg" />
+            {/* Placeholder matches scaled iframe size: 110px on mobile, 200px on desktop */}
+            <div className={`${isMobile ? 'w-[110px] h-[110px]' : 'w-[200px] h-[200px]'} flex-shrink-0 bg-secondary/20 rounded-lg`} />
             <div className="min-w-0 flex-1 hidden md:block">
               <p className="font-semibold text-foreground truncate">{currentVideoTitle || "Purple Dreams"}</p>
               <p className="text-sm text-muted-foreground truncate">{currentVideoArtist || "Electronic Beats"}</p>
