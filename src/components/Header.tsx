@@ -4,9 +4,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Link } from "react-router-dom";
 import appLogo from "@/assets/app-logo.png";
 import { useLanguage, languages } from "@/contexts/LanguageContext";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import PremiumDialog from "./PremiumDialog";
 import { usePi } from "@/contexts/PiContext";
+import { useToast } from "@/hooks/use-toast";
 const Header = () => {
   const {
     t,
@@ -16,6 +17,20 @@ const Header = () => {
   const [languageDialogOpen, setLanguageDialogOpen] = useState(false);
   const [premiumDialogOpen, setPremiumDialogOpen] = useState(false);
   const { user, signIn, signOut } = usePi();
+  const { toast } = useToast();
+  const [hasShownWelcome, setHasShownWelcome] = useState(false);
+
+  // Show welcome toast when user logs in
+  useEffect(() => {
+    if (user && !hasShownWelcome) {
+      toast({
+        title: `Welcome ${user.username}!`,
+        description: user.premium ? `Premium member until ${new Date(user.premium_until!).toLocaleDateString()}` : "Enjoy browsing music!",
+        duration: 5000,
+      });
+      setHasShownWelcome(true);
+    }
+  }, [user, hasShownWelcome, toast]);
   return <header className="fixed top-0 left-0 right-0 h-16 bg-background/80 backdrop-blur-md border-b border-border/50 z-50">
       <div className="h-full px-4 md:px-6 flex items-center justify-between">
         {/* Logo */}
@@ -34,25 +49,43 @@ const Header = () => {
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56 bg-card border-border">
-            <DropdownMenuItem className="cursor-pointer py-3">
-              <User className="w-4 h-4 mr-3" />
-              <span>{t("profile")}</span>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem 
-              onClick={() => setPremiumDialogOpen(true)}
-              className="cursor-pointer py-3 bg-gradient-to-r from-amber-500/10 to-yellow-600/10 hover:from-amber-500/20 hover:to-yellow-600/20 border border-amber-500/20"
-            >
-              <Crown className="w-4 h-4 mr-3 text-amber-500" />
-              <span className="bg-gradient-to-b from-amber-500 via-amber-600 to-yellow-700 bg-clip-text text-transparent font-semibold">Go Premium</span>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            {user ? (
-              <DropdownMenuItem className="cursor-pointer py-3">
-                <User className="w-4 h-4 mr-3" />
-                <span>@{user.username}</span>
+            {user && (
+              <>
+                <DropdownMenuItem className="cursor-pointer py-3">
+                  <User className="w-4 h-4 mr-3" />
+                  <span className="font-semibold">{user.username}</span>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+              </>
+            )}
+            {!user && (
+              <>
+                <DropdownMenuItem className="cursor-pointer py-3">
+                  <User className="w-4 h-4 mr-3" />
+                  <span>{t("profile")}</span>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+              </>
+            )}
+            {user?.premium ? (
+              <DropdownMenuItem className="cursor-pointer py-3 bg-gradient-to-r from-green-500/10 to-emerald-600/10 border border-green-500/20">
+                <Crown className="w-4 h-4 mr-3 text-green-500" />
+                <div className="flex flex-col">
+                  <span className="text-green-600 font-semibold text-sm">Premium Member</span>
+                  <span className="text-xs text-muted-foreground">Until {new Date(user.premium_until!).toLocaleDateString()}</span>
+                </div>
               </DropdownMenuItem>
             ) : (
+              <DropdownMenuItem 
+                onClick={() => setPremiumDialogOpen(true)}
+                className="cursor-pointer py-3 bg-gradient-to-r from-amber-500/10 to-yellow-600/10 hover:from-amber-500/20 hover:to-yellow-600/20 border border-amber-500/20"
+              >
+                <Crown className="w-4 h-4 mr-3 text-amber-500" />
+                <span className="bg-gradient-to-b from-amber-500 via-amber-600 to-yellow-700 bg-clip-text text-transparent font-semibold">Go Premium</span>
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuSeparator />
+            {!user && (
               <DropdownMenuItem onClick={() => signIn()} className="cursor-pointer py-3">
                 <User className="w-4 h-4 mr-3" />
                 <span>Sign in with Pi</span>
