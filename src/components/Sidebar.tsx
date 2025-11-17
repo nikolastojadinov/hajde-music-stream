@@ -38,7 +38,7 @@ const Sidebar = () => {
             className={cn(
               "flex items-center gap-4 px-3 py-3 rounded-lg transition-all duration-200",
               isActive(item.path)
-                ? "bg-secondary text-primary font-semibold"
+                ? "bg-secondary text-foreground font-semibold"
                 : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
             )}
           >
