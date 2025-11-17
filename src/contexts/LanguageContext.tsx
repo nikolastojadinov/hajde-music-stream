@@ -98,6 +98,11 @@ const getTranslations = (lang: string): Record<string, string> => {
       // Footer
       "create": "Napravi",
       
+      // Pi Authentication
+      "welcome_user": "Dobrodošli, {username}! 👋",
+      "premium_access_message": "Imate Premium pristup - uživajte u muzici bez ograničenja!",
+      "logged_in_message": "Prijavljeni ste. Uživajte u muzici!",
+      
       // Home page
       "welcome_back": "Dobrodošli nazad",
       "discover_music": "Otkrijte svoju omiljenu muziku",
@@ -164,6 +169,15 @@ const getTranslations = (lang: string): Record<string, string> => {
       "create_playlist": "Create Playlist",
       "favorites": "Favorite Songs",
       "playlists": "Playlists",
+      
+      // Footer
+      "create": "Create",
+      
+      // Pi Authentication
+      "welcome_user": "Welcome, {username}! 👋",
+      "premium_access_message": "You have Premium access - enjoy music without limits!",
+      "logged_in_message": "You are signed in. Enjoy the music!",
+      "playlists": "Playlists",
       "create": "Create",
       "welcome_back": "Welcome back",
       "discover_music": "Discover your favorite music",
@@ -217,8 +231,17 @@ const getTranslations = (lang: string): Record<string, string> => {
       "home": "Inicio",
       "search": "Buscar",
       "library": "Biblioteca",
-      "create_playlist": "Crear lista",
+      "create_playlist": "Crear lista de reproducción",
       "favorites": "Canciones favoritas",
+      "playlists": "Listas de reproducción",
+      
+      // Footer
+      "create": "Crear",
+      
+      // Pi Authentication
+      "welcome_user": "¡Bienvenido, {username}! 👋",
+      "premium_access_message": "¡Tienes acceso Premium - disfruta de música sin límites!",
+      "logged_in_message": "Has iniciado sesión. ¡Disfruta de la música!",
       "playlists": "Listas",
       "create": "Crear",
       "welcome_back": "Bienvenido de nuevo",

@@ -2,6 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import { usePiAuth } from '@/lib/pi/usePiAuth';
 import { usePiPayments } from '@/lib/pi/usePiPayments';
 import { toast } from '@/hooks/use-toast';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 export type PiUser = {
   uid: string;
@@ -40,6 +41,9 @@ export function PiProvider({ children }: { children: React.ReactNode }) {
   
   // Use new Pi payments hook
   const { isProcessing: isProcessingPayment, error: paymentError, createPayment: createPiPayment } = usePiPayments();
+  
+  // Use language context for translations
+  const { t } = useLanguage();
 
   // Track if we've shown welcome message to avoid showing it multiple times
   const hasShownWelcome = useRef(false);
@@ -49,17 +53,21 @@ export function PiProvider({ children }: { children: React.ReactNode }) {
     if (user && !hasShownWelcome.current) {
       hasShownWelcome.current = true;
       
+      // Format welcome message with username
+      const welcomeTitle = t('welcome_user').replace('{username}', user.username);
+      const welcomeDescription = user.premium 
+        ? t('premium_access_message')
+        : t('logged_in_message');
+      
       toast({
-        title: `Dobrodošli, ${user.username}! 👋`,
-        description: user.premium 
-          ? 'Imate Premium pristup - uživajte u muzici bez ograničenja!' 
-          : 'Prijavljeni ste. Uživajte u muzici!',
+        title: welcomeTitle,
+        description: welcomeDescription,
         duration: 5000,
       });
       
       console.log('[PiContext] Welcome toast shown for user:', user.username);
     }
-  }, [user]);
+  }, [user, t]);
 
   const signIn = useCallback(async () => {
     console.log('[PiContext] Manual sign-in requested');
