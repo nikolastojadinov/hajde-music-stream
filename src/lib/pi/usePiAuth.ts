@@ -18,6 +18,7 @@ interface UsePiAuthReturn {
   isLoading: boolean;
   error: string | null;
   authenticate: () => Promise<void>;
+  refreshUser: () => Promise<void>;
 }
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
@@ -172,10 +173,29 @@ export function usePiAuth(): UsePiAuthReturn {
     checkPiSdk();
   }, [authenticate]);
 
+  // Add refreshUser function to re-fetch user data from backend
+  const refreshUser = useCallback(async () => {
+    console.log('[Pi] Refreshing user data...');
+    
+    try {
+      if (!user?.uid) {
+        console.log('[Pi] No user to refresh');
+        return;
+      }
+
+      // Re-authenticate to get fresh user data
+      await authenticate();
+      
+    } catch (err) {
+      console.error('[Pi] Failed to refresh user:', err);
+    }
+  }, [user?.uid, authenticate]);
+
   return {
     user,
     isLoading,
     error,
     authenticate,
+    refreshUser,
   };
 }

@@ -36,7 +36,7 @@ if (typeof window !== 'undefined' && window.Pi && typeof window.Pi.init === 'fun
 
 export function PiProvider({ children }: { children: React.ReactNode }) {
   // Use new Pi authentication hook (auto-login on mount)
-  const { user, isLoading, error, authenticate } = usePiAuth();
+  const { user, isLoading, error, authenticate, refreshUser } = usePiAuth();
   
   // Use new Pi payments hook
   const { isProcessing: isProcessingPayment, error: paymentError, createPayment: createPiPayment } = usePiPayments();
@@ -88,7 +88,12 @@ export function PiProvider({ children }: { children: React.ReactNode }) {
         memo,
       }
     });
-  }, [user, createPiPayment]);
+
+    // Refresh user data after successful payment to get updated premium_until
+    console.log('[PiContext] Payment completed, refreshing user data...');
+    await refreshUser();
+    
+  }, [user, createPiPayment, refreshUser]);
 
   const value = useMemo(() => ({
     user,
