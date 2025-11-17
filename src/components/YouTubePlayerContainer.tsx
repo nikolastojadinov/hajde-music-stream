@@ -34,10 +34,6 @@ export const YouTubePlayerContainer = () => {
     ? `scale(${mobileScale})` 
     : undefined;
 
-  // Fullscreen player dimensions
-  const playerWidth = isFullscreen ? '896px' : '200px';
-  const playerHeight = isFullscreen ? '504px' : '200px'; // 896 * 9/16 = 504
-
   return (
     <div
       id="yt-player-wrapper"
@@ -51,11 +47,8 @@ export const YouTubePlayerContainer = () => {
       <div 
         id="yt-player" 
         style={{ 
-          width: playerWidth,
-          height: playerHeight,
-          maxWidth: '100%',
-          maxHeight: '100%',
-          margin: '0 auto',
+          width: isFullscreen ? '100%' : '200px',
+          height: isFullscreen ? '100%' : '200px',
           transform: playerTransform,
           transformOrigin: playerTransform ? 'top left' : undefined
         }} 
