@@ -1,7 +1,11 @@
 -- Create users table for Pi Network authentication
 -- This table stores user data from Pi Browser authentication
 
-CREATE TABLE IF NOT EXISTS public.users (
+-- Drop tables if they exist (to start fresh)
+DROP TABLE IF EXISTS public.sessions CASCADE;
+DROP TABLE IF EXISTS public.users CASCADE;
+
+CREATE TABLE public.users (
   wallet TEXT PRIMARY KEY,              -- Pi Network user UID (wallet address)
   username TEXT NOT NULL,               -- Pi username
   user_consent BOOLEAN DEFAULT false,   -- User consent for data usage
@@ -11,7 +15,7 @@ CREATE TABLE IF NOT EXISTS public.users (
 );
 
 -- Create sessions table for user sessions
-CREATE TABLE IF NOT EXISTS public.sessions (
+CREATE TABLE public.sessions (
   sid TEXT PRIMARY KEY,                 -- Session ID
   user_uid TEXT REFERENCES public.users(wallet) ON DELETE CASCADE,
   created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
