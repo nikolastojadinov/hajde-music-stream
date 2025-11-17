@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { externalSupabase } from "@/lib/externalSupabase";
 
 export interface Playlist {
   id: string;
@@ -14,7 +14,7 @@ export const usePlaylists = (category?: string) => {
   return useQuery({
     queryKey: ["playlists", category],
     queryFn: async () => {
-      let query = supabase
+      let query = externalSupabase
         .from("playlists")
         .select("*")
         .order("created_at", { ascending: false });

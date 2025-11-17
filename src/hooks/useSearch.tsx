@@ -1,7 +1,7 @@
 // Simplified live search hook: returns { tracks, playlists }
 // Meets directive: no relevance scoring, no pattern escaping, limited Supabase queries.
 import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
+import { externalSupabase } from '@/lib/externalSupabase';
 
 export interface Track {
   id: string;
@@ -44,11 +44,11 @@ export function useSearch(searchTerm: string) {
       // Fetch ALL tracks and playlists from entire Supabase database - NO LIMIT
       // Use .or() to search across multiple fields in a single query
       const [tracksRes, playlistsRes] = await Promise.all([
-        supabase
+        externalSupabase
           .from('tracks')
           .select('*')
           .or(`title.ilike.${pattern},artist.ilike.${pattern}`),
-        supabase
+        externalSupabase
           .from('playlists')
           .select('*')
           .or(`title.ilike.${pattern},description.ilike.${pattern}`),
