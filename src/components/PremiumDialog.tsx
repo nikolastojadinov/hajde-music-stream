@@ -74,7 +74,7 @@ const PremiumDialog = ({ open, onOpenChange }: PremiumDialogProps) => {
             {/* Crown Icon */}
             <div className="relative pt-4">
               <div className="absolute inset-0 bg-gradient-to-b from-amber-500 via-amber-600 to-yellow-700 blur-2xl opacity-50" />
-              <Crown className="w-16 h-16 md:w-20 md:h-20 relative z-10 text-amber-500" fill="currentColor" />
+              <Crown className="w-16 h-16 md:w-20 md:h-20 relative z-10 text-foreground" fill="currentColor" />
             </div>
 
             {/* Title */}

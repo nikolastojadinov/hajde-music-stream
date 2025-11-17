@@ -59,7 +59,7 @@ const Home = () => {
 
         {/* Hero Section */}
         <div className="mb-6 md:mb-8">
-          <h1 className="text-3xl md:text-4xl font-bold mb-2 bg-gradient-to-r from-primary via-primary/80 to-primary/60 bg-clip-text text-transparent animate-fade-in">
+          <h1 className="text-3xl md:text-4xl font-bold mb-2 text-foreground animate-fade-in">
             {t("welcome_back")}
           </h1>
           <p className="text-muted-foreground animate-fade-in">

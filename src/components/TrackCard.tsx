@@ -36,7 +36,7 @@ const TrackCard = ({ id, title, artist, imageUrl, youtubeId, duration }: TrackCa
           <div className="w-full h-full bg-gradient-to-br from-primary/20 to-primary/5" />
         )}
         <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-          <Play className="w-6 h-6 text-white fill-current" />
+          <Play className="w-6 h-6 text-foreground fill-current" />
         </div>
       </div>
       <div className="flex-1 min-w-0">

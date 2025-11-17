@@ -39,10 +39,10 @@ const FeaturedForYou = () => {
   if (error) {
     return (
       <div className="space-y-4">
-        <h2 className="text-2xl font-bold text-white px-4 md:px-8">
+        <h2 className="text-2xl font-bold text-foreground px-4 md:px-8">
           featured for you
         </h2>
-        <div className="px-4 md:px-8 text-red-500">
+        <div className="px-4 md:px-8 text-foreground">
           Error loading playlists: {error.message}
         </div>
       </div>
@@ -51,7 +51,7 @@ const FeaturedForYou = () => {
 
   return (
     <div className="space-y-4">
-      <h2 className="text-2xl font-bold text-white px-4 md:px-8">
+      <h2 className="text-2xl font-bold text-foreground px-4 md:px-8">
         featured for you
       </h2>
       
@@ -83,7 +83,7 @@ const FeaturedForYou = () => {
               ))
             ) : (
               // No playlists found
-              <div className="text-white/60 py-8">
+              <div className="text-foreground/60 py-8">
                 No featured playlists found. Please check if the playlists exist in the database.
               </div>
             )}

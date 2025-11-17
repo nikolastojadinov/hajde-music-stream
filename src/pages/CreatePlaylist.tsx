@@ -35,7 +35,7 @@ const CreatePlaylist = () => {
           {t("back")}
         </button>
 
-        <h1 className="text-4xl font-bold mb-8 bg-gradient-to-r from-primary via-primary/80 to-primary/60 bg-clip-text text-transparent">
+        <h1 className="text-4xl font-bold mb-8 text-foreground">
           {t("create_new_playlist")}
         </h1>
 
@@ -87,7 +87,7 @@ const CreatePlaylist = () => {
           <div className="flex gap-4 pt-8">
             <Button
               onClick={handleCreate}
-              className="bg-primary text-background hover:bg-primary/90 font-semibold px-8"
+              className="bg-primary text-foreground hover:bg-primary/90 font-semibold px-8"
             >
               {t("create_playlist_btn")}
             </Button>
