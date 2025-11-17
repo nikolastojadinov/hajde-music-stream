@@ -6,21 +6,21 @@ import { useNavigate } from "react-router-dom";
 import { usePlayer } from "@/contexts/PlayerContext";
 import { externalSupabase } from "@/lib/externalSupabase";
 
-// Types
+// Types - matching Supabase schema exactly
 interface Track {
   id: string;
   external_id: string;
   title: string;
   artist: string;
   cover_url: string | null;
+  duration: number | null;
 }
 
 interface Playlist {
   id: string;
-  external_id: string;
   title: string;
   cover_url: string | null;
-  item_count: number;
+  description: string | null;
 }
 
 interface ArtistGroup {
@@ -31,7 +31,7 @@ interface ArtistGroup {
 interface SearchResults {
   tracks: Track[];
   playlists: Playlist[];
-  artists: ArtistGroup[];
+  artistGroups: ArtistGroup[];
 }
 
 const Search = () => {
@@ -44,11 +44,11 @@ const Search = () => {
   const [results, setResults] = useState<SearchResults>({
     tracks: [],
     playlists: [],
-    artists: [],
+    artistGroups: [],
   });
   const [isLoading, setIsLoading] = useState(false);
 
-  // Debounce search input
+  // Debounce 300ms
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearch(searchTerm.trim());
@@ -56,95 +56,106 @@ const Search = () => {
     return () => clearTimeout(timer);
   }, [searchTerm]);
 
-  // Perform search when debounced term changes
+  // Perform search
   useEffect(() => {
     if (!debouncedSearch) {
-      setResults({ tracks: [], playlists: [], artists: [] });
+      setResults({ tracks: [], playlists: [], artistGroups: [] });
       return;
     }
 
-    const fetchResults = async () => {
+    const performSearch = async () => {
       setIsLoading(true);
       try {
-        const pattern = `%${debouncedSearch}%`;
+        const searchPattern = `%${debouncedSearch}%`;
 
-        // Run all queries in parallel
-        const [tracksRes, playlistsRes, artistTracksRes] = await Promise.all([
+        // Parallel queries with Promise.all
+        const [tracksResponse, playlistsResponse, artistTracksResponse] = await Promise.all([
           // Query 1: Tracks matching title or artist
           externalSupabase
             .from('tracks')
-            .select('id, external_id, title, artist, cover_url')
-            .or(`title.ilike.${pattern},artist.ilike.${pattern}`)
+            .select('id, external_id, title, artist, cover_url, duration')
+            .or(`title.ilike.${searchPattern},artist.ilike.${searchPattern}`)
             .limit(20),
 
-          // Query 2: Playlists matching title or description
+          // Query 2: Playlists matching title
           externalSupabase
             .from('playlists')
-            .select('id, external_id, title, cover_url')
-            .ilike('title', pattern)
+            .select('id, title, cover_url, description')
+            .ilike('title', searchPattern)
             .limit(20),
 
-          // Query 3: Tracks for artist-based grouping
+          // Query 3: Tracks for artist grouping
           externalSupabase
             .from('tracks')
-            .select('id, external_id, title, artist, cover_url')
-            .ilike('artist', pattern)
+            .select('id, external_id, title, artist, cover_url, duration')
+            .ilike('artist', searchPattern)
             .limit(20),
         ]);
 
         // Process tracks
-        const tracks: Track[] = (tracksRes.data || []).filter(
-          (track) => track.title.toLowerCase().includes(debouncedSearch.toLowerCase())
-        );
+        const tracks: Track[] = tracksResponse.data || [];
 
-        // Process playlists - count tracks for each playlist
+        // Process playlists - fetch track counts
         const playlistsWithCounts = await Promise.all(
-          (playlistsRes.data || []).map(async (playlist) => {
+          (playlistsResponse.data || []).map(async (playlist) => {
             const { count } = await externalSupabase
               .from('playlist_tracks')
               .select('*', { count: 'exact', head: true })
               .eq('playlist_id', playlist.id);
-
-            return {
-              ...playlist,
-              item_count: count || 0,
-            };
+            
+            return { playlist, count: count || 0 };
           })
         );
 
-        const playlists: Playlist[] = playlistsWithCounts.filter(
-          (playlist) => playlist.item_count > 0
-        );
+        // Filter playlists with item_count > 0
+        const playlists: Playlist[] = playlistsWithCounts
+          .filter(({ count }) => count > 0)
+          .map(({ playlist }) => playlist);
 
         // Process artist grouping
         const artistMap = new Map<string, Track[]>();
-        (artistTracksRes.data || []).forEach((track) => {
-          if (track.artist.toLowerCase().includes(debouncedSearch.toLowerCase())) {
-            const existing = artistMap.get(track.artist) || [];
-            artistMap.set(track.artist, [...existing, track]);
-          }
+        (artistTracksResponse.data || []).forEach((track: Track) => {
+          const existing = artistMap.get(track.artist) || [];
+          artistMap.set(track.artist, [...existing, track]);
         });
 
-        const artists: ArtistGroup[] = Array.from(artistMap.entries())
+        const artistGroups: ArtistGroup[] = Array.from(artistMap.entries())
           .map(([artist, tracks]) => ({
             artist,
             tracks: tracks.sort((a, b) => a.title.localeCompare(b.title)),
           }))
           .sort((a, b) => a.artist.localeCompare(b.artist));
 
-        setResults({ tracks, playlists, artists });
+        setResults({ tracks, playlists, artistGroups });
       } catch (error) {
         console.error('Search error:', error);
-        setResults({ tracks: [], playlists: [], artists: [] });
+        setResults({ tracks: [], playlists: [], artistGroups: [] });
       } finally {
         setIsLoading(false);
       }
     };
 
-    fetchResults();
+    performSearch();
   }, [debouncedSearch]);
 
-  const hasResults = results.tracks.length > 0 || results.playlists.length > 0 || results.artists.length > 0;
+  // IDENTICAL to TrackCard playback - uses playTrack from PlayerContext
+  const handleTrackClick = (track: Track) => {
+    playTrack(track.external_id, track.title, track.artist);
+  };
+
+  // IDENTICAL to PlaylistCard navigation
+  const handlePlaylistClick = (playlistId: string) => {
+    navigate(`/playlist/${playlistId}`);
+  };
+
+  const formatDuration = (seconds: number | null) => {
+    if (!seconds) return "";
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
+  };
+
+  const hasResults = results.tracks.length > 0 || results.playlists.length > 0 || results.artistGroups.length > 0;
   const showEmptyState = debouncedSearch.length > 0 && !isLoading && !hasResults;
 
   const browseCategories = [
@@ -220,7 +231,7 @@ const Search = () => {
                       {results.tracks.map((track) => (
                         <div
                           key={track.id}
-                          onClick={() => playTrack(track.external_id, track.title, track.artist)}
+                          onClick={() => handleTrackClick(track)}
                           className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 active:bg-white/10 transition-colors cursor-pointer"
                         >
                           <div className="w-16 h-16 rounded-md bg-card flex-shrink-0 overflow-hidden">
@@ -245,6 +256,11 @@ const Search = () => {
                             </h3>
                             <p className="text-xs text-muted-foreground">{track.artist}</p>
                           </div>
+                          {track.duration && (
+                            <div className="text-xs text-muted-foreground flex-shrink-0">
+                              {formatDuration(track.duration)}
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -254,7 +270,7 @@ const Search = () => {
                       {results.tracks.map((track) => (
                         <div
                           key={track.id}
-                          onClick={() => playTrack(track.external_id, track.title, track.artist)}
+                          onClick={() => handleTrackClick(track)}
                           className="cursor-pointer group"
                         >
                           <div className="aspect-square bg-card rounded-lg mb-3 overflow-hidden transition-transform group-hover:scale-105">
@@ -300,7 +316,7 @@ const Search = () => {
                       {results.playlists.map((playlist) => (
                         <div
                           key={playlist.id}
-                          onClick={() => navigate(`/playlist/${playlist.id}`)}
+                          onClick={() => handlePlaylistClick(playlist.id)}
                           className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 active:bg-white/10 transition-colors cursor-pointer"
                         >
                           <div className="w-16 h-16 rounded-md bg-card flex-shrink-0 overflow-hidden">
@@ -323,9 +339,11 @@ const Search = () => {
                             <h3 className="font-medium text-sm line-clamp-1 mb-1 text-foreground">
                               {playlist.title}
                             </h3>
-                            <p className="text-xs text-muted-foreground">
-                              {playlist.item_count} pesama
-                            </p>
+                            {playlist.description && (
+                              <p className="text-xs text-muted-foreground line-clamp-1">
+                                {playlist.description}
+                              </p>
+                            )}
                           </div>
                         </div>
                       ))}
@@ -336,7 +354,7 @@ const Search = () => {
                       {results.playlists.map((playlist) => (
                         <div
                           key={playlist.id}
-                          onClick={() => navigate(`/playlist/${playlist.id}`)}
+                          onClick={() => handlePlaylistClick(playlist.id)}
                           className="cursor-pointer group"
                         >
                           <div className="aspect-square bg-card rounded-lg mb-3 overflow-hidden transition-transform group-hover:scale-105">
@@ -358,9 +376,11 @@ const Search = () => {
                           <h3 className="font-medium line-clamp-2 text-sm mb-1 text-foreground">
                             {playlist.title}
                           </h3>
-                          <p className="text-xs text-muted-foreground">
-                            {playlist.item_count} pesama
-                          </p>
+                          {playlist.description && (
+                            <p className="text-xs text-muted-foreground line-clamp-2">
+                              {playlist.description}
+                            </p>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -368,17 +388,17 @@ const Search = () => {
                 )}
 
                 {/* ARTISTS Section */}
-                {results.artists.length > 0 && (
+                {results.artistGroups.length > 0 && (
                   <section>
                     <div className="flex items-center gap-2 mb-4">
                       <User className="w-6 h-6 text-primary" />
                       <h2 className="text-2xl font-bold text-foreground">
-                        Izvođači ({results.artists.length})
+                        Izvođači ({results.artistGroups.length})
                       </h2>
                     </div>
 
                     <div className="space-y-6">
-                      {results.artists.map((group) => (
+                      {results.artistGroups.map((group) => (
                         <div key={group.artist} className="space-y-3">
                           {/* Artist name - NOT CLICKABLE */}
                           <h3 className="text-lg font-semibold text-muted-foreground px-2">
@@ -390,7 +410,7 @@ const Search = () => {
                             {group.tracks.map((track) => (
                               <div
                                 key={track.id}
-                                onClick={() => playTrack(track.external_id, track.title, track.artist)}
+                                onClick={() => handleTrackClick(track)}
                                 className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 active:bg-white/10 transition-colors cursor-pointer"
                               >
                                 <div className="w-12 h-12 rounded-md bg-card flex-shrink-0 overflow-hidden">
@@ -414,6 +434,11 @@ const Search = () => {
                                     {track.title}
                                   </h4>
                                 </div>
+                                {track.duration && (
+                                  <div className="text-xs text-muted-foreground flex-shrink-0">
+                                    {formatDuration(track.duration)}
+                                  </div>
+                                )}
                               </div>
                             ))}
                           </div>
@@ -423,7 +448,7 @@ const Search = () => {
                             {group.tracks.map((track) => (
                               <div
                                 key={track.id}
-                                onClick={() => playTrack(track.external_id, track.title, track.artist)}
+                                onClick={() => handleTrackClick(track)}
                                 className="cursor-pointer group"
                               >
                                 <div className="aspect-square bg-card rounded-lg mb-3 overflow-hidden transition-transform group-hover:scale-105">
