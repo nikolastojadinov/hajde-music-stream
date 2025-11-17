@@ -47,10 +47,10 @@ export const YouTubePlayerContainer = () => {
       <div 
         id="yt-player" 
         style={{ 
-          width: '200px',
-          height: '200px',
+          width: isFullscreen ? '100%' : '200px',
+          height: isFullscreen ? '100%' : '200px',
           transform: playerTransform,
-          transformOrigin: 'top left'
+          transformOrigin: playerTransform ? 'top left' : undefined
         }} 
       />
     </div>
