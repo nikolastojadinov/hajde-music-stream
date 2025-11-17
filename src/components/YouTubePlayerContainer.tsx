@@ -48,27 +48,26 @@ export const YouTubePlayerContainer = () => {
   return (
     <div
       id="yt-player-wrapper-fullscreen"
-      className="fixed transition-all duration-300 ease-in-out"
+      className="fullscreen-player fixed transition-all duration-300 ease-in-out"
       style={{
         zIndex: 55,
-        top: '80px', // Below header (64px header + 16px padding)
+        top: '80px',
         left: '50%',
         transform: 'translateX(-50%)',
         width: 'min(896px, 90vw)',
         maxWidth: '100%',
       }}
     >
-      {/* Aspect ratio container for 16:9 - fullscreen dedicated wrapper */}
+      {/* Fullscreen dedicated wrapper - ensures iframe visibility */}
       <div 
-        className="fullscreen-yt-wrapper"
+        className="youtube-wrapper fullscreen-yt-wrapper"
         style={{ 
           position: 'relative',
           width: '100%',
-          aspectRatio: '16 / 9',
-          maxHeight: '60vh',
+          minHeight: '220px',
           backgroundColor: '#000',
           borderRadius: '0.5rem',
-          overflow: 'hidden',
+          overflow: 'visible',
           display: 'flex',
           justifyContent: 'center',
           alignItems: 'center',
@@ -78,11 +77,9 @@ export const YouTubePlayerContainer = () => {
           id="yt-player" 
           className="fullscreen-youtube-player"
           style={{ 
-            position: 'absolute',
-            top: 0,
-            left: 0,
             width: '100%',
             height: '100%',
+            minHeight: '220px',
           }} 
         />
       </div>
