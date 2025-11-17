@@ -427,19 +427,31 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   const playTrack = (youtubeId: string, title: string, artist: string) => {
+    console.log('🎵 playTrack called:', { youtubeId, title, artist, playerReady });
+    
     setCurrentVideoTitle(title);
     setCurrentVideoArtist(artist);
     setCurrentYoutubeId(youtubeId);
     
+    // Reset playlist to single track
+    const singleTrackPlaylist = [{ external_id: youtubeId, title, artist }];
+    currentPlaylistRef.current = singleTrackPlaylist;
+    setCurrentPlaylist(singleTrackPlaylist);
+    currentIndexRef.current = 0;
+    setCurrentIndex(0);
+    
     if (playerRef.current && playerReady && playerRef.current.loadVideoById) {
+      console.log('✅ Player ready - loading video:', youtubeId);
       playerRef.current.loadVideoById(youtubeId);
       setTimeout(() => {
         if (playerRef.current && playerRef.current.playVideo) {
+          console.log('▶️ Starting playback');
           playerRef.current.playVideo();
         }
       }, 100);
       setIsPlaying(true);
     } else {
+      console.log('⏳ Player not ready - queuing video');
       pendingVideoRef.current = { id: youtubeId, title, artist };
     }
     
