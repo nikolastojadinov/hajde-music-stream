@@ -32,17 +32,17 @@ const Library = () => {
 
         <Tabs defaultValue="playlists" className="w-full animate-slide-up">
           <TabsList className="bg-secondary mb-8 w-full sm:w-auto">
-            <TabsTrigger value="playlists" className="gap-1 sm:gap-2 flex-1 sm:flex-initial">
+            <TabsTrigger value="playlists" className="gap-1 sm:gap-2 w-32 sm:w-40">
               <Music className="w-3 h-3 sm:w-4 sm:h-4 flex-shrink-0" />
-              <span className="truncate">{t("playlists")}</span>
+              <span className="text-xs sm:text-sm leading-tight text-center">{t("library_playlists")}</span>
             </TabsTrigger>
-            <TabsTrigger value="albums" className="gap-1 sm:gap-2 flex-1 sm:flex-initial">
+            <TabsTrigger value="albums" className="gap-1 sm:gap-2 w-32 sm:w-40">
               <Disc className="w-3 h-3 sm:w-4 sm:h-4 flex-shrink-0" />
-              <span className="truncate">{t("albums")}</span>
+              <span className="text-xs sm:text-sm leading-tight text-center">{t("albums")}</span>
             </TabsTrigger>
-            <TabsTrigger value="artists" className="gap-1 sm:gap-2 flex-1 sm:flex-initial">
+            <TabsTrigger value="artists" className="gap-1 sm:gap-2 w-32 sm:w-40">
               <User className="w-3 h-3 sm:w-4 sm:h-4 flex-shrink-0" />
-              <span className="truncate">{t("artists")}</span>
+              <span className="text-xs sm:text-sm leading-tight text-center">{t("artists")}</span>
             </TabsTrigger>
           </TabsList>
 
