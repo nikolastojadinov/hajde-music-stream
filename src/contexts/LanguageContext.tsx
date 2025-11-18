@@ -138,7 +138,7 @@ const getTranslations = (lang: string): Record<string, string> => {
       // Library
       "your_library": "Vaša biblioteka",
       "library_playlists": "My Playlists",
-      "albums": "Sviđene plejliste",
+      "albums": "Liked Playlists",
       "artists": "Sviđene pesme",
       
       // Search
@@ -232,7 +232,7 @@ const getTranslations = (lang: string): Record<string, string> => {
       "by_genre": "By genre",
       "your_library": "Your library",
       "library_playlists": "My Playlists",
-      "albums": "Albums",
+      "albums": "Liked Playlists",
       "artists": "Artists",
       "search_genre": "Browse by genre",
       "popular": "Popular",
@@ -318,7 +318,7 @@ const getTranslations = (lang: string): Record<string, string> => {
       "by_genre": "Por género",
       "your_library": "Tu biblioteca",
       "library_playlists": "My Playlists",
-      "albums": "Álbumes",
+      "albums": "Liked Playlists",
       "artists": "Artistas",
       "search_genre": "Navegar por género",
       "popular": "Popular",
@@ -400,7 +400,7 @@ const getTranslations = (lang: string): Record<string, string> => {
       "by_genre": "Par genre",
       "your_library": "Votre bibliothèque",
       "library_playlists": "My Playlists",
-      "albums": "Albums",
+      "albums": "Liked Playlists",
       "artists": "Artistes",
       "search_genre": "Parcourir par genre",
       "popular": "Populaire",
@@ -482,7 +482,7 @@ const getTranslations = (lang: string): Record<string, string> => {
       "by_genre": "Nach Genre",
       "your_library": "Deine Bibliothek",
       "library_playlists": "My Playlists",
-      "albums": "Alben",
+      "albums": "Liked Playlists",
       "artists": "Künstler",
       "search_genre": "Nach Genre durchsuchen",
       "popular": "Beliebt",
@@ -564,7 +564,7 @@ const getTranslations = (lang: string): Record<string, string> => {
       "by_genre": "Per genere",
       "your_library": "La tua libreria",
       "library_playlists": "My Playlists",
-      "albums": "Album",
+      "albums": "Liked Playlists",
       "artists": "Artisti",
       "search_genre": "Sfoglia per genere",
       "popular": "Popolare",
@@ -646,7 +646,7 @@ const getTranslations = (lang: string): Record<string, string> => {
       "by_genre": "Por gênero",
       "your_library": "Sua biblioteca",
       "library_playlists": "My Playlists",
-      "albums": "Álbuns",
+      "albums": "Liked Playlists",
       "artists": "Artistas",
       "search_genre": "Navegar por gênero",
       "popular": "Popular",
@@ -728,7 +728,7 @@ const getTranslations = (lang: string): Record<string, string> => {
       "by_genre": "По жанру",
       "your_library": "Ваша библиотека",
       "library_playlists": "My Playlists",
-      "albums": "Альбомы",
+      "albums": "Liked Playlists",
       "artists": "Исполнители",
       "search_genre": "Обзор по жанрам",
       "popular": "Популярное",
@@ -809,7 +809,7 @@ const getTranslations = (lang: string): Record<string, string> => {
       "by_genre": "Türe göre",
       "your_library": "Kütüphaneniz",
       "library_playlists": "My Playlists",
-      "albums": "Albümler",
+      "albums": "Liked Playlists",
       "artists": "Sanatçılar",
     },
     hi: {
@@ -860,7 +860,7 @@ const getTranslations = (lang: string): Record<string, string> => {
       "by_genre": "शैली के अनुसार",
       "your_library": "आपकी लाइब्रेरी",
       "library_playlists": "My Playlists",
-      "albums": "एल्बम",
+      "albums": "Liked Playlists",
       "artists": "कलाकार",
     },
     ko: {
@@ -911,7 +911,7 @@ const getTranslations = (lang: string): Record<string, string> => {
       "by_genre": "장르별",
       "your_library": "내 라이브러리",
       "library_playlists": "My Playlists",
-      "albums": "앨범",
+      "albums": "Liked Playlists",
       "artists": "아티스트",
     },
     vi: {
@@ -962,7 +962,7 @@ const getTranslations = (lang: string): Record<string, string> => {
       "by_genre": "Theo thể loại",
       "your_library": "Thư viện của bạn",
       "library_playlists": "My Playlists",
-      "albums": "Album",
+      "albums": "Liked Playlists",
       "artists": "Nghệ sĩ",
     },
     th: {
@@ -1013,7 +1013,7 @@ const getTranslations = (lang: string): Record<string, string> => {
       "by_genre": "ตามประเภท",
       "your_library": "คลังของคุณ",
       "library_playlists": "My Playlists",
-      "albums": "อัลบั้ม",
+      "albums": "Liked Playlists",
       "artists": "ศิลปิน",
     },
     id: {
@@ -1064,7 +1064,7 @@ const getTranslations = (lang: string): Record<string, string> => {
       "by_genre": "Berdasarkan genre",
       "your_library": "Pustaka Anda",
       "library_playlists": "My Playlists",
-      "albums": "Album",
+      "albums": "Liked Playlists",
       "artists": "Artis",
     },
     bn: {
@@ -1115,7 +1115,7 @@ const getTranslations = (lang: string): Record<string, string> => {
       "by_genre": "ধরন অনুযায়ী",
       "your_library": "আপনার লাইব্রেরি",
       "library_playlists": "My Playlists",
-      "albums": "অ্যালবাম",
+      "albums": "Liked Playlists",
       "artists": "শিল্পী",
     },
     pl: {
@@ -1141,7 +1141,7 @@ const getTranslations = (lang: string): Record<string, string> => {
       "by_genre": "Według gatunku",
       "your_library": "Twoja biblioteka",
       "library_playlists": "My Playlists",
-      "albums": "Albumy",
+      "albums": "Liked Playlists",
       "artists": "Artyści",
     },
     nl: {
@@ -1192,7 +1192,7 @@ const getTranslations = (lang: string): Record<string, string> => {
       "by_genre": "Op genre",
       "your_library": "Jouw bibliotheek",
       "library_playlists": "My Playlists",
-      "albums": "Albums",
+      "albums": "Liked Playlists",
       "artists": "Artiesten",
     },
     cs: {
@@ -1243,7 +1243,7 @@ const getTranslations = (lang: string): Record<string, string> => {
       "by_genre": "Podle žánru",
       "your_library": "Vaše knihovna",
       "library_playlists": "My Playlists",
-      "albums": "Alba",
+      "albums": "Liked Playlists",
       "artists": "Umělci",
     },
     hu: {
@@ -1269,7 +1269,7 @@ const getTranslations = (lang: string): Record<string, string> => {
       "by_genre": "Műfaj szerint",
       "your_library": "Az Ön könyvtára",
       "library_playlists": "My Playlists",
-      "albums": "Albumok",
+      "albums": "Liked Playlists",
       "artists": "Előadók",
     },
     el: {
@@ -1295,7 +1295,7 @@ const getTranslations = (lang: string): Record<string, string> => {
       "by_genre": "Κατά είδος",
       "your_library": "Η βιβλιοθήκη σας",
       "library_playlists": "My Playlists",
-      "albums": "Άλμπουμ",
+      "albums": "Liked Playlists",
       "artists": "Καλλιτέχνες",
     },
     ur: {
@@ -1346,7 +1346,7 @@ const getTranslations = (lang: string): Record<string, string> => {
       "by_genre": "صنف کے مطابق",
       "your_library": "آپ کی لائبریری",
       "library_playlists": "My Playlists",
-      "albums": "البمز",
+      "albums": "Liked Playlists",
       "artists": "فنکار",
     },
     ms: {
@@ -1397,7 +1397,7 @@ const getTranslations = (lang: string): Record<string, string> => {
       "by_genre": "Mengikut genre",
       "your_library": "Perpustakaan anda",
       "library_playlists": "My Playlists",
-      "albums": "Album",
+      "albums": "Liked Playlists",
       "artists": "Artis",
     },
     fil: {
@@ -1448,7 +1448,7 @@ const getTranslations = (lang: string): Record<string, string> => {
       "by_genre": "Ayon sa genre",
       "your_library": "Ang iyong library",
       "library_playlists": "My Playlists",
-      "albums": "Mga album",
+      "albums": "Liked Playlists",
       "artists": "Mga artista",
     },
     am: {
@@ -1499,7 +1499,7 @@ const getTranslations = (lang: string): Record<string, string> => {
       "by_genre": "በዘውግ",
       "your_library": "የእርስዎ ቤተ-መጽሐፍት",
       "library_playlists": "My Playlists",
-      "albums": "አልበሞች",
+      "albums": "Liked Playlists",
       "artists": "አርቲስቶች",
     },
     "en-ng": {
@@ -1550,7 +1550,7 @@ const getTranslations = (lang: string): Record<string, string> => {
       "by_genre": "By genre",
       "your_library": "Your library",
       "library_playlists": "My Playlists",
-      "albums": "Albums",
+      "albums": "Liked Playlists",
       "artists": "Artists",
     },
   };
