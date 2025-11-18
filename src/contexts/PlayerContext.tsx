@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useRef, useEffect } from "react";
-import { usePi } from "@/contexts/PiContext";
+import { supabase } from "@/integrations/supabase/client";
 
 // Player context for managing YouTube player state
 
@@ -46,7 +46,6 @@ const PlayerContext = createContext<PlayerContextType | undefined>(undefined);
 
 export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const playerRef = useRef<any>(null);
-  const { user } = usePi();
   const [userId, setUserId] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [volume, setVolumeState] = useState(70);
@@ -89,65 +88,85 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     currentIndexRef.current = currentIndex;
   }, [currentIndex]);
 
-  // Učitaj user ID iz PiContext-a i inicijalizuj player state
+  // Učitaj user ID i inicijalizuj player state
   useEffect(() => {
-    if (user?.uid) {
-      setUserId(user.uid);
-      cleanupOldKeys();
-
-      // Učitaj volume za ovog korisnika
-      const savedVolume = localStorage.getItem(getVolumeKey(user.uid));
-      if (savedVolume) {
-        setVolumeState(Number(savedVolume));
-      }
-
-      // Učitaj player state za ovog korisnika
-      const savedState = localStorage.getItem(getStateKey(user.uid));
-      if (savedState) {
-        try {
-          const { youtubeId, title, artist, time, playlist, index, isFullscreen: savedFullscreen } = JSON.parse(savedState);
-          if (youtubeId && time >= 0) {
-            savedSeekTimeRef.current = time;
-            pendingVideoRef.current = { id: youtubeId, title: title || "", artist: artist || "" };
-            setCurrentVideoTitle(title || "");
-            setCurrentVideoArtist(artist || "");
-            setCurrentYoutubeId(youtubeId);
-
-            if (playlist && Array.isArray(playlist)) {
-              currentPlaylistRef.current = playlist;
-              setCurrentPlaylist(playlist);
-              setCurrentIndex(index || 0);
-              currentIndexRef.current = index || 0;
-            }
-
-            if (savedFullscreen !== undefined) {
-              setIsFullscreen(savedFullscreen);
-            }
-
-            setIsPlayerVisible(true);
-            console.log('🔄 Restored player state for user:', user.uid, { youtubeId, time, title, isFullscreen: savedFullscreen });
-          }
-        } catch (e) {
-          console.error('Failed to restore player state:', e);
+    const initAuth = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (user?.id) {
+        setUserId(user.id);
+        cleanupOldKeys();
+        
+        // Učitaj volume za ovog korisnika
+        const savedVolume = localStorage.getItem(getVolumeKey(user.id));
+        if (savedVolume) {
+          setVolumeState(Number(savedVolume));
         }
+        
+        // Učitaj player state za ovog korisnika
+        const savedState = localStorage.getItem(getStateKey(user.id));
+        if (savedState) {
+          try {
+            const { youtubeId, title, artist, time, playlist, index, isFullscreen: savedFullscreen } = JSON.parse(savedState);
+            if (youtubeId && time >= 0) {
+              savedSeekTimeRef.current = time;
+              pendingVideoRef.current = { id: youtubeId, title: title || "", artist: artist || "" };
+              setCurrentVideoTitle(title || "");
+              setCurrentVideoArtist(artist || "");
+              setCurrentYoutubeId(youtubeId);
+              
+              if (playlist && Array.isArray(playlist)) {
+                currentPlaylistRef.current = playlist;
+                setCurrentPlaylist(playlist);
+                setCurrentIndex(index || 0);
+                currentIndexRef.current = index || 0;
+              }
+              
+              if (savedFullscreen !== undefined) {
+                setIsFullscreen(savedFullscreen);
+              }
+              
+              setIsPlayerVisible(true);
+              console.log('🔄 Restored player state for user:', user.id, { youtubeId, time, title, isFullscreen: savedFullscreen });
+            }
+          } catch (e) {
+            console.error('Failed to restore player state:', e);
+          }
+        }
+      } else {
+        console.log('⚠️ No user logged in - player state will not be persisted');
       }
-    } else {
-      setUserId(null);
-      console.log('⚠️ No user logged in - player state will not be persisted');
-      // Reset on sign out
-      setIsPlayerVisible(false);
-      setCurrentYoutubeId("");
-      setCurrentVideoTitle("");
-      setCurrentVideoArtist("");
-      setCurrentTime(0);
-      setDuration(0);
-      if (playerRef.current && playerRef.current.destroy) {
-        try { playerRef.current.destroy(); } catch {}
+    };
+
+    initAuth();
+
+    // Slušaj promene auth stanja
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_IN' && session?.user?.id) {
+        setUserId(session.user.id);
+        cleanupOldKeys();
+      } else if (event === 'SIGNED_OUT') {
+        setUserId(null);
+        // Resetuj player state kada se user izloguje
+        setIsPlayerVisible(false);
+        setCurrentYoutubeId("");
+        setCurrentVideoTitle("");
+        setCurrentVideoArtist("");
+        setCurrentTime(0);
+        setDuration(0);
+        
+        // Cleanup player
+        if (playerRef.current && playerRef.current.destroy) {
+          console.log('🧹 Destroying player on sign out');
+          playerRef.current.destroy();
+        }
+        playerRef.current = null;
+        setPlayerReady(false);
       }
-      playerRef.current = null;
-      setPlayerReady(false);
-    }
-  }, [user?.uid]);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
 
   useEffect(() => {
     if (initAttempted.current) return;

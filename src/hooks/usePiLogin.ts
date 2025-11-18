@@ -1,14 +1,37 @@
-// Thin compatibility wrapper that proxies to the global PiContext
-// This keeps existing components working while centralizing auth state.
-import { usePi } from '@/contexts/PiContext';
+import { useCallback, useState } from 'react';
+
+type AuthResult = {
+  accessToken: string;
+  user: {
+    uid: string;
+    username: string;
+    roles: string[];
+  };
+};
+
 
 export function usePiLogin() {
-  const { user, isLoading, error, signIn } = usePi();
+  const [user, setUser] = useState<AuthResult['user'] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  return {
-    login: signIn,
-    loading: isLoading,
-    error,
-    user: user ? { uid: user.uid, username: user.username, roles: [] as string[] } : null,
-  };
+  const login = useCallback(async () => {
+    setLoading(true); setError(null);
+    try {
+      const scopes = ['username', 'payments', 'roles', 'in_app_notifications'];
+      const authResult: AuthResult = await window.Pi.authenticate(scopes, () => {});
+  const backendUrl = (import.meta as any).env.VITE_BACKEND_URL as string | undefined;
+      if (!backendUrl) throw new Error('Missing VITE_BACKEND_URL');
+      const res = await fetch(`${backendUrl.replace(/\/$/, '')}/user/signin`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ authResult })
+      });
+      if (!res.ok) throw new Error('Signin failed');
+      const data = await res.json();
+      setUser(data.user ?? authResult.user);
+    } catch (e: any) {
+      setError(e?.message || 'Unknown error');
+    } finally { setLoading(false); }
+  }, []);
+
+  return { login, loading, error, user };
 }
