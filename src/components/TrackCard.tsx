@@ -1,5 +1,6 @@
-import { Play } from "lucide-react";
+import { Play, Heart } from "lucide-react";
 import { usePlayer } from "@/contexts/PlayerContext";
+import { useLikes } from "@/hooks/useLikes";
 
 interface TrackCardProps {
   id: string;
@@ -12,9 +13,16 @@ interface TrackCardProps {
 
 const TrackCard = ({ id, title, artist, imageUrl, youtubeId, duration }: TrackCardProps) => {
   const { playTrack } = usePlayer();
+  const { isTrackLiked, toggleTrackLike } = useLikes();
+  const isLiked = isTrackLiked(id);
 
   const handlePlayClick = () => {
     playTrack(youtubeId, title, artist);
+  };
+
+  const handleLikeClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    toggleTrackLike(id);
   };
 
   const formatDuration = (seconds: number | null | undefined) => {
@@ -43,6 +51,22 @@ const TrackCard = ({ id, title, artist, imageUrl, youtubeId, duration }: TrackCa
         <h3 className="font-semibold text-foreground truncate">{title}</h3>
         <p className="text-sm text-muted-foreground truncate">{artist}</p>
       </div>
+      
+      {/* Like button */}
+      <button
+        onClick={handleLikeClick}
+        className="p-2 hover:scale-110 transition-transform flex-shrink-0"
+        aria-label={isLiked ? "Unlike song" : "Like song"}
+      >
+        <Heart 
+          className={`w-5 h-5 transition-all ${
+            isLiked 
+              ? "fill-primary text-primary" 
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        />
+      </button>
+      
       {duration && (
         <div className="text-sm text-muted-foreground flex-shrink-0">
           {formatDuration(duration)}

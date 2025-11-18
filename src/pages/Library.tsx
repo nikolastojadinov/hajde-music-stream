@@ -1,92 +1,165 @@
-import { Music, Heart, User } from "lucide-react";
+import { Music, Heart, ListMusic } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import PlaylistCard from "@/components/PlaylistCard";
+import TrackCard from "@/components/TrackCard";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useLikes } from "@/hooks/useLikes";
+import { usePiLogin } from "@/hooks/usePiLogin";
+import { externalSupabase } from "@/lib/externalSupabase";
+import { useState, useEffect } from "react";
+
+interface UserPlaylist {
+  id: string;
+  title: string;
+  description: string | null;
+  cover_url: string | null;
+  image_url: string | null;
+}
 
 const Library = () => {
   const { t } = useLanguage();
-  
-  const playlists = [
-    { id: "1", title: "Moja Plejlista #1", description: "50 pesama" },
-    { id: "2", title: "Chill Vibes", description: "32 pesme" },
-    { id: "3", title: "Workout Mix", description: "45 pesama" },
-    { id: "4", title: "Party Hits", description: "67 pesama" },
-  ];
+  const { user } = usePiLogin();
+  const { likedPlaylists, likedTracks, loading: likesLoading } = useLikes();
+  const [myPlaylists, setMyPlaylists] = useState<UserPlaylist[]>([]);
+  const [loading, setLoading] = useState(false);
 
-  const albums = [
-    { id: "1", title: "Album 1", description: "Izvođač 1 • 2023" },
-    { id: "2", title: "Album 2", description: "Izvođač 2 • 2023" },
-    { id: "3", title: "Album 3", description: "Izvođač 3 • 2024" },
-  ];
+  // Load user's own playlists
+  useEffect(() => {
+    const loadMyPlaylists = async () => {
+      if (!user?.uid) {
+        setMyPlaylists([]);
+        return;
+      }
 
-  const artists = [
-    { id: "1", title: "Izvođač 1", description: "1.2M pratilaca" },
-    { id: "2", title: "Izvođač 2", description: "856K pratilaca" },
-    { id: "3", title: "Izvođač 3", description: "2.1M pratilaca" },
-  ];
+      try {
+        setLoading(true);
+        const { data, error } = await externalSupabase
+          .from("playlists")
+          .select("id, title, description, cover_url, image_url")
+          .eq("owner_id", user.uid)
+          .order("created_at", { ascending: false });
+
+        if (error) {
+          console.error("❌ Error loading my playlists:", error);
+          return;
+        }
+
+        setMyPlaylists(data || []);
+        console.log("✅ Loaded my playlists:", data?.length || 0);
+      } catch (error) {
+        console.error("❌ Exception loading my playlists:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadMyPlaylists();
+  }, [user?.uid]);
+
+  const isLoading = loading || likesLoading;
 
   return (
     <div className="flex-1 overflow-y-auto pb-32">
       <div className="p-8">
         <h1 className="text-4xl font-bold mb-8 animate-fade-in">{t("your_library")}</h1>
 
-        <Tabs defaultValue="playlists" className="w-full animate-slide-up">
+        <Tabs defaultValue="my-playlists" className="w-full animate-slide-up">
           <TabsList className="bg-secondary mb-8 w-full sm:w-auto">
-            <TabsTrigger value="playlists" className="gap-1 sm:gap-2 w-32 sm:w-40">
+            <TabsTrigger value="my-playlists" className="gap-1 sm:gap-2 w-32 sm:w-40">
               <Music className="w-3 h-3 sm:w-4 sm:h-4 flex-shrink-0" />
-              <span className="text-xs sm:text-sm leading-tight text-center">{t("library_playlists")}</span>
+              <span className="text-xs sm:text-sm leading-tight text-center">{t("my_playlists")}</span>
             </TabsTrigger>
-            <TabsTrigger value="albums" className="gap-1 sm:gap-2 w-32 sm:w-40">
+            <TabsTrigger value="liked-playlists" className="gap-1 sm:gap-2 w-32 sm:w-40">
               <Heart className="w-3 h-3 sm:w-4 sm:h-4 flex-shrink-0" />
-              <span className="text-xs sm:text-sm leading-tight text-center">{t("albums")}</span>
+              <span className="text-xs sm:text-sm leading-tight text-center">{t("liked_playlists")}</span>
             </TabsTrigger>
-            <TabsTrigger value="artists" className="gap-1 sm:gap-2 w-32 sm:w-40">
-              <Heart className="w-3 h-3 sm:w-4 sm:h-4 flex-shrink-0" />
-              <span className="text-xs sm:text-sm leading-tight text-center">{t("artists")}</span>
+            <TabsTrigger value="liked-songs" className="gap-1 sm:gap-2 w-32 sm:w-40">
+              <ListMusic className="w-3 h-3 sm:w-4 sm:h-4 flex-shrink-0" />
+              <span className="text-xs sm:text-sm leading-tight text-center">{t("liked_songs")}</span>
             </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="playlists" className="mt-0">
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-              {playlists.map((playlist) => (
-                <PlaylistCard
-                  key={playlist.id}
-                  id={playlist.id}
-                  title={playlist.title}
-                  description={playlist.description}
-                />
-              ))}
-            </div>
+          {/* My Playlists Tab */}
+          <TabsContent value="my-playlists" className="mt-0">
+            {isLoading ? (
+              <div className="text-center py-12 text-muted-foreground">
+                {t("loading")}...
+              </div>
+            ) : myPlaylists.length > 0 ? (
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                {myPlaylists.map((playlist) => (
+                  <PlaylistCard
+                    key={playlist.id}
+                    id={playlist.id}
+                    title={playlist.title}
+                    description={playlist.description || ""}
+                    imageUrl={playlist.cover_url || playlist.image_url || undefined}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-12 text-muted-foreground">
+                <Music className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                <p>{t("no_playlists_created")}</p>
+                <p className="text-sm mt-2">{t("create_first_playlist")}</p>
+              </div>
+            )}
           </TabsContent>
 
-          <TabsContent value="albums" className="mt-0">
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-              {albums.map((album) => (
-                <PlaylistCard
-                  key={album.id}
-                  id={album.id}
-                  title={album.title}
-                  description={album.description}
-                />
-              ))}
-            </div>
+          {/* Liked Playlists Tab */}
+          <TabsContent value="liked-playlists" className="mt-0">
+            {isLoading ? (
+              <div className="text-center py-12 text-muted-foreground">
+                {t("loading")}...
+              </div>
+            ) : likedPlaylists.length > 0 ? (
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                {likedPlaylists.map((playlist) => (
+                  <PlaylistCard
+                    key={playlist.id}
+                    id={playlist.id}
+                    title={playlist.title}
+                    description={playlist.description || ""}
+                    imageUrl={playlist.cover_url || playlist.image_url || undefined}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-12 text-muted-foreground">
+                <Heart className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                <p>{t("no_liked_playlists")}</p>
+                <p className="text-sm mt-2">{t("like_playlists_to_see_here")}</p>
+              </div>
+            )}
           </TabsContent>
 
-          <TabsContent value="artists" className="mt-0">
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-              {artists.map((artist) => (
-                <div
-                  key={artist.id}
-                  className="group relative bg-card p-4 rounded-xl hover:bg-secondary/80 transition-all duration-300 cursor-pointer"
-                >
-                  <div className="relative mb-4 aspect-square rounded-full overflow-hidden bg-gradient-to-br from-primary/20 to-primary/5" />
-                  <h3 className="font-semibold text-foreground mb-1 truncate text-center">
-                    {artist.title}
-                  </h3>
-                  <p className="text-sm text-muted-foreground text-center">{artist.description}</p>
-                </div>
-              ))}
-            </div>
+          {/* Liked Songs Tab */}
+          <TabsContent value="liked-songs" className="mt-0">
+            {isLoading ? (
+              <div className="text-center py-12 text-muted-foreground">
+                {t("loading")}...
+              </div>
+            ) : likedTracks.length > 0 ? (
+              <div className="space-y-1">
+                {likedTracks.map((track) => (
+                  <TrackCard
+                    key={track.id}
+                    id={track.id}
+                    title={track.title}
+                    artist={track.artist}
+                    imageUrl={track.cover_url || track.image_url}
+                    youtubeId={track.external_id || track.youtube_id}
+                    duration={track.duration}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-12 text-muted-foreground">
+                <ListMusic className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                <p>{t("no_liked_songs")}</p>
+                <p className="text-sm mt-2">{t("like_songs_to_see_here")}</p>
+              </div>
+            )}
           </TabsContent>
         </Tabs>
       </div>

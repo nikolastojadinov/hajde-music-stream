@@ -1,19 +1,22 @@
 import { useState } from "react";
 import { useParams } from "react-router-dom";
-import { Play, Pause } from "lucide-react";
+import { Play, Pause, Heart } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { usePlayer } from "@/contexts/PlayerContext";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useExternalPlaylist } from "@/hooks/useExternalPlaylist";
+import { useLikes } from "@/hooks/useLikes";
 
 const Playlist = () => {
   const { id } = useParams<{ id: string }>();
   const { playPlaylist, isPlaying, togglePlay } = usePlayer();
+  const { isPlaylistLiked, togglePlaylistLike } = useLikes();
   const [currentTrackId, setCurrentTrackId] = useState<string | null>(null);
 
   console.log('🎵 Playlist page mounted, ID:', id);
   
   const { data: playlist, isLoading, error } = useExternalPlaylist(id || "");
+  const isLiked = id ? isPlaylistLiked(id) : false;
   
   console.log('📊 Playlist state:', { isLoading, hasError: !!error, hasPlaylist: !!playlist, trackCount: playlist?.tracks?.length });
 
@@ -45,6 +48,12 @@ const Playlist = () => {
       }));
       playPlaylist(trackData, index);
       setCurrentTrackId(track.id);
+    }
+  };
+
+  const handleToggleLike = () => {
+    if (id) {
+      togglePlaylistLike(id);
     }
   };
 
@@ -105,10 +114,27 @@ const Playlist = () => {
       </div>
 
       <div className="p-4 md:p-8">
-        <Button size="lg" className="rounded-full mb-6" onClick={handlePlayPlaylist}>
-          <Play className="w-5 h-5 mr-2 fill-current" />
-          Pusti plejlistu
-        </Button>
+        <div className="flex items-center gap-4 mb-6">
+          <Button size="lg" className="rounded-full" onClick={handlePlayPlaylist}>
+            <Play className="w-5 h-5 mr-2 fill-current" />
+            Pusti plejlistu
+          </Button>
+          
+          {/* Like button */}
+          <button
+            onClick={handleToggleLike}
+            className="w-12 h-12 rounded-full bg-secondary hover:bg-secondary/80 flex items-center justify-center hover:scale-110 transition-all"
+            aria-label={isLiked ? "Unlike playlist" : "Like playlist"}
+          >
+            <Heart 
+              className={`w-6 h-6 transition-all ${
+                isLiked 
+                  ? "fill-primary text-primary" 
+                  : "text-muted-foreground"
+              }`}
+            />
+          </button>
+        </div>
 
         <div className="space-y-2">
           {playlist.tracks.map((track, index) => {
