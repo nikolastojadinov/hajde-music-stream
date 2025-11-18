@@ -12,6 +12,8 @@ import mountUserEndpoints from './handlers/users';
 import mountNotificationEndpoints from './handlers/notifications';
 import mountHealthEndpoints from './handlers/health';
 import mountLikesEndpoints from './handlers/likes';
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const playlistLikesRouter = require('./routes/likes/playlist');
 import supabase from './services/supabaseClient';
 import { randomBytes } from 'crypto';
 
@@ -110,6 +112,9 @@ app.use("/notifications", notificationRouter);
 const likesRouter = express.Router();
 mountLikesEndpoints(likesRouter);
 app.use('/likes', likesRouter);
+
+// Playlist likes endpoints (/likes/playlist)
+app.use('/likes', playlistLikesRouter);
 
 // Pi Network routes under /pi:
 app.use('/pi', piAuthRouter);
