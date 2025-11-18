@@ -41,7 +41,7 @@ const Library = () => {
               <span className="text-xs sm:text-sm leading-tight text-center">{t("albums")}</span>
             </TabsTrigger>
             <TabsTrigger value="artists" className="gap-1 sm:gap-2 w-32 sm:w-40">
-              <User className="w-3 h-3 sm:w-4 sm:h-4 flex-shrink-0" />
+              <Heart className="w-3 h-3 sm:w-4 sm:h-4 flex-shrink-0" />
               <span className="text-xs sm:text-sm leading-tight text-center">{t("artists")}</span>
             </TabsTrigger>
           </TabsList>
