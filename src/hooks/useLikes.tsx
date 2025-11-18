@@ -51,7 +51,6 @@ export const useLikes = () => {
             title,
             description,
             cover_url,
-            image_url,
             category,
             created_at,
             owner_id
@@ -94,9 +93,7 @@ export const useLikes = () => {
             title,
             artist,
             cover_url,
-            image_url,
             external_id,
-            youtube_id,
             duration
           )
         `)
