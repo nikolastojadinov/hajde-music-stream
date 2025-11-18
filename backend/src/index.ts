@@ -11,6 +11,7 @@ import mountPaymentsVerify from './handlers/paymentsVerify';
 import mountUserEndpoints from './handlers/users';
 import mountNotificationEndpoints from './handlers/notifications';
 import mountHealthEndpoints from './handlers/health';
+import mountLikesEndpoints from './handlers/likes';
 import supabase from './services/supabaseClient';
 import { randomBytes } from 'crypto';
 
@@ -104,6 +105,11 @@ app.use('/user', userRouter);
 const notificationRouter = express.Router();
 mountNotificationEndpoints(notificationRouter);
 app.use("/notifications", notificationRouter);
+
+// Likes endpoints under /likes:
+const likesRouter = express.Router();
+mountLikesEndpoints(likesRouter);
+app.use('/likes', likesRouter);
 
 // Pi Network routes under /pi:
 app.use('/pi', piAuthRouter);

@@ -21,6 +21,8 @@ interface Environment {
   platform_api_url: string,
   supabase_url: string,
   supabase_service_role_key: string,
+  external_supabase_url: string,
+  external_supabase_service_role_key: string,
   frontend_url: string,
 }
 
@@ -31,6 +33,8 @@ const env: Environment = {
   platform_api_url: process.env.PLATFORM_API_URL || 'https://api.minepi.com',
   supabase_url: process.env.SUPABASE_URL || '',
   supabase_service_role_key: process.env.SUPABASE_SERVICE_ROLE_KEY || '',
+  external_supabase_url: process.env.EXTERNAL_SUPABASE_URL || '',
+  external_supabase_service_role_key: process.env.EXTERNAL_SUPABASE_SERVICE_ROLE || '',
   frontend_url: process.env.FRONTEND_URL || 'http://localhost:3314',
 };
 

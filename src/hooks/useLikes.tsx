@@ -33,7 +33,9 @@ export const useLikes = () => {
   const [loading, setLoading] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
-  // Load liked playlists
+  const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
+
+  // Load liked playlists (via backend to bypass RLS)
   const loadLikedPlaylists = useCallback(async () => {
     if (!user?.uid) {
       setLikedPlaylists([]);
@@ -42,31 +44,14 @@ export const useLikes = () => {
     }
 
     try {
-      const { data, error } = await externalSupabase
-        .from("likes")
-        .select(`
-          playlist_id,
-          playlists (
-            id,
-            title,
-            description,
-            cover_url,
-            category,
-            created_at,
-            owner_id
-          )
-        `)
-        .eq("user_id", user.uid)
-        .not("playlist_id", "is", null);
-
-      if (error) {
-        console.error("❌ Error loading liked playlists:", error);
+      const resp = await fetch(`${BACKEND_URL}/likes/playlists?user_id=${user.uid}`);
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        console.error("❌ Error loading liked playlists:", err);
         return;
       }
-
-      const playlists = (data || [])
-        .filter((item: any) => item.playlists)
-        .map((item: any) => item.playlists as unknown as LikedPlaylist);
+      const json = await resp.json();
+      const playlists = (json.items || []) as LikedPlaylist[];
 
       setLikedPlaylists(playlists);
       setLikedPlaylistIds(new Set(playlists.map((p: any) => p.id)));
@@ -75,7 +60,7 @@ export const useLikes = () => {
     }
   }, [user?.uid]);
 
-  // Load liked tracks
+  // Load liked tracks (via backend to bypass RLS)
   const loadLikedTracks = useCallback(async () => {
     if (!user?.uid) {
       setLikedTracks([]);
@@ -84,30 +69,14 @@ export const useLikes = () => {
     }
 
     try {
-      const { data, error } = await externalSupabase
-        .from("likes")
-        .select(`
-          track_id,
-          tracks (
-            id,
-            title,
-            artist,
-            cover_url,
-            external_id,
-            duration
-          )
-        `)
-        .eq("user_id", user.uid)
-        .not("track_id", "is", null);
-
-      if (error) {
-        console.error("❌ Error loading liked tracks:", error);
+      const resp = await fetch(`${BACKEND_URL}/likes/tracks?user_id=${user.uid}`);
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        console.error("❌ Error loading liked tracks:", err);
         return;
       }
-
-      const tracks = (data || [])
-        .filter((item: any) => item.tracks)
-        .map((item: any) => item.tracks as unknown as LikedTrack);
+      const json = await resp.json();
+      const tracks = (json.items || []) as LikedTrack[];
 
       setLikedTracks(tracks);
       setLikedTrackIds(new Set(tracks.map((t: any) => t.id)));
@@ -136,62 +105,16 @@ export const useLikes = () => {
     loadAllLikes();
   }, [user?.uid, loadAllLikes, refreshKey]);
 
-  // Toggle playlist like
+  // Toggle playlist like (not supported by current schema -> warn)
   const togglePlaylistLike = useCallback(async (playlistId: string) => {
     if (!user?.uid) {
       console.warn("⚠️ User not logged in, cannot like playlist");
       return;
     }
-
-    const isCurrentlyLiked = likedPlaylistIds.has(playlistId);
-
-    try {
-      if (isCurrentlyLiked) {
-        // Unlike: remove from database
-        const { error } = await externalSupabase
-          .from("likes")
-          .delete()
-          .eq("user_id", user.uid)
-          .eq("playlist_id", playlistId);
-
-        if (error) {
-          console.error("❌ Error unliking playlist:", error);
-          return;
-        }
-
-        // Update local state immediately for responsive UI
-        setLikedPlaylistIds(prev => {
-          const newSet = new Set(prev);
-          newSet.delete(playlistId);
-          return newSet;
-        });
-        setLikedPlaylists(prev => prev.filter(p => p.id !== playlistId));
-      } else {
-        // Like: add to database
-        const { error } = await externalSupabase
-          .from("likes")
-          .insert({
-            user_id: user.uid,
-            playlist_id: playlistId,
-          });
-
-        if (error) {
-          console.error("❌ Error liking playlist:", error);
-          return;
-        }
-
-        // Update local state - optimistic update for ID, then refresh for full data
-        setLikedPlaylistIds(prev => new Set([...prev, playlistId]));
-        
-        // Trigger a refresh to get full playlist data
-        setRefreshKey(prev => prev + 1);
-      }
-    } catch (error) {
-      console.error("❌ Exception toggling playlist like:", error);
-    }
+    console.warn('⚠️ Playlist liking is not supported by current schema. Skipping.');
   }, [user?.uid, likedPlaylistIds]);
 
-  // Toggle track like
+  // Toggle track like (via backend for RLS-safe write)
   const toggleTrackLike = useCallback(async (trackId: string) => {
     if (!user?.uid) {
       console.warn("⚠️ User not logged in, cannot like track");
@@ -202,15 +125,14 @@ export const useLikes = () => {
 
     try {
       if (isCurrentlyLiked) {
-        // Unlike: remove from database
-        const { error } = await externalSupabase
-          .from("likes")
-          .delete()
-          .eq("user_id", user.uid)
-          .eq("track_id", trackId);
-
-        if (error) {
-          console.error("❌ Error unliking track:", error);
+        const resp = await fetch(`${BACKEND_URL}/likes/track/${trackId}`, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: user.uid })
+        });
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          console.error("❌ Error unliking track:", err);
           return;
         }
 
@@ -222,16 +144,14 @@ export const useLikes = () => {
         });
         setLikedTracks(prev => prev.filter(t => t.id !== trackId));
       } else {
-        // Like: add to database
-        const { error } = await externalSupabase
-          .from("likes")
-          .insert({
-            user_id: user.uid,
-            track_id: trackId,
-          });
-
-        if (error) {
-          console.error("❌ Error liking track:", error);
+        const resp = await fetch(`${BACKEND_URL}/likes/track/${trackId}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: user.uid })
+        });
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          console.error("❌ Error liking track:", err);
           return;
         }
 
