@@ -1,4 +1,4 @@
-import { Home, Search, Library, Plus, Heart } from "lucide-react";
+import { Home, Search, Library, Plus } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -19,7 +19,7 @@ const Footer = () => {
   const mobileNav = [
     { name: t("home"), path: "/", icon: Home },
     { name: t("create"), path: "/create-playlist", icon: Plus },
-    { name: t("favorites"), path: "/favorites", icon: Heart },
+    { name: t("search"), path: "/search", icon: Search },
     { name: t("library"), path: "/library", icon: Library },
   ];
 
