@@ -13,7 +13,6 @@ interface UserPlaylist {
   title: string;
   description: string | null;
   cover_url: string | null;
-  image_url: string | null;
 }
 
 const Library = () => {
@@ -35,7 +34,7 @@ const Library = () => {
         setLoadingMyPlaylists(true);
         const { data, error } = await externalSupabase
           .from("playlists")
-          .select("id, title, description, cover_url, image_url")
+          .select("id, title, description, cover_url")
           .eq("owner_id", user.uid)
           .order("created_at", { ascending: false });
 
@@ -90,7 +89,7 @@ const Library = () => {
                     id={playlist.id}
                     title={playlist.title}
                     description={playlist.description || ""}
-                    imageUrl={playlist.cover_url || playlist.image_url || undefined}
+                    imageUrl={playlist.cover_url || undefined}
                   />
                 ))}
               </div>
@@ -117,7 +116,7 @@ const Library = () => {
                     id={playlist.id}
                     title={playlist.title}
                     description={playlist.description || ""}
-                    imageUrl={playlist.cover_url || playlist.image_url || undefined}
+                    imageUrl={playlist.cover_url || undefined}
                   />
                 ))}
               </div>

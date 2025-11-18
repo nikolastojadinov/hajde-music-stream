@@ -38,7 +38,6 @@ const CreatePlaylist = () => {
           title: name.trim(),
           description: description.trim() || null,
           cover_url: imageUrl.trim() || null,
-          image_url: imageUrl.trim() || null,
           owner_id: user.uid,
           category: "user-created",
         })
