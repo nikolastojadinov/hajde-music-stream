@@ -137,7 +137,7 @@ const getTranslations = (lang: string): Record<string, string> => {
       
       // Library
       "your_library": "Vaša biblioteka",
-      "library_playlists": "Moje plejliste",
+      "library_playlists": "My Playlists",
       "albums": "Sviđene plejliste",
       "artists": "Sviđene pesme",
       
