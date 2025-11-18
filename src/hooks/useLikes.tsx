@@ -31,6 +31,7 @@ export const useLikes = () => {
   const [likedPlaylistIds, setLikedPlaylistIds] = useState<Set<string>>(new Set());
   const [likedTrackIds, setLikedTrackIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   // Load liked playlists
   const loadLikedPlaylists = useCallback(async () => {
@@ -41,7 +42,6 @@ export const useLikes = () => {
     }
 
     try {
-      setLoading(true);
       const { data, error } = await externalSupabase
         .from("likes")
         .select(`
@@ -71,11 +71,8 @@ export const useLikes = () => {
 
       setLikedPlaylists(playlists);
       setLikedPlaylistIds(new Set(playlists.map((p: any) => p.id)));
-      console.log("✅ Loaded liked playlists:", playlists.length);
     } catch (error) {
       console.error("❌ Exception loading liked playlists:", error);
-    } finally {
-      setLoading(false);
     }
   }, [user?.uid]);
 
@@ -88,7 +85,6 @@ export const useLikes = () => {
     }
 
     try {
-      setLoading(true);
       const { data, error } = await externalSupabase
         .from("likes")
         .select(`
@@ -118,35 +114,30 @@ export const useLikes = () => {
 
       setLikedTracks(tracks);
       setLikedTrackIds(new Set(tracks.map((t: any) => t.id)));
-      console.log("✅ Loaded liked tracks:", tracks.length);
     } catch (error) {
       console.error("❌ Exception loading liked tracks:", error);
-    } finally {
-      setLoading(false);
     }
   }, [user?.uid]);
 
-  // Load playlists on mount and when user changes
-  useEffect(() => {
+  // Load all likes (both playlists and tracks)
+  const loadAllLikes = useCallback(async () => {
     if (!user?.uid) {
       setLikedPlaylists([]);
       setLikedPlaylistIds(new Set());
-      return;
-    }
-
-    loadLikedPlaylists();
-  }, [user?.uid, loadLikedPlaylists]);
-
-  // Load tracks on mount and when user changes
-  useEffect(() => {
-    if (!user?.uid) {
       setLikedTracks([]);
       setLikedTrackIds(new Set());
       return;
     }
 
-    loadLikedTracks();
-  }, [user?.uid, loadLikedTracks]);
+    setLoading(true);
+    await Promise.all([loadLikedPlaylists(), loadLikedTracks()]);
+    setLoading(false);
+  }, [user?.uid, loadLikedPlaylists, loadLikedTracks]);
+
+  // Load playlists and tracks on mount and when user changes
+  useEffect(() => {
+    loadAllLikes();
+  }, [user?.uid, loadAllLikes, refreshKey]);
 
   // Toggle playlist like
   const togglePlaylistLike = useCallback(async (playlistId: string) => {
@@ -156,7 +147,6 @@ export const useLikes = () => {
     }
 
     const isCurrentlyLiked = likedPlaylistIds.has(playlistId);
-    console.log(`${isCurrentlyLiked ? "❌ Unliking" : "❤️ Liking"} playlist:`, playlistId);
 
     try {
       if (isCurrentlyLiked) {
@@ -172,14 +162,13 @@ export const useLikes = () => {
           return;
         }
 
-        // Update local state
+        // Update local state immediately for responsive UI
         setLikedPlaylistIds(prev => {
           const newSet = new Set(prev);
           newSet.delete(playlistId);
           return newSet;
         });
         setLikedPlaylists(prev => prev.filter(p => p.id !== playlistId));
-        console.log("✅ Playlist unliked");
       } else {
         // Like: add to database
         const { error } = await externalSupabase
@@ -194,15 +183,16 @@ export const useLikes = () => {
           return;
         }
 
-        // Update local state and reload to get full playlist data
+        // Update local state - optimistic update for ID, then refresh for full data
         setLikedPlaylistIds(prev => new Set([...prev, playlistId]));
-        await loadLikedPlaylists();
-        console.log("✅ Playlist liked");
+        
+        // Trigger a refresh to get full playlist data
+        setRefreshKey(prev => prev + 1);
       }
     } catch (error) {
       console.error("❌ Exception toggling playlist like:", error);
     }
-  }, [user?.uid, likedPlaylistIds, loadLikedPlaylists]);
+  }, [user?.uid, likedPlaylistIds]);
 
   // Toggle track like
   const toggleTrackLike = useCallback(async (trackId: string) => {
@@ -212,7 +202,6 @@ export const useLikes = () => {
     }
 
     const isCurrentlyLiked = likedTrackIds.has(trackId);
-    console.log(`${isCurrentlyLiked ? "❌ Unliking" : "❤️ Liking"} track:`, trackId);
 
     try {
       if (isCurrentlyLiked) {
@@ -228,14 +217,13 @@ export const useLikes = () => {
           return;
         }
 
-        // Update local state
+        // Update local state immediately for responsive UI
         setLikedTrackIds(prev => {
           const newSet = new Set(prev);
           newSet.delete(trackId);
           return newSet;
         });
         setLikedTracks(prev => prev.filter(t => t.id !== trackId));
-        console.log("✅ Track unliked");
       } else {
         // Like: add to database
         const { error } = await externalSupabase
@@ -250,15 +238,16 @@ export const useLikes = () => {
           return;
         }
 
-        // Update local state and reload to get full track data
+        // Update local state - optimistic update for ID, then refresh for full data
         setLikedTrackIds(prev => new Set([...prev, trackId]));
-        await loadLikedTracks();
-        console.log("✅ Track liked");
+        
+        // Trigger a refresh to get full track data
+        setRefreshKey(prev => prev + 1);
       }
     } catch (error) {
       console.error("❌ Exception toggling track like:", error);
     }
-  }, [user?.uid, likedTrackIds, loadLikedTracks]);
+  }, [user?.uid, likedTrackIds]);
 
   // Check if playlist is liked
   const isPlaylistLiked = useCallback((playlistId: string) => {
@@ -270,17 +259,11 @@ export const useLikes = () => {
     return likedTrackIds.has(trackId);
   }, [likedTrackIds]);
 
-  // Refresh likes when user changes
-  useEffect(() => {
-    if (user?.uid) {
-      loadLikedPlaylists();
-      loadLikedTracks();
-    }
-  }, [user?.uid, loadLikedPlaylists, loadLikedTracks]);
-
   return {
     likedPlaylists,
     likedTracks,
+    likedPlaylistIds,
+    likedTrackIds,
     loading,
     togglePlaylistLike,
     toggleTrackLike,
@@ -288,5 +271,6 @@ export const useLikes = () => {
     isTrackLiked,
     loadLikedPlaylists,
     loadLikedTracks,
+    loadAllLikes,
   };
 };

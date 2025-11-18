@@ -21,7 +21,7 @@ const Library = () => {
   const { user } = usePiLogin();
   const { likedPlaylists, likedTracks, loading: likesLoading } = useLikes();
   const [myPlaylists, setMyPlaylists] = useState<UserPlaylist[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loadingMyPlaylists, setLoadingMyPlaylists] = useState(false);
 
   // Load user's own playlists
   useEffect(() => {
@@ -32,7 +32,7 @@ const Library = () => {
       }
 
       try {
-        setLoading(true);
+        setLoadingMyPlaylists(true);
         const { data, error } = await externalSupabase
           .from("playlists")
           .select("id, title, description, cover_url, image_url")
@@ -45,18 +45,15 @@ const Library = () => {
         }
 
         setMyPlaylists(data || []);
-        console.log("✅ Loaded my playlists:", data?.length || 0);
       } catch (error) {
         console.error("❌ Exception loading my playlists:", error);
       } finally {
-        setLoading(false);
+        setLoadingMyPlaylists(false);
       }
     };
 
     loadMyPlaylists();
   }, [user?.uid]);
-
-  const isLoading = loading || likesLoading;
 
   return (
     <div className="flex-1 overflow-y-auto pb-32">
@@ -81,7 +78,7 @@ const Library = () => {
 
           {/* My Playlists Tab */}
           <TabsContent value="my-playlists" className="mt-0">
-            {isLoading ? (
+            {loadingMyPlaylists ? (
               <div className="text-center py-12 text-muted-foreground">
                 {t("loading")}...
               </div>
@@ -108,7 +105,7 @@ const Library = () => {
 
           {/* Liked Playlists Tab */}
           <TabsContent value="liked-playlists" className="mt-0">
-            {isLoading ? (
+            {likesLoading ? (
               <div className="text-center py-12 text-muted-foreground">
                 {t("loading")}...
               </div>
@@ -135,7 +132,7 @@ const Library = () => {
 
           {/* Liked Songs Tab */}
           <TabsContent value="liked-songs" className="mt-0">
-            {isLoading ? (
+            {likesLoading ? (
               <div className="text-center py-12 text-muted-foreground">
                 {t("loading")}...
               </div>

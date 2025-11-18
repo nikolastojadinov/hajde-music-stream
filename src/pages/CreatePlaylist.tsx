@@ -6,21 +6,59 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { usePiLogin } from "@/hooks/usePiLogin";
+import { externalSupabase } from "@/lib/externalSupabase";
 
 const CreatePlaylist = () => {
   const { t } = useLanguage();
   const navigate = useNavigate();
+  const { user } = usePiLogin();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [imageUrl, setImageUrl] = useState("");
+  const [isCreating, setIsCreating] = useState(false);
 
-  const handleCreate = () => {
+  const handleCreate = async () => {
     if (!name.trim()) {
       toast.error(t("enter_playlist_name"));
       return;
     }
+
+    if (!user?.uid) {
+      toast.error("Morate biti prijavljeni da biste kreirali plejlistu");
+      return;
+    }
+
+    setIsCreating(true);
     
-    toast.success(t("playlist_created"));
-    navigate("/library");
+    try {
+      const { data, error } = await externalSupabase
+        .from("playlists")
+        .insert({
+          title: name.trim(),
+          description: description.trim() || null,
+          cover_url: imageUrl.trim() || null,
+          image_url: imageUrl.trim() || null,
+          owner_id: user.uid,
+          category: "user-created",
+        })
+        .select()
+        .single();
+
+      if (error) {
+        console.error("❌ Error creating playlist:", error);
+        toast.error("Greška pri kreiranju plejliste");
+        return;
+      }
+
+      toast.success(t("playlist_created"));
+      navigate(`/playlist/${data.id}`);
+    } catch (error) {
+      console.error("❌ Exception creating playlist:", error);
+      toast.error("Greška pri kreiranju plejliste");
+    } finally {
+      setIsCreating(false);
+    }
   };
 
   return (
@@ -80,6 +118,21 @@ const CreatePlaylist = () => {
                   className="min-h-32 bg-secondary border-border text-foreground resize-none"
                 />
               </div>
+
+              {/* Image URL */}
+              <div className="space-y-2">
+                <label htmlFor="imageUrl" className="text-sm font-semibold">
+                  URL slike (opciono)
+                </label>
+                <Input
+                  id="imageUrl"
+                  type="url"
+                  placeholder="https://example.com/image.jpg"
+                  value={imageUrl}
+                  onChange={(e) => setImageUrl(e.target.value)}
+                  className="h-12 bg-secondary border-border text-foreground"
+                />
+              </div>
             </div>
           </div>
 
@@ -87,13 +140,15 @@ const CreatePlaylist = () => {
           <div className="flex gap-4 pt-8">
             <Button
               onClick={handleCreate}
+              disabled={isCreating || !name.trim()}
               className="bg-primary text-foreground hover:bg-primary/90 font-semibold px-8"
             >
-              {t("create_playlist_btn")}
+              {isCreating ? t("creating") || "Kreiranje..." : t("create_playlist_btn")}
             </Button>
             <Button
               onClick={() => navigate(-1)}
               variant="outline"
+              disabled={isCreating}
               className="border-border hover:bg-secondary"
             >
               {t("cancel")}
