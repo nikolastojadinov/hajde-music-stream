@@ -30,8 +30,8 @@ const App = () => {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <LanguageProvider>
-          <PlayerProvider>
-            <PiProvider>
+          <PiProvider>
+            <PlayerProvider>
               <Toaster />
               <Sonner />
               <BrowserRouter>
@@ -84,8 +84,8 @@ const App = () => {
                   <DebugFloatingLogger />
                 </div>
               </BrowserRouter>
-            </PiProvider>
-          </PlayerProvider>
+            </PlayerProvider>
+          </PiProvider>
         </LanguageProvider>
       </TooltipProvider>
     </QueryClientProvider>
