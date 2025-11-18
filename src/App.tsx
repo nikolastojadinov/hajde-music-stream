@@ -22,8 +22,22 @@ import Terms from "@/pages/Terms";
 import NotFound from "@/pages/NotFound";
 import ImportCSV from "@/pages/ImportCSV";
 import DebugFloatingLogger from "@/components/DebugFloatingLogger";
+import { usePi } from "@/contexts/PiContext";
 
 const queryClient = new QueryClient();
+
+const AuthGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { loading, user } = usePi();
+  if (loading) {
+    return (
+      <div className="h-screen flex items-center justify-center text-muted-foreground">
+        <span>Loading authentication...</span>
+      </div>
+    );
+  }
+  console.log('[AuthGate] user ready:', user);
+  return <>{children}</>;
+};
 
 const App = () => {
   return (
@@ -31,6 +45,7 @@ const App = () => {
       <TooltipProvider>
         <LanguageProvider>
           <PiProvider>
+            <AuthGate>
             <PlayerProvider>
               <Toaster />
               <Sonner />
@@ -85,6 +100,7 @@ const App = () => {
                 </div>
               </BrowserRouter>
             </PlayerProvider>
+            </AuthGate>
           </PiProvider>
         </LanguageProvider>
       </TooltipProvider>

@@ -4,7 +4,7 @@ import PlaylistCard from "@/components/PlaylistCard";
 import TrackCard from "@/components/TrackCard";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useLikes } from "@/hooks/useLikes";
-import { usePiLogin } from "@/hooks/usePiLogin";
+import { usePi } from "@/contexts/PiContext";
 import { externalSupabase } from "@/lib/externalSupabase";
 import { useState, useEffect } from "react";
 
@@ -18,7 +18,7 @@ interface UserPlaylist {
 
 const Library = () => {
   const { t } = useLanguage();
-  const { user } = usePiLogin();
+  const { user, loading } = usePi();
   const { likedPlaylists, likedTracks, loading: likesLoading } = useLikes();
   const [myPlaylists, setMyPlaylists] = useState<UserPlaylist[]>([]);
   const [loadingMyPlaylists, setLoadingMyPlaylists] = useState(false);
@@ -78,7 +78,7 @@ const Library = () => {
 
           {/* My Playlists Tab */}
           <TabsContent value="my-playlists" className="mt-0">
-            {loadingMyPlaylists ? (
+            {loading || loadingMyPlaylists ? (
               <div className="text-center py-12 text-muted-foreground">
                 {t("loading")}...
               </div>
@@ -105,7 +105,7 @@ const Library = () => {
 
           {/* Liked Playlists Tab */}
           <TabsContent value="liked-playlists" className="mt-0">
-            {likesLoading ? (
+            {loading || likesLoading ? (
               <div className="text-center py-12 text-muted-foreground">
                 {t("loading")}...
               </div>
@@ -132,7 +132,7 @@ const Library = () => {
 
           {/* Liked Songs Tab */}
           <TabsContent value="liked-songs" className="mt-0">
-            {likesLoading ? (
+            {loading || likesLoading ? (
               <div className="text-center py-12 text-muted-foreground">
                 {t("loading")}...
               </div>

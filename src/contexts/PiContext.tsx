@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { usePiAuth } from '@/lib/pi/usePiAuth';
 import { usePiPayments } from '@/lib/pi/usePiPayments';
 import { toast } from '@/hooks/use-toast';
@@ -13,10 +13,13 @@ export type PiUser = {
 
 interface PiContextValue {
   user: PiUser | null;
-  isLoading: boolean;
+  setUser: (u: PiUser | null) => void;
+  loading: boolean;
+  isLoading: boolean; // backward-compatible alias
   error: string | null;
   signIn: () => Promise<void>;
-  signOut: () => Promise<void>;
+  logout: () => Promise<void>;
+  signOut: () => Promise<void>; // backward-compatible alias
   createPayment: (args: { amount: number; memo: string; metadata?: Record<string, unknown> }) => Promise<void>;
   isProcessingPayment: boolean;
   paymentError: string | null;
@@ -36,8 +39,13 @@ if (typeof window !== 'undefined' && window.Pi && typeof window.Pi.init === 'fun
 }
 
 export function PiProvider({ children }: { children: React.ReactNode }) {
-  // Use new Pi authentication hook (auto-login on mount)
-  const { user, isLoading, error, authenticate, refreshUser } = usePiAuth();
+  // Local, stable user state for the whole session
+  const [user, setUser] = useState<PiUser | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Use new Pi authentication hook (we'll mirror its result into our local state)
+  const { user: authUser, isLoading, error: authError, authenticate, refreshUser } = usePiAuth();
   
   // Use new Pi payments hook
   const { isProcessing: isProcessingPayment, error: paymentError, createPayment: createPiPayment } = usePiPayments();
@@ -48,14 +56,32 @@ export function PiProvider({ children }: { children: React.ReactNode }) {
   // Track if we've shown welcome message to avoid showing it multiple times
   const hasShownWelcome = useRef(false);
 
-  // Show welcome toast when user logs in
+  // Mirror usePiAuth user into local stable state and show welcome toast
   useEffect(() => {
-    if (user && !hasShownWelcome.current) {
+    // Update local state from usePiAuth
+    if (authUser) {
+      setUser((prev) => {
+        if (!prev || prev.uid !== authUser.uid) {
+          console.log('[PiContext] setUser:', authUser);
+        }
+        return authUser;
+      });
+      setLoading(false);
+      setError(null);
+    } else if (!isLoading) {
+      // No user and auth not loading: finalize loading state
+      setUser(null);
+      setLoading(false);
+      setError(authError || null);
+    }
+
+    // Welcome toast once per session
+    if (authUser && !hasShownWelcome.current) {
       hasShownWelcome.current = true;
       
       // Format welcome message with username
-      const welcomeTitle = t('welcome_user').replace('{username}', user.username);
-      const welcomeDescription = user.premium 
+      const welcomeTitle = t('welcome_user').replace('{username}', authUser.username);
+      const welcomeDescription = authUser.premium 
         ? t('premium_access_message')
         : t('logged_in_message');
       
@@ -64,23 +90,32 @@ export function PiProvider({ children }: { children: React.ReactNode }) {
         description: welcomeDescription,
         duration: 5000,
       });
-      
-      console.log('[PiContext] Welcome toast shown for user:', user.username);
+      console.log('[PiContext] Welcome toast shown for user:', authUser.username);
     }
-  }, [user, t]);
+  }, [authUser, isLoading, authError, t]);
+
+  // Log current user on changes (diagnostics)
+  useEffect(() => {
+    console.log('[PiContext] current user:', user);
+  }, [user]);
 
   const signIn = useCallback(async () => {
     console.log('[PiContext] Manual sign-in requested');
+    setLoading(true);
+    setError(null);
     await authenticate();
   }, [authenticate]);
 
   const signOut = useCallback(async () => {
     console.log('[PiContext] Sign-out requested');
-    // Reset welcome flag
     hasShownWelcome.current = false;
-    // For now, just reload the page to clear state
+    setUser(null);
+    // Clear to a known state; if app expects reload, keep it simple
     window.location.reload();
   }, []);
+
+  // Alias required by spec
+  const logout = signOut;
 
   const createPayment = useCallback(async ({ amount, memo, metadata }: { amount: number; memo: string; metadata?: Record<string, unknown> }) => {
     console.log('[PiContext] Creating payment:', { amount, memo, metadata });
@@ -117,14 +152,17 @@ export function PiProvider({ children }: { children: React.ReactNode }) {
 
   const value = useMemo(() => ({
     user,
-    isLoading,
+    setUser,
+    loading,
+    isLoading: loading, // backward-compatible alias
     error,
     signIn,
-    signOut,
+    logout,
+    signOut: logout,
     createPayment,
     isProcessingPayment,
     paymentError,
-  }), [user, isLoading, error, signIn, signOut, createPayment, isProcessingPayment, paymentError]);
+  }), [user, loading, error, signIn, logout, createPayment, isProcessingPayment, paymentError]);
 
   return <PiContext.Provider value={value}>{children}</PiContext.Provider>;
 }
@@ -132,5 +170,6 @@ export function PiProvider({ children }: { children: React.ReactNode }) {
 export function usePi() {
   const ctx = useContext(PiContext);
   if (!ctx) throw new Error('usePi must be used within PiProvider');
+  console.log('[usePi] state:', { user: ctx.user, loading: ctx.loading });
   return ctx;
 }

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { externalSupabase } from "@/lib/externalSupabase";
-import { usePiLogin } from "./usePiLogin";
+import { usePi } from "@/contexts/PiContext";
 
 export interface LikedPlaylist {
   id: string;
@@ -25,7 +25,7 @@ export interface LikedTrack {
 }
 
 export const useLikes = () => {
-  const { user } = usePiLogin();
+  const { user } = usePi();
   const [likedPlaylists, setLikedPlaylists] = useState<LikedPlaylist[]>([]);
   const [likedTracks, setLikedTracks] = useState<LikedTrack[]>([]);
   const [likedPlaylistIds, setLikedPlaylistIds] = useState<Set<string>>(new Set());

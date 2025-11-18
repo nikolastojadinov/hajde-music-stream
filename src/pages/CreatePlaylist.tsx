@@ -6,13 +6,13 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { usePiLogin } from "@/hooks/usePiLogin";
+import { usePi } from "@/contexts/PiContext";
 import { externalSupabase } from "@/lib/externalSupabase";
 
 const CreatePlaylist = () => {
   const { t } = useLanguage();
   const navigate = useNavigate();
-  const { user } = usePiLogin();
+  const { user, loading } = usePi();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [imageUrl, setImageUrl] = useState("");
@@ -143,7 +143,7 @@ const CreatePlaylist = () => {
               disabled={isCreating || !name.trim()}
               className="bg-primary text-foreground hover:bg-primary/90 font-semibold px-8"
             >
-              {isCreating ? t("creating") || "Kreiranje..." : t("create_playlist_btn")}
+              {isCreating || loading ? t("creating") || "Kreiranje..." : t("create_playlist_btn")}
             </Button>
             <Button
               onClick={() => navigate(-1)}
