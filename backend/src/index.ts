@@ -11,15 +11,17 @@ import mountPaymentsVerify from './handlers/paymentsVerify';
 import mountUserEndpoints from './handlers/users';
 import mountNotificationEndpoints from './handlers/notifications';
 import mountHealthEndpoints from './handlers/health';
-import mountLikesEndpoints from './handlers/likes';
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const playlistLikesRouter = require('./routes/likes/playlist');
 import supabase from './services/supabaseClient';
 import { randomBytes } from 'crypto';
 
 // Pi Network routes
 import piAuthRouter from './routes/pi/auth';
 import piPaymentsRouter from './routes/pi/payments';
+
+// New modular routers
+import songsLikesRouter from './routes/likes/songs';
+import playlistsLikesRouter from './routes/likes/playlists';
+import userLibraryRouter from './routes/library';
 
 declare global {
   namespace Express {
@@ -108,13 +110,12 @@ const notificationRouter = express.Router();
 mountNotificationEndpoints(notificationRouter);
 app.use("/notifications", notificationRouter);
 
-// Likes endpoints under /likes:
-const likesRouter = express.Router();
-mountLikesEndpoints(likesRouter);
-app.use('/likes', likesRouter);
+// New likes endpoints (modular):
+app.use('/likes/songs', songsLikesRouter);
+app.use('/likes/playlists', playlistsLikesRouter);
 
-// Playlist likes endpoints (/likes/playlist)
-app.use('/likes', playlistLikesRouter);
+// User library overview
+app.use('/library', userLibraryRouter);
 
 // Pi Network routes under /pi:
 app.use('/pi', piAuthRouter);
