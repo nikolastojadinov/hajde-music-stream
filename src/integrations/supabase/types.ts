@@ -53,52 +53,6 @@ export type Database = {
           },
         ]
       }
-      likes: {
-        Row: {
-          created_at: string | null
-          id: string
-          playlist_id: string | null
-          track_id: string | null
-          user_id: string
-        }
-        Insert: {
-          created_at?: string | null
-          id?: string
-          playlist_id?: string | null
-          track_id?: string | null
-          user_id: string
-        }
-        Update: {
-          created_at?: string | null
-          id?: string
-          playlist_id?: string | null
-          track_id?: string | null
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "likes_playlist_id_fkey"
-            columns: ["playlist_id"]
-            isOneToOne: false
-            referencedRelation: "playlists"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "likes_track_id_fkey"
-            columns: ["track_id"]
-            isOneToOne: false
-            referencedRelation: "tracks"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "likes_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "users"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       playlists: {
         Row: {
           category: string | null
@@ -107,7 +61,6 @@ export type Database = {
           description: string | null
           id: string
           image_url: string | null
-          owner_id: string | null
           title: string
         }
         Insert: {
@@ -117,7 +70,6 @@ export type Database = {
           description?: string | null
           id?: string
           image_url?: string | null
-          owner_id?: string | null
           title: string
         }
         Update: {
@@ -127,18 +79,9 @@ export type Database = {
           description?: string | null
           id?: string
           image_url?: string | null
-          owner_id?: string | null
           title?: string
         }
-        Relationships: [
-          {
-            foreignKeyName: "playlists_owner_id_fkey"
-            columns: ["owner_id"]
-            isOneToOne: false
-            referencedRelation: "users"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       sessions: {
         Row: {
