@@ -5,6 +5,7 @@ export async function getUserLibrary(req: Request, res: Response) {
   try {
     const user = (req as any).user;
     const userId = user?.id;
+
     if (!userId) {
       return res.status(401).json({ success: false, error: 'not_authenticated' });
     }
@@ -13,6 +14,9 @@ export async function getUserLibrary(req: Request, res: Response) {
       return res.status(500).json({ success: false, error: 'supabase_not_initialized' });
     }
 
+    // ------------------------------------------------------------------
+    // 1) FETCH LIKED SONGS (track_id) → THEN FETCH TRACK ENTITIES
+    // ------------------------------------------------------------------
     const { data: likeRows, error: likeErr } = await supabase
       .from('likes')
       .select('track_id, liked_at')
@@ -25,7 +29,10 @@ export async function getUserLibrary(req: Request, res: Response) {
       return res.status(500).json({ success: false, error: likeErr.message });
     }
 
-    const trackIds = Array.from(new Set((likeRows || []).map(r => r.track_id).filter(Boolean)));
+    const trackIds = Array.from(
+      new Set((likeRows || []).map(r => r.track_id).filter(Boolean))
+    );
+
     let likedSongs: any[] = [];
 
     if (trackIds.length > 0) {
@@ -45,21 +52,27 @@ export async function getUserLibrary(req: Request, res: Response) {
       likedSongs = likeRows.reduce((acc: any[], row: any) => {
         const id = row.track_id;
         if (!id || seen.has(id)) return acc;
-        const t = map.get(id);
-        if (!t) return acc;
+
+        const track = map.get(id);
+        if (!track) return acc;
+
         seen.add(id);
         acc.push({
-          id: String(t.id),
-          title: t.title ?? '',
-          artist: t.artist ?? null,
-          cover_url: t.cover_url ?? null,
-          external_id: t.external_id ?? null,
-          duration: t.duration ?? null,
+          id: String(track.id),
+          title: track.title ?? '',
+          artist: track.artist ?? null,
+          cover_url: track.cover_url ?? null,
+          external_id: track.external_id ?? null,
+          duration: track.duration ?? null,
         });
+
         return acc;
       }, []);
     }
 
+    // ------------------------------------------------------------------
+    // 2) FETCH LIKED PLAYLISTS (playlist_id) → THEN FETCH PLAYLIST ENTITIES
+    // ------------------------------------------------------------------
     const { data: plRows, error: plErr } = await supabase
       .from('playlist_likes')
       .select('playlist_id, liked_at')
@@ -72,7 +85,10 @@ export async function getUserLibrary(req: Request, res: Response) {
       return res.status(500).json({ success: false, error: plErr.message });
     }
 
-    const playlistIds = Array.from(new Set((plRows || []).map(r => r.playlist_id).filter(Boolean)));
+    const playlistIds = Array.from(
+      new Set((plRows || []).map(r => r.playlist_id).filter(Boolean))
+    );
+
     let likedPlaylists: any[] = [];
 
     if (playlistIds.length > 0) {
@@ -92,604 +108,37 @@ export async function getUserLibrary(req: Request, res: Response) {
       likedPlaylists = plRows.reduce((acc: any[], row: any) => {
         const id = row.playlist_id;
         if (!id || seen.has(id)) return acc;
-        const p = map.get(id);
-        if (!p) return acc;
+
+        const pl = map.get(id);
+        if (!pl) return acc;
+
         seen.add(id);
         acc.push({
-          id: String(p.id),
-          title: p.title ?? '',
-          description: p.description ?? null,
-          cover_url: p.cover_url ?? null,
-          region: p.region ?? null,
-          category: p.category ?? null,
-          owner_id: p.owner_id ?? null,
-          created_at: p.created_at ?? null,
+          id: String(pl.id),
+          title: pl.title ?? '',
+          description: pl.description ?? null,
+          cover_url: pl.cover_url ?? null,
+          region: pl.region ?? null,
+          category: pl.category ?? null,
+          owner_id: pl.owner_id ?? null,
+          created_at: pl.created_at ?? null,
         });
+
         return acc;
       }, []);
     }
 
+    // ------------------------------------------------------------------
+    // FINAL RESPONSE
+    // ------------------------------------------------------------------
     return res.json({
       success: true,
       likedSongs,
       likedPlaylists,
     });
-  } catch (err) {
-    console.error('[LIBRARY ERROR - CATCH]', err);
-    return res.status(500).json({ success: false, error: err?.message || 'unknown_error' });
-  }
-}
-import { Request, Response } from 'express';
-import supabase from '../../services/supabaseClient';
 
-export async function getUserLibrary(req: Request, res: Response) {
-  try {
-    const user = (req as any).user as { id?: string } | undefined;
-    const userId = user?.id;
-    if (!userId) {
-      return res.status(401).json({ success: false, error: 'not_authenticated' });
-    }
-
-    if (!supabase) {
-      return res.status(500).json({ success: false, error: 'supabase_not_initialized' });
-    }
-
-    // ---------------------------------------
-    // 1) FETCH TRACK LIKES
-    // ---------------------------------------
-    const { data: likeRows, error: likeErr } = await supabase
-      .from('likes')
-      .select('track_id, liked_at')
-      .eq('user_id', userId)
-      .not('track_id', 'is', null)
-      .order('liked_at', { ascending: false });
-
-    if (likeErr) {
-      console.error('[LIBRARY ERROR - SONGS]', likeErr);
-      return res.status(500).json({ success: false, error: likeErr.message });
-    }
-
-    const trackIds = Array.from(
-      new Set(
-        (likeRows || [])
-          .map((r: any) => r.track_id)
-          .filter((id: any) => !!id)
-      )
-    );
-
-    let likedSongs: any[] = [];
-    if (trackIds.length > 0) {
-      const { data: trackRows, error: trackErr } = await supabase
-        .from('tracks')
-        .select('id, title, artist, cover_url, external_id, duration')
-        .in('id', trackIds);
-
-      if (trackErr) {
-        console.error('[LIBRARY ERROR - SONG TRACKS]', trackErr);
-        return res.status(500).json({ success: false, error: trackErr.message });
-      }
-
-      const map = new Map(trackRows.map((t: any) => [t.id, t]));
-      const seen = new Set<string>();
-
-      likedSongs = (likeRows || []).reduce((acc: any[], row: any) => {
-        const id = row.track_id;
-        if (!id || seen.has(id)) return acc;
-        const t = map.get(id);
-        if (!t) return acc;
-        seen.add(id);
-        acc.push({
-          id: String(t.id),
-          title: t.title ?? '',
-          artist: t.artist ?? null,
-          cover_url: t.cover_url ?? null,
-          external_id: t.external_id ?? null,
-          duration: t.duration ?? null,
-        });
-        return acc;
-      }, []);
-    }
-
-    // ---------------------------------------
-    // 2) FETCH PLAYLIST LIKES
-    // ---------------------------------------
-    const { data: plLikeRows, error: plErr } = await supabase
-      .from('playlist_likes')
-      .select('playlist_id, liked_at')
-      .eq('user_id', userId)
-      .not('playlist_id', 'is', null)
-      .order('liked_at', { ascending: false });
-
-    if (plErr) {
-      console.error('[LIBRARY ERROR - PLAYLIST LIKES]', plErr);
-      return res.status(500).json({ success: false, error: plErr.message });
-    }
-
-    const playlistIds = Array.from(
-      new Set(
-        (plLikeRows || [])
-          .map((r: any) => r.playlist_id)
-          .filter((id: any) => !!id)
-      )
-    );
-
-    let likedPlaylists: any[] = [];
-    if (playlistIds.length > 0) {
-      const { data: playlistRows, error: playlistErr } = await supabase
-        .from('playlists')
-        .select('id, title, description, cover_url, region, category, owner_id, created_at')
-        .in('id', playlistIds);
-
-      if (playlistErr) {
-        console.error('[LIBRARY ERROR - PLAYLISTS]', playlistErr);
-        return res.status(500).json({ success: false, error: playlistErr.message });
-      }
-
-      const map = new Map(playlistRows.map((p: any) => [p.id, p]));
-      const seen = new Set<string>();
-
-      likedPlaylists = (plLikeRows || []).reduce((acc: any[], row: any) => {
-        const id = row.playlist_id;
-        if (!id || seen.has(id)) return acc;
-        const p = map.get(id);
-        if (!p) return acc;
-        seen.add(id);
-        acc.push({
-          id: String(p.id),
-          title: p.title ?? '',
-          description: p.description ?? null,
-          cover_url: p.cover_url ?? null,
-          region: p.region ?? null,
-          category: p.category ?? null,
-          owner_id: p.owner_id ?? null,
-          created_at: p.created_at ?? null,
-        });
-        return acc;
-      }, []);
-    }
-
-    return res.json({
-      success: true,
-      likedSongs,
-      likedPlaylists,
-    });
   } catch (err: any) {
     console.error('[LIBRARY ERROR - CATCH]', err);
     return res.status(500).json({ success: false, error: err?.message || 'unknown_error' });
-  }
-}
-import { Request, Response } from 'express';
-import supabase from '../../services/supabaseClient';
-
-// Rewritten to avoid nested foreign key selects that were causing 500 errors.
-// Implements a two-step approach: first fetch like rows (track/playlist IDs + liked_at),
-// then fetch the referenced entities. Preserves liked_at ordering and deduplicates by ID.
-export async function getUserLibrary(req: Request, res: Response) {
-  try {
-    const user = (req as any).user as { id?: string } | undefined;
-    const userId = user?.id;
-    if (!userId) {
-      return res.status(401).json({ success: false, error: 'not_authenticated' });
-    }
-
-    if (!supabase) {
-      return res.status(500).json({ success: false, error: 'supabase_not_initialized' });
-    }
-
-    // ---------------------------------
-    // 1) Fetch liked song track IDs
-    // ---------------------------------
-    const { data: likeRows, error: likeErr } = await supabase
-      .from('likes')
-      .select('track_id, liked_at')
-      .eq('user_id', userId)
-      .not('track_id', 'is', null)
-      .order('liked_at', { ascending: false });
-
-    if (likeErr) {
-      console.error('[LIBRARY ERROR - SONGS]', likeErr);
-      return res.status(500).json({ success: false, error: likeErr.message });
-    }
-
-    const trackIds = Array.from(
-      new Set(
-        (likeRows || [])
-          .map(r => r.track_id as string | null)
-          .filter((id): id is string => !!id)
-      )
-    );
-
-    let likedSongs: any[] = [];
-    if (trackIds.length > 0) {
-      const { data: trackRows, error: trackErr } = await supabase
-        .from('tracks')
-        .select('id, title, artist, cover_url, external_id, duration')
-        .in('id', trackIds);
-
-      if (trackErr) {
-        return res.status(500).json({ success: false, error: trackErr.message });
-      }
-
-      const map = new Map(trackRows.map(t => [t.id, t]));
-      const seen = new Set<string>();
-      likedSongs = (likeRows || []).reduce((acc: any[], row: any) => {
-        const id = row.track_id;
-        if (!id || seen.has(id)) return acc;
-        const t = map.get(id);
-        if (!t) return acc;
-        seen.add(id);
-        acc.push({
-          id: String(t.id),
-          title: t.title ?? '',
-          artist: t.artist ?? null,
-          cover_url: t.cover_url ?? null,
-          external_id: t.external_id ?? null,
-          duration: t.duration ?? null,
-        });
-        return acc;
-      }, []);
-    }
-
-    // ---------------------------------
-    // 2) Fetch liked playlist IDs
-    // ---------------------------------
-    const { data: plLikeRows, error: plLikeErr } = await supabase
-      .from('playlist_likes')
-      .select('playlist_id, liked_at')
-      .eq('user_id', userId)
-      .not('playlist_id', 'is', null)
-      .order('liked_at', { ascending: false });
-
-    if (plLikeErr) {
-      console.error('[LIBRARY ERROR - PLAYLISTS]', plLikeErr);
-      return res.status(500).json({ success: false, error: plLikeErr.message });
-    }
-
-    const playlistIds = Array.from(
-      new Set(
-        (plLikeRows || [])
-          .map(r => r.playlist_id as string | null)
-          .filter((id): id is string => !!id)
-      )
-    );
-
-    let likedPlaylists: any[] = [];
-    if (playlistIds.length > 0) {
-      const { data: playlistRows, error: playlistErr } = await supabase
-        .from('playlists')
-        .select('id, title, description, cover_url, region, category, owner_id, created_at')
-        .in('id', playlistIds);
-
-      if (playlistErr) {
-        console.error('[LIBRARY ERROR - PLAYLISTS]', playlistErr);
-        return res.status(500).json({ success: false, error: playlistErr.message });
-      }
-
-      const map = new Map(playlistRows.map(p => [p.id, p]));
-      const seen = new Set<string>();
-      likedPlaylists = (plLikeRows || []).reduce((acc: any[], row: any) => {
-        const id = row.playlist_id;
-        if (!id || seen.has(id)) return acc;
-        const p = map.get(id);
-        if (!p) return acc;
-        seen.add(id);
-        acc.push({
-          id: String(p.id),
-          title: p.title ?? '',
-          description: p.description ?? null,
-          cover_url: p.cover_url ?? null,
-          region: p.region ?? null,
-          category: p.category ?? null,
-          owner_id: p.owner_id ?? null,
-          created_at: p.created_at ?? null,
-        });
-        return acc;
-      }, []);
-    }
-
-    return res.json({
-      success: true,
-      likedSongs,
-      likedPlaylists,
-    });
-  } catch (e: any) {
-    return res.status(500).json({ success: false, error: e?.message || 'unknown_error' });
-  }
-}
-import { Request, Response } from 'express';
-import supabase from '../../services/supabaseClient';
-
-// Full diagnostic rewrite: preserve logic, add detailed error/debug logs.
-export async function getUserLibrary(req: Request, res: Response) {
-  try {
-    const user = (req as any).user as { id?: string } | undefined;
-    const userId = user?.id;
-    if (!userId) {
-      return res.status(401).json({ success: false, error: 'not_authenticated' });
-    }
-
-    if (!supabase) {
-      return res.status(500).json({ success: false, error: 'supabase_not_initialized' });
-    }
-
-    // ---------------------------------
-    // 1) Fetch liked song track IDs
-    // ---------------------------------
-    const { data: likeRows, error: likeErr } = await supabase
-      .from('likes')
-      .select('track_id, liked_at')
-      .eq('user_id', userId)
-      .not('track_id', 'is', null)
-      .order('liked_at', { ascending: false });
-
-    if (likeErr) {
-      console.error('[LIBRARY ERROR - SONGS]', likeErr);
-      return res.status(500).json({ success: false, error: likeErr.message });
-    }
-
-    const likeCount = (likeRows || []).length;
-    console.log('[LIBRARY DEBUG] likes rows count:', likeCount);
-    // Warn on any null/undefined track_id just in case
-    (likeRows || []).forEach((r: any, idx: number) => {
-      if (!r || r.track_id == null) {
-        console.warn('[LIBRARY WARN - NULL TRACK_ID ROW]', { idx, row: r });
-      }
-    });
-
-    const trackIds = Array.from(
-      new Set(
-        (likeRows || [])
-          .map(r => r.track_id as string | null)
-          .filter((id): id is string => !!id)
-      )
-    );
-    console.log('[LIBRARY DEBUG] trackIds to fetch:', trackIds);
-
-    let likedSongs: any[] = [];
-    if (trackIds.length > 0) {
-      const { data: trackRows, error: trackErr } = await supabase
-        .from('tracks')
-        .select('id, title, artist, cover_url, external_id, duration')
-        .in('id', trackIds);
-
-      if (trackErr) {
-        console.error('[LIBRARY ERROR - TRACKS]', trackErr);
-        return res.status(500).json({ success: false, error: trackErr.message });
-      }
-
-      console.log('[LIBRARY DEBUG] fetched tracks count:', (trackRows || []).length);
-      const map = new Map((trackRows || []).map(t => [t.id, t]));
-      const seen = new Set<string>();
-      likedSongs = (likeRows || []).reduce((acc: any[], row: any) => {
-        const id = row.track_id;
-        if (!id || seen.has(id)) return acc;
-        const t = map.get(id);
-        if (!t) return acc;
-        seen.add(id);
-        acc.push({
-          id: String(t.id),
-          title: t.title ?? '',
-          artist: t.artist ?? null,
-          cover_url: t.cover_url ?? null,
-          external_id: t.external_id ?? null,
-          duration: t.duration ?? null,
-        });
-        return acc;
-      }, []);
-    }
-
-    // ---------------------------------
-    // 2) Fetch liked playlist IDs
-    // ---------------------------------
-    const { data: plLikeRows, error: plLikeErr } = await supabase
-      .from('playlist_likes')
-      .select('playlist_id, liked_at')
-      .eq('user_id', userId)
-      .not('playlist_id', 'is', null)
-      .order('liked_at', { ascending: false });
-
-    if (plLikeErr) {
-      console.error('[LIBRARY ERROR - PLAYLIST_LIKES]', plLikeErr);
-      return res.status(500).json({ success: false, error: plLikeErr.message });
-    }
-
-    const plLikeCount = (plLikeRows || []).length;
-    console.log('[LIBRARY DEBUG] playlist_likes rows count:', plLikeCount);
-    // Warn on any null/undefined playlist_id
-    (plLikeRows || []).forEach((r: any, idx: number) => {
-      if (!r || r.playlist_id == null) {
-        console.warn('[LIBRARY WARN - NULL PLAYLIST_ID ROW]', { idx, row: r });
-      }
-    });
-
-    const playlistIds = Array.from(
-      new Set(
-        (plLikeRows || [])
-          .map(r => r.playlist_id as string | null)
-          .filter((id): id is string => !!id)
-      )
-    );
-    console.log('[LIBRARY DEBUG] playlistIds to fetch:', playlistIds);
-
-    let likedPlaylists: any[] = [];
-    if (playlistIds.length > 0) {
-      const { data: playlistRows, error: playlistErr } = await supabase
-        .from('playlists')
-        .select('id, title, description, cover_url, region, category, owner_id, created_at')
-        .in('id', playlistIds);
-
-      if (playlistErr) {
-        console.error('[LIBRARY ERROR - PLAYLISTS]', playlistErr);
-        return res.status(500).json({ success: false, error: playlistErr.message });
-      }
-
-      console.log('[LIBRARY DEBUG] fetched playlists count:', (playlistRows || []).length);
-      const map = new Map((playlistRows || []).map(p => [p.id, p]));
-      const seen = new Set<string>();
-      likedPlaylists = (plLikeRows || []).reduce((acc: any[], row: any) => {
-        const id = row.playlist_id;
-        if (!id || seen.has(id)) return acc;
-        const p = map.get(id);
-        if (!p) return acc;
-        seen.add(id);
-        acc.push({
-          id: String(p.id),
-          title: p.title ?? '',
-          description: p.description ?? null,
-          cover_url: p.cover_url ?? null,
-          region: p.region ?? null,
-          category: p.category ?? null,
-          owner_id: p.owner_id ?? null,
-          created_at: p.created_at ?? null,
-        });
-        return acc;
-      }, []);
-    }
-
-    return res.json({
-      success: true,
-      likedSongs,
-      likedPlaylists,
-    });
-  } catch (e: any) {
-    console.error('[LIBRARY FATAL]', e);
-    return res.status(500).json({ success: false, error: e?.message || 'unknown_error' });
-  }
-}
-import { Request, Response } from 'express';
-import supabase from '../../services/supabaseClient';
-
-// Rewritten to avoid nested foreign key selects that were causing 500 errors.
-// Implements a two-step approach: first fetch like rows (track/playlist IDs + liked_at),
-// then fetch the referenced entities. Preserves liked_at ordering and deduplicates by ID.
-export async function getUserLibrary(req: Request, res: Response) {
-  try {
-    const user = (req as any).user as { id?: string } | undefined;
-    const userId = user?.id;
-    if (!userId) {
-      return res.status(401).json({ success: false, error: 'not_authenticated' });
-    }
-
-    if (!supabase) {
-      return res.status(500).json({ success: false, error: 'supabase_not_initialized' });
-    }
-
-    // ---------------------------------
-    // 1) Fetch liked song track IDs
-    // ---------------------------------
-    const { data: likeRows, error: likeErr } = await supabase
-      .from('likes')
-      .select('track_id, liked_at')
-      .eq('user_id', userId)
-      .not('track_id', 'is', null)
-      .order('liked_at', { ascending: false });
-
-    if (likeErr) {
-      console.error('[LIBRARY ERROR - SONGS]', likeErr);
-      return res.status(500).json({ success: false, error: likeErr.message });
-    }
-
-    const trackIds = Array.from(
-      new Set(
-        (likeRows || [])
-          .map(r => r.track_id as string | null)
-          .filter((id): id is string => !!id)
-      )
-    );
-
-    let likedSongs: any[] = [];
-    if (trackIds.length > 0) {
-      const { data: trackRows, error: trackErr } = await supabase
-        .from('tracks')
-        .select('id, title, artist, cover_url, external_id, duration')
-        .in('id', trackIds);
-
-      if (trackErr) {
-        return res.status(500).json({ success: false, error: trackErr.message });
-      }
-
-      const map = new Map(trackRows.map(t => [t.id, t]));
-      const seen = new Set<string>();
-      likedSongs = (likeRows || []).reduce((acc: any[], row: any) => {
-        const id = row.track_id;
-        if (!id || seen.has(id)) return acc;
-        const t = map.get(id);
-        if (!t) return acc;
-        seen.add(id);
-        acc.push({
-          id: String(t.id),
-          title: t.title ?? '',
-          artist: t.artist ?? null,
-          cover_url: t.cover_url ?? null,
-          external_id: t.external_id ?? null,
-          duration: t.duration ?? null,
-        });
-        return acc;
-      }, []);
-    }
-
-    // ---------------------------------
-    // 2) Fetch liked playlist IDs
-    // ---------------------------------
-    const { data: plLikeRows, error: plLikeErr } = await supabase
-      .from('playlist_likes')
-      .select('playlist_id, liked_at')
-      .eq('user_id', userId)
-      .not('playlist_id', 'is', null)
-      .order('liked_at', { ascending: false });
-
-    if (plLikeErr) {
-      return res.status(500).json({ success: false, error: plLikeErr.message });
-    }
-
-    const playlistIds = Array.from(
-      new Set(
-        (plLikeRows || [])
-          .map(r => r.playlist_id as string | null)
-          .filter((id): id is string => !!id)
-      )
-    );
-
-    let likedPlaylists: any[] = [];
-    if (playlistIds.length > 0) {
-      const { data: playlistRows, error: playlistErr } = await supabase
-        .from('playlists')
-        .select('id, title, description, cover_url, region, category, owner_id, created_at')
-        .in('id', playlistIds);
-
-      if (playlistErr) {
-        console.error('[LIBRARY ERROR - PLAYLISTS]', playlistErr);
-        return res.status(500).json({ success: false, error: playlistErr.message });
-      }
-
-      const map = new Map(playlistRows.map(p => [p.id, p]));
-      const seen = new Set<string>();
-      likedPlaylists = (plLikeRows || []).reduce((acc: any[], row: any) => {
-        const id = row.playlist_id;
-        if (!id || seen.has(id)) return acc;
-        const p = map.get(id);
-        if (!p) return acc;
-        seen.add(id);
-        acc.push({
-          id: String(p.id),
-          title: p.title ?? '',
-          description: p.description ?? null,
-          cover_url: p.cover_url ?? null,
-          region: p.region ?? null,
-          category: p.category ?? null,
-          owner_id: p.owner_id ?? null,
-          created_at: p.created_at ?? null,
-        });
-        return acc;
-      }, []);
-    }
-
-    return res.json({
-      success: true,
-      likedSongs,
-      likedPlaylists,
-    });
-  } catch (e: any) {
-    return res.status(500).json({ success: false, error: e?.message || 'unknown_error' });
   }
 }
