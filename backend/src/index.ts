@@ -19,8 +19,6 @@ import piAuthRouter from './routes/pi/auth';
 import piPaymentsRouter from './routes/pi/payments';
 
 // New modular routers
-import songsLikesRouter from './routes/likes/songs';
-import playlistsLikesRouter from './routes/likes/playlists';
 import userLibraryRouter from './routes/library';
 import { likeSong, unlikeSong } from './handlers/likes/songs';
 import { likePlaylist, unlikePlaylist } from './handlers/likes/playlists';
@@ -139,8 +137,7 @@ app.post('/likes/playlists/:playlistId', likePlaylist);
 app.delete('/likes/playlists/:playlistId', unlikePlaylist);
 
 // (Legacy modular routers retained for compatibility; should be removed if unused)
-app.use('/likes/songs', songsLikesRouter);
-app.use('/likes/playlists', playlistsLikesRouter);
+// New likes endpoints are direct (no legacy routers)
 
 // User library overview
 app.use('/library', piAuth);
