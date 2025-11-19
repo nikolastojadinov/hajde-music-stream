@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { createClient } from "@supabase/supabase-js";
 
 type Track = {
   id: string;
@@ -30,9 +29,8 @@ export default function LibraryPage() {
   const [loadingSongs, setLoadingSongs] = useState(false);
   const [loadingPlaylists, setLoadingPlaylists] = useState(false);
 
-  const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-  const SUPABASE_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
-  const supabase = useMemo(() => createClient(SUPABASE_URL, SUPABASE_ANON, { auth: { persistSession: false } }), [SUPABASE_URL, SUPABASE_ANON]);
+  // Backend URL for library fetch
+  const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "";
 
   // Derive user id (na clientu). Redosled: query param ?uid=..., localStorage 'pi_uid', ili nema usera
   useEffect(() => {
@@ -47,92 +45,64 @@ export default function LibraryPage() {
     }
   }, []);
 
-  // Load liked songs from likes -> tracks
+  // Load liked songs & playlists via backend /library
   useEffect(() => {
     const load = async () => {
       if (!userId) {
         setLikedTracks([]);
+        setLikedPlaylists([]);
         return;
       }
       setLoadingSongs(true);
-      try {
-        const { data, error } = await supabase
-          .from("likes")
-          .select(`
-            track_id,
-            tracks (
-              id,
-              title,
-              artist,
-              cover_url,
-              external_id,
-              duration
-            )
-          `)
-          .eq("user_id", userId)
-          .not("track_id", "is", null);
+      setLoadingPlaylists(true);
 
-        if (error) {
-          console.error("[Library] error loading liked songs:", error.message);
+      try {
+        const username = window.localStorage.getItem("pi_username") || "";
+        const premium = window.localStorage.getItem("pi_premium") || "false";
+        const premiumUntil = window.localStorage.getItem("pi_premium_until") || "";
+
+        const resp = await fetch(`${BACKEND_URL}/library`, {
+          headers: {
+            "X-Pi-User-Id": userId,
+            "X-Pi-Username": username,
+            "X-Pi-Premium": premium,
+            "X-Pi-Premium-Until": premiumUntil,
+          },
+          credentials: "include",
+        });
+
+        if (!resp.ok) {
+          console.error("[Library] backend /library error status:", resp.status);
           setLikedTracks([]);
-        } else {
-          const items = (data || [])
-            .filter((row: any) => row.tracks)
-            .map((row: any) => row.tracks as Track);
-          setLikedTracks(items);
+          setLikedPlaylists([]);
+          return;
         }
+
+        const json = await resp.json().catch(() => ({}));
+        if (json?.success !== true) {
+          console.error("[Library] backend /library error payload:", json);
+          setLikedTracks([]);
+          setLikedPlaylists([]);
+          return;
+        }
+
+        // Accept both shapes: { data: { songs, playlists } } or { likedSongs, likedPlaylists }
+        const songs: Track[] = json?.data?.songs || json?.likedSongs || [];
+        const playlists: Playlist[] = json?.data?.playlists || json?.likedPlaylists || [];
+
+        setLikedTracks(Array.isArray(songs) ? songs : []);
+        setLikedPlaylists(Array.isArray(playlists) ? playlists : []);
       } catch (e) {
-        console.error("[Library] exception loading liked songs:", e);
+        console.error("[Library] exception loading library:", e);
         setLikedTracks([]);
+        setLikedPlaylists([]);
       } finally {
         setLoadingSongs(false);
-      }
-    };
-    load();
-  }, [userId, supabase]);
-
-  // Load liked playlists from playlist_likes -> playlists
-  useEffect(() => {
-    const load = async () => {
-      if (!userId) {
-        setLikedPlaylists([]);
-        return;
-      }
-      setLoadingPlaylists(true);
-      try {
-        const { data, error } = await supabase
-          .from("playlist_likes")
-          .select(`
-            playlist_id,
-            playlists (
-              id,
-              title,
-              cover_url,
-              country,
-              region
-            )
-          `)
-          .eq("user_id", userId)
-          .not("playlist_id", "is", null);
-
-        if (error) {
-          console.error("[Library] error loading liked playlists:", error.message);
-          setLikedPlaylists([]);
-        } else {
-          const items = (data || [])
-            .filter((row: any) => row.playlists)
-            .map((row: any) => row.playlists as Playlist);
-          setLikedPlaylists(items);
-        }
-      } catch (e) {
-        console.error("[Library] exception loading liked playlists:", e);
-        setLikedPlaylists([]);
-      } finally {
         setLoadingPlaylists(false);
       }
     };
     load();
-  }, [userId, supabase]);
+  }, [userId, BACKEND_URL]);
 
   const renderTracks = () => {
     if (loadingSongs) return <div className="py-8 text-gray-500">Učitavanje...</div>;

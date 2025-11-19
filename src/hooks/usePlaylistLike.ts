@@ -8,25 +8,34 @@ type UsePlaylistLikeReturn = {
   loading: boolean;
 };
 
+// Helper to build Pi headers from current user/local state
+function buildPiHeaders(u: { uid: string; username?: string; premium?: boolean; premium_until?: string | null } | null) {
+  const uid = u?.uid || "";
+  const username = u?.username || "";
+  const premium = String(u?.premium === true);
+  const premiumUntil = u?.premium_until || "";
+  return {
+    "X-Pi-User-Id": uid,
+    "X-Pi-Username": username,
+    "X-Pi-Premium": premium,
+    "X-Pi-Premium-Until": premiumUntil,
+  } as Record<string, string>;
+}
+
 /**
- * usePlaylistLike
- * - Loads initial like state from Supabase `playlist_likes`
- * - Like/Unlike goes through backend API:
+ * usePlaylistLike (full rewrite)
+ * - Initial state from Supabase `playlist_likes`
+ * - Like/Unlike via backend endpoints with Pi auth headers
  *   POST   /likes/playlists/:id
  *   DELETE /likes/playlists/:id
  */
-export function usePlaylistLike(
-  playlistId: string | null | undefined
-): UsePlaylistLikeReturn {
+export function usePlaylistLike(playlistId: string | null | undefined): UsePlaylistLikeReturn {
   const { user } = usePi();
   const [liked, setLiked] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
-  const BACKEND_URL = useMemo(
-    () => import.meta.env.VITE_BACKEND_URL || "",
-    []
-  );
+  const BACKEND_URL = useMemo(() => import.meta.env.VITE_BACKEND_URL || "", []);
 
-  // Load initial like state from Supabase
+  // Load initial like state from Supabase (unchanged behavior)
   useEffect(() => {
     const load = async () => {
       if (!user?.uid || !playlistId) {
@@ -34,7 +43,6 @@ export function usePlaylistLike(
         return;
       }
       setLoading(true);
-
       try {
         const { data, error } = await externalSupabase
           .from("playlist_likes")
@@ -56,24 +64,24 @@ export function usePlaylistLike(
         setLoading(false);
       }
     };
-
     load();
   }, [user?.uid, playlistId]);
 
   const toggleLike = useCallback(async () => {
     if (!user?.uid || !playlistId) return;
-
     const next = !liked;
-    setLiked(next); // optimistic update
+    setLiked(next); // optimistic UI
 
     try {
       const method = next ? "POST" : "DELETE";
       const resp = await fetch(`${BACKEND_URL}/likes/playlists/${playlistId}`, {
         method,
-        headers: { "Content-Type": "application/json" },
-        body: method === "POST"
-          ? JSON.stringify({ user_id: user.uid })
-          : JSON.stringify({ user_id: user.uid }),
+        headers: {
+          "Content-Type": "application/json",
+          ...buildPiHeaders(user),
+        },
+        credentials: "include",
+        body: method === "POST" ? JSON.stringify({}) : undefined,
       });
 
       if (!resp.ok) {
@@ -92,7 +100,7 @@ export function usePlaylistLike(
       console.error("[usePlaylistLike] toggle exception:", e);
       setLiked(!next);
     }
-  }, [BACKEND_URL, liked, playlistId, user?.uid]);
+  }, [BACKEND_URL, liked, playlistId, user]);
 
   return { liked, toggleLike, loading };
 }
