@@ -22,6 +22,7 @@ import piPaymentsRouter from './routes/pi/payments';
 import songsLikesRouter from './routes/likes/songs';
 import playlistsLikesRouter from './routes/likes/playlists';
 import userLibraryRouter from './routes/library';
+import { piAuth } from './middleware/piAuth';
 
 declare global {
   namespace Express {
@@ -123,6 +124,11 @@ app.use('/user', userRouter);
 const notificationRouter = express.Router();
 mountNotificationEndpoints(notificationRouter);
 app.use("/notifications", notificationRouter);
+
+// Pi Auth middleware for protected resource groups
+app.use('/likes', piAuth);
+app.use('/playlists', piAuth);
+app.use('/tracks', piAuth);
 
 // New likes endpoints (modular):
 app.use('/likes/songs', songsLikesRouter);
