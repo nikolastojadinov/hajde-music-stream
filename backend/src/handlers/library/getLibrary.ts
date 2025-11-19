@@ -1,16 +1,11 @@
 import { Request, Response } from 'express';
 import supabase from '../../services/supabaseClient';
 
-function resolveUserId(req: Request): string | null {
-  const fromAuth = (req as any).currentUser?.uid || null;
-  const fromQuery = typeof req.query.user_id === 'string' ? req.query.user_id : null;
-  return fromAuth || fromQuery;
-}
-
 export async function getUserLibrary(req: Request, res: Response) {
-  const userId = resolveUserId(req);
+  const user = (req as any).user as { id?: string } | undefined;
+  const userId = user?.id;
   if (!userId) {
-    return res.status(400).json({ success: false, error: 'user_id_required' });
+    return res.status(401).json({ success: false, error: 'not_authenticated' });
   }
 
   // Liked songs

@@ -135,6 +135,7 @@ app.use('/likes/songs', songsLikesRouter);
 app.use('/likes/playlists', playlistsLikesRouter);
 
 // User library overview
+app.use('/library', piAuth);
 app.use('/library', userLibraryRouter);
 
 // Pi Network routes under /pi:
