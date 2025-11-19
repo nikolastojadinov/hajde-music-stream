@@ -27,6 +27,7 @@ export async function getUserLibrary(req: Request, res: Response) {
       .order('liked_at', { ascending: false });
 
     if (likeErr) {
+      console.error('[LIBRARY ERROR - SONGS]', likeErr);
       return res.status(500).json({ success: false, error: likeErr.message });
     }
 
@@ -99,6 +100,7 @@ export async function getUserLibrary(req: Request, res: Response) {
         .in('id', playlistIds);
 
       if (playlistErr) {
+        console.error('[LIBRARY ERROR - PLAYLISTS]', playlistErr);
         return res.status(500).json({ success: false, error: playlistErr.message });
       }
 
