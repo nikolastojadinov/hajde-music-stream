@@ -53,7 +53,13 @@ app.use(express.json())
 // Handle CORS:
 app.use(cors({
   origin: (origin: string | undefined, cb: (err: Error | null, allowed?: boolean) => void) => {
-    const allowed = [env.frontend_url, 'https://sandbox.minepi.com', 'https://minepi.com'];
+    const allowed = [
+      env.frontend_url,
+      'https://sandbox.minepi.com',
+      'https://minepi.com',
+      'https://web.minepi.com',
+      'https://www.minepi.com'
+    ];
     if (!origin) return cb(null, true);
     if (allowed.includes(origin)) return cb(null, true);
     return cb(null, false);
