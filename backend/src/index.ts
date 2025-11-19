@@ -19,9 +19,9 @@ import piAuthRouter from './routes/pi/auth';
 import piPaymentsRouter from './routes/pi/payments';
 
 // New modular routers
-import userLibraryRouter from './routes/library';
-import { likeSong, unlikeSong } from './handlers/likes/songs';
-import { likePlaylist, unlikePlaylist } from './handlers/likes/playlists';
+import { getLikedSongs, likeSong, unlikeSong } from './handlers/likes/songs';
+import { getLikedPlaylists, likePlaylist, unlikePlaylist } from './handlers/likes/playlists';
+import { getUserLibrary } from './handlers/library/getLibrary';
 import { piAuth } from './middleware/piAuth';
 
 declare global {
@@ -131,8 +131,12 @@ app.use('/playlists', piAuth);
 app.use('/tracks', piAuth);
 
 // Likes endpoints (direct handlers)
+// --- Likes: tracks ---
+app.get('/likes/songs', getLikedSongs);
 app.post('/likes/songs/:trackId', likeSong);
 app.delete('/likes/songs/:trackId', unlikeSong);
+// --- Likes: playlists ---
+app.get('/likes/playlists', getLikedPlaylists);
 app.post('/likes/playlists/:playlistId', likePlaylist);
 app.delete('/likes/playlists/:playlistId', unlikePlaylist);
 
@@ -141,7 +145,7 @@ app.delete('/likes/playlists/:playlistId', unlikePlaylist);
 
 // User library overview
 app.use('/library', piAuth);
-app.use('/library', userLibraryRouter);
+app.get('/library', getUserLibrary);
 
 // Pi Network routes under /pi:
 app.use('/pi', piAuthRouter);
