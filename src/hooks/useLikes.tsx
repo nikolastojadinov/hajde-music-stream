@@ -48,7 +48,7 @@ export default function useLikes(): UseLikesReturn {
   const likedTrackIds = useMemo(() => new Set(likedTracks.map(t => t.id)), [likedTracks]);
   const likedPlaylistIds = useMemo(() => new Set(likedPlaylists.map(p => p.id)), [likedPlaylists]);
 
-  const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || '';
+  const BACKEND_URL: string = ((window as any).__PI_BACKEND_URL__ as string) || import.meta.env.VITE_BACKEND_URL || '';
 
   const loadAllLikes = useCallback(async () => {
     if (!user?.uid) {
@@ -60,8 +60,7 @@ export default function useLikes(): UseLikesReturn {
     try {
       const resp = await fetch(`${BACKEND_URL}/library`, {
         method: 'GET',
-        credentials: 'include',
-        headers: buildPiHeaders(user),
+        headers: { 'Content-Type': 'application/json', ...buildPiHeaders(user) },
       });
       if (!resp.ok) {
         setLikedTracks([]);
@@ -127,7 +126,6 @@ export default function useLikes(): UseLikesReturn {
     try {
       const resp = await fetch(`${BACKEND_URL}/likes/songs/${trackId}`, {
         method,
-        credentials: 'include',
         headers: { 'Content-Type': 'application/json', ...buildPiHeaders(user) },
       });
       const json = await resp.json().catch(() => ({}));
@@ -156,7 +154,6 @@ export default function useLikes(): UseLikesReturn {
     try {
       const resp = await fetch(`${BACKEND_URL}/likes/playlists/${playlistId}`, {
         method,
-        credentials: 'include',
         headers: { 'Content-Type': 'application/json', ...buildPiHeaders(user) },
       });
       const json = await resp.json().catch(() => ({}));
