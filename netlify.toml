@@ -9,6 +9,7 @@
 
 [build.environment]
   NODE_VERSION = "20"
+  GIT_LFS_ENABLED = "1"
   # Set these in Netlify UI (DO NOT hardcode values):
   # VITE_SUPABASE_URL
   # VITE_SUPABASE_ANON_KEY
