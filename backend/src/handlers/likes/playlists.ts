@@ -8,67 +8,49 @@ function getClient() {
   return createClient(url, key, { auth: { persistSession: false } });
 }
 
-export async function getLikedPlaylists(req: Request, res: Response) {
-  try {
-    const uid = req.currentUser?.uid;
-    if (!uid) return res.status(401).json({ success: false, error: 'not_authenticated' });
-
-    const client = getClient();
-
-    const { data, error } = await client
-      .from('playlist_likes')
-      .select('playlist_id, liked_at')
-      .eq('user_id', uid)
-      .order('liked_at', { ascending: false });
-
-    if (error) return res.status(500).json({ success: false, error: error.message });
-    return res.json({ success: true, data });
-  } catch (e: any) {
-    return res.status(500).json({ success: false, error: e.message });
-  }
-}
-
+// POST /likes/playlists/:playlistId
 export async function likePlaylist(req: Request, res: Response) {
   try {
-    const uid = req.currentUser?.uid;
-    const playlistId = req.params.id;
-    if (!uid || !playlistId)
-      return res.status(400).json({ success: false, error: 'missing_user_or_playlist_id' });
+    const user = (req as any).user as { id?: string } | undefined;
+    const userId = user?.id;
+    const playlistId = req.params.playlistId || req.params.id;
+    if (!userId) return res.status(401).json({ success: false, error: 'not_authenticated' });
+    if (!playlistId) return res.status(400).json({ success: false, error: 'missing_playlist_id' });
 
     const client = getClient();
-
     const { error } = await client
       .from('playlist_likes')
       .upsert(
-        { user_id: uid, playlist_id: playlistId, liked_at: new Date().toISOString() },
+        { user_id: userId, playlist_id: playlistId, created_at: new Date().toISOString() },
         { onConflict: 'user_id,playlist_id' }
       );
 
     if (error) return res.status(500).json({ success: false, error: error.message });
     return res.json({ success: true });
   } catch (e: any) {
-    return res.status(500).json({ success: false, error: e.message });
+    return res.status(500).json({ success: false, error: e.message || 'server_error' });
   }
 }
 
+// DELETE /likes/playlists/:playlistId
 export async function unlikePlaylist(req: Request, res: Response) {
   try {
-    const uid = req.currentUser?.uid;
-    const playlistId = req.params.id;
-    if (!uid || !playlistId)
-      return res.status(400).json({ success: false, error: 'missing_user_or_playlist_id' });
+    const user = (req as any).user as { id?: string } | undefined;
+    const userId = user?.id;
+    const playlistId = req.params.playlistId || req.params.id;
+    if (!userId) return res.status(401).json({ success: false, error: 'not_authenticated' });
+    if (!playlistId) return res.status(400).json({ success: false, error: 'missing_playlist_id' });
 
     const client = getClient();
-
     const { error } = await client
       .from('playlist_likes')
       .delete()
-      .eq('user_id', uid)
+      .eq('user_id', userId)
       .eq('playlist_id', playlistId);
 
     if (error) return res.status(500).json({ success: false, error: error.message });
     return res.json({ success: true });
   } catch (e: any) {
-    return res.status(500).json({ success: false, error: e.message });
+    return res.status(500).json({ success: false, error: e.message || 'server_error' });
   }
 }

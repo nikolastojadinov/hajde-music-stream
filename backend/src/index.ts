@@ -22,6 +22,8 @@ import piPaymentsRouter from './routes/pi/payments';
 import songsLikesRouter from './routes/likes/songs';
 import playlistsLikesRouter from './routes/likes/playlists';
 import userLibraryRouter from './routes/library';
+import { likeSong, unlikeSong } from './handlers/likes/songs';
+import { likePlaylist, unlikePlaylist } from './handlers/likes/playlists';
 import { piAuth } from './middleware/piAuth';
 
 declare global {
@@ -130,7 +132,13 @@ app.use('/likes', piAuth);
 app.use('/playlists', piAuth);
 app.use('/tracks', piAuth);
 
-// New likes endpoints (modular):
+// Likes endpoints (direct handlers)
+app.post('/likes/songs/:trackId', likeSong);
+app.delete('/likes/songs/:trackId', unlikeSong);
+app.post('/likes/playlists/:playlistId', likePlaylist);
+app.delete('/likes/playlists/:playlistId', unlikePlaylist);
+
+// (Legacy modular routers retained for compatibility; should be removed if unused)
 app.use('/likes/songs', songsLikesRouter);
 app.use('/likes/playlists', playlistsLikesRouter);
 
