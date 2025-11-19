@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { usePlayer } from "@/contexts/PlayerContext";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useExternalPlaylist } from "@/hooks/useExternalPlaylist";
-import { useLikes } from "@/hooks/useLikes";
+import useLikes from "@/hooks/useLikes";
 
 const Playlist = () => {
   const { id } = useParams<{ id: string }>();

@@ -1,6 +1,6 @@
 import { Play, Heart } from "lucide-react";
 import { usePlayer } from "@/contexts/PlayerContext";
-import { useLikes } from "@/hooks/useLikes";
+import useLikes from "@/hooks/useLikes";
 
 interface TrackCardProps {
   id: string;
