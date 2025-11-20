@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePi } from "@/contexts/PiContext";
-import { externalSupabase } from "@/lib/externalSupabase";
 
 type UsePlaylistLikeReturn = {
   liked: boolean;
@@ -8,7 +7,6 @@ type UsePlaylistLikeReturn = {
   loading: boolean;
 };
 
-// Helper to build Pi headers from current user/local state
 function buildPiHeaders(u: { uid: string; username?: string; premium?: boolean; premium_until?: string | null } | null) {
   const uid = u?.uid || "";
   const username = u?.username || "";
@@ -23,11 +21,10 @@ function buildPiHeaders(u: { uid: string; username?: string; premium?: boolean; 
 }
 
 /**
- * usePlaylistLike (full rewrite)
- * - Initial state from Supabase `playlist_likes`
- * - Like/Unlike via backend endpoints with Pi auth headers
- *   POST   /likes/playlists/:id
- *   DELETE /likes/playlists/:id
+ * usePlaylistLike (backend-only)
+ * - No direct Supabase access to restricted tables.
+ * - Initial state via backend GET /likes/playlists
+ * - Toggle via backend POST/DELETE /likes/playlists/:id
  */
 export function usePlaylistLike(playlistId: string | null | undefined): UsePlaylistLikeReturn {
   const { user } = usePi();
@@ -35,7 +32,6 @@ export function usePlaylistLike(playlistId: string | null | undefined): UsePlayl
   const [loading, setLoading] = useState<boolean>(false);
   const BACKEND_URL = useMemo(() => import.meta.env.VITE_BACKEND_URL || "", []);
 
-  // Load initial like state from Supabase (unchanged behavior)
   useEffect(() => {
     const load = async () => {
       if (!user?.uid || !playlistId) {
@@ -44,34 +40,33 @@ export function usePlaylistLike(playlistId: string | null | undefined): UsePlayl
       }
       setLoading(true);
       try {
-        const { data, error } = await externalSupabase
-          .from("playlist_likes")
-          .select("user_id, playlist_id")
-          .eq("user_id", user.uid)
-          .eq("playlist_id", playlistId)
-          .limit(1);
-
-        if (error) {
-          console.warn("[usePlaylistLike] Supabase select error:", error.message);
+        const resp = await fetch(`${BACKEND_URL}/likes/playlists`, {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+            ...buildPiHeaders(user),
+          },
+        });
+        if (!resp.ok) {
           setLiked(false);
-        } else {
-          setLiked(Boolean(data && data.length > 0));
+          return;
         }
-      } catch (e) {
-        console.warn("[usePlaylistLike] Supabase exception:", e);
+        const json = await resp.json();
+        const items: Array<{ id: string }> = Array.isArray(json?.items) ? json.items : [];
+        setLiked(items.some((p) => String(p.id) === String(playlistId)));
+      } catch (_e) {
         setLiked(false);
       } finally {
         setLoading(false);
       }
     };
     load();
-  }, [user?.uid, playlistId]);
+  }, [BACKEND_URL, playlistId, user?.uid]);
 
   const toggleLike = useCallback(async () => {
     if (!user?.uid || !playlistId) return;
     const next = !liked;
-    setLiked(next); // optimistic UI
-
+    setLiked(next);
     try {
       const method = next ? "POST" : "DELETE";
       const resp = await fetch(`${BACKEND_URL}/likes/playlists/${playlistId}`, {
@@ -80,24 +75,16 @@ export function usePlaylistLike(playlistId: string | null | undefined): UsePlayl
           "Content-Type": "application/json",
           ...buildPiHeaders(user),
         },
-        credentials: "include",
-        body: method === "POST" ? JSON.stringify({}) : undefined,
       });
-
       if (!resp.ok) {
-        const err = await resp.json().catch(() => ({}));
-        console.error("[usePlaylistLike] toggle error:", err);
         setLiked(!next);
         return;
       }
-
       const json = await resp.json().catch(() => ({}));
       if (json?.success !== true) {
-        console.error("[usePlaylistLike] toggle failed:", json);
         setLiked(!next);
       }
-    } catch (e) {
-      console.error("[usePlaylistLike] toggle exception:", e);
+    } catch (_e) {
       setLiked(!next);
     }
   }, [BACKEND_URL, liked, playlistId, user]);
@@ -106,3 +93,5 @@ export function usePlaylistLike(playlistId: string | null | undefined): UsePlayl
 }
 
 export default usePlaylistLike;
+ 
+
