@@ -4,14 +4,32 @@ import supabase from '../../services/supabaseClient';
 export async function getUserLibrary(req: Request, res: Response) {
   try {
     const user = (req as any).user;
-    const userId = user?.id;
+    const wallet = user?.id; // Pi wallet / external UID
 
-    if (!userId) {
+    if (!wallet) {
       return res.status(401).json({ success: false, error: 'not_authenticated' });
     }
 
     if (!supabase) {
       return res.status(500).json({ success: false, error: 'supabase_not_initialized' });
+    }
+
+    // Map wallet → internal users.id (UUID) for tables that FK na users.id (playlist_likes). Likes tabela takođe koristi UUID user_id.
+    const { data: userRow, error: userLookupError } = await supabase
+      .from('users')
+      .select('id')
+      .eq('wallet', wallet)
+      .limit(1)
+      .maybeSingle();
+
+    if (userLookupError) {
+      console.error('[LIBRARY ERROR - USER LOOKUP]', userLookupError);
+      return res.status(500).json({ success: false, error: 'user_lookup_failed' });
+    }
+    const internalUserId = userRow?.id;
+    if (!internalUserId) {
+      console.error('[LIBRARY ERROR - INTERNAL USER ID MISSING]', { wallet });
+      return res.status(500).json({ success: false, error: 'internal_user_id_missing' });
     }
 
     // ------------------------------------------------------------------
@@ -20,7 +38,7 @@ export async function getUserLibrary(req: Request, res: Response) {
     const { data: likeRows, error: likeErr } = await supabase
       .from('likes')
       .select('track_id, liked_at')
-      .eq('user_id', userId)
+      .eq('user_id', internalUserId)
       .not('track_id', 'is', null)
       .order('liked_at', { ascending: false });
 
@@ -76,7 +94,7 @@ export async function getUserLibrary(req: Request, res: Response) {
     const { data: plRows, error: plErr } = await supabase
       .from('playlist_likes')
       .select('playlist_id, liked_at')
-      .eq('user_id', userId)
+      .eq('user_id', internalUserId)
       .not('playlist_id', 'is', null)
       .order('liked_at', { ascending: false });
 
