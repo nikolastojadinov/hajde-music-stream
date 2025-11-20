@@ -2,6 +2,7 @@ import { Play, Pause, SkipBack, SkipForward, Volume2, Repeat, Shuffle, Heart, X,
 import { Slider } from "@/components/ui/slider";
 import { usePlayer } from "@/contexts/PlayerContext";
 import { useIsMobile } from "@/hooks/use-mobile";
+import useLikes from "@/hooks/useLikes";
 const Player = () => {
   const isMobile = useIsMobile();
   const {
@@ -12,7 +13,7 @@ const Player = () => {
     isFullscreen,
     currentVideoTitle,
     currentVideoArtist,
-    isLiked,
+    currentTrackId,
     isPlayerVisible,
     togglePlay,
     skipForward,
@@ -21,9 +22,11 @@ const Player = () => {
     seekTo,
     formatTime,
     setIsFullscreen,
-    toggleLike,
     setIsPlayerVisible
   } = usePlayer();
+  const { isTrackLiked, toggleTrackLike } = useLikes();
+  const isCurrentTrackLiked = currentTrackId ? isTrackLiked(currentTrackId) : false;
+  const likeDisabled = !currentTrackId;
   const handleClose = () => {
     if (isPlaying) {
       togglePlay(); // Pauzira reprodukciju
@@ -36,6 +39,10 @@ const Player = () => {
   const handleProgressChange = (values: number[]) => {
     const newTime = values[0] / 100 * duration;
     seekTo(newTime);
+  };
+  const handleToggleLike = () => {
+    if (!currentTrackId) return;
+    void toggleTrackLike(currentTrackId);
   };
   const progressPercentage = duration > 0 ? currentTime / duration * 100 : 0;
   if (!isPlayerVisible) return null;
@@ -98,8 +105,13 @@ const Player = () => {
 
           {/* Volume */}
           <div className="w-full max-w-md flex items-center justify-between">
-            <button onClick={toggleLike} className={`transition-colors ${isLiked ? 'text-primary' : 'text-muted-foreground hover:text-primary'}`}>
-              <Heart className={`w-6 h-6 ${isLiked ? 'fill-current' : ''}`} />
+            <button
+              onClick={handleToggleLike}
+              disabled={likeDisabled}
+              className={`transition-colors ${isCurrentTrackLiked ? 'text-primary' : 'text-muted-foreground hover:text-primary'} ${likeDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+              aria-label={isCurrentTrackLiked ? 'Unlike song' : 'Like song'}
+            >
+              <Heart className={`w-6 h-6 ${isCurrentTrackLiked ? 'fill-current' : ''}`} />
             </button>
             <div className="flex items-center gap-3">
               <Volume2 className="w-5 h-5 text-muted-foreground" />
@@ -148,8 +160,13 @@ const Player = () => {
               <SkipForward className="w-6 h-6" />
             </button>
             
-            <button onClick={toggleLike} className={`transition-colors ${isLiked ? 'text-primary' : 'text-muted-foreground hover:text-primary'}`}>
-              <Heart className={`w-6 h-6 ${isLiked ? 'fill-current' : ''}`} />
+            <button
+              onClick={handleToggleLike}
+              disabled={likeDisabled}
+              className={`transition-colors ${isCurrentTrackLiked ? 'text-primary' : 'text-muted-foreground hover:text-primary'} ${likeDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+              aria-label={isCurrentTrackLiked ? 'Unlike song' : 'Like song'}
+            >
+              <Heart className={`w-6 h-6 ${isCurrentTrackLiked ? 'fill-current' : ''}`} />
             </button>
           </div>
 

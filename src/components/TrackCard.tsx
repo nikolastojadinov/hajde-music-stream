@@ -17,7 +17,7 @@ const TrackCard = ({ id, title, artist, imageUrl, youtubeId, duration }: TrackCa
   const isLiked = isTrackLiked(id);
 
   const handlePlayClick = () => {
-    playTrack(youtubeId, title, artist);
+    playTrack(youtubeId, title, artist, id);
   };
 
   const handleLikeClick = (e: React.MouseEvent) => {

@@ -18,7 +18,7 @@ type PlayerContextType = {
   isFullscreen: boolean;
   currentVideoTitle: string;
   currentVideoArtist: string;
-  isLiked: boolean;
+  currentTrackId: string | null;
   isPlayerVisible: boolean;
   togglePlay: () => void;
   skipForward: () => void;
@@ -27,19 +27,18 @@ type PlayerContextType = {
   seekTo: (seconds: number) => void;
   formatTime: (seconds: number) => string;
   setIsFullscreen: (fullscreen: boolean) => void;
-  toggleLike: () => void;
   setIsPlayerVisible: (visible: boolean) => void;
   playerReady: boolean;
-  playTrack: (youtubeId: string, title: string, artist: string) => void;
-  playPlaylist: (tracks: Array<{ external_id: string; title: string; artist: string }>, startIndex?: number) => void;
+  playTrack: (youtubeId: string, title: string, artist: string, trackId?: string | null) => void;
+  playPlaylist: (tracks: Array<{ id?: string | null; external_id: string; title: string; artist: string }>, startIndex?: number) => void;
 };
 
-const playlist = [
-  { id: "dQw4w9WgXcQ", title: "Rick Astley - Never Gonna Give You Up", artist: "Rick Astley" },
-  { id: "9bZkp7q19f0", title: "PSY - Gangnam Style", artist: "PSY" },
-  { id: "kJQP7kiw5Fk", title: "Luis Fonsi - Despacito", artist: "Luis Fonsi ft. Daddy Yankee" },
-  { id: "RgKAFK5djSk", title: "Wiz Khalifa - See You Again", artist: "Wiz Khalifa ft. Charlie Puth" },
-  { id: "JGwWNGJdvx8", title: "Ed Sheeran - Shape of You", artist: "Ed Sheeran" },
+const defaultPlaylist = [
+  { external_id: "dQw4w9WgXcQ", title: "Rick Astley - Never Gonna Give You Up", artist: "Rick Astley" },
+  { external_id: "9bZkp7q19f0", title: "PSY - Gangnam Style", artist: "PSY" },
+  { external_id: "kJQP7kiw5Fk", title: "Luis Fonsi - Despacito", artist: "Luis Fonsi ft. Daddy Yankee" },
+  { external_id: "RgKAFK5djSk", title: "Wiz Khalifa - See You Again", artist: "Wiz Khalifa ft. Charlie Puth" },
+  { external_id: "JGwWNGJdvx8", title: "Ed Sheeran - Shape of You", artist: "Ed Sheeran" },
 ];
 
 const PlayerContext = createContext<PlayerContextType | undefined>(undefined);
@@ -57,12 +56,12 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [currentVideoTitle, setCurrentVideoTitle] = useState("");
   const [currentVideoArtist, setCurrentVideoArtist] = useState("");
   const [currentYoutubeId, setCurrentYoutubeId] = useState("");
-  const [isLiked, setIsLiked] = useState(false);
+  const [currentTrackId, setCurrentTrackId] = useState<string | null>(null);
   const [isPlayerVisible, setIsPlayerVisible] = useState(false);
   const initAttempted = useRef(false);
-  const pendingVideoRef = useRef<{ id: string; title: string; artist: string } | null>(null);
-  const [currentPlaylist, setCurrentPlaylist] = useState<Array<{ external_id: string; title: string; artist: string }>>([]);
-  const currentPlaylistRef = useRef<Array<{ external_id: string; title: string; artist: string }>>([]);
+  const pendingVideoRef = useRef<{ id: string; title: string; artist: string; trackId?: string | null } | null>(null);
+  const [currentPlaylist, setCurrentPlaylist] = useState<Array<{ id?: string | null; external_id: string; title: string; artist: string }>>([]);
+  const currentPlaylistRef = useRef<Array<{ id?: string | null; external_id: string; title: string; artist: string }>>([]);
   const currentIndexRef = useRef(0);
   const savedSeekTimeRef = useRef<number | null>(null);
 
@@ -104,13 +103,14 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const savedState = localStorage.getItem(getStateKey(user.uid));
       if (savedState) {
         try {
-          const { youtubeId, title, artist, time, playlist, index, isFullscreen: savedFullscreen } = JSON.parse(savedState);
+          const { youtubeId, title, artist, time, playlist, index, isFullscreen: savedFullscreen, trackId } = JSON.parse(savedState);
           if (youtubeId && time >= 0) {
             savedSeekTimeRef.current = time;
-            pendingVideoRef.current = { id: youtubeId, title: title || "", artist: artist || "" };
+            pendingVideoRef.current = { id: youtubeId, title: title || "", artist: artist || "", trackId: trackId ?? null };
             setCurrentVideoTitle(title || "");
             setCurrentVideoArtist(artist || "");
             setCurrentYoutubeId(youtubeId);
+            setCurrentTrackId(trackId ?? null);
 
             if (playlist && Array.isArray(playlist)) {
               currentPlaylistRef.current = playlist;
@@ -179,7 +179,8 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
               time: time,
               playlist: currentPlaylistRef.current,
               index: currentIndexRef.current,
-              isFullscreen: isFullscreen
+              isFullscreen: isFullscreen,
+              trackId: currentTrackId,
             };
             localStorage.setItem(getStateKey(userId), JSON.stringify(stateToSave));
           }
@@ -190,7 +191,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [currentYoutubeId, currentVideoTitle, currentVideoArtist, isFullscreen, userId]);
+  }, [currentYoutubeId, currentVideoTitle, currentVideoArtist, isFullscreen, currentTrackId, userId]);
 
   // Cleanup player kada se zatvori (isPlayerVisible = false)
   useEffect(() => {
@@ -233,7 +234,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
 
       // Uzmi video ID iz pending ili default
-      const videoId = pendingVideoRef.current?.id || playlist[0].id;
+      const videoId = pendingVideoRef.current?.id || defaultPlaylist[0].external_id;
 
       try {
         playerRef.current = new window.YT.Player("yt-player", {
@@ -255,6 +256,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
                 setCurrentVideoTitle(videoToLoad.title);
                 setCurrentVideoArtist(videoToLoad.artist);
                 setCurrentYoutubeId(videoToLoad.id);
+                setCurrentTrackId(videoToLoad.trackId ?? null);
                 
                 console.log('📼 Loading video:', videoToLoad.id);
                 
@@ -306,13 +308,13 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
                   setCurrentVideoTitle(nextTrack.title);
                   setCurrentVideoArtist(nextTrack.artist);
                   setCurrentYoutubeId(nextTrack.external_id);
+                  setCurrentTrackId(nextTrack.id ?? null);
                   playerRef.current.loadVideoById(nextTrack.external_id);
                   setTimeout(() => {
                     if (playerRef.current && playerRef.current.playVideo) {
                       playerRef.current.playVideo();
                     }
                   }, 100);
-                  setIsLiked(false);
                 }
               }
             },
@@ -379,13 +381,13 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setCurrentVideoTitle(nextTrack.title);
     setCurrentVideoArtist(nextTrack.artist);
     setCurrentYoutubeId(nextTrack.external_id);
+    setCurrentTrackId(nextTrack.id ?? null);
     playerRef.current.loadVideoById(nextTrack.external_id);
     setTimeout(() => {
       if (playerRef.current && playerRef.current.playVideo) {
         playerRef.current.playVideo();
       }
     }, 100);
-    setIsLiked(false);
   };
 
   const skipBackward = () => {
@@ -398,13 +400,13 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setCurrentVideoTitle(prevTrack.title);
     setCurrentVideoArtist(prevTrack.artist);
     setCurrentYoutubeId(prevTrack.external_id);
+    setCurrentTrackId(prevTrack.id ?? null);
     playerRef.current.loadVideoById(prevTrack.external_id);
     setTimeout(() => {
       if (playerRef.current && playerRef.current.playVideo) {
         playerRef.current.playVideo();
       }
     }, 100);
-    setIsLiked(false);
   };
 
   const setVolume = (newVolume: number) => {
@@ -430,11 +432,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
-  const toggleLike = () => {
-    setIsLiked(!isLiked);
-  };
-
-  const playTrack = (youtubeId: string, title: string, artist: string) => {
+  const playTrack = (youtubeId: string, title: string, artist: string, trackId?: string | null) => {
     console.log('🎵 playTrack called:', { 
       youtubeId, 
       title, 
@@ -447,9 +445,10 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setCurrentVideoTitle(title);
     setCurrentVideoArtist(artist);
     setCurrentYoutubeId(youtubeId);
+    setCurrentTrackId(trackId ?? null);
     
     // Reset playlist to single track
-    const singleTrackPlaylist = [{ external_id: youtubeId, title, artist }];
+    const singleTrackPlaylist = [{ id: trackId ?? null, external_id: youtubeId, title, artist }];
     currentPlaylistRef.current = singleTrackPlaylist;
     setCurrentPlaylist(singleTrackPlaylist);
     currentIndexRef.current = 0;
@@ -474,7 +473,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         playerReady,
         hasLoadMethod: !!(playerRef.current?.loadVideoById)
       });
-      pendingVideoRef.current = { id: youtubeId, title, artist };
+      pendingVideoRef.current = { id: youtubeId, title, artist, trackId: trackId ?? null };
       
       // Ako player ne postoji ali je bio vidljiv, resetuj playerReady
       if (!playerRef.current && isPlayerVisible) {
@@ -484,7 +483,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   };
 
-  const playPlaylist = (tracks: Array<{ external_id: string; title: string; artist: string }>, startIndex = 0) => {
+  const playPlaylist = (tracks: Array<{ id?: string | null; external_id: string; title: string; artist: string }>, startIndex = 0) => {
     if (tracks.length === 0) return;
     
     currentPlaylistRef.current = tracks;
@@ -494,7 +493,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setCurrentIndex(startIndex);
     
     const track = tracks[startIndex];
-    playTrack(track.external_id, track.title, track.artist);
+    playTrack(track.external_id, track.title, track.artist, track.id ?? null);
   };
 
   return (
@@ -507,7 +506,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         isFullscreen,
         currentVideoTitle,
         currentVideoArtist,
-        isLiked,
+        currentTrackId,
         isPlayerVisible,
         togglePlay,
         skipForward,
@@ -516,7 +515,6 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         seekTo,
         formatTime,
         setIsFullscreen,
-        toggleLike,
         setIsPlayerVisible,
         playerReady,
         playTrack,

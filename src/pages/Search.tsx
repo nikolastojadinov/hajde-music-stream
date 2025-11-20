@@ -140,7 +140,7 @@ const Search = () => {
 
   // IDENTICAL to TrackCard playback - uses playTrack from PlayerContext
   const handleTrackClick = (track: Track) => {
-    playTrack(track.external_id, track.title, track.artist);
+    playTrack(track.external_id, track.title, track.artist, track.id);
   };
 
   // IDENTICAL to PlaylistCard navigation
