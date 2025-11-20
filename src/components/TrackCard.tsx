@@ -22,6 +22,7 @@ const TrackCard = ({ id, title, artist, imageUrl, youtubeId, duration }: TrackCa
 
   const handleLikeClick = (e: React.MouseEvent) => {
     e.stopPropagation();
+    console.log('[ui] ❤️ track click', { id });
     toggleTrackLike(id);
   };
 

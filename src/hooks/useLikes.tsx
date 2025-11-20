@@ -58,23 +58,28 @@ export default function useLikes(): UseLikesReturn {
     }
 
     try {
+      console.log('[likes] GET', `${BACKEND_URL}/library`);
       const resp = await fetch(`${BACKEND_URL}/library`, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json', ...buildPiHeaders(user) },
       });
+      console.log('[likes] /library response status:', resp.status);
       if (!resp.ok) {
+        console.error('[likes] /library failed', { status: resp.status });
         setLikedTracks([]);
         setLikedPlaylists([]);
         return;
       }
       const json = await resp.json().catch(() => ({}));
       if (json?.success !== true) {
+        console.error('[likes] /library error payload', json);
         setLikedTracks([]);
         setLikedPlaylists([]);
         return;
       }
       const songs = Array.isArray(json.likedSongs) ? json.likedSongs : [];
       const playlists = Array.isArray(json.likedPlaylists) ? json.likedPlaylists : [];
+      console.log('[likes] /library loaded', { songs: songs.length, playlists: playlists.length });
       setLikedTracks(songs.map((s: any) => ({
         id: String(s.id),
         title: s.title ?? '',
@@ -124,17 +129,22 @@ export default function useLikes(): UseLikesReturn {
 
     const method = currentlyLiked ? 'DELETE' : 'POST';
     try {
-      const resp = await fetch(`${BACKEND_URL}/likes/songs/${trackId}`, {
+      const url = `${BACKEND_URL}/likes/songs/${trackId}`;
+      console.log('[likes] track toggle', { trackId, method, url });
+      const resp = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json', ...buildPiHeaders(user) },
       });
       const json = await resp.json().catch(() => ({}));
       if (!resp.ok || json?.success !== true) {
+        console.error('[likes] track toggle failed', { status: resp.status, json });
         setLikedTracks(previous);
         return;
       }
+      console.log('[likes] track toggle success');
       await loadAllLikes();
     } catch (_e) {
+      console.error('[likes] track toggle exception', _e);
       setLikedTracks(previous);
     }
   }, [user?.uid, likedTrackIds, likedTracks, BACKEND_URL, loadAllLikes]);
@@ -152,17 +162,22 @@ export default function useLikes(): UseLikesReturn {
 
     const method = currentlyLiked ? 'DELETE' : 'POST';
     try {
-      const resp = await fetch(`${BACKEND_URL}/likes/playlists/${playlistId}`, {
+      const url = `${BACKEND_URL}/likes/playlists/${playlistId}`;
+      console.log('[likes] playlist toggle', { playlistId, method, url });
+      const resp = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json', ...buildPiHeaders(user) },
       });
       const json = await resp.json().catch(() => ({}));
       if (!resp.ok || json?.success !== true) {
+        console.error('[likes] playlist toggle failed', { status: resp.status, json });
         setLikedPlaylists(previous);
         return;
       }
+      console.log('[likes] playlist toggle success');
       await loadAllLikes();
     } catch (_e) {
+      console.error('[likes] playlist toggle exception', _e);
       setLikedPlaylists(previous);
     }
   }, [user?.uid, likedPlaylistIds, likedPlaylists, BACKEND_URL, loadAllLikes]);

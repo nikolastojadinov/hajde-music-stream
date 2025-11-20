@@ -53,6 +53,7 @@ const Playlist = () => {
 
   const handleToggleLike = () => {
     if (id) {
+      console.log('[ui] ❤️ playlist header click', { id });
       togglePlaylistLike(id);
     }
   };

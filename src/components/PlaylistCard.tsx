@@ -16,6 +16,7 @@ const PlaylistCard = ({ id, title, description, imageUrl }: PlaylistCardProps) =
   const handleLikeClick = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    console.log('[ui] ❤️ playlist click', { id });
     togglePlaylistLike(id);
   };
 
