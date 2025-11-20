@@ -61,6 +61,7 @@ export default function useLikes(): UseLikesReturn {
       console.log('[likes] GET', `${BACKEND_URL}/library`);
       const resp = await fetch(`${BACKEND_URL}/library`, {
         method: 'GET',
+        cache: 'no-store',
         headers: { 'Content-Type': 'application/json', ...buildPiHeaders(user) },
       });
       console.log('[likes] /library response status:', resp.status);

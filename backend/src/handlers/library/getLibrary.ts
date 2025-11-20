@@ -32,13 +32,18 @@ export async function getUserLibrary(req: Request, res: Response) {
       return res.status(500).json({ success: false, error: 'internal_user_id_missing' });
     }
 
+    const userIds = [internalUserId];
+    if (wallet && wallet !== internalUserId) {
+      userIds.push(wallet);
+    }
+
     // ------------------------------------------------------------------
     // 1) FETCH LIKED SONGS (track_id) → THEN FETCH TRACK ENTITIES
     // ------------------------------------------------------------------
     const { data: likeRows, error: likeErr } = await supabase
       .from('likes')
       .select('track_id, liked_at')
-      .eq('user_id', internalUserId)
+      .in('user_id', userIds)
       .not('track_id', 'is', null)
       .order('liked_at', { ascending: false });
 
@@ -94,7 +99,7 @@ export async function getUserLibrary(req: Request, res: Response) {
     const { data: plRows, error: plErr } = await supabase
       .from('playlist_likes')
       .select('playlist_id, liked_at')
-      .eq('user_id', internalUserId)
+      .in('user_id', userIds)
       .not('playlist_id', 'is', null)
       .order('liked_at', { ascending: false });
 

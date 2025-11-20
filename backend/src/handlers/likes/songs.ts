@@ -34,6 +34,11 @@ export async function getLikedSongs(req: Request, res: Response) {
     return res.status(500).json({ success: false, error: 'user_internal_id_missing' });
   }
 
+  const userIds = [internalId];
+  if (wallet && wallet !== internalId) {
+    userIds.push(wallet);
+  }
+
   const { data, error } = await supabase
     .from('likes')
     .select(`
@@ -48,7 +53,7 @@ export async function getLikedSongs(req: Request, res: Response) {
         duration
       )
     `)
-    .eq('user_id', internalId)
+    .in('user_id', userIds)
     .not('track_id', 'is', null)
     .order('liked_at', { ascending: false });
 
@@ -106,6 +111,15 @@ export async function likeSong(req: Request, res: Response) {
     return res.status(500).json({ success: false, error: error.message });
   }
 
+  // Clean up legacy wallet-based rows if they still exist.
+  if (wallet && wallet !== internalId) {
+    await supabase
+      .from('likes')
+      .delete()
+      .eq('user_id', wallet)
+      .eq('track_id', trackId);
+  }
+
   return res.json({ success: true });
 }
 
@@ -121,6 +135,11 @@ export async function unlikeSong(req: Request, res: Response) {
     return res.status(500).json({ success: false, error: 'user_internal_id_missing' });
   }
 
+  const userIds = [internalId];
+  if (wallet && wallet !== internalId) {
+    userIds.push(wallet);
+  }
+
   const trackId = req.params.trackId as string | undefined;
   if (!trackId) {
     return res.status(400).json({ success: false, error: 'track_id_required' });
@@ -129,7 +148,7 @@ export async function unlikeSong(req: Request, res: Response) {
   const { error } = await supabase
     .from('likes')
     .delete()
-    .eq('user_id', internalId)
+    .in('user_id', userIds)
     .eq('track_id', trackId);
 
   if (error) {
