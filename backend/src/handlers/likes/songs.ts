@@ -1,15 +1,37 @@
 import { Request, Response } from 'express';
 import supabase from '../../services/supabaseClient';
 
-function getUserId(req: Request): string | null {
+async function mapWalletToInternalId(wallet: string): Promise<string | null> {
+  if (!wallet) return null;
+  const { data, error } = await supabase
+    .from('users')
+    .select('id')
+    .eq('wallet', wallet)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.error('[likes:songs] users lookup error', error.message);
+    return null;
+  }
+
+  return data?.id || null;
+}
+
+function getWallet(req: Request): string | null {
   const user = (req as any).user as { id?: string } | undefined;
-  return user?.id ?? null;
+  return user?.id ?? null; // Pi wallet UID
 }
 
 export async function getLikedSongs(req: Request, res: Response) {
-  const userId = getUserId(req);
-  if (!userId) {
+  const wallet = getWallet(req);
+  if (!wallet) {
     return res.status(401).json({ success: false, error: 'not_authenticated' });
+  }
+
+  const internalId = await mapWalletToInternalId(wallet);
+  if (!internalId) {
+    return res.status(500).json({ success: false, error: 'user_internal_id_missing' });
   }
 
   const { data, error } = await supabase
@@ -26,7 +48,7 @@ export async function getLikedSongs(req: Request, res: Response) {
         duration
       )
     `)
-    .eq('user_id', userId)
+    .eq('user_id', internalId)
     .not('track_id', 'is', null)
     .order('liked_at', { ascending: false });
 
@@ -58,9 +80,14 @@ export async function getLikedSongs(req: Request, res: Response) {
 
 // POST /likes/songs/:trackId
 export async function likeSong(req: Request, res: Response) {
-  const userId = getUserId(req);
-  if (!userId) {
+  const wallet = getWallet(req);
+  if (!wallet) {
     return res.status(401).json({ success: false, error: 'not_authenticated' });
+  }
+
+  const internalId = await mapWalletToInternalId(wallet);
+  if (!internalId) {
+    return res.status(500).json({ success: false, error: 'user_internal_id_missing' });
   }
 
   const trackId = req.params.trackId as string | undefined;
@@ -71,7 +98,7 @@ export async function likeSong(req: Request, res: Response) {
   const { error } = await supabase
     .from('likes')
     .upsert(
-      { user_id: userId, track_id: trackId, liked_at: new Date().toISOString() },
+      { user_id: internalId, track_id: trackId, liked_at: new Date().toISOString() },
       { onConflict: 'user_id,track_id' }
     );
 
@@ -84,9 +111,14 @@ export async function likeSong(req: Request, res: Response) {
 
 // DELETE /likes/songs/:trackId
 export async function unlikeSong(req: Request, res: Response) {
-  const userId = getUserId(req);
-  if (!userId) {
+  const wallet = getWallet(req);
+  if (!wallet) {
     return res.status(401).json({ success: false, error: 'not_authenticated' });
+  }
+
+  const internalId = await mapWalletToInternalId(wallet);
+  if (!internalId) {
+    return res.status(500).json({ success: false, error: 'user_internal_id_missing' });
   }
 
   const trackId = req.params.trackId as string | undefined;
@@ -97,7 +129,7 @@ export async function unlikeSong(req: Request, res: Response) {
   const { error } = await supabase
     .from('likes')
     .delete()
-    .eq('user_id', userId)
+    .eq('user_id', internalId)
     .eq('track_id', trackId);
 
   if (error) {
