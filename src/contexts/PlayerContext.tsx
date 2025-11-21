@@ -29,7 +29,13 @@ type PlayerContextType = {
   setIsFullscreen: (fullscreen: boolean) => void;
   setIsPlayerVisible: (visible: boolean) => void;
   playerReady: boolean;
-  playTrack: (youtubeId: string, title: string, artist: string, trackId?: string | null) => void;
+  playTrack: (
+    youtubeId: string,
+    title: string,
+    artist: string,
+    trackId?: string | null,
+    options?: { preserveQueue?: boolean }
+  ) => void;
   playPlaylist: (tracks: Array<{ id?: string | null; external_id: string; title: string; artist: string }>, startIndex?: number) => void;
 };
 
@@ -432,7 +438,13 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
-  const playTrack = (youtubeId: string, title: string, artist: string, trackId?: string | null) => {
+  const playTrack = (
+    youtubeId: string,
+    title: string,
+    artist: string,
+    trackId?: string | null,
+    options?: { preserveQueue?: boolean }
+  ) => {
     console.log('🎵 playTrack called:', { 
       youtubeId, 
       title, 
@@ -447,12 +459,14 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setCurrentYoutubeId(youtubeId);
     setCurrentTrackId(trackId ?? null);
     
-    // Reset playlist to single track
-    const singleTrackPlaylist = [{ id: trackId ?? null, external_id: youtubeId, title, artist }];
-    currentPlaylistRef.current = singleTrackPlaylist;
-    setCurrentPlaylist(singleTrackPlaylist);
-    currentIndexRef.current = 0;
-    setCurrentIndex(0);
+    if (!options?.preserveQueue) {
+      // Reset playlist to single track when not preserving an existing queue
+      const singleTrackPlaylist = [{ id: trackId ?? null, external_id: youtubeId, title, artist }];
+      currentPlaylistRef.current = singleTrackPlaylist;
+      setCurrentPlaylist(singleTrackPlaylist);
+      currentIndexRef.current = 0;
+      setCurrentIndex(0);
+    }
     
     // Prvo postavi player kao visible
     setIsPlayerVisible(true);
@@ -493,7 +507,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setCurrentIndex(startIndex);
     
     const track = tracks[startIndex];
-    playTrack(track.external_id, track.title, track.artist, track.id ?? null);
+    playTrack(track.external_id, track.title, track.artist, track.id ?? null, { preserveQueue: true });
   };
 
   return (
