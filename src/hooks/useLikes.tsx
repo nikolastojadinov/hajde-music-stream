@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { usePi } from '@/contexts/PiContext';
+import { usePremiumDialog } from '@/contexts/PremiumDialogContext';
 
 export type Track = {
   id: string;
@@ -42,6 +43,7 @@ type UseLikesReturn = {
 
 export default function useLikes(): UseLikesReturn {
   const { user } = usePi();
+  const { openDialog } = usePremiumDialog();
   const [likedTracks, setLikedTracks] = useState<Track[]>([]);
   const [likedPlaylists, setLikedPlaylists] = useState<Playlist[]>([]);
 
@@ -107,6 +109,14 @@ export default function useLikes(): UseLikesReturn {
     loadAllLikes();
   }, [loadAllLikes]);
 
+  const shouldBlockForPremium = useCallback(() => {
+    if (!user || !user.premium) {
+      openDialog();
+      return true;
+    }
+    return false;
+  }, [user, openDialog]);
+
   const isTrackLiked = useCallback((trackId: string | null | undefined) => {
     if (!trackId) return false;
     return likedTrackIds.has(trackId);
@@ -118,6 +128,7 @@ export default function useLikes(): UseLikesReturn {
   }, [likedPlaylistIds]);
 
   const toggleTrackLike = useCallback(async (trackId: string) => {
+    if (shouldBlockForPremium()) return;
     if (!user?.uid || !trackId) return;
     const currentlyLiked = likedTrackIds.has(trackId);
 
@@ -148,9 +159,10 @@ export default function useLikes(): UseLikesReturn {
       console.error('[likes] track toggle exception', _e);
       setLikedTracks(previous);
     }
-  }, [user?.uid, likedTrackIds, likedTracks, BACKEND_URL, loadAllLikes]);
+  }, [user?.uid, likedTrackIds, likedTracks, BACKEND_URL, loadAllLikes, shouldBlockForPremium]);
 
   const togglePlaylistLike = useCallback(async (playlistId: string) => {
+    if (shouldBlockForPremium()) return;
     if (!user?.uid || !playlistId) return;
     const currentlyLiked = likedPlaylistIds.has(playlistId);
 
@@ -181,7 +193,7 @@ export default function useLikes(): UseLikesReturn {
       console.error('[likes] playlist toggle exception', _e);
       setLikedPlaylists(previous);
     }
-  }, [user?.uid, likedPlaylistIds, likedPlaylists, BACKEND_URL, loadAllLikes]);
+  }, [user?.uid, likedPlaylistIds, likedPlaylists, BACKEND_URL, loadAllLikes, shouldBlockForPremium]);
 
   return {
     likedTracks,
