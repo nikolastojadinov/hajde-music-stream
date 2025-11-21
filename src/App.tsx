@@ -21,7 +21,6 @@ import Privacy from "@/pages/Privacy";
 import Terms from "@/pages/Terms";
 import NotFound from "@/pages/NotFound";
 import ImportCSV from "@/pages/ImportCSV";
-import DebugFloatingLogger from "@/components/DebugFloatingLogger";
 import { usePi } from "@/contexts/PiContext";
 
 const queryClient = new QueryClient();
@@ -35,7 +34,6 @@ const AuthGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       </div>
     );
   }
-  console.log('[AuthGate] user ready:', user);
   return <>{children}</>;
 };
 
@@ -96,7 +94,6 @@ const App = () => {
                   </div>
                   
                   <YouTubePlayerContainer />
-                  <DebugFloatingLogger />
                 </div>
               </BrowserRouter>
             </PlayerProvider>
