@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { LanguageProvider } from "@/contexts/LanguageContext";
 import { PlayerProvider } from "@/contexts/PlayerContext";
 import { PiProvider } from "@/contexts/PiContext";
+import { PremiumDialogProvider } from "@/contexts/PremiumDialogContext";
 import Sidebar from "@/components/Sidebar";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
@@ -22,6 +23,7 @@ import Terms from "@/pages/Terms";
 import NotFound from "@/pages/NotFound";
 import ImportCSV from "@/pages/ImportCSV";
 import { usePi } from "@/contexts/PiContext";
+import PremiumPromptManager from "@/components/PremiumPromptManager";
 
 const queryClient = new QueryClient();
 
@@ -43,6 +45,7 @@ const App = () => {
       <TooltipProvider>
         <LanguageProvider>
           <PiProvider>
+            <PremiumDialogProvider>
             <AuthGate>
             <PlayerProvider>
               <Toaster />
@@ -93,11 +96,13 @@ const App = () => {
                     <Player />
                   </div>
                   
+                  <PremiumPromptManager />
                   <YouTubePlayerContainer />
                 </div>
               </BrowserRouter>
             </PlayerProvider>
             </AuthGate>
+            </PremiumDialogProvider>
           </PiProvider>
         </LanguageProvider>
       </TooltipProvider>
