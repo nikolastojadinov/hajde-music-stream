@@ -16,7 +16,7 @@ const Header = () => {
   } = useLanguage();
   const [languageDialogOpen, setLanguageDialogOpen] = useState(false);
   const [premiumDialogOpen, setPremiumDialogOpen] = useState(false);
-  const { user, signIn, signOut } = usePi();
+  const { user, signIn } = usePi();
   return <header className="fixed top-0 left-0 right-0 h-16 bg-background/80 backdrop-blur-md border-b border-border/50 z-50">
       <div className="h-full px-4 md:px-6 flex items-center justify-between">
         {/* Logo */}
@@ -121,11 +121,6 @@ const Header = () => {
                 <span>{t("terms_of_service")}</span>
               </DropdownMenuItem>
             </Link>
-            {user && (
-              <DropdownMenuItem onClick={() => signOut()} className="cursor-pointer py-3 text-foreground">
-                <span>{t("sign_out")}</span>
-              </DropdownMenuItem>
-            )}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
