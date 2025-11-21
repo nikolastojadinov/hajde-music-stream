@@ -25,7 +25,7 @@ const CreatePlaylist = () => {
     }
 
     if (!user?.uid) {
-      toast.error("Morate biti prijavljeni da biste kreirali plejlistu");
+      toast.error(t("must_sign_in_create_playlist"));
       return;
     }
 
@@ -46,7 +46,7 @@ const CreatePlaylist = () => {
 
       if (error) {
         console.error("❌ Error creating playlist:", error);
-        toast.error("Greška pri kreiranju plejliste");
+        toast.error(t("playlist_create_error"));
         return;
       }
 
@@ -54,7 +54,7 @@ const CreatePlaylist = () => {
       navigate(`/playlist/${data.id}`);
     } catch (error) {
       console.error("❌ Exception creating playlist:", error);
-      toast.error("Greška pri kreiranju plejliste");
+      toast.error(t("playlist_create_error"));
     } finally {
       setIsCreating(false);
     }
@@ -121,12 +121,12 @@ const CreatePlaylist = () => {
               {/* Image URL */}
               <div className="space-y-2">
                 <label htmlFor="imageUrl" className="text-sm font-semibold">
-                  URL slike (opciono)
+                  {t("image_url_optional")}
                 </label>
                 <Input
                   id="imageUrl"
                   type="url"
-                  placeholder="https://example.com/image.jpg"
+                  placeholder={t("image_url_placeholder")}
                   value={imageUrl}
                   onChange={(e) => setImageUrl(e.target.value)}
                   className="h-12 bg-secondary border-border text-foreground"
@@ -142,7 +142,7 @@ const CreatePlaylist = () => {
               disabled={isCreating || !name.trim()}
               className="bg-primary text-foreground hover:bg-primary/90 font-semibold px-8"
             >
-              {isCreating || loading ? t("creating") || "Kreiranje..." : t("create_playlist_btn")}
+              {isCreating || loading ? t("creating") : t("create_playlist_btn")}
             </Button>
             <Button
               onClick={() => navigate(-1)}

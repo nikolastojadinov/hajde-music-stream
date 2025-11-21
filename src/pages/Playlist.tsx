@@ -6,11 +6,13 @@ import { usePlayer } from "@/contexts/PlayerContext";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useExternalPlaylist } from "@/hooks/useExternalPlaylist";
 import useLikes from "@/hooks/useLikes";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 const Playlist = () => {
   const { id } = useParams<{ id: string }>();
   const { playPlaylist, isPlaying, togglePlay } = usePlayer();
   const { isPlaylistLiked, togglePlaylistLike } = useLikes();
+  const { t } = useLanguage();
   const [currentTrackId, setCurrentTrackId] = useState<string | null>(null);
 
   console.log('🎵 Playlist page mounted, ID:', id);
@@ -75,12 +77,12 @@ const Playlist = () => {
     return (
       <div className="flex-1 overflow-y-auto pb-32 flex items-center justify-center">
         <div className="text-center p-4">
-          <h2 className="text-2xl font-bold mb-2">Greška pri učitavanju plejliste</h2>
+          <h2 className="text-2xl font-bold mb-2">{t("playlist_load_error")}</h2>
           <p className="text-muted-foreground mb-4">
-            {error instanceof Error ? error.message : 'Nepoznata greška'}
+            {error instanceof Error ? error.message : t("unknown_error")}
           </p>
           <Button onClick={() => window.location.reload()}>
-            Pokušaj ponovo
+            {t("try_again")}
           </Button>
         </div>
       </div>
@@ -92,10 +94,10 @@ const Playlist = () => {
     return (
       <div className="flex-1 overflow-y-auto pb-32 flex items-center justify-center">
         <div className="text-center p-4">
-          <h2 className="text-2xl font-bold mb-2">Plejlista nije pronađena</h2>
+          <h2 className="text-2xl font-bold mb-2">{t("playlist_not_found")}</h2>
           <p className="text-muted-foreground mb-4">ID: {id}</p>
           <Button onClick={() => window.history.back()}>
-            Nazad
+            {t("back")}
           </Button>
         </div>
       </div>
@@ -111,7 +113,9 @@ const Playlist = () => {
           </div>
           <div>
             <h1 className="text-3xl md:text-5xl font-black">{playlist.title}</h1>
-            <p className="text-sm text-muted-foreground mt-2">{playlist.tracks.length} pesama</p>
+            <p className="text-sm text-muted-foreground mt-2">
+              {playlist.tracks.length} {t("songs")}
+            </p>
           </div>
         </div>
       </div>
@@ -120,14 +124,14 @@ const Playlist = () => {
         <div className="flex items-center gap-4 mb-6">
           <Button size="lg" className="rounded-full" onClick={handlePlayPlaylist}>
             <Play className="w-5 h-5 mr-2 fill-current" />
-            Pusti plejlistu
+            {t("play_all")}
           </Button>
           
           {/* Like button */}
           <button
             onClick={handleToggleLike}
             className="w-12 h-12 rounded-full bg-secondary hover:bg-secondary/80 flex items-center justify-center hover:scale-110 transition-all"
-            aria-label={isLiked ? "Unlike playlist" : "Like playlist"}
+            aria-label={isLiked ? t("unlike_playlist") : t("like_playlist")}
           >
             <Heart 
               className={`w-6 h-6 transition-all ${
