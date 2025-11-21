@@ -44,7 +44,7 @@ const LanguageContext = createContext<LanguageContextType | undefined>(undefined
 
 export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentLanguage, setCurrentLanguage] = useState<string>(() => {
-    return localStorage.getItem("language") || "sr";
+    return localStorage.getItem("language") || "en";
   });
 
   useEffect(() => {
@@ -1805,5 +1805,5 @@ const getTranslations = (lang: string): Record<string, string> => {
     },
   };
 
-  return translations[lang] || translations.sr;
+  return translations[lang] || translations.en;
 };
