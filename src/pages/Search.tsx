@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Search as SearchIcon, Music, ListMusic, User } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -158,16 +158,16 @@ const Search = () => {
   const hasResults = results.tracks.length > 0 || results.playlists.length > 0 || results.artistGroups.length > 0;
   const showEmptyState = debouncedSearch.length > 0 && !isLoading && !hasResults;
 
-  const browseCategories = [
-    { id: 1, title: "Pop", color: "from-pink-500 to-purple-500" },
-    { id: 2, title: "Rock", color: "from-red-500 to-orange-500" },
-    { id: 3, title: "Hip-Hop", color: "from-yellow-500 to-green-500" },
-    { id: 4, title: "Electronic", color: "from-blue-500 to-cyan-500" },
-    { id: 5, title: "Jazz", color: "from-indigo-500 to-purple-500" },
-    { id: 6, title: "Classical", color: "from-gray-500 to-slate-500" },
-    { id: 7, title: "R&B", color: "from-rose-500 to-pink-500" },
-    { id: 8, title: "Country", color: "from-amber-500 to-yellow-500" },
-  ];
+  const browseCategories = useMemo(() => [
+    { id: 1, title: t("genre_pop"), color: "from-pink-500 to-purple-500" },
+    { id: 2, title: t("genre_rock"), color: "from-red-500 to-orange-500" },
+    { id: 3, title: t("genre_hiphop"), color: "from-yellow-500 to-green-500" },
+    { id: 4, title: t("genre_electronic"), color: "from-blue-500 to-cyan-500" },
+    { id: 5, title: t("genre_jazz"), color: "from-indigo-500 to-purple-500" },
+    { id: 6, title: t("genre_classical"), color: "from-gray-500 to-slate-500" },
+    { id: 7, title: t("genre_rnb"), color: "from-rose-500 to-pink-500" },
+    { id: 8, title: t("genre_country"), color: "from-amber-500 to-yellow-500" },
+  ], [t]);
 
   return (
     <div className="flex-1 overflow-y-auto pb-32">
@@ -208,10 +208,10 @@ const Search = () => {
             ) : showEmptyState ? (
               <div className="text-center py-12">
                 <p className="text-muted-foreground text-lg">
-                  Nema rezultata za "{debouncedSearch}"
+                  {t("search_no_results").replace("{query}", debouncedSearch)}
                 </p>
                 <p className="text-muted-foreground text-sm mt-2">
-                  Pokušajte sa drugim ključnim rečima
+                  {t("search_try_different")}
                 </p>
               </div>
             ) : hasResults ? (
@@ -222,7 +222,7 @@ const Search = () => {
                     <div className="flex items-center gap-2 mb-4">
                       <Music className="w-6 h-6 text-primary" />
                       <h2 className="text-2xl font-bold text-foreground">
-                        Pesme ({results.tracks.length})
+                        {`${t("search_section_songs")} (${results.tracks.length})`}
                       </h2>
                     </div>
 
@@ -307,7 +307,7 @@ const Search = () => {
                     <div className="flex items-center gap-2 mb-4">
                       <ListMusic className="w-6 h-6 text-primary" />
                       <h2 className="text-2xl font-bold text-foreground">
-                        Plejliste ({results.playlists.length})
+                        {`${t("search_section_playlists")} (${results.playlists.length})`}
                       </h2>
                     </div>
 
@@ -393,7 +393,7 @@ const Search = () => {
                     <div className="flex items-center gap-2 mb-4">
                       <User className="w-6 h-6 text-primary" />
                       <h2 className="text-2xl font-bold text-foreground">
-                        Izvođači ({results.artistGroups.length})
+                        {`${t("search_section_artists")} (${results.artistGroups.length})`}
                       </h2>
                     </div>
 
