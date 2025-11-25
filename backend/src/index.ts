@@ -12,7 +12,8 @@ import mountUserEndpoints from './handlers/users';
 import mountNotificationEndpoints from './handlers/notifications';
 import mountHealthEndpoints from './handlers/health';
 import supabase from './services/supabaseClient';
-import { randomBytes } from 'crypto';
+import { initDailyRefreshScheduler } from './lib/dailyRefreshScheduler';
+import { initJobProcessor } from './lib/jobProcessor';
 
 // Pi Network routes
 import piAuthRouter from './routes/pi/auth';
@@ -163,6 +164,9 @@ app.get('/', async (_req: Request, res: Response) => {
 
 
 // III. Boot up the app:
+
+initDailyRefreshScheduler();
+initJobProcessor();
 
 app.listen(env.port, async () => {
   console.log(`Connected to Supabase at ${env.supabase_url}`);

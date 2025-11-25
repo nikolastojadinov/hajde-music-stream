@@ -46,7 +46,7 @@ export default function PrivacyPolicy() {
       <h2 className="text-xl font-semibold mt-4">7. User Rights & Contact</h2>
       <p>
         Users can request data deletion at 
-        <a href="mailto:support@purplemusic.netlify.app" className="text-primary underline"> support@purplemusic.netlify.app</a>.
+        <a href="mailto:nikolastojadinov@yahoo.co.uk" className="text-primary underline"> nikolastojadinov@yahoo.co.uk</a>.
         We will respond within 30 days.
       </p>
     </div>

@@ -67,7 +67,7 @@ export default function TermsOfService() {
       <h2 className="text-xl font-semibold mt-4">8. Copyright Complaints</h2>
       <p>
         We respect the rights of creators. If you believe your rights are infringed through content accessible via the Service, please
-        contact us at <a className="text-primary underline" href="mailto:support@purplemusic.netlify.app">support@purplemusic.netlify.app</a> with sufficient detail (links, screenshots, and your contact information).
+        contact us at <a className="text-primary underline" href="mailto:nikolastojadinov@yahoo.co.uk">nikolastojadinov@yahoo.co.uk</a> with sufficient detail (links, screenshots, and your contact information).
       </p>
 
       <h2 className="text-xl font-semibold mt-4">9. Privacy</h2>
@@ -118,7 +118,7 @@ export default function TermsOfService() {
       <h2 className="text-xl font-semibold mt-4">16. Contact</h2>
       <p>
         Questions about these Terms? Email us at
-        <a className="text-primary underline" href="mailto:support@purplemusic.netlify.app"> support@purplemusic.netlify.app</a>.
+        <a className="text-primary underline" href="mailto:nikolastojadinov@yahoo.co.uk"> nikolastojadinov@yahoo.co.uk</a>.
       </p>
     </div>
   );
