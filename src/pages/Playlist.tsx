@@ -37,6 +37,7 @@ const Playlist = () => {
     const controller = new AbortController();
     fetch(viewUrl, {
       method: 'POST',
+      credentials: 'include',
       signal: controller.signal,
     })
       .then(() => mutate(statsKey))

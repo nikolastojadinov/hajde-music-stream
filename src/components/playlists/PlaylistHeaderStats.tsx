@@ -7,12 +7,16 @@ interface PlaylistHeaderStatsProps {
 }
 
 interface PublicStatsResponse {
-  global_likes: number;
-  global_clicks: number;
+  likes: number;
+  views: number;
 }
 
 const fetcher = async (url: string): Promise<PublicStatsResponse> => {
-  const response = await fetch(url);
+  const response = await fetch(url, { credentials: 'include' });
+
+  if (response.status === 401) {
+    return { likes: 0, views: 0 };
+  }
 
   if (!response.ok) {
     throw new Error('Failed to load playlist stats');
@@ -29,8 +33,8 @@ export function PlaylistHeaderStats({ playlistId }: PlaylistHeaderStatsProps) {
     fetcher
   );
 
-  const likes = data?.global_likes ?? 0;
-  const views = data?.global_clicks ?? 0;
+  const likes = data?.likes ?? 0;
+  const views = data?.views ?? 0;
 
   return (
     <div className="flex items-center gap-6 text-sm text-muted-foreground" aria-live="polite">

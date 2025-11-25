@@ -2,21 +2,43 @@ import { Request, Response } from 'express';
 import supabase from '../../services/supabaseClient';
 
 interface PublicStatsResponse {
-  global_likes: number;
-  global_clicks: number;
+  likes: number;
+  views: number;
 }
 
-async function countRows(table: string, column: string, value: string): Promise<number> {
-  const { count, error } = await supabase!
-    .from(table)
-    .select('*', { count: 'exact', head: true })
-    .eq(column, value);
+function getRequestUserId(req: Request): string | null {
+  if (req.currentUser?.uid) {
+    return req.currentUser.uid;
+  }
 
-  if (error) {
+  const piAuthUser = (req as any).user as { id?: string } | undefined;
+  if (piAuthUser?.id) {
+    return piAuthUser.id;
+  }
+
+  const headerUser = req.headers['x-pi-user-id'];
+  if (typeof headerUser === 'string' && headerUser.trim().length > 0) {
+    return headerUser;
+  }
+
+  return null;
+}
+
+async function fetchPlaylistStats(playlistId: string): Promise<PublicStatsResponse> {
+  const { data, error } = await supabase!
+    .from('playlist_stats')
+    .select('public_like_count, public_view_count')
+    .eq('playlist_id', playlistId)
+    .maybeSingle();
+
+  if (error && error.code !== 'PGRST116') {
     throw error;
   }
 
-  return count ?? 0;
+  return {
+    likes: data?.public_like_count ?? 0,
+    views: data?.public_view_count ?? 0,
+  };
 }
 
 export async function getPublicPlaylistStats(req: Request, res: Response) {
@@ -31,16 +53,7 @@ export async function getPublicPlaylistStats(req: Request, res: Response) {
   }
 
   try {
-    const [globalLikes, globalClicks] = await Promise.all([
-      countRows('playlist_likes', 'playlist_id', playlistId),
-      countRows('playlist_views', 'playlist_id', playlistId),
-    ]);
-
-    const payload: PublicStatsResponse = {
-      global_likes: globalLikes,
-      global_clicks: globalClicks,
-    };
-
+    const payload = await fetchPlaylistStats(playlistId);
     return res.json(payload);
   } catch (error) {
     console.error('[getPublicPlaylistStats] Failed to fetch stats', error);
@@ -55,12 +68,36 @@ export async function registerPlaylistView(req: Request, res: Response) {
     return res.status(400).json({ error: 'playlist_id_required' });
   }
 
+  const viewerId = getRequestUserId(req);
+
+  if (!viewerId) {
+    return res.status(401).json({ error: 'user_not_authenticated' });
+  }
+
   if (!supabase) {
     return res.status(500).json({ error: 'supabase_not_initialized' });
   }
 
   try {
-    const { error } = await supabase.from('playlist_views').insert({ playlist_id: playlistId });
+    const { data: existing, error: existingError } = await supabase
+      .from('playlist_views')
+      .select('id')
+      .eq('playlist_id', playlistId)
+      .eq('user_id', viewerId)
+      .maybeSingle();
+
+    if (existingError && existingError.code !== 'PGRST116') {
+      throw existingError;
+    }
+
+    if (existing) {
+      return res.json({ ok: true, already_tracked: true });
+    }
+
+    const { error } = await supabase.from('playlist_views').insert({
+      playlist_id: playlistId,
+      user_id: viewerId,
+    });
 
     if (error) {
       throw error;
