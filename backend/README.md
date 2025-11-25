@@ -1,7 +1,11 @@
 # Pi Demo App Backend
 
-The only variable you need to provide is `PI_API_KEY`, which is required to authorize payments. You receive it
-upon app registration. For more guidelines on registering your app refer to
+Critical environment variables:
+
+- `PI_API_KEY` – required to authorize Pi payments (obtain it from the Pi developer portal).
+- `YOUTUBE_API_KEY` – required so the refresh worker can call the YouTube Data API and keep playlists in sync.
+
+You receive the Pi key upon app registration. For more guidelines on registering your app refer to
 the [Pi Developer Guide](https://pi-apps.github.io/community-developer-guide/docs/gettingStarted/devPortal/).
 
 `FRONTEND_URL` specifies the URL of the frontend app, which by default is `http://localhost:3314`.

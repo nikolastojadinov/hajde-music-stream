@@ -18,6 +18,8 @@ services:
         value: https://ofkfygqrfenctzitigae.supabase.co
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
+      - key: YOUTUBE_API_KEY
+        sync: false
       - key: FRONTEND_URL
         value: https://pmtestnet.netlify.app
       - key: NODE_ENV

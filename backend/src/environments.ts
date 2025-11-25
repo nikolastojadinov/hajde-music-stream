@@ -18,6 +18,7 @@ interface Environment {
   port: number;
   session_secret: string;
   pi_api_key: string;
+  youtube_api_key: string;
   platform_api_url: string;
   supabase_url: string;
   supabase_service_role_key: string;
@@ -29,6 +30,7 @@ const env: Environment = {
   port: parseInt(process.env.PORT || '8000', 10),
   session_secret: process.env.SESSION_SECRET || 'This is my session secret',
   pi_api_key: process.env.PI_API_KEY || '',
+  youtube_api_key: process.env.YOUTUBE_API_KEY || '',
   platform_api_url: process.env.PLATFORM_API_URL || 'https://api.minepi.com',
   supabase_url: process.env.SUPABASE_URL || '',
   supabase_service_role_key: process.env.SUPABASE_SERVICE_ROLE_KEY || '',

@@ -1,6 +1,8 @@
 import path from 'path';
 import { promises as fs } from 'fs';
+import axios from 'axios';
 import { DateTime } from 'luxon';
+import env from '../environments';
 import supabase from '../services/supabaseClient';
 
 const TIMEZONE = 'Europe/Budapest';
@@ -9,6 +11,8 @@ const JOB_TABLE = 'refresh_jobs';
 const PLAYLIST_TABLE = 'playlists';
 const TRACKS_TABLE = 'tracks';
 const PLAYLIST_TRACKS_TABLE = 'playlist_tracks';
+const YOUTUBE_API_BASE_URL = 'https://www.googleapis.com/youtube/v3';
+const YOUTUBE_PAGE_SIZE = 50;
 
 const DEFAULT_ARTIST = 'Unknown Artist';
 const DEFAULT_TITLE = 'Untitled track';
@@ -511,8 +515,264 @@ async function updatePlaylistMetadata(playlistId: string, trackCount: number): P
 }
 
 async function fetchLatestYouTubeTracks(playlistId: string, title?: string): Promise<YouTubeTrack[]> {
-  console.warn('[runBatch] fetchLatestYouTubeTracks stub invoked', { playlistId, title });
-  return [];
+  if (!env.youtube_api_key) {
+    console.error('[runBatch] Missing YOUTUBE_API_KEY env var; cannot refresh playlist', {
+      playlistId,
+      title,
+    });
+    return [];
+  }
+
+  try {
+    const playlistRow = await loadPlaylistSourceRow(playlistId);
+    if (!playlistRow) {
+      console.warn('[runBatch] Playlist not found before YouTube refresh', { playlistId, title });
+      return [];
+    }
+
+    const youtubePlaylistId = resolveYoutubePlaylistId(playlistRow);
+    if (!youtubePlaylistId) {
+      console.warn('[runBatch] Unable to resolve YouTube playlist ID for refresh', {
+        playlistId,
+        title,
+      });
+      return [];
+    }
+
+    const tracks = await pullYouTubePlaylistTracks(youtubePlaylistId);
+    console.log('[runBatch] Retrieved latest tracks from YouTube', {
+      playlistId,
+      title,
+      youtubePlaylistId,
+      trackCount: tracks.length,
+    });
+    return tracks;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('[runBatch] Failed to fetch playlist from YouTube', {
+      playlistId,
+      title,
+      error: message,
+    });
+    return [];
+  }
+}
+
+async function loadPlaylistSourceRow(playlistId: string): Promise<Record<string, any> | null> {
+  const { data, error } = await supabase!
+    .from(PLAYLIST_TABLE)
+    .select('*')
+    .eq('id', playlistId)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  return (data as Record<string, any> | null) ?? null;
+}
+
+function resolveYoutubePlaylistId(row: Record<string, any>): string | null {
+  const candidateFields = [
+    row.external_id,
+    row.youtube_playlist_id,
+    row.source_playlist_id,
+    row.youtube_id,
+    row.source_id,
+  ];
+
+  for (const candidate of candidateFields) {
+    const normalized = typeof candidate === 'string' ? candidate.trim() : '';
+    if (normalized) {
+      return normalized;
+    }
+  }
+
+  const urlFields = [row.source_url, row.external_url, row.playlist_url, row.youtube_url];
+  for (const url of urlFields) {
+    const extracted = extractPlaylistIdFromString(url);
+    if (extracted) {
+      return extracted;
+    }
+  }
+
+  return null;
+}
+
+function extractPlaylistIdFromString(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  if (/^(PL|UU|LL|FL|RD)[\w-]{10,}$/.test(trimmed)) {
+    return trimmed;
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    const listParam = parsed.searchParams.get('list');
+    if (listParam) {
+      return listParam;
+    }
+
+    const segments = parsed.pathname.split('/').filter(Boolean);
+    const playlistIndex = segments.findIndex(segment => segment === 'playlist');
+    if (playlistIndex >= 0 && segments[playlistIndex + 1]) {
+      return segments[playlistIndex + 1];
+    }
+  } catch (_) {
+    // Not a URL; ignore
+  }
+
+  return null;
+}
+
+async function pullYouTubePlaylistTracks(youtubePlaylistId: string): Promise<YouTubeTrack[]> {
+  const tracks: YouTubeTrack[] = [];
+  let pageToken: string | undefined;
+
+  do {
+    const { data } = await axios.get(`${YOUTUBE_API_BASE_URL}/playlistItems`, {
+      params: {
+        key: env.youtube_api_key,
+        playlistId: youtubePlaylistId,
+        part: 'snippet,contentDetails',
+        maxResults: YOUTUBE_PAGE_SIZE,
+        pageToken,
+      },
+    });
+
+    const items = Array.isArray(data?.items) ? data.items : [];
+    const videoIds = items
+      .map((item: any) => item?.contentDetails?.videoId || item?.snippet?.resourceId?.videoId)
+      .filter((id: string | undefined): id is string => Boolean(id));
+
+    const durationMap = await fetchVideoDurations(videoIds);
+
+    for (const item of items) {
+      const snippet = item?.snippet;
+      const contentDetails = item?.contentDetails;
+      const videoId: string | undefined =
+        contentDetails?.videoId || snippet?.resourceId?.videoId || undefined;
+
+      if (!snippet || !videoId) {
+        continue;
+      }
+
+      const title = snippet.title ?? DEFAULT_TITLE;
+      if (title === 'Private video' || title === 'Deleted video') {
+        continue;
+      }
+
+      const artist = snippet.videoOwnerChannelTitle ?? snippet.channelTitle ?? DEFAULT_ARTIST;
+      const thumbnails = collectThumbnailUrls(snippet.thumbnails);
+      const durationSeconds = durationMap.get(videoId);
+      const position =
+        typeof snippet.position === 'number' ? snippet.position + 1 : tracks.length + 1;
+
+      tracks.push({
+        externalId: videoId,
+        youtubeId: videoId,
+        title,
+        artist,
+        durationSeconds,
+        coverUrl: thumbnails[0] ?? null,
+        thumbnails,
+        position,
+      });
+    }
+
+    pageToken = data?.nextPageToken;
+  } while (pageToken);
+
+  return tracks;
+}
+
+async function fetchVideoDurations(videoIds: string[]): Promise<Map<string, number | undefined>> {
+  const map = new Map<string, number | undefined>();
+  if (videoIds.length === 0) {
+    return map;
+  }
+
+  for (const chunk of chunkArray(videoIds, 50)) {
+    const { data } = await axios.get(`${YOUTUBE_API_BASE_URL}/videos`, {
+      params: {
+        key: env.youtube_api_key,
+        id: chunk.join(','),
+        part: 'contentDetails',
+        maxResults: chunk.length,
+      },
+    });
+
+    const items = Array.isArray(data?.items) ? data.items : [];
+    for (const item of items) {
+      const videoId: string | undefined = item?.id;
+      const durationRaw: string | undefined = item?.contentDetails?.duration;
+      if (!videoId) {
+        continue;
+      }
+      map.set(videoId, parseYouTubeDuration(durationRaw));
+    }
+  }
+
+  return map;
+}
+
+function chunkArray<T>(values: T[], chunkSize: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < values.length; i += chunkSize) {
+    chunks.push(values.slice(i, i + chunkSize));
+  }
+  return chunks;
+}
+
+function parseYouTubeDuration(duration?: string): number | undefined {
+  if (!duration) {
+    return undefined;
+  }
+
+  const match = duration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+  if (!match) {
+    return undefined;
+  }
+
+  const hours = parseInt(match[1] ?? '0', 10);
+  const minutes = parseInt(match[2] ?? '0', 10);
+  const seconds = parseInt(match[3] ?? '0', 10);
+
+  return hours * 3600 + minutes * 60 + seconds;
+}
+
+function collectThumbnailUrls(thumbnails?: Record<string, { url?: string }>): string[] {
+  if (!thumbnails) {
+    return [];
+  }
+
+  const priorityOrder = ['maxres', 'standard', 'high', 'medium', 'default'];
+  const urls: string[] = [];
+  const seen = new Set<string>();
+
+  for (const key of priorityOrder) {
+    const candidate = thumbnails[key]?.url;
+    if (candidate && !seen.has(candidate)) {
+      seen.add(candidate);
+      urls.push(candidate);
+    }
+  }
+
+  for (const value of Object.values(thumbnails)) {
+    if (value?.url && !seen.has(value.url)) {
+      seen.add(value.url);
+      urls.push(value.url);
+    }
+  }
+
+  return urls;
 }
 
 async function finalizeJob(jobId: string, payload: Record<string, unknown>): Promise<void> {
