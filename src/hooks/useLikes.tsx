@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { usePi } from '@/contexts/PiContext';
 import { usePremiumDialog } from '@/contexts/PremiumDialogContext';
+import { getBackendOrigin } from '@/lib/backendUrl';
 
 export type Track = {
   id: string;
@@ -50,7 +51,7 @@ export default function useLikes(): UseLikesReturn {
   const likedTrackIds = useMemo(() => new Set(likedTracks.map(t => t.id)), [likedTracks]);
   const likedPlaylistIds = useMemo(() => new Set(likedPlaylists.map(p => p.id)), [likedPlaylists]);
 
-  const BACKEND_URL: string = ((window as any).__PI_BACKEND_URL__ as string) || import.meta.env.VITE_BACKEND_URL || '';
+  const BACKEND_URL: string = getBackendOrigin();
 
   const loadAllLikes = useCallback(async () => {
     if (!user?.uid) {

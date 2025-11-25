@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { Play, Pause, Heart } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -24,18 +24,17 @@ const Playlist = () => {
   
   const { data: playlist, isLoading, error } = useExternalPlaylist(id || "");
   const isLiked = id ? isPlaylistLiked(id) : false;
+  const statsKey = useMemo(() => (id ? withBackendOrigin(`/api/playlists/${id}/public-stats`) : null), [id]);
+  const viewUrl = useMemo(() => (id ? withBackendOrigin(`/api/playlists/${id}/public-view`) : null), [id]);
 
   useEffect(() => {
-    if (!id || lastLoggedViewId.current === id) {
+    if (!id || lastLoggedViewId.current === id || !viewUrl || !statsKey) {
       return;
     }
 
     lastLoggedViewId.current = id;
 
     const controller = new AbortController();
-    const viewUrl = withBackendOrigin(`/api/playlists/${id}/public-view`);
-    const statsKey = withBackendOrigin(`/api/playlists/${id}/public-stats`);
-
     fetch(viewUrl, {
       method: 'POST',
       signal: controller.signal,
@@ -49,7 +48,7 @@ const Playlist = () => {
     return () => {
       controller.abort();
     };
-  }, [id, mutate]);
+  }, [id, mutate, statsKey, viewUrl]);
   
   console.log('📊 Playlist state:', { isLoading, hasError: !!error, hasPlaylist: !!playlist, trackCount: playlist?.tracks?.length });
 
@@ -86,10 +85,15 @@ const Playlist = () => {
     }
   };
 
-  const handleToggleLike = () => {
-    if (id) {
-      console.log('[ui] ❤️ playlist header click', { id });
-      togglePlaylistLike(id);
+  const handleToggleLike = async () => {
+    if (!id) return;
+    console.log('[ui] ❤️ playlist header click', { id });
+    try {
+      await togglePlaylistLike(id);
+    } finally {
+      if (statsKey) {
+        mutate(statsKey);
+      }
     }
   };
 
