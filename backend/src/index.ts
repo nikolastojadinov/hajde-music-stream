@@ -14,6 +14,7 @@ import mountHealthEndpoints from './handlers/health';
 import supabase from './services/supabaseClient';
 import { initDailyRefreshScheduler } from './lib/dailyRefreshScheduler';
 import { initJobProcessor } from './lib/jobProcessor';
+import { getPlaylistStats, registerPlaylistView } from './handlers/playlists/stats';
 
 // Pi Network routes
 import piAuthRouter from './routes/pi/auth';
@@ -151,6 +152,10 @@ app.get('/library', getUserLibrary);
 // Pi Network routes under /pi:
 app.use('/pi', piAuthRouter);
 app.use('/pi/payments', piPaymentsRouter);
+
+// Public playlist stats endpoints
+app.get('/playlists/:id/stats', getPlaylistStats);
+app.post('/playlists/:id/view', registerPlaylistView);
 
 // Health endpoint under /health:
 const healthRouter = express.Router();
