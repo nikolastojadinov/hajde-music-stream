@@ -1,17 +1,16 @@
 import { Request, Response } from 'express';
 import supabase from '../../services/supabaseClient';
 
-interface StatsResponse {
-  likes: number;
-  views: number;
-  liked: boolean;
+interface PublicStatsResponse {
+  global_likes: number;
+  global_clicks: number;
 }
 
-async function getPlaylistLikesCount(playlistId: string): Promise<number> {
+async function countRows(table: string, column: string, value: string): Promise<number> {
   const { count, error } = await supabase!
-    .from('playlist_likes')
+    .from(table)
     .select('*', { count: 'exact', head: true })
-    .eq('playlist_id', playlistId);
+    .eq(column, value);
 
   if (error) {
     throw error;
@@ -20,42 +19,7 @@ async function getPlaylistLikesCount(playlistId: string): Promise<number> {
   return count ?? 0;
 }
 
-async function getPlaylistViewsCount(playlistId: string): Promise<number> {
-  const { count, error } = await supabase!
-    .from('playlist_views')
-    .select('*', { count: 'exact', head: true })
-    .eq('playlist_id', playlistId);
-
-  if (error) {
-    throw error;
-  }
-
-  return count ?? 0;
-}
-
-async function mapCurrentUserToInternalId(req: Request): Promise<string | null> {
-  const currentUser = (req as any).currentUser as { uid?: string } | undefined;
-  const wallet = currentUser?.uid;
-  if (!wallet) {
-    return null;
-  }
-
-  const { data, error } = await supabase!
-    .from('users')
-    .select('id')
-    .eq('wallet', wallet)
-    .limit(1)
-    .maybeSingle();
-
-  if (error) {
-    console.error('[getPlaylistStats] Failed to map current user to internal ID', error);
-    return null;
-  }
-
-  return data?.id ?? null;
-}
-
-export async function getPlaylistStats(req: Request, res: Response) {
+export async function getPublicPlaylistStats(req: Request, res: Response) {
   const playlistId = req.params.id;
 
   if (!playlistId) {
@@ -67,38 +31,20 @@ export async function getPlaylistStats(req: Request, res: Response) {
   }
 
   try {
-    const [likes, views] = await Promise.all([
-      getPlaylistLikesCount(playlistId),
-      getPlaylistViewsCount(playlistId),
+    const [globalLikes, globalClicks] = await Promise.all([
+      countRows('likes', 'playlist_id', playlistId),
+      countRows('playlist_views', 'playlist_id', playlistId),
     ]);
 
-    let liked = false;
-    const internalUserId = await mapCurrentUserToInternalId(req);
-
-    if (internalUserId) {
-      const { count, error } = await supabase!
-        .from('playlist_likes')
-        .select('*', { count: 'exact', head: true })
-        .eq('playlist_id', playlistId)
-        .eq('user_id', internalUserId);
-
-      if (error) {
-        throw error;
-      }
-
-      liked = (count ?? 0) > 0;
-    }
-
-    const body: StatsResponse = {
-      likes,
-      views,
-      liked,
+    const payload: PublicStatsResponse = {
+      global_likes: globalLikes,
+      global_clicks: globalClicks,
     };
 
-    return res.json(body);
+    return res.json(payload);
   } catch (error) {
-    console.error('[getPlaylistStats] Failed to fetch stats', error);
-    return res.status(500).json({ error: 'stats_query_failed' });
+    console.error('[getPublicPlaylistStats] Failed to fetch stats', error);
+    return res.status(500).json({ error: 'public_stats_query_failed' });
   }
 }
 

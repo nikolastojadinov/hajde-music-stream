@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { Play, Pause, Heart } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -7,6 +7,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useExternalPlaylist } from "@/hooks/useExternalPlaylist";
 import useLikes from "@/hooks/useLikes";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { PlaylistHeaderStats } from "@/components/playlists/PlaylistHeaderStats";
+import { useSWRConfig } from "swr";
 
 const Playlist = () => {
   const { id } = useParams<{ id: string }>();
@@ -14,11 +16,36 @@ const Playlist = () => {
   const { isPlaylistLiked, togglePlaylistLike } = useLikes();
   const { t } = useLanguage();
   const [currentTrackId, setCurrentTrackId] = useState<string | null>(null);
+  const { mutate } = useSWRConfig();
+  const lastLoggedViewId = useRef<string | null>(null);
 
   console.log('🎵 Playlist page mounted, ID:', id);
   
   const { data: playlist, isLoading, error } = useExternalPlaylist(id || "");
   const isLiked = id ? isPlaylistLiked(id) : false;
+
+  useEffect(() => {
+    if (!id || lastLoggedViewId.current === id) {
+      return;
+    }
+
+    lastLoggedViewId.current = id;
+
+    const controller = new AbortController();
+    fetch(`/api/playlists/${id}/public-view`, {
+      method: 'POST',
+      signal: controller.signal,
+    })
+      .then(() => mutate(`/api/playlists/${id}/public-stats`))
+      .catch((err: any) => {
+      if (err?.name === 'AbortError') return;
+      console.warn('[playlist] Failed to register public view', err);
+      });
+
+    return () => {
+      controller.abort();
+    };
+  }, [id]);
   
   console.log('📊 Playlist state:', { isLoading, hasError: !!error, hasPlaylist: !!playlist, trackCount: playlist?.tracks?.length });
 
@@ -121,7 +148,7 @@ const Playlist = () => {
       </div>
 
       <div className="p-4 md:p-8">
-        <div className="flex items-center gap-4 mb-6">
+        <div className="flex flex-wrap items-center gap-4 mb-6">
           <Button size="lg" className="rounded-full" onClick={handlePlayPlaylist}>
             <Play className="w-5 h-5 mr-2 fill-current" />
             {t("play_all")}
@@ -141,6 +168,8 @@ const Playlist = () => {
               }`}
             />
           </button>
+
+          {id && <PlaylistHeaderStats playlistId={id} />}
         </div>
 
         <div className="space-y-2">
