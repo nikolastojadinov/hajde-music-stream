@@ -5,7 +5,13 @@ let supabase: SupabaseClient;
 
 if (env.supabase_url && env.supabase_service_role_key) {
   supabase = createClient(env.supabase_url, env.supabase_service_role_key, {
-    auth: { persistSession: false },
+    auth: { persistSession: false, autoRefreshToken: false },
+    global: {
+      headers: {
+        apikey: env.supabase_service_role_key,
+        Authorization: `Bearer ${env.supabase_service_role_key}`,
+      },
+    },
   });
 } else {
   // Lazy placeholder to avoid throwing before env is loaded; handlers must guard usage
