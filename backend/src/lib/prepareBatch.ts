@@ -71,7 +71,7 @@ export async function executePrepareJob(job: RefreshJobRow): Promise<void> {
     await fs.writeFile(filePath, JSON.stringify(batchPayload, null, 2), 'utf-8');
     console.log('[PrepareBatch] Batch file written', { filePath });
 
-    await finalizeJob(job.id, { file: filePath });
+    await finalizeJob(job.id, { file: filePath, entries: batchPayload });
   } catch (error) {
     console.error('[PrepareBatch] Error while executing prepare job', error);
     await finalizeJob(job.id, { error: (error as Error).message || 'Unknown error' });

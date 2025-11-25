@@ -107,10 +107,8 @@ export async function executeRunJob(job: RefreshJobRow): Promise<void> {
     return;
   }
 
-  const batchFilePath = path.join(BATCH_DIR, `batch_${job.day_key}_slot_${job.slot_index}.json`);
-
   try {
-    const batchEntries = await readBatchFile(batchFilePath);
+    const { entries: batchEntries, filePath: batchFilePath, source } = await loadBatchEntries(job);
     const result: BatchResult = {
       file: batchFilePath,
       playlistCount: batchEntries.length,
@@ -118,6 +116,14 @@ export async function executeRunJob(job: RefreshJobRow): Promise<void> {
       failureCount: 0,
       errors: [],
     };
+
+    if (source === 'payload') {
+      console.log('[runBatch] Loaded batch entries from Supabase payload fallback', {
+        jobId: job.id,
+        slot: job.slot_index,
+        day: job.day_key,
+      });
+    }
 
     for (const entry of batchEntries) {
       if (!entry?.playlistId) {
@@ -142,16 +148,66 @@ export async function executeRunJob(job: RefreshJobRow): Promise<void> {
 
     await finalizeJob(job.id, result);
   } catch (error: any) {
+    console.error('[runBatch] Unexpected error', error);
+    await finalizeJob(job.id, { error: error?.message || 'Unknown error' });
+  }
+}
+
+type BatchLoadResult = {
+  entries: PlaylistBatchEntry[];
+  filePath: string;
+  source: 'file' | 'payload';
+};
+
+async function loadBatchEntries(job: RefreshJobRow): Promise<BatchLoadResult> {
+  const batchFilePath = path.join(BATCH_DIR, `batch_${job.day_key}_slot_${job.slot_index}.json`);
+
+  try {
+    const entries = await readBatchFile(batchFilePath);
+    return { entries, filePath: batchFilePath, source: 'file' };
+  } catch (error) {
     const nodeError = error as NodeJS.ErrnoException;
-    if (nodeError.code === 'ENOENT') {
-      console.error('[runBatch] Batch file missing', { file: batchFilePath });
-      await finalizeJob(job.id, { file: batchFilePath, error: 'Batch file missing' });
-      return;
+    if (nodeError.code !== 'ENOENT') {
+      throw error;
     }
 
-    console.error('[runBatch] Unexpected error', error);
-    await finalizeJob(job.id, { file: batchFilePath, error: error?.message || 'Unknown error' });
+    console.warn('[runBatch] Batch file missing on disk, attempting Supabase payload fallback', {
+      jobId: job.id,
+      slot: job.slot_index,
+      day: job.day_key,
+    });
+
+    const payloadEntries = await fetchPreparePayload(job);
+    if (payloadEntries && payloadEntries.length > 0) {
+      return { entries: payloadEntries, filePath: batchFilePath, source: 'payload' };
+    }
+
+    throw new Error('Batch file missing and no payload entries available');
   }
+}
+
+async function fetchPreparePayload(job: RefreshJobRow): Promise<PlaylistBatchEntry[] | null> {
+  const { data, error } = await supabase!
+    .from(JOB_TABLE)
+    .select('payload')
+    .eq('slot_index', job.slot_index)
+    .eq('day_key', job.day_key)
+    .eq('type', 'prepare')
+    .order('scheduled_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.error('[runBatch] Failed to fetch prepare job payload', error);
+    return null;
+  }
+
+  const payload = data?.payload as { entries?: PlaylistBatchEntry[] } | null;
+  if (payload && Array.isArray(payload.entries)) {
+    return payload.entries;
+  }
+
+  return null;
 }
 
 async function refreshSinglePlaylist(playlistId: string, title?: string): Promise<void> {
