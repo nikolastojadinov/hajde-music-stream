@@ -32,7 +32,7 @@ export async function getPublicPlaylistStats(req: Request, res: Response) {
 
   try {
     const [globalLikes, globalClicks] = await Promise.all([
-      countRows('likes', 'playlist_id', playlistId),
+      countRows('playlist_likes', 'playlist_id', playlistId),
       countRows('playlist_views', 'playlist_id', playlistId),
     ]);
 
