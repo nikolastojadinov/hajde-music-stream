@@ -1,5 +1,6 @@
 import { FiHeart, FiEye } from 'react-icons/fi';
 import useSWR from 'swr';
+import { withBackendOrigin } from '@/lib/backendUrl';
 
 interface PlaylistHeaderStatsProps {
   playlistId: string;
@@ -20,9 +21,11 @@ const fetcher = async (url: string): Promise<PublicStatsResponse> => {
   return response.json();
 };
 
+const buildStatsUrl = (playlistId: string) => withBackendOrigin(`/api/playlists/${playlistId}/public-stats`);
+
 export function PlaylistHeaderStats({ playlistId }: PlaylistHeaderStatsProps) {
   const { data } = useSWR<PublicStatsResponse>(
-    playlistId ? `/api/playlists/${playlistId}/public-stats` : null,
+    playlistId ? buildStatsUrl(playlistId) : null,
     fetcher
   );
 

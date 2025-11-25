@@ -9,6 +9,7 @@ import useLikes from "@/hooks/useLikes";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { PlaylistHeaderStats } from "@/components/playlists/PlaylistHeaderStats";
 import { useSWRConfig } from "swr";
+import { withBackendOrigin } from "@/lib/backendUrl";
 
 const Playlist = () => {
   const { id } = useParams<{ id: string }>();
@@ -32,11 +33,14 @@ const Playlist = () => {
     lastLoggedViewId.current = id;
 
     const controller = new AbortController();
-    fetch(`/api/playlists/${id}/public-view`, {
+    const viewUrl = withBackendOrigin(`/api/playlists/${id}/public-view`);
+    const statsKey = withBackendOrigin(`/api/playlists/${id}/public-stats`);
+
+    fetch(viewUrl, {
       method: 'POST',
       signal: controller.signal,
     })
-      .then(() => mutate(`/api/playlists/${id}/public-stats`))
+      .then(() => mutate(statsKey))
       .catch((err: any) => {
       if (err?.name === 'AbortError') return;
       console.warn('[playlist] Failed to register public view', err);
@@ -45,7 +49,7 @@ const Playlist = () => {
     return () => {
       controller.abort();
     };
-  }, [id]);
+  }, [id, mutate]);
   
   console.log('📊 Playlist state:', { isLoading, hasError: !!error, hasPlaylist: !!playlist, trackCount: playlist?.tracks?.length });
 
