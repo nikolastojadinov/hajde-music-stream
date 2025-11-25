@@ -4,7 +4,7 @@ import { randomUUID } from 'crypto';
 import supabase from '../services/supabaseClient';
 
 const TIMEZONE = 'Europe/Budapest';
-const CRON_EXPRESSION = '5 10 * * *'; // 10:05 daily
+const CRON_EXPRESSION = '5 11 * * *'; // 11:05 daily
 const SLOT_COUNT = 10;
 const PREPARE_OFFSET_MINUTES = 15;
 const TABLE_NAME = 'refresh_jobs';
@@ -36,13 +36,13 @@ export function initDailyRefreshScheduler() {
     { timezone: TIMEZONE }
   );
 
-  console.log('[DailyRefreshScheduler] Cron scheduled for 10:05 Europe/Budapest');
+  console.log('[DailyRefreshScheduler] Cron scheduled for 11:05 Europe/Budapest');
 }
 
 async function generateDailySlots(): Promise<void> {
   const now = DateTime.now().setZone(TIMEZONE);
   const dayKey = now.toISODate() ?? now.toFormat('yyyy-MM-dd');
-  const windowStart = now.set({ hour: 10, minute: 30, second: 0, millisecond: 0 });
+  const windowStart = now.set({ hour: 11, minute: 30, second: 0, millisecond: 0 });
   const windowEnd = now.plus({ days: 1 }).set({ hour: 8, minute: 0, second: 0, millisecond: 0 });
 
   try {
