@@ -74,6 +74,7 @@ export function usePiAuth(): UsePiAuthReturn {
             headers: {
               'Content-Type': 'application/json',
             },
+            credentials: 'include',
             body: JSON.stringify(authResult),
             signal: controller.signal,
           });

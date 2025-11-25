@@ -7,6 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useExternalPlaylist } from "@/hooks/useExternalPlaylist";
 import useLikes from "@/hooks/useLikes";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { usePi } from "@/contexts/PiContext";
 import { PlaylistHeaderStats } from "@/components/playlists/PlaylistHeaderStats";
 import { useSWRConfig } from "swr";
 import { withBackendOrigin } from "@/lib/backendUrl";
@@ -18,6 +19,7 @@ const Playlist = () => {
   const { t } = useLanguage();
   const [currentTrackId, setCurrentTrackId] = useState<string | null>(null);
   const { mutate } = useSWRConfig();
+  const { user } = usePi();
   const lastLoggedViewId = useRef<string | null>(null);
 
   console.log('🎵 Playlist page mounted, ID:', id);
@@ -28,7 +30,7 @@ const Playlist = () => {
   const viewUrl = useMemo(() => (id ? withBackendOrigin(`/api/playlists/${id}/public-view`) : null), [id]);
 
   useEffect(() => {
-    if (!id || lastLoggedViewId.current === id || !viewUrl || !statsKey) {
+    if (!id || !user?.uid || lastLoggedViewId.current === id || !viewUrl || !statsKey) {
       return;
     }
 
@@ -38,9 +40,25 @@ const Playlist = () => {
     fetch(viewUrl, {
       method: 'POST',
       credentials: 'include',
+      headers: {
+        'X-Pi-User-Id': user.uid,
+        'X-Pi-Username': user.username ?? '',
+        'X-Pi-Premium': user.premium ? 'true' : 'false',
+        'X-Pi-Premium-Until': user.premium_until ?? '',
+      },
       signal: controller.signal,
     })
-      .then(() => mutate(statsKey))
+      .then(async (resp) => {
+        if (!resp.ok) {
+          throw new Error(`view_log_failed_${resp.status}`);
+        }
+        const payload = await resp.json().catch(() => null);
+        if (statsKey && payload?.stats) {
+          mutate(statsKey, payload.stats, false);
+        } else if (statsKey) {
+          mutate(statsKey);
+        }
+      })
       .catch((err: any) => {
       if (err?.name === 'AbortError') return;
       console.warn('[playlist] Failed to register public view', err);
@@ -49,7 +67,7 @@ const Playlist = () => {
     return () => {
       controller.abort();
     };
-  }, [id, mutate, statsKey, viewUrl]);
+  }, [id, mutate, statsKey, user?.premium, user?.premium_until, user?.uid, user?.username, viewUrl]);
   
   console.log('📊 Playlist state:', { isLoading, hasError: !!error, hasPlaylist: !!playlist, trackCount: playlist?.tracks?.length });
 

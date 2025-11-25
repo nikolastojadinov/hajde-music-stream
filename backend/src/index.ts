@@ -85,24 +85,36 @@ app.use(cookieParser());
 app.use(async (req: Request, _res: Response, next: NextFunction) => {
   const sid = req.cookies['sid'] as string | undefined;
   req.sid = sid || null;
-  if (!sid) return next();
+  if (!sid || !supabase) return next();
 
-  const { data: sessionRows } = await supabase
-    .from('sessions')
-    .select('sid,user_uid,users:users(uid,username,roles)')
-    .eq('sid', sid)
-    .limit(1);
+  try {
+    const { data: sessionRow, error } = await supabase
+      .from('sessions')
+      .select('sid,user_uid,users:users(wallet,username,premium_until)')
+      .eq('sid', sid)
+      .maybeSingle();
 
-  const row = sessionRows && sessionRows[0] as any;
-  if (row && row.users) {
-    req.currentUser = {
-      uid: row.users.uid,
-      username: row.users.username,
-      roles: row.users.roles || [],
-    };
-  } else {
+    if (error && error.code !== 'PGRST116') {
+      console.error('[session middleware] Failed to load session', { error, sid });
+      req.currentUser = null;
+      return next();
+    }
+
+    const relatedUser = (sessionRow?.users ?? null) as any;
+    if (relatedUser) {
+      req.currentUser = {
+        uid: relatedUser.wallet,
+        username: relatedUser.username,
+        roles: [],
+      };
+    } else {
+      req.currentUser = null;
+    }
+  } catch (err) {
+    console.error('[session middleware] Unexpected error', err);
     req.currentUser = null;
   }
+
   next();
 });
 

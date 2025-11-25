@@ -24,6 +24,30 @@ function getRequestUserId(req: Request): string | null {
   return null;
 }
 
+async function mapWalletToInternalUserId(wallet: string): Promise<string | null> {
+  if (!wallet) return null;
+  if (!supabase) return null;
+
+  try {
+    const { data, error } = await supabase
+      .from('users')
+      .select('id')
+      .eq('wallet', wallet)
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      console.error('[playlist_stats] Failed to map wallet to internal id', error);
+      return null;
+    }
+
+    return data?.id ?? null;
+  } catch (err) {
+    console.error('[playlist_stats] Unexpected error mapping wallet', err);
+    return null;
+  }
+}
+
 async function fetchPlaylistStats(playlistId: string): Promise<PublicStatsResponse> {
   const { data, error } = await supabase!
     .from('playlist_stats')
@@ -68,9 +92,9 @@ export async function registerPlaylistView(req: Request, res: Response) {
     return res.status(400).json({ error: 'playlist_id_required' });
   }
 
-  const viewerId = getRequestUserId(req);
+  const viewerWallet = getRequestUserId(req);
 
-  if (!viewerId) {
+  if (!viewerWallet) {
     return res.status(401).json({ error: 'user_not_authenticated' });
   }
 
@@ -79,31 +103,33 @@ export async function registerPlaylistView(req: Request, res: Response) {
   }
 
   try {
-    const { data: existing, error: existingError } = await supabase
+    const internalUserId = await mapWalletToInternalUserId(viewerWallet);
+
+    if (!internalUserId) {
+      return res.status(500).json({ error: 'viewer_internal_id_missing' });
+    }
+
+    const { error: upsertError } = await supabase
       .from('playlist_views')
-      .select('id')
-      .eq('playlist_id', playlistId)
-      .eq('user_id', viewerId)
-      .maybeSingle();
+      .upsert(
+        {
+          playlist_id: playlistId,
+          user_id: internalUserId,
+          viewed_at: new Date().toISOString(),
+        },
+        {
+          onConflict: 'playlist_id,user_id',
+          ignoreDuplicates: true,
+        }
+      );
 
-    if (existingError && existingError.code !== 'PGRST116') {
-      throw existingError;
+    if (upsertError) {
+      throw upsertError;
     }
 
-    if (existing) {
-      return res.json({ ok: true, already_tracked: true });
-    }
+    const stats = await fetchPlaylistStats(playlistId);
 
-    const { error } = await supabase.from('playlist_views').insert({
-      playlist_id: playlistId,
-      user_id: viewerId,
-    });
-
-    if (error) {
-      throw error;
-    }
-
-    return res.json({ ok: true });
+    return res.json({ ok: true, stats });
   } catch (error) {
     console.error('[registerPlaylistView] Failed to register view', error);
     return res.status(500).json({ error: 'view_insert_failed' });

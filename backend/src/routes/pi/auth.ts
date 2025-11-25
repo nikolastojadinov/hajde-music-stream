@@ -4,6 +4,7 @@
  */
 
 import express, { Request, Response } from 'express';
+import { randomBytes } from 'crypto';
 import { validatePiAuth } from '../../lib/piValidator';
 import supabase from '../../services/supabaseClient';
 
@@ -77,6 +78,33 @@ router.post('/auth', async (req: Request, res: Response) => {
     }
 
     console.log('[Pi Auth] User upserted successfully:', userData);
+
+    // Create or refresh session so backend endpoints can identify the user via cookies
+    const sessionId = randomBytes(24).toString('hex');
+    const { error: deleteSessionError } = await supabase
+      .from('sessions')
+      .delete()
+      .eq('user_uid', uid);
+
+    if (deleteSessionError) {
+      console.warn('[Pi Auth] Failed to prune old sessions', { deleteSessionError, uid });
+    }
+
+    const { error: sessionError } = await supabase
+      .from('sessions')
+      .insert({ sid: sessionId, user_uid: uid, created_at: new Date().toISOString() });
+
+    if (sessionError) {
+      console.error('[Pi Auth] Failed to create session', sessionError);
+      return res.status(500).json({ error: 'session_creation_failed' });
+    }
+
+    res.cookie('sid', sessionId, {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'none',
+      maxAge: 30 * 24 * 3600 * 1000,
+    });
 
     // Return sanitized user profile
     res.json({
