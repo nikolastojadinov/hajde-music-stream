@@ -580,7 +580,7 @@ async function executeBatchInserts(tracks: any[]): Promise<void> {
     const chunk = tracks.slice(i, i + chunkSize);
     const { error } = await supabase!
       .from(TRACKS_TABLE)
-      .upsert(chunk, { onConflict: 'youtube_id,playlist_id' });
+      .upsert(chunk, { onConflict: 'external_id' });
 
     if (error) {
       console.error('[runBatch] Failed to insert track batch', {
