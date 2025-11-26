@@ -2,7 +2,7 @@ import cron from 'node-cron';
 import { DateTime } from 'luxon';
 import supabase from '../services/supabaseClient';
 import { executePrepareJob } from './prepareBatch';
-import { executeRunJob } from './runBatch';
+import { executeRunJob } from '../jobs/runBatch';
 
 const TIMEZONE = 'Europe/Budapest';
 const CRON_EXPRESSION = '* * * * *';
