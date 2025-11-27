@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { externalSupabase } from "@/lib/externalSupabase";
+import { withBackendOrigin } from "@/lib/backendUrl";
 import { Link } from "react-router-dom";
 import { Music } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -28,6 +29,19 @@ interface PlaylistData {
 const JumpBackIn = () => {
   const { user } = usePi();
   
+  const getRandomPlaylistsFallback = async (): Promise<RecentPlaylist[]> => {
+    const { data: fallbackData } = await externalSupabase
+      .from("playlists")
+      .select("id, title, cover_url")
+      .limit(6);
+
+    return ((fallbackData || []) as PlaylistData[]).map((p: PlaylistData) => ({
+      ...p,
+      view_count: 0,
+      last_viewed_at: new Date().toISOString(),
+    }));
+  };
+
   const { data: playlists, isLoading } = useQuery({
     queryKey: ["recent-playlists", user?.uid],
     queryFn: async () => {
@@ -36,79 +50,55 @@ const JumpBackIn = () => {
 
       if (!userId) {
         // No user logged in - show 6 random playlists
-        const { data: fallbackData } = await externalSupabase
-          .from("playlists")
-          .select("id, title, cover_url")
-          .limit(6);
-        
-        return ((fallbackData || []) as PlaylistData[]).map((p: PlaylistData) => ({
-          ...p,
-          view_count: 0,
-          last_viewed_at: new Date().toISOString()
-        }));
+        return getRandomPlaylistsFallback();
       }
 
-      const { data: viewData, error: viewError } = await externalSupabase
-        .from("playlist_views")
-        .select("playlist_id, view_count, last_viewed_at")
-        .eq("user_id", userId)
-        .order("view_count", { ascending: false })
-        .order("last_viewed_at", { ascending: false })
-        .limit(6);
+      const url = withBackendOrigin(`/api/playlist-views/top?user_id=${encodeURIComponent(userId)}&limit=6`);
+      const response = await fetch(url, {
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
 
-      if (viewError) {
-        console.error("Error fetching recent playlists:", viewError);
-        // Fallback: get 6 random playlists
-        const { data: fallbackData } = await externalSupabase
-          .from("playlists")
-          .select("id, title, cover_url")
-          .limit(6);
-        
-        return ((fallbackData || []) as PlaylistData[]).map((p: PlaylistData) => ({
-          ...p,
-          view_count: 0,
-          last_viewed_at: new Date().toISOString()
-        }));
+      if (!response.ok) {
+        console.error("Error fetching recent playlists:", response.status);
+        return getRandomPlaylistsFallback();
       }
 
-      if (!viewData || viewData.length === 0) {
-        // No view history - get 6 random playlists
-        const { data: fallbackData } = await externalSupabase
-          .from("playlists")
-          .select("id, title, cover_url")
-          .limit(6);
-        
-        return ((fallbackData || []) as PlaylistData[]).map((p: PlaylistData) => ({
-          ...p,
-          view_count: 0,
-          last_viewed_at: new Date().toISOString()
-        }));
+      const payload = await response.json().catch(() => null);
+      type BackendPlaylistItem = {
+        playlist_id?: string;
+        view_count?: number;
+        last_viewed_at?: string;
+        playlists?: PlaylistData;
+        playlist?: PlaylistData;
+      };
+
+      const backendPlaylists: BackendPlaylistItem[] = Array.isArray(payload?.playlists)
+        ? (payload!.playlists as BackendPlaylistItem[])
+        : [];
+
+      if (!backendPlaylists.length) {
+        return getRandomPlaylistsFallback();
       }
 
-      // Fetch playlist details
-      const playlistIds = (viewData as PlaylistView[]).map((v: PlaylistView) => v.playlist_id);
-      const { data: playlistData, error: playlistError } = await externalSupabase
-        .from("playlists")
-        .select("id, title, cover_url")
-        .in("id", playlistIds);
-
-      if (playlistError) throw playlistError;
-
-      // Merge view stats with playlist data
-      const merged = (viewData as PlaylistView[]).map((view: PlaylistView) => {
-        const playlist = (playlistData as PlaylistData[] | null)?.find((p: PlaylistData) => p.id === view.playlist_id);
+      const merged = backendPlaylists.map((item) => {
+        const playlist: Partial<PlaylistData> = item.playlists || item.playlist || {};
         return {
-          id: view.playlist_id,
-          title: playlist?.title || "Unknown Playlist",
-          cover_url: playlist?.cover_url || null,
-          view_count: view.view_count,
-          last_viewed_at: view.last_viewed_at,
-        };
+          id: playlist.id ?? item.playlist_id ?? "",
+          title: playlist.title ?? "Unknown Playlist",
+          cover_url: playlist.cover_url ?? null,
+          view_count: item.view_count ?? 0,
+          last_viewed_at: item.last_viewed_at ?? new Date().toISOString(),
+        } satisfies RecentPlaylist;
       });
 
       // If user has less than 6 playlists, fill with random ones
-      if (merged.length < 6) {
-        const existingIds = merged.map(p => p.id);
+      const validMerged = merged.filter((item) => item.id);
+
+      if (validMerged.length < 6) {
+        const existingIds = validMerged.map(p => p.id);
         const needed = 6 - merged.length;
         
         const { data: randomData } = await externalSupabase
@@ -123,11 +113,11 @@ const JumpBackIn = () => {
             view_count: 0,
             last_viewed_at: new Date().toISOString()
           }));
-          merged.push(...randomPlaylists);
+          validMerged.push(...randomPlaylists);
         }
       }
 
-      return merged as RecentPlaylist[];
+      return validMerged;
     },
     enabled: true, // Always fetch, even if no user (will show random)
   });
@@ -156,7 +146,7 @@ const JumpBackIn = () => {
       className="grid grid-cols-2 gap-3"
       style={{ gridTemplateRows: "repeat(3, auto)" }}
     >
-      {gridPlaylists.map((playlist) => (
+      {gridPlaylists.map((playlist: RecentPlaylist) => (
         <Link
           key={playlist.id}
           to={`/playlist/${playlist.id}`}
