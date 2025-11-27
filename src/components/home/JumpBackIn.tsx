@@ -132,28 +132,14 @@ const JumpBackIn = () => {
     enabled: true, // Always fetch, even if no user (will show random)
   });
 
-  // Grid pattern: [0,2,4] in first row, [1,3,5] in second row (Spotify style)
-  const reorderForGrid = (items: RecentPlaylist[]) => {
-    if (!items || items.length === 0) return [];
-    const reordered: RecentPlaylist[] = [];
-    const firstRow = [0, 2, 4];
-    const secondRow = [1, 3, 5];
-    
-    firstRow.forEach(i => {
-      if (items[i]) reordered.push(items[i]);
-    });
-    secondRow.forEach(i => {
-      if (items[i]) reordered.push(items[i]);
-    });
-    
-    return reordered;
-  };
-
-  const gridPlaylists = playlists ? reorderForGrid(playlists) : [];
+  const gridPlaylists = playlists ? playlists.slice(0, 6) : [];
 
   if (isLoading) {
     return (
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 max-h-[400px]">
+      <div
+        className="grid grid-cols-2 gap-3"
+        style={{ gridTemplateRows: "repeat(3, auto)" }}
+      >
         {Array.from({ length: 6 }).map((_, i) => (
           <Skeleton key={i} className="h-20 rounded-lg" />
         ))}
@@ -166,15 +152,18 @@ const JumpBackIn = () => {
   }
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 max-h-[400px]">
-      {gridPlaylists.slice(0, 6).map((playlist) => (
+    <div
+      className="grid grid-cols-2 gap-3"
+      style={{ gridTemplateRows: "repeat(3, auto)" }}
+    >
+      {gridPlaylists.map((playlist) => (
         <Link
           key={playlist.id}
           to={`/playlist/${playlist.id}`}
-          className="group bg-[#101013] hover:bg-[#1a1a1d] rounded-lg transition-colors duration-200 p-2 flex items-center gap-2.5 h-20"
+          className="flex h-20 items-center gap-2 overflow-hidden rounded-lg bg-[#111111] p-1.5"
         >
-          {/* Small Cover Image - 68x68px */}
-          <div className="w-[68px] h-[68px] rounded-md overflow-hidden bg-muted flex-shrink-0">
+          {/* Small Cover Image - 58x58px */}
+          <div className="h-[58px] w-[58px] flex-shrink-0 overflow-hidden rounded-md bg-muted">
             {playlist.cover_url ? (
               <img
                 src={playlist.cover_url}
@@ -183,14 +172,14 @@ const JumpBackIn = () => {
               />
             ) : (
               <div className="w-full h-full bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
-                <Music className="w-5 h-5 text-primary/30" />
+                <Music className="h-4 w-4 text-primary/30" />
               </div>
             )}
           </div>
 
           {/* Text Area - Playlist Title */}
-          <div className="flex-1 min-w-0">
-            <h3 className="font-medium text-xs leading-tight text-foreground line-clamp-2">
+          <div className="min-w-0 flex-1">
+            <h3 className="truncate text-xs font-medium leading-tight text-foreground">
               {playlist.title}
             </h3>
           </div>
