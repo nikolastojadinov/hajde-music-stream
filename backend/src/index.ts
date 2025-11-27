@@ -19,6 +19,7 @@ import { getPublicPlaylistStats, registerPlaylistView } from './handlers/playlis
 // Pi Network routes
 import piAuthRouter from './routes/pi/auth';
 import piPaymentsRouter from './routes/pi/payments';
+import playlistViewsRouter from './routes/playlistViews';
 
 // New modular routers
 import { getLikedSongs, likeSong, unlikeSong } from './handlers/likes/songs';
@@ -168,6 +169,9 @@ app.use('/pi/payments', piPaymentsRouter);
 // Public playlist stats endpoints
 app.get('/api/playlists/:id/public-stats', getPublicPlaylistStats);
 app.post('/api/playlists/:id/public-view', registerPlaylistView);
+
+// Playlist views tracking (no auth required for now - will add Pi auth later)
+app.use('/api/playlist-views', playlistViewsRouter);
 
 // Health endpoint under /health:
 const healthRouter = express.Router();

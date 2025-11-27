@@ -11,6 +11,7 @@ import { usePi } from "@/contexts/PiContext";
 import { PlaylistHeaderStats } from "@/components/playlists/PlaylistHeaderStats";
 import { useSWRConfig } from "swr";
 import { withBackendOrigin } from "@/lib/backendUrl";
+import { usePlaylistViewTracking } from "@/hooks/usePlaylistViewTracking";
 
 const Playlist = () => {
   const { id } = useParams<{ id: string }>();
@@ -21,6 +22,7 @@ const Playlist = () => {
   const { mutate } = useSWRConfig();
   const { user } = usePi();
   const lastLoggedViewId = useRef<string | null>(null);
+  const { trackView } = usePlaylistViewTracking();
 
   console.log('🎵 Playlist page mounted, ID:', id);
   
@@ -28,6 +30,13 @@ const Playlist = () => {
   const isLiked = id ? isPlaylistLiked(id) : false;
   const statsKey = useMemo(() => (id ? withBackendOrigin(`/api/playlists/${id}/public-stats`) : null), [id]);
   const viewUrl = useMemo(() => (id ? withBackendOrigin(`/api/playlists/${id}/public-view`) : null), [id]);
+
+  // Track playlist view for personalized homepage
+  useEffect(() => {
+    if (id && user?.uid) {
+      trackView(id);
+    }
+  }, [id, user?.uid, trackView]);
 
   useEffect(() => {
     if (!id || !user?.uid || lastLoggedViewId.current === id || !viewUrl || !statsKey) {

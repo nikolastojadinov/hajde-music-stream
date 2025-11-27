@@ -3,6 +3,7 @@ import { externalSupabase } from "@/lib/externalSupabase";
 import { Link } from "react-router-dom";
 import { Music, Play } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { usePi } from "@/contexts/PiContext";
 
 interface RecentPlaylist {
   id: string;
@@ -25,18 +26,32 @@ interface PlaylistData {
 }
 
 const JumpBackIn = () => {
+  const { user } = usePi();
+  
   const { data: playlists, isLoading } = useQuery({
-    queryKey: ["recent-playlists"],
+    queryKey: ["recent-playlists", user?.uid],
     queryFn: async () => {
-      // Get user's most opened playlists
-      // Since we don't have auth yet, we'll use a demo user_id or fetch all
-      // In production, replace with actual user_id from auth context
-      const demoUserId = "00000000-0000-0000-0000-000000000000";
+      // Get real user ID from Pi context
+      const userId = user?.uid;
+
+      if (!userId) {
+        // No user logged in - show 6 random playlists
+        const { data: fallbackData } = await externalSupabase
+          .from("playlists")
+          .select("id, title, cover_url")
+          .limit(6);
+        
+        return ((fallbackData || []) as PlaylistData[]).map((p: PlaylistData) => ({
+          ...p,
+          view_count: 0,
+          last_viewed_at: new Date().toISOString()
+        }));
+      }
 
       const { data: viewData, error: viewError } = await externalSupabase
         .from("playlist_views")
         .select("playlist_id, view_count, last_viewed_at")
-        .eq("user_id", demoUserId)
+        .eq("user_id", userId)
         .order("view_count", { ascending: false })
         .order("last_viewed_at", { ascending: false })
         .limit(6);
@@ -91,8 +106,30 @@ const JumpBackIn = () => {
         };
       });
 
+      // If user has less than 6 playlists, fill with random ones
+      if (merged.length < 6) {
+        const existingIds = merged.map(p => p.id);
+        const needed = 6 - merged.length;
+        
+        const { data: randomData } = await externalSupabase
+          .from("playlists")
+          .select("id, title, cover_url")
+          .not("id", "in", `(${existingIds.join(",")})`)
+          .limit(needed);
+        
+        if (randomData && randomData.length > 0) {
+          const randomPlaylists = (randomData as PlaylistData[]).map((p: PlaylistData) => ({
+            ...p,
+            view_count: 0,
+            last_viewed_at: new Date().toISOString()
+          }));
+          merged.push(...randomPlaylists);
+        }
+      }
+
       return merged as RecentPlaylist[];
     },
+    enabled: true, // Always fetch, even if no user (will show random)
   });
 
   // Grid pattern: [0,2,4] in first row, [1,3,5] in second row (Spotify style)
