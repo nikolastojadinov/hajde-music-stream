@@ -23,6 +23,7 @@ interface Environment {
   supabase_url: string;
   supabase_service_role_key: string;
   frontend_url: string;
+  enable_run_jobs: boolean;
 }
 
 // Map only supported Supabase vars (external_* removed).
@@ -35,6 +36,7 @@ const env: Environment = {
   supabase_url: process.env.SUPABASE_URL || '',
   supabase_service_role_key: process.env.SUPABASE_SERVICE_ROLE_KEY || '',
   frontend_url: process.env.FRONTEND_URL || 'http://localhost:3314',
+  enable_run_jobs: (process.env.ENABLE_RUN_JOBS || 'true').toLowerCase() !== 'false',
 };
 
 export default env;

@@ -3,6 +3,7 @@ import { DateTime } from 'luxon';
 import supabase from '../services/supabaseClient';
 import { executePrepareJob } from './prepareBatch';
 import { executeRunJob } from '../jobs/runBatch';
+import env from '../environments';
 
 const TIMEZONE = 'Europe/Budapest';
 const CRON_EXPRESSION = '* * * * *';
@@ -99,6 +100,14 @@ async function handleJob(job: RefreshJobRow): Promise<void> {
       await executePrepareJob(job);
 
     } else if (job.type === 'run') {
+      if (!env.enable_run_jobs) {
+        console.warn(
+          `[jobProcessor] RUN jobs disabled via env — skipping job ${job.id} (slot ${job.slot_index})`
+        );
+        await markJobSkipped(job.id, 'run jobs disabled via env flag');
+        return;
+      }
+
       await executeRunJob(job);
     } else {
       throw new Error(`Unsupported job type ${job.type}`);
@@ -132,8 +141,8 @@ async function markJobError(jobId: string, reason: string): Promise<void> {
   }
 }
 
-async function markJobSkipped(jobId: string): Promise<void> {
-  const payload = { skipped: true, reason: 'run jobs disabled' };
+async function markJobSkipped(jobId: string, reason: string): Promise<void> {
+  const payload = { skipped: true, reason };
   const { error } = await supabase!
     .from(JOB_TABLE)
     .update({ status: 'done', payload })
