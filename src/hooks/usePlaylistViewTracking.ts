@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { usePi } from "@/contexts/PiContext";
+import { useCallback, useRef } from "react";
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:3001";
 const TRACKING_ENABLED = false;
@@ -7,8 +8,9 @@ const TRACKING_ENABLED = false;
 export const usePlaylistViewTracking = () => {
   const { user } = usePi();
   const queryClient = useQueryClient();
+  const lastTrackedPlaylistId = useRef<string | null>(null);
 
-  const trackView = useMutation({
+  const trackViewMutation = useMutation({
     mutationFn: async (playlistId: string) => {
       if (!TRACKING_ENABLED) {
         return null;
@@ -37,7 +39,7 @@ export const usePlaylistViewTracking = () => {
       return response.json();
     },
     onSuccess: () => {
-      // Invalidate recent playlists query to refresh the grid
+      // Invalidate recent playlists query to refresh the grid when tracking runs
       queryClient.invalidateQueries({ queryKey: ["recent-playlists"] });
     },
     onError: (error) => {
@@ -45,8 +47,24 @@ export const usePlaylistViewTracking = () => {
     },
   });
 
+  const trackView = useCallback(
+    (playlistId: string) => {
+      if (!TRACKING_ENABLED || !playlistId || !user?.uid) {
+        return;
+      }
+
+      if (lastTrackedPlaylistId.current === playlistId) {
+        return;
+      }
+
+      lastTrackedPlaylistId.current = playlistId;
+      trackViewMutation.mutate(playlistId);
+    },
+    [trackViewMutation, user?.uid]
+  );
+
   return {
-    trackView: (playlistId: string) => trackView.mutate(playlistId),
-    isTracking: trackView.isPending,
+    trackView,
+    isTracking: trackViewMutation.isPending,
   };
 };
