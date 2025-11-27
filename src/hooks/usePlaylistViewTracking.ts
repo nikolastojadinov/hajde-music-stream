@@ -1,9 +1,9 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { usePi } from "@/contexts/PiContext";
-import { useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:3001";
-const TRACKING_ENABLED = false;
+const TRACKING_ENABLED = (import.meta.env.VITE_ENABLE_PLAYLIST_TRACKING ?? "true") !== "false";
 
 export const usePlaylistViewTracking = () => {
   const { user } = usePi();
@@ -40,7 +40,7 @@ export const usePlaylistViewTracking = () => {
     },
     onSuccess: () => {
       // Invalidate recent playlists query to refresh the grid when tracking runs
-      queryClient.invalidateQueries({ queryKey: ["recent-playlists"] });
+      queryClient.invalidateQueries({ queryKey: ["recent-playlists", user?.uid] });
     },
     onError: (error) => {
       console.error("[PlaylistViewTracking] Error:", error);
@@ -62,6 +62,10 @@ export const usePlaylistViewTracking = () => {
     },
     [trackViewMutation, user?.uid]
   );
+
+  useEffect(() => {
+    lastTrackedPlaylistId.current = null;
+  }, [user?.uid]);
 
   return {
     trackView,
