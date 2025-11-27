@@ -116,13 +116,10 @@ const JumpBackIn = () => {
 
   if (isLoading) {
     return (
-      <div className="mb-8">
-        <h2 className="text-xl md:text-2xl font-bold mb-4">Jump back in</h2>
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-2 md:gap-3">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <Skeleton key={i} className="aspect-square rounded-md" />
-          ))}
-        </div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <Skeleton key={i} className="h-32 rounded-md" />
+        ))}
       </div>
     );
   }
@@ -132,46 +129,41 @@ const JumpBackIn = () => {
   }
 
   return (
-    <div className="mb-8">
-      <h2 className="text-xl md:text-2xl font-bold mb-4">Jump back in</h2>
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-2 md:gap-3">
-        {gridPlaylists.slice(0, 6).map((playlist) => (
-          <Link
-            key={playlist.id}
-            to={`/playlist/${playlist.id}`}
-            className="group relative bg-card hover:bg-secondary/80 rounded-md overflow-hidden transition-all duration-300"
-          >
-            {/* Square Cover Image */}
-            <div className="relative aspect-square bg-muted">
-              {playlist.cover_url ? (
-                <img
-                  src={playlist.cover_url}
-                  alt={playlist.title}
-                  className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-                />
-              ) : (
-                <div className="w-full h-full bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
-                  <Music className="w-12 h-12 text-primary/30" />
-                </div>
-              )}
-              
-              {/* Play button on hover - positioned on image */}
-              <div className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 transition-all duration-200 translate-y-2 group-hover:translate-y-0">
-                <div className="w-12 h-12 rounded-full bg-primary flex items-center justify-center shadow-xl hover:scale-110 transition-transform">
-                  <Play className="w-6 h-6 text-primary-foreground fill-current ml-0.5" />
-                </div>
+    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+      {gridPlaylists.slice(0, 6).map((playlist) => (
+        <Link
+          key={playlist.id}
+          to={`/playlist/${playlist.id}`}
+          className="group bg-card hover:bg-secondary/80 rounded transition-all duration-300 p-2"
+        >
+          {/* Compact Square Cover */}
+          <div className="relative aspect-square rounded overflow-hidden bg-muted mb-2">
+            {playlist.cover_url ? (
+              <img
+                src={playlist.cover_url}
+                alt={playlist.title}
+                className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+              />
+            ) : (
+              <div className="w-full h-full bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
+                <Music className="w-6 h-6 text-primary/30" />
+              </div>
+            )}
+            
+            {/* Small play button on hover */}
+            <div className="absolute bottom-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+              <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center shadow-lg hover:scale-110 transition-transform">
+                <Play className="w-3.5 h-3.5 text-primary-foreground fill-current ml-0.5" />
               </div>
             </div>
+          </div>
 
-            {/* Title below image */}
-            <div className="p-3">
-              <h3 className="font-semibold text-sm text-foreground line-clamp-2 leading-tight">
-                {playlist.title}
-              </h3>
-            </div>
-          </Link>
-        ))}
-      </div>
+          {/* Compact title */}
+          <h3 className="font-semibold text-xs text-foreground line-clamp-2 leading-tight">
+            {playlist.title}
+          </h3>
+        </Link>
+      ))}
     </div>
   );
 };

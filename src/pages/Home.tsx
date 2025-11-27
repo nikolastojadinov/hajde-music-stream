@@ -46,7 +46,7 @@ const Home = () => {
     <div className="flex-1 overflow-y-auto scrollbar-hide">
       <div className="p-4 md:p-8 pb-8">
         {/* Mobile Search Bar */}
-        <div className="mb-6 md:hidden animate-fade-in">
+        <div className="mb-4 md:hidden animate-fade-in">
           <div className="relative">
             <SearchIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
             <Input
@@ -58,8 +58,8 @@ const Home = () => {
           </div>
         </div>
 
-        {/* Jump Back In - Personalized Recent Playlists */}
-        <div className="mb-8 md:mb-10 animate-slide-up">
+        {/* Jump Back In - Personalized Recent Playlists (2x3 Grid) - NO HEADING */}
+        <div className="mb-6 animate-slide-up">
           <JumpBackIn />
         </div>
 
