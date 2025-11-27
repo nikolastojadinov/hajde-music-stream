@@ -13,7 +13,7 @@ const Home = () => {
   const { t } = useLanguage();
   const navigate = useNavigate();
   
-  // Fetch different categories from Supabase (excluding featured - now handled by FeaturedForYou component)
+  // Fetch different categories from Supabase
   const { data: recentPlaylists, isLoading: isLoadingRecent } = usePlaylists("recent");
   const { data: popularPlaylists, isLoading: isLoadingPopular } = usePlaylists("popular");
   const { data: moodPlaylists, isLoading: isLoadingMood } = usePlaylists("mood");
@@ -96,6 +96,7 @@ const Home = () => {
                   ))
                 )}
               </div>
+              <ScrollBar orientation="horizontal" />
             </ScrollArea>
           </section>
         ))}
