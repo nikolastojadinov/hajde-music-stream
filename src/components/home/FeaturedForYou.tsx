@@ -61,18 +61,18 @@ const FeaturedForYou = () => {
             {isLoading ? (
               // Loading skeleton
               Array.from({ length: 8 }).map((_, index) => (
-                <div key={index} className="w-48 space-y-3">
-                  <Skeleton className="h-48 w-48 rounded-lg" />
-                  <div className="space-y-2">
-                    <Skeleton className="h-4 w-32" />
+                <div key={index} className="w-[140px] space-y-2">
+                  <Skeleton className="h-[140px] w-[140px] rounded-md" />
+                  <div className="space-y-1">
                     <Skeleton className="h-3 w-24" />
+                    <Skeleton className="h-3 w-20" />
                   </div>
                 </div>
               ))
             ) : playlists && playlists.length > 0 ? (
               // Render playlist cards
               playlists.map((playlist) => (
-                <div key={playlist.id} className="w-48">
+                <div key={playlist.id} className="w-[140px]">
                   <PlaylistCard
                     id={playlist.id}
                     title={playlist.title}

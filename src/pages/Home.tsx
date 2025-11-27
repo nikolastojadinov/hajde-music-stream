@@ -81,15 +81,15 @@ const Home = () => {
                 {category.isLoading ? (
                   // Loading skeletons
                   Array.from({ length: 6 }).map((_, i) => (
-                    <div key={i} className="w-[160px] md:w-[180px] flex-shrink-0">
-                      <Skeleton className="aspect-square rounded-lg mb-3" />
-                      <Skeleton className="h-4 w-3/4 mb-2" />
+                    <div key={i} className="w-[130px] md:w-[140px] flex-shrink-0">
+                      <Skeleton className="aspect-square rounded-md mb-2" />
+                      <Skeleton className="h-3 w-3/4 mb-1" />
                       <Skeleton className="h-3 w-full" />
                     </div>
                   ))
                 ) : (
                   category.playlists.map((playlist) => (
-                    <div key={playlist.id} className="w-[160px] md:w-[180px] flex-shrink-0">
+                    <div key={playlist.id} className="w-[130px] md:w-[140px] flex-shrink-0">
                       <PlaylistCard
                         id={playlist.id}
                         title={playlist.title}

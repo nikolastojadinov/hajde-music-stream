@@ -1,6 +1,5 @@
 import { Link } from "react-router-dom";
-import { Heart } from "lucide-react";
-import useLikes from "@/hooks/useLikes";
+import { Music } from "lucide-react";
 
 interface PlaylistCardProps {
   id: string;
@@ -10,45 +9,31 @@ interface PlaylistCardProps {
 }
 
 const PlaylistCard = ({ id, title, description, imageUrl }: PlaylistCardProps) => {
-  const { isPlaylistLiked, togglePlaylistLike } = useLikes();
-  const isLiked = isPlaylistLiked(id);
-
-  const handleLikeClick = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    console.log('[ui] ❤️ playlist click', { id });
-    togglePlaylistLike(id);
-  };
-
   return (
     <Link
       to={`/playlist/${id}`}
-      className="group block relative"
+      className="group block"
     >
-      <div className="bg-card p-4 rounded-xl hover:bg-secondary/80 transition-all duration-300 overflow-hidden">
-        <div className="relative mb-4 aspect-square rounded-lg overflow-hidden bg-muted">
+      <div className="bg-card p-3 rounded-lg hover:bg-secondary/80 transition-all duration-300">
+        {/* Consistent aspect-square image container */}
+        <div className="relative mb-3 aspect-square rounded-md overflow-hidden bg-muted">
           {imageUrl ? (
-            <img src={imageUrl} alt={title} className="w-full h-full object-cover" />
-          ) : (
-            <div className="w-full h-full bg-gradient-to-br from-primary/20 to-primary/5" />
-          )}
-          {/* Like button */}
-          <button
-            onClick={handleLikeClick}
-            className="absolute top-2 right-2 w-10 h-10 bg-black/60 hover:bg-black/80 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200 hover:scale-110 z-10"
-            aria-label={isLiked ? "Unlike playlist" : "Like playlist"}
-          >
-            <Heart 
-              className={`w-5 h-5 transition-all ${
-                isLiked 
-                  ? "fill-primary text-primary" 
-                  : "text-white"
-              }`}
+            <img 
+              src={imageUrl} 
+              alt={title} 
+              className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" 
             />
-          </button>
+          ) : (
+            <div className="w-full h-full bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
+              <Music className="w-8 h-8 text-primary/30" />
+            </div>
+          )}
         </div>
-        <h3 className="font-semibold text-foreground mb-1 truncate">{title}</h3>
-        <p className="text-sm text-muted-foreground line-clamp-2">{description}</p>
+        {/* Fixed height text container for consistency */}
+        <div className="space-y-1">
+          <h3 className="font-semibold text-sm text-foreground truncate leading-tight">{title}</h3>
+          <p className="text-xs text-muted-foreground line-clamp-2 leading-tight min-h-[2.5rem]">{description}</p>
+        </div>
       </div>
     </Link>
   );

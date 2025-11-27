@@ -34,6 +34,8 @@ interface SearchResults {
   artistGroups: ArtistGroup[];
 }
 
+type FilterTab = 'playlists' | 'songs' | 'artists';
+
 const Search = () => {
   const { t } = useLanguage();
   const navigate = useNavigate();
@@ -41,6 +43,7 @@ const Search = () => {
   
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [activeTab, setActiveTab] = useState<FilterTab>('playlists');
   const [results, setResults] = useState<SearchResults>({
     tracks: [],
     playlists: [],
@@ -54,6 +57,13 @@ const Search = () => {
       setDebouncedSearch(searchTerm.trim());
     }, 300);
     return () => clearTimeout(timer);
+  }, [searchTerm]);
+
+  // Reset to default tab when search changes
+  useEffect(() => {
+    if (searchTerm.length > 0) {
+      setActiveTab('playlists');
+    }
   }, [searchTerm]);
 
   // Perform search
@@ -173,7 +183,7 @@ const Search = () => {
     <div className="flex-1 overflow-y-auto pb-32">
       <div className="p-4 md:p-8">
         {/* Search Input */}
-        <div className="mb-8 max-w-2xl animate-fade-in">
+        <div className="mb-6 max-w-2xl animate-fade-in">
           <div className="relative">
             <SearchIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
             <Input
@@ -186,6 +196,53 @@ const Search = () => {
             />
           </div>
         </div>
+
+        {/* Filter Tabs - Show only when searching */}
+        {searchTerm.length > 0 && (
+          <div className="mb-8 max-w-2xl flex gap-3 animate-fade-in">
+            <button
+              onClick={() => setActiveTab('playlists')}
+              className={`px-6 py-2.5 rounded-full font-medium transition-all duration-200 ${
+                activeTab === 'playlists'
+                  ? 'border-2 border-yellow-500 text-yellow-500 bg-yellow-500/10'
+                  : 'border-2 border-yellow-600/40 text-yellow-600/70 hover:border-yellow-500/60 hover:text-yellow-500/90'
+              }`}
+            >
+              <span className="flex items-center gap-2">
+                <ListMusic className="w-4 h-4" />
+                Playlists
+              </span>
+            </button>
+            
+            <button
+              onClick={() => setActiveTab('songs')}
+              className={`px-6 py-2.5 rounded-full font-medium transition-all duration-200 ${
+                activeTab === 'songs'
+                  ? 'border-2 border-yellow-500 text-yellow-500 bg-yellow-500/10'
+                  : 'border-2 border-yellow-600/40 text-yellow-600/70 hover:border-yellow-500/60 hover:text-yellow-500/90'
+              }`}
+            >
+              <span className="flex items-center gap-2">
+                <Music className="w-4 h-4" />
+                Songs
+              </span>
+            </button>
+            
+            <button
+              onClick={() => setActiveTab('artists')}
+              className={`px-6 py-2.5 rounded-full font-medium transition-all duration-200 ${
+                activeTab === 'artists'
+                  ? 'border-2 border-yellow-500 text-yellow-500 bg-yellow-500/10'
+                  : 'border-2 border-yellow-600/40 text-yellow-600/70 hover:border-yellow-500/60 hover:text-yellow-500/90'
+              }`}
+            >
+              <span className="flex items-center gap-2">
+                <User className="w-4 h-4" />
+                Artists
+              </span>
+            </button>
+          </div>
+        )}
 
         {/* Search Results */}
         {debouncedSearch.length > 0 && (
@@ -216,93 +273,8 @@ const Search = () => {
               </div>
             ) : hasResults ? (
               <div className="space-y-10 animate-fade-in">
-                {/* SONGS Section */}
-                {results.tracks.length > 0 && (
-                  <section>
-                    <div className="flex items-center gap-2 mb-4">
-                      <Music className="w-6 h-6 text-primary" />
-                      <h2 className="text-2xl font-bold text-foreground">
-                        {`${t("search_section_songs")} (${results.tracks.length})`}
-                      </h2>
-                    </div>
-
-                    {/* Mobile: Vertical list */}
-                    <div className="md:hidden space-y-2">
-                      {results.tracks.map((track) => (
-                        <div
-                          key={track.id}
-                          onClick={() => handleTrackClick(track)}
-                          className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 active:bg-white/10 transition-colors cursor-pointer"
-                        >
-                          <div className="w-16 h-16 rounded-md bg-card flex-shrink-0 overflow-hidden">
-                            {track.cover_url ? (
-                              <img
-                                src={track.cover_url}
-                                alt={track.title}
-                                className="w-full h-full object-cover"
-                                onError={(e) => {
-                                  (e.target as HTMLImageElement).src = "/placeholder.svg";
-                                }}
-                              />
-                            ) : (
-                              <div className="w-full h-full bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
-                                <Music className="w-6 h-6 text-primary/50" />
-                              </div>
-                            )}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <h3 className="font-medium text-sm line-clamp-1 mb-1 text-foreground">
-                              {track.title}
-                            </h3>
-                            <p className="text-xs text-muted-foreground">{track.artist}</p>
-                          </div>
-                          {track.duration && (
-                            <div className="text-xs text-muted-foreground flex-shrink-0">
-                              {formatDuration(track.duration)}
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* Desktop: Grid layout */}
-                    <div className="hidden md:grid md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
-                      {results.tracks.map((track) => (
-                        <div
-                          key={track.id}
-                          onClick={() => handleTrackClick(track)}
-                          className="cursor-pointer group"
-                        >
-                          <div className="aspect-square bg-card rounded-lg mb-3 overflow-hidden transition-transform group-hover:scale-105">
-                            {track.cover_url ? (
-                              <img
-                                src={track.cover_url}
-                                alt={track.title}
-                                className="w-full h-full object-cover"
-                                onError={(e) => {
-                                  (e.target as HTMLImageElement).src = "/placeholder.svg";
-                                }}
-                              />
-                            ) : (
-                              <div className="w-full h-full bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
-                                <Music className="w-8 h-8 text-primary/50" />
-                              </div>
-                            )}
-                          </div>
-                          <h3 className="font-medium line-clamp-2 text-sm mb-1 text-foreground">
-                            {track.title}
-                          </h3>
-                          <p className="text-xs text-muted-foreground line-clamp-1">
-                            {track.artist}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  </section>
-                )}
-
-                {/* PLAYLISTS Section */}
-                {results.playlists.length > 0 && (
+                {/* PLAYLISTS Tab */}
+                {activeTab === 'playlists' && results.playlists.length > 0 && (
                   <section>
                     <div className="flex items-center gap-2 mb-4">
                       <ListMusic className="w-6 h-6 text-primary" />
@@ -387,8 +359,93 @@ const Search = () => {
                   </section>
                 )}
 
-                {/* ARTISTS Section */}
-                {results.artistGroups.length > 0 && (
+                {/* SONGS Tab */}
+                {activeTab === 'songs' && results.tracks.length > 0 && (
+                  <section>
+                    <div className="flex items-center gap-2 mb-4">
+                      <Music className="w-6 h-6 text-primary" />
+                      <h2 className="text-2xl font-bold text-foreground">
+                        {`${t("search_section_songs")} (${results.tracks.length})`}
+                      </h2>
+                    </div>
+
+                    {/* Mobile: Vertical list */}
+                    <div className="md:hidden space-y-2">
+                      {results.tracks.map((track) => (
+                        <div
+                          key={track.id}
+                          onClick={() => handleTrackClick(track)}
+                          className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 active:bg-white/10 transition-colors cursor-pointer"
+                        >
+                          <div className="w-16 h-16 rounded-md bg-card flex-shrink-0 overflow-hidden">
+                            {track.cover_url ? (
+                              <img
+                                src={track.cover_url}
+                                alt={track.title}
+                                className="w-full h-full object-cover"
+                                onError={(e) => {
+                                  (e.target as HTMLImageElement).src = "/placeholder.svg";
+                                }}
+                              />
+                            ) : (
+                              <div className="w-full h-full bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
+                                <Music className="w-6 h-6 text-primary/50" />
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <h3 className="font-medium text-sm line-clamp-1 mb-1 text-foreground">
+                              {track.title}
+                            </h3>
+                            <p className="text-xs text-muted-foreground">{track.artist}</p>
+                          </div>
+                          {track.duration && (
+                            <div className="text-xs text-muted-foreground flex-shrink-0">
+                              {formatDuration(track.duration)}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Desktop: Grid layout */}
+                    <div className="hidden md:grid md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
+                      {results.tracks.map((track) => (
+                        <div
+                          key={track.id}
+                          onClick={() => handleTrackClick(track)}
+                          className="cursor-pointer group"
+                        >
+                          <div className="aspect-square bg-card rounded-lg mb-3 overflow-hidden transition-transform group-hover:scale-105">
+                            {track.cover_url ? (
+                              <img
+                                src={track.cover_url}
+                                alt={track.title}
+                                className="w-full h-full object-cover"
+                                onError={(e) => {
+                                  (e.target as HTMLImageElement).src = "/placeholder.svg";
+                                }}
+                              />
+                            ) : (
+                              <div className="w-full h-full bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
+                                <Music className="w-8 h-8 text-primary/50" />
+                              </div>
+                            )}
+                          </div>
+                          <h3 className="font-medium line-clamp-2 text-sm mb-1 text-foreground">
+                            {track.title}
+                          </h3>
+                          <p className="text-xs text-muted-foreground line-clamp-1">
+                            {track.artist}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                )}
+
+                {/* ARTISTS Tab */}
+                {activeTab === 'artists' && results.artistGroups.length > 0 && (
                   <section>
                     <div className="flex items-center gap-2 mb-4">
                       <User className="w-6 h-6 text-primary" />
