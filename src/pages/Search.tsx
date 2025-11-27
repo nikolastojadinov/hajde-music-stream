@@ -199,30 +199,31 @@ const Search = () => {
 
         {/* Filter Tabs - Show only when searching */}
         {searchTerm.length > 0 && (
-          <div className="mb-8 max-w-2xl flex gap-3 animate-fade-in">
+          <div className="mb-8 max-w-2xl flex gap-2 animate-fade-in">
             <button
               onClick={() => setActiveTab('playlists')}
-              className={`px-6 py-2.5 rounded-full font-medium transition-all duration-200 ${
+              className={`flex-1 px-3 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${
                 activeTab === 'playlists'
                   ? 'border-2 border-yellow-500 text-yellow-500 bg-yellow-500/10'
                   : 'border-2 border-yellow-600/40 text-yellow-600/70 hover:border-yellow-500/60 hover:text-yellow-500/90'
               }`}
             >
-              <span className="flex items-center gap-2">
+              <span className="flex items-center justify-center gap-1.5">
                 <ListMusic className="w-4 h-4" />
-                Playlists
+                <span className="hidden xs:inline">Playlists</span>
+                <span className="xs:hidden">Lists</span>
               </span>
             </button>
             
             <button
               onClick={() => setActiveTab('songs')}
-              className={`px-6 py-2.5 rounded-full font-medium transition-all duration-200 ${
+              className={`flex-1 px-3 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${
                 activeTab === 'songs'
                   ? 'border-2 border-yellow-500 text-yellow-500 bg-yellow-500/10'
                   : 'border-2 border-yellow-600/40 text-yellow-600/70 hover:border-yellow-500/60 hover:text-yellow-500/90'
               }`}
             >
-              <span className="flex items-center gap-2">
+              <span className="flex items-center justify-center gap-1.5">
                 <Music className="w-4 h-4" />
                 Songs
               </span>
@@ -230,13 +231,13 @@ const Search = () => {
             
             <button
               onClick={() => setActiveTab('artists')}
-              className={`px-6 py-2.5 rounded-full font-medium transition-all duration-200 ${
+              className={`flex-1 px-3 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${
                 activeTab === 'artists'
                   ? 'border-2 border-yellow-500 text-yellow-500 bg-yellow-500/10'
                   : 'border-2 border-yellow-600/40 text-yellow-600/70 hover:border-yellow-500/60 hover:text-yellow-500/90'
               }`}
             >
-              <span className="flex items-center gap-2">
+              <span className="flex items-center justify-center gap-1.5">
                 <User className="w-4 h-4" />
                 Artists
               </span>
