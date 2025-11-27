@@ -9,7 +9,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 
 const Library = () => {
   const { user } = usePi();
-  const { likedTracks, likedPlaylists } = useLikes();
+  const { likedTracks, likedPlaylists, likedTrackIds, toggleTrackLike } = useLikes();
   const { t } = useLanguage();
   const userId = user?.uid || null;
   const [activeTab, setActiveTab] = useState<string>("liked-songs");
@@ -46,6 +46,8 @@ const Library = () => {
                     imageUrl={track.cover_url || undefined}
                     youtubeId={track.external_id || ''}
                     duration={track.duration || undefined}
+                    liked={likedTrackIds.has(track.id)}
+                    onToggleLike={toggleTrackLike}
                   />
                 ))}
               </div>

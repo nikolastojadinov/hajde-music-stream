@@ -1,6 +1,5 @@
 import { Play, Heart } from "lucide-react";
 import { usePlayer } from "@/contexts/PlayerContext";
-import useLikes from "@/hooks/useLikes";
 
 interface TrackCardProps {
   id: string;
@@ -9,12 +8,12 @@ interface TrackCardProps {
   imageUrl?: string | null;
   youtubeId: string;
   duration?: number | null;
+  liked?: boolean;
+  onToggleLike?: (trackId: string) => Promise<void> | void;
 }
 
-const TrackCard = ({ id, title, artist, imageUrl, youtubeId, duration }: TrackCardProps) => {
+const TrackCard = ({ id, title, artist, imageUrl, youtubeId, duration, liked = false, onToggleLike }: TrackCardProps) => {
   const { playTrack } = usePlayer();
-  const { isTrackLiked, toggleTrackLike } = useLikes();
-  const isLiked = isTrackLiked(id);
 
   const handlePlayClick = () => {
     playTrack(youtubeId, title, artist, id);
@@ -22,8 +21,9 @@ const TrackCard = ({ id, title, artist, imageUrl, youtubeId, duration }: TrackCa
 
   const handleLikeClick = (e: React.MouseEvent) => {
     e.stopPropagation();
+    if (!onToggleLike) return;
     console.log('[ui] ❤️ track click', { id });
-    toggleTrackLike(id);
+    void onToggleLike(id);
   };
 
   const formatDuration = (seconds: number | null | undefined) => {
@@ -57,11 +57,11 @@ const TrackCard = ({ id, title, artist, imageUrl, youtubeId, duration }: TrackCa
       <button
         onClick={handleLikeClick}
         className="p-2 hover:scale-110 transition-transform flex-shrink-0"
-        aria-label={isLiked ? "Unlike song" : "Like song"}
+        aria-label={liked ? "Unlike song" : "Like song"}
       >
         <Heart 
           className={`w-5 h-5 transition-all ${
-            isLiked 
+            liked 
               ? "fill-primary text-primary" 
               : "text-muted-foreground hover:text-foreground"
           }`}
