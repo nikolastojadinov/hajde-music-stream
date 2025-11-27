@@ -2,7 +2,7 @@ import cron from 'node-cron';
 import { DateTime } from 'luxon';
 import supabase from '../services/supabaseClient';
 import { executePrepareJob } from './prepareBatch';
-import { executeRunJob } from '../jobs/runBatch';
+// import { executeRunJob } from '../jobs/runBatch';  // RUN DISABLED
 
 const TIMEZONE = 'Europe/Budapest';
 const CRON_EXPRESSION = '* * * * *';
@@ -91,15 +91,20 @@ async function handleJob(job: RefreshJobRow): Promise<void> {
   }
 
   if (!lockedRows || lockedRows.length === 0) {
-    // Another worker likely picked it up.
     return;
   }
 
   try {
     if (job.type === 'prepare') {
       await executePrepareJob(job);
+
     } else if (job.type === 'run') {
-      await executeRunJob(job);
+      console.warn(
+        `[jobProcessor] RUN jobs are DISABLED — skipping job ${job.id} (slot ${job.slot_index})`
+      );
+      await markJobSkipped(job.id);
+
+      return;
     } else {
       throw new Error(`Unsupported job type ${job.type}`);
     }
@@ -129,5 +134,17 @@ async function markJobError(jobId: string, reason: string): Promise<void> {
 
   if (error) {
     console.error('[jobProcessor] Failed to mark job error', { jobId, error });
+  }
+}
+
+async function markJobSkipped(jobId: string): Promise<void> {
+  const payload = { skipped: true, reason: 'run jobs disabled' };
+  const { error } = await supabase!
+    .from(JOB_TABLE)
+    .update({ status: 'done', payload })
+    .eq('id', jobId);
+
+  if (error) {
+    console.error('[jobProcessor] Failed to mark job skipped', { jobId, error });
   }
 }
