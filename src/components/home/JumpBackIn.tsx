@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { externalSupabase } from "@/lib/externalSupabase";
 import { Link } from "react-router-dom";
-import { Music, Play } from "lucide-react";
+import { Music } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePi } from "@/contexts/PiContext";
 
@@ -153,9 +153,9 @@ const JumpBackIn = () => {
 
   if (isLoading) {
     return (
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 max-h-[400px]">
         {Array.from({ length: 6 }).map((_, i) => (
-          <Skeleton key={i} className="h-32 rounded-md" />
+          <Skeleton key={i} className="h-20 rounded-lg" />
         ))}
       </div>
     );
@@ -166,39 +166,34 @@ const JumpBackIn = () => {
   }
 
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 max-h-[400px]">
       {gridPlaylists.slice(0, 6).map((playlist) => (
         <Link
           key={playlist.id}
           to={`/playlist/${playlist.id}`}
-          className="group bg-card hover:bg-secondary/80 rounded transition-all duration-300 p-2"
+          className="group bg-[#101013] hover:bg-[#1a1a1d] rounded-lg transition-colors duration-200 p-2 flex items-center gap-2.5 h-20"
         >
-          {/* Compact Square Cover */}
-          <div className="relative aspect-square rounded overflow-hidden bg-muted mb-2">
+          {/* Small Cover Image - 68x68px */}
+          <div className="w-[68px] h-[68px] rounded-md overflow-hidden bg-muted flex-shrink-0">
             {playlist.cover_url ? (
               <img
                 src={playlist.cover_url}
                 alt={playlist.title}
-                className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                className="w-full h-full object-cover"
               />
             ) : (
               <div className="w-full h-full bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
-                <Music className="w-6 h-6 text-primary/30" />
+                <Music className="w-5 h-5 text-primary/30" />
               </div>
             )}
-            
-            {/* Small play button on hover */}
-            <div className="absolute bottom-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-              <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center shadow-lg hover:scale-110 transition-transform">
-                <Play className="w-3.5 h-3.5 text-primary-foreground fill-current ml-0.5" />
-              </div>
-            </div>
           </div>
 
-          {/* Compact title */}
-          <h3 className="font-semibold text-xs text-foreground line-clamp-2 leading-tight">
-            {playlist.title}
-          </h3>
+          {/* Text Area - Playlist Title */}
+          <div className="flex-1 min-w-0">
+            <h3 className="font-medium text-xs leading-tight text-foreground line-clamp-2">
+              {playlist.title}
+            </h3>
+          </div>
         </Link>
       ))}
     </div>
