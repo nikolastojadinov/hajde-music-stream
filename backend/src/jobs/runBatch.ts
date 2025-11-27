@@ -482,11 +482,14 @@ async function performDeltaSync(
   youtubeItems: YouTubePlaylistItem[],
   syncTimestamp: string
 ): Promise<void> {
-  // Load existing tracks for this playlist
+  // Load existing tracks globally (tracks are shared across playlists)
+  // We'll query by external_id later for each YouTube item
+  const externalIds = youtubeItems.map(item => item.videoId);
+  
   const { data: existingTracks, error } = await supabase!
     .from(TRACKS_TABLE)
     .select('id, youtube_id, external_id, title, artist, sync_status, cover_url')
-    .eq('playlist_id', playlist.id);
+    .in('external_id', externalIds);
 
   if (error) {
     throw new Error(`Failed to load existing tracks: ${error.message}`);
@@ -512,9 +515,8 @@ async function performDeltaSync(
     const existingTrack = existingByYoutubeId.get(item.videoId);
 
     if (!existingTrack) {
-      // New track
+      // New track (global track, not tied to specific playlist)
       toInsert.push({
-        playlist_id: playlist.id,
         youtube_id: item.videoId,
         external_id: item.videoId,
         title: item.title,
@@ -547,14 +549,9 @@ async function performDeltaSync(
     }
   }
 
-  // Find tracks to mark as deleted
+  // Skip deletion logic - tracks are global and shared across playlists
+  // Deletion should be handled separately via playlist_tracks junction table
   const toDelete: string[] = [];
-  for (const track of existing) {
-    const key = track.youtube_id || track.external_id;
-    if (key && !receivedIds.has(key) && track.sync_status !== 'deleted') {
-      toDelete.push(track.id);
-    }
-  }
 
   // Execute batch operations
   await executeBatchInserts(toInsert);
@@ -571,13 +568,34 @@ async function performDeltaSync(
 
 /**
  * Insert new tracks in batches of 100.
+ * Deduplicates by external_id before inserting (keeps first occurrence).
  */
 async function executeBatchInserts(tracks: any[]): Promise<void> {
   if (tracks.length === 0) return;
 
+  // Deduplicate by external_id (UNIQUE constraint at database level)
+  // Keep only the first occurrence of each external_id
+  const seen = new Map<string, any>();
+  const deduplicated: any[] = [];
+  
+  for (const track of tracks) {
+    if (track.external_id && !seen.has(track.external_id)) {
+      seen.set(track.external_id, track);
+      deduplicated.push(track);
+    }
+  }
+
+  if (deduplicated.length < tracks.length) {
+    console.warn('[runBatch] Deduplicated tracks before insert', {
+      original: tracks.length,
+      deduplicated: deduplicated.length,
+      removed: tracks.length - deduplicated.length,
+    });
+  }
+
   const chunkSize = 100;
-  for (let i = 0; i < tracks.length; i += chunkSize) {
-    const chunk = tracks.slice(i, i + chunkSize);
+  for (let i = 0; i < deduplicated.length; i += chunkSize) {
+    const chunk = deduplicated.slice(i, i + chunkSize);
     const { error } = await supabase!
       .from(TRACKS_TABLE)
       .upsert(chunk, { onConflict: 'external_id' });
