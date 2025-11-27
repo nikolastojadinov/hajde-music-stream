@@ -2,7 +2,7 @@ import cron from 'node-cron';
 import { DateTime } from 'luxon';
 import supabase from '../services/supabaseClient';
 import { executePrepareJob } from './prepareBatch';
-// import { executeRunJob } from '../jobs/runBatch';  // RUN DISABLED
+import { executeRunJob } from '../jobs/runBatch';
 
 const TIMEZONE = 'Europe/Budapest';
 const CRON_EXPRESSION = '* * * * *';
@@ -99,12 +99,7 @@ async function handleJob(job: RefreshJobRow): Promise<void> {
       await executePrepareJob(job);
 
     } else if (job.type === 'run') {
-      console.warn(
-        `[jobProcessor] RUN jobs are DISABLED — skipping job ${job.id} (slot ${job.slot_index})`
-      );
-      await markJobSkipped(job.id);
-
-      return;
+      await executeRunJob(job);
     } else {
       throw new Error(`Unsupported job type ${job.type}`);
     }
