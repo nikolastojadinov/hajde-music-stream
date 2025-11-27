@@ -100,6 +100,20 @@ type BatchResult = {
   errors: Array<{ playlistId: string; message: string }>;
 };
 
+type PlaylistUnavailableReason = 'notFound' | 'gone' | 'forbidden' | 'empty';
+
+class PlaylistUnavailableError extends Error {
+  status: number;
+  reason: PlaylistUnavailableReason;
+
+  constructor(status: number, reason: PlaylistUnavailableReason, message?: string) {
+    super(message ?? 'Playlist unavailable');
+    this.name = 'PlaylistUnavailableError';
+    this.status = status;
+    this.reason = reason;
+  }
+}
+
 // ============================================================================
 // MAIN JOB ENTRY POINT
 // ============================================================================
@@ -236,11 +250,20 @@ async function refreshSinglePlaylist(playlist: PlaylistRow): Promise<boolean> {
   }
 
   // Fetch latest items from YouTube with ETag support
-  const fetchResult = await fetchPlaylistItemsWithETag({
-    apiKey: env.youtube_api_key,
-    youtubePlaylistId: playlist.external_id,
-    lastEtag: playlist.last_etag,
-  });
+  let fetchResult: FetchPlaylistItemsResult;
+  try {
+    fetchResult = await fetchPlaylistItemsWithETag({
+      apiKey: env.youtube_api_key,
+      youtubePlaylistId: playlist.external_id,
+      lastEtag: playlist.last_etag,
+    });
+  } catch (error) {
+    if (error instanceof PlaylistUnavailableError) {
+      await removePlaylistFromDatabase(playlist, error);
+      return false;
+    }
+    throw error;
+  }
 
   const now = new Date().toISOString();
 
@@ -346,6 +369,10 @@ async function fetchPlaylistItemsWithETag(opts: {
     pageToken = page.data.nextPageToken;
   }
 
+  if (items.length === 0) {
+    throw new PlaylistUnavailableError(200, 'empty', `YouTube returned 0 items for playlist ${youtubePlaylistId}`);
+  }
+
   return { items, etag: finalEtag, unchanged: false };
 }
 
@@ -395,6 +422,24 @@ async function fetchPlaylistItemsPage(opts: {
         const data = await response.json();
         const etag = response.headers.get('etag');
         return { status: 200, data, etag };
+      }
+
+      if (response.status === 404 || response.status === 410) {
+        const body = await response.text();
+        throw new PlaylistUnavailableError(
+          response.status,
+          response.status === 404 ? 'notFound' : 'gone',
+          `Playlist unavailable (${response.status}): ${body}`
+        );
+      }
+
+      if (response.status === 403) {
+        const body = await response.text();
+        throw new PlaylistUnavailableError(
+          403,
+          'forbidden',
+          `Playlist forbidden (403): ${body}`
+        );
       }
 
       // Handle rate limiting (429) with exponential backoff
@@ -683,4 +728,29 @@ async function finalizeJob(jobId: string, payload: Record<string, unknown>): Pro
   if (error) {
     console.error('[runBatch] Failed to update job status', { jobId, error: error.message });
   }
+}
+
+async function removePlaylistFromDatabase(playlist: PlaylistRow, reason: PlaylistUnavailableError): Promise<void> {
+  const { error } = await supabase!
+    .from(PLAYLIST_TABLE)
+    .delete()
+    .eq('id', playlist.id);
+
+  if (error) {
+    console.error('[runBatch] Failed to remove unavailable playlist', {
+      playlistId: playlist.id,
+      title: playlist.title,
+      reason: reason.reason,
+      status: reason.status,
+      error: error.message,
+    });
+    throw new Error(`Failed to remove playlist ${playlist.id}: ${error.message}`);
+  }
+
+  console.warn('[runBatch] Removed playlist due to unavailability', {
+    playlistId: playlist.id,
+    title: playlist.title,
+    reason: reason.reason,
+    status: reason.status,
+  });
 }
