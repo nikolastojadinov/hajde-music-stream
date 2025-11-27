@@ -91,8 +91,8 @@ router.get('/top', async (req, res) => {
       .from('playlist_views')
       .select('playlist_id, view_count, last_viewed_at')
       .eq('user_id', user_id)
-      .order('view_count', { ascending: false })
       .order('last_viewed_at', { ascending: false })
+      .order('view_count', { ascending: false })
       .limit(parseInt(limit as string, 10));
 
     if (viewsError) throw viewsError;
