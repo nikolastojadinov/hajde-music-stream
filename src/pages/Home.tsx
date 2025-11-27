@@ -1,5 +1,6 @@
 import PlaylistCard from "@/components/PlaylistCard";
 import FeaturedForYou from "@/components/home/FeaturedForYou";
+import JumpBackIn from "@/components/home/JumpBackIn";
 import { Search as SearchIcon } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
@@ -57,14 +58,9 @@ const Home = () => {
           </div>
         </div>
 
-        {/* Hero Section */}
-        <div className="mb-6 md:mb-8">
-          <h1 className="text-3xl md:text-4xl font-bold mb-2 text-foreground animate-fade-in">
-            {t("welcome_back")}
-          </h1>
-          <p className="text-muted-foreground animate-fade-in">
-            {t("discover_music")}
-          </p>
+        {/* Jump Back In - Personalized Recent Playlists */}
+        <div className="mb-8 md:mb-10 animate-slide-up">
+          <JumpBackIn />
         </div>
 
         {/* Featured For You Section */}
