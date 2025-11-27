@@ -87,27 +87,43 @@ router.get('/top', async (req, res) => {
       return res.status(400).json({ error: 'user_id is required' });
     }
 
-    const { data, error } = await supabase!
+    const { data: views, error: viewsError } = await supabase!
       .from('playlist_views')
-      .select(`
-        playlist_id,
-        view_count,
-        last_viewed_at,
-        playlists:playlist_id (
-          id,
-          title,
-          cover_url,
-          description
-        )
-      `)
+      .select('playlist_id, view_count, last_viewed_at')
       .eq('user_id', user_id)
       .order('view_count', { ascending: false })
       .order('last_viewed_at', { ascending: false })
       .limit(parseInt(limit as string, 10));
 
-    if (error) throw error;
+    if (viewsError) throw viewsError;
 
-    return res.json({ playlists: data || [] });
+    const playlistIds = Array.from(
+      new Set((views || []).map((view) => view.playlist_id).filter(Boolean))
+    ) as string[];
+
+    let playlistMap = new Map<string, any>();
+
+    if (playlistIds.length > 0) {
+      const { data: playlistData, error: playlistError } = await supabase!
+        .from('playlists')
+        .select('id, title, cover_url, description')
+        .in('id', playlistIds);
+
+      if (playlistError) throw playlistError;
+
+      playlistMap = new Map((playlistData || []).map((playlist) => [playlist.id, playlist]));
+    }
+
+    const merged = (views || []).map((view) => {
+      const playlist = playlistMap.get(view.playlist_id) || null;
+      return {
+        ...view,
+        playlist,
+        playlists: playlist,
+      };
+    });
+
+    return res.json({ playlists: merged });
   } catch (error: any) {
     console.error('[playlistViews] Get top error:', error);
     return res.status(500).json({
