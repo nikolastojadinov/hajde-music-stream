@@ -25,13 +25,13 @@ const REAL_PLAYLISTS_BASE_SQL = `
 
 const TOTAL_REAL_SQL = `
   SELECT COUNT(*)::int AS count
-  FROM (${REAL_PLAYLISTS_BASE_SQL}) AS eligible;
+  FROM (${REAL_PLAYLISTS_BASE_SQL}) AS eligible
 `;
 
 const MIX_ONLY_SQL = `
   SELECT COUNT(*)::int AS count
   FROM (${REAL_PLAYLISTS_BASE_SQL}) AS eligible
-  WHERE eligible.external_id ILIKE '${MIX_PREFIX}%';
+  WHERE eligible.external_id ILIKE '${MIX_PREFIX}%'
 `;
 
 const FINAL_SELECTION_SQL = `
@@ -39,7 +39,7 @@ const FINAL_SELECTION_SQL = `
   FROM (${REAL_PLAYLISTS_BASE_SQL}) AS eligible
   WHERE eligible.external_id IS NULL OR eligible.external_id NOT ILIKE '${MIX_PREFIX}%'
   ORDER BY last_refreshed_on ASC NULLS FIRST
-  LIMIT ${PLAYLIST_LIMIT};
+  LIMIT ${PLAYLIST_LIMIT}
 `;
 
 type JobStatus = 'pending' | 'running' | 'done' | 'error';
@@ -170,4 +170,3 @@ async function finalizeJob(jobId: string, payload: Record<string, unknown>): Pro
     console.error('[PrepareBatch] Failed to update job status', { jobId, error });
   }
 }
-
