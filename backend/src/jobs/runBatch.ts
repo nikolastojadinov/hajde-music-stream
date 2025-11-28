@@ -16,6 +16,9 @@
  */
 
 import { DateTime } from 'luxon';
+import path from 'path';
+import { promises as fs } from 'fs';
+import { randomUUID } from 'crypto';
 import env from '../environments';
 import supabase from '../services/supabaseClient';
 
@@ -32,6 +35,7 @@ const YOUTUBE_PAGE_SIZE = 50;
 const PLAYLIST_REFRESH_BATCH_SIZE = parseInt(process.env.PLAYLIST_REFRESH_BATCH_SIZE || '50', 10);
 const MAX_RETRIES = 3;
 const INITIAL_RETRY_DELAY_MS = 1000;
+const BATCH_DIR = path.resolve(__dirname, '../../tmp/refresh_batches');
 
 // ============================================================================
 // TYPES
@@ -100,6 +104,11 @@ type BatchResult = {
   errors: Array<{ playlistId: string; message: string }>;
 };
 
+type BatchFileEntry = {
+  playlistId?: string;
+  title?: string;
+};
+
 type PlaylistUnavailableReason = 'notFound' | 'gone' | 'forbidden' | 'empty';
 
 class PlaylistUnavailableError extends Error {
@@ -144,7 +153,7 @@ export async function executeRunJob(job: RefreshJobRow): Promise<void> {
   }
 
   try {
-    const result = await runBatchRefresh();
+    const result = await runBatchRefresh(job);
     await finalizeJob(job.id, result);
     console.log('[runBatch] Job completed', {
       jobId: job.id,
@@ -163,12 +172,17 @@ export async function executeRunJob(job: RefreshJobRow): Promise<void> {
  * Core batch refresh logic.
  * Loads playlists due for refresh and processes each one.
  */
-async function runBatchRefresh(): Promise<BatchResult> {
-  const playlists = await loadPlaylistsForRefresh();
+async function runBatchRefresh(job: RefreshJobRow): Promise<BatchResult> {
+  const refreshSessionId = randomUUID();
+  console.log('[refresh-session]', { refreshSessionId, step: 'start', jobId: job.id, slot: job.slot_index, dayKey: job.day_key });
+
+  const { filePath, playlistIds } = await resolveBatchFile(job);
+  const playlists = await loadPlaylistsForRefresh(playlistIds);
   
   console.log('[runBatch] Loaded playlists for refresh', {
     count: playlists.length,
     batchSize: PLAYLIST_REFRESH_BATCH_SIZE,
+    requestedIds: playlistIds.length,
   });
 
   const result: BatchResult = {
@@ -180,6 +194,7 @@ async function runBatchRefresh(): Promise<BatchResult> {
   };
 
   for (const playlist of playlists) {
+    console.log('[refresh-session]', { refreshSessionId, step: 'playlist', playlistId: playlist.id, youtubePlaylistId: playlist.external_id });
     try {
       const skipped = await refreshSinglePlaylist(playlist);
       if (skipped) {
@@ -192,6 +207,7 @@ async function runBatchRefresh(): Promise<BatchResult> {
       const message = error instanceof Error ? error.message : 'Unknown playlist refresh error';
       console.error('[runBatch] Playlist refresh failed', {
         playlistId: playlist.id,
+        youtubePlaylistId: playlist.external_id,
         title: playlist.title,
         message,
       });
@@ -199,6 +215,7 @@ async function runBatchRefresh(): Promise<BatchResult> {
     }
   }
 
+  console.log('[refresh-session]', { refreshSessionId, step: 'finished', result });
   return result;
 }
 
@@ -207,7 +224,46 @@ async function runBatchRefresh(): Promise<BatchResult> {
  * Uses a 30-day cycle strategy: selects playlists ordered by last_refreshed_on NULLS FIRST,
  * then by fetched_on, with a configurable batch limit.
  */
-async function loadPlaylistsForRefresh(): Promise<PlaylistRow[]> {
+async function resolveBatchFile(job: RefreshJobRow): Promise<{ filePath: string; playlistIds: string[] }> {
+  const filePath = path.join(BATCH_DIR, `batch_${job.day_key}_slot_${job.slot_index}.json`);
+  console.log('[runBatch] Resolved batch file path', { slot: job.slot_index, filePath });
+
+  try {
+    const raw = await fs.readFile(filePath, 'utf-8');
+    const parsed = JSON.parse(raw) as BatchFileEntry[];
+    const playlistIds = Array.isArray(parsed)
+      ? parsed.map(entry => entry?.playlistId).filter((id): id is string => Boolean(id))
+      : [];
+
+    console.log('[runBatch] Parsed playlist IDs from batch file', { filePath, playlistIds });
+    console.log(`Running refresh slot ${job.slot_index} using batch file ${filePath} with ${playlistIds.length} entries`);
+    return { filePath, playlistIds };
+  } catch (error) {
+    console.warn('[runBatch] Failed to load batch file; falling back to DB query', {
+      filePath,
+      error: (error as Error).message,
+    });
+    console.log(`Running refresh slot ${job.slot_index} using batch file ${filePath} with 0 entries`);
+    return { filePath, playlistIds: [] };
+  }
+}
+
+async function loadPlaylistsForRefresh(requestedIds?: string[]): Promise<PlaylistRow[]> {
+  if (requestedIds && requestedIds.length > 0) {
+    const { data, error } = await supabase!
+      .from(PLAYLIST_TABLE)
+      .select('id, external_id, title, description, region, category, last_refreshed_on, last_etag, fetched_on, item_count')
+      .in('id', requestedIds);
+
+    if (error) {
+      console.error('[runBatch] Failed to load playlists for refresh (batch file)', { error: error.message });
+      throw new Error(`Failed to load playlists: ${error.message}`);
+    }
+
+    const playlistMap = new Map((data || []).map((row: PlaylistRow) => [row.id, row]));
+    return requestedIds.map(id => playlistMap.get(id)).filter((row): row is PlaylistRow => Boolean(row));
+  }
+
   const { data, error } = await supabase!
     .from(PLAYLIST_TABLE)
     .select('id, external_id, title, description, region, category, last_refreshed_on, last_etag, fetched_on, item_count')
@@ -241,6 +297,8 @@ async function refreshSinglePlaylist(playlist: PlaylistRow): Promise<boolean> {
     return true; // Count as skipped
   }
 
+  const youtubePlaylistId = playlist.external_id;
+
   if (!env.youtube_api_key) {
     console.error('[runBatch] Missing YOUTUBE_API_KEY env var; cannot refresh playlist', {
       playlistId: playlist.id,
@@ -249,12 +307,35 @@ async function refreshSinglePlaylist(playlist: PlaylistRow): Promise<boolean> {
     throw new Error('YOUTUBE_API_KEY not configured');
   }
 
+  console.log('[diagnostic][api-key]', {
+    playlistId: playlist.id,
+    youtubePlaylistId,
+    youtubeApiKeyPrefix: env.youtube_api_key.substring(0, 6),
+  });
+
+  console.log('[diagnostic][etag]', {
+    playlistId: playlist.id,
+    youtubePlaylistId,
+    step: 'loaded-from-supabase',
+    lastEtag: playlist.last_etag,
+  });
+
+  if (!playlist.last_etag) {
+    console.log('[diagnostic][etag]', {
+      playlistId: playlist.id,
+      youtubePlaylistId,
+      step: 'missing-etag',
+      message: 'last_etag is NULL or undefined',
+    });
+  }
+
   // Fetch latest items from YouTube with ETag support
   let fetchResult: FetchPlaylistItemsResult;
   try {
     fetchResult = await fetchPlaylistItemsWithETag({
       apiKey: env.youtube_api_key,
-      youtubePlaylistId: playlist.external_id,
+      youtubePlaylistId,
+      internalPlaylistId: playlist.id,
       lastEtag: playlist.last_etag,
     });
   } catch (error) {
@@ -280,6 +361,13 @@ async function refreshSinglePlaylist(playlist: PlaylistRow): Promise<boolean> {
       .update({ last_refreshed_on: now })
       .eq('id', playlist.id);
 
+    console.log('[diagnostic][etag]', {
+      playlistId: playlist.id,
+      youtubePlaylistId,
+      step: 'unchanged-etag',
+      lastEtag: playlist.last_etag,
+    });
+
     return true; // Skipped
   }
 
@@ -304,8 +392,16 @@ async function refreshSinglePlaylist(playlist: PlaylistRow): Promise<boolean> {
     })
     .eq('id', playlist.id);
 
+  console.log('[diagnostic][etag]', {
+    playlistId: playlist.id,
+    youtubePlaylistId,
+    step: 'saved-etag',
+    lastEtag: fetchResult.etag,
+  });
+
   console.log('[runBatch] refreshed playlist fully.', {
     playlistId: playlist.id,
+    youtubePlaylistId,
     title: playlist.title,
     trackCount: fetchResult.items.length,
   });
@@ -324,9 +420,10 @@ async function refreshSinglePlaylist(playlist: PlaylistRow): Promise<boolean> {
 async function fetchPlaylistItemsWithETag(opts: {
   apiKey: string;
   youtubePlaylistId: string;
+  internalPlaylistId: string;
   lastEtag?: string | null;
 }): Promise<FetchPlaylistItemsResult> {
-  const { apiKey, youtubePlaylistId, lastEtag } = opts;
+  const { apiKey, youtubePlaylistId, internalPlaylistId, lastEtag } = opts;
   const items: YouTubePlaylistItem[] = [];
   let pageToken: string | undefined;
   let finalEtag: string | null = null;
@@ -335,17 +432,31 @@ async function fetchPlaylistItemsWithETag(opts: {
   const firstPage = await fetchPlaylistItemsPage({
     apiKey,
     playlistId: youtubePlaylistId,
+    internalPlaylistId,
     pageToken: undefined,
     lastEtag,
   });
 
   if (firstPage.status === 304) {
+    console.log('[diagnostic][etag]', {
+      playlistId: internalPlaylistId,
+      youtubePlaylistId,
+      step: 'youtube-first-page-304',
+      lastEtag: lastEtag ?? null,
+    });
     return { items: [], etag: lastEtag ?? null, unchanged: true };
   }
 
   if (!firstPage.data) {
     throw new Error('Failed to fetch playlist items from YouTube');
   }
+
+  console.log('[diagnostic][etag]', {
+    playlistId: internalPlaylistId,
+    youtubePlaylistId,
+    step: 'youtube-first-page',
+    lastEtag: firstPage.etag,
+  });
 
   finalEtag = firstPage.etag;
   items.push(...parsePlaylistItemsPage(firstPage.data));
@@ -356,6 +467,7 @@ async function fetchPlaylistItemsWithETag(opts: {
     const page = await fetchPlaylistItemsPage({
       apiKey,
       playlistId: youtubePlaylistId,
+      internalPlaylistId,
       pageToken,
       lastEtag: undefined, // Don't send ETag on subsequent pages
     });
@@ -382,10 +494,11 @@ async function fetchPlaylistItemsWithETag(opts: {
 async function fetchPlaylistItemsPage(opts: {
   apiKey: string;
   playlistId: string;
+  internalPlaylistId: string;
   pageToken?: string;
   lastEtag?: string | null;
 }): Promise<{ status: number; data?: any; etag: string | null }> {
-  const { apiKey, playlistId, pageToken, lastEtag } = opts;
+  const { apiKey, playlistId, internalPlaylistId, pageToken, lastEtag } = opts;
 
   const url = new URL(`${YOUTUBE_API_BASE}/playlistItems`);
   url.searchParams.set('key', apiKey);
@@ -410,7 +523,15 @@ async function fetchPlaylistItemsPage(opts: {
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
+      assertNoSearchList(url);
       const response = await fetch(url.toString(), { headers });
+      logQuotaUsage({
+        playlistId: internalPlaylistId,
+        youtubePlaylistId: playlistId,
+        status: response.status,
+        endpoint: 'playlistItems.list',
+        quotaHeader: response.headers.get('x-goog-quota-used'),
+      });
 
       // Handle 304 Not Modified
       if (response.status === 304) {
@@ -434,11 +555,23 @@ async function fetchPlaylistItemsPage(opts: {
       }
 
       if (response.status === 403) {
-        const body = await response.text();
+        const errorJson = await response.json().catch(() => null);
+        const errorDetail = errorJson?.error?.errors?.[0];
+        const reason = errorDetail?.reason ?? errorJson?.error?.code ?? 'unknown';
+        const message = errorDetail?.message ?? errorJson?.error?.message ?? 'Forbidden';
+        const stageMessage = pageToken ? '403 occurred DURING pagination step' : '403 occurred BEFORE any page was processed';
+        console.error('[runBatch] YouTube quotaExceeded', {
+          playlistId: internalPlaylistId,
+          youtubePlaylistId: playlistId,
+          attempt,
+          reason,
+          message,
+          stage: stageMessage,
+        });
         throw new PlaylistUnavailableError(
           403,
           'forbidden',
-          `Playlist forbidden (403): ${body}`
+          `Playlist forbidden (403): ${JSON.stringify(errorJson ?? {})}`
         );
       }
 
@@ -510,6 +643,29 @@ function parsePlaylistItemsPage(data: any): YouTubePlaylistItem[] {
   }
 
   return result;
+}
+
+function assertNoSearchList(url: URL): void {
+  if (url.pathname.includes('/search') || url.toString().includes('search?')) {
+    console.error('[FATAL] search.list used inside refresh job!', { url: url.toString() });
+    throw new Error('search.list detected');
+  }
+}
+
+function logQuotaUsage(opts: {
+  playlistId: string;
+  youtubePlaylistId: string;
+  status: number;
+  endpoint: string;
+  quotaHeader: string | null;
+}): void {
+  const { playlistId, youtubePlaylistId, status, endpoint, quotaHeader } = opts;
+  console.log('[quota]', { playlistId, youtubePlaylistId, status, endpoint });
+  if (quotaHeader) {
+    console.log('[quota]', { playlistId, youtubePlaylistId, endpoint, quotaUsed: quotaHeader });
+  } else {
+    console.log('[quota]', { playlistId, youtubePlaylistId, endpoint, message: 'Quota header missing for this call' });
+  }
 }
 
 // ============================================================================
@@ -739,6 +895,7 @@ async function removePlaylistFromDatabase(playlist: PlaylistRow, reason: Playlis
   if (error) {
     console.error('[runBatch] Failed to remove unavailable playlist', {
       playlistId: playlist.id,
+      youtubePlaylistId: playlist.external_id,
       title: playlist.title,
       reason: reason.reason,
       status: reason.status,
@@ -749,6 +906,7 @@ async function removePlaylistFromDatabase(playlist: PlaylistRow, reason: Playlis
 
   console.warn('[runBatch] Removed playlist due to unavailability', {
     playlistId: playlist.id,
+    youtubePlaylistId: playlist.external_id,
     title: playlist.title,
     reason: reason.reason,
     status: reason.status,

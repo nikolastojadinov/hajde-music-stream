@@ -54,9 +54,6 @@ export async function executePrepareJob(job: RefreshJobRow): Promise<void> {
     await fs.mkdir(BATCH_DIR, { recursive: true });
 
     const playlists = await fetchEligiblePlaylists();
-    if (playlists.length < PLAYLIST_LIMIT) {
-      console.warn('[PrepareBatch] Fewer than 200 playlists available', { count: playlists.length });
-    }
 
     const batchPayload = playlists.map((playlist) => ({
       playlistId: playlist.id,
@@ -79,7 +76,20 @@ export async function executePrepareJob(job: RefreshJobRow): Promise<void> {
 }
 
 async function fetchEligiblePlaylists(): Promise<PlaylistRow[]> {
-  const query = supabase!
+  const eligibilityCount = await supabase!
+    .from(PLAYLIST_TABLE)
+    .select('id', { count: 'exact', head: true })
+    .gte('track_count', 10)
+    .neq('sync_status', 'deleted')
+    .neq('sync_status', 'empty');
+
+  if (eligibilityCount.error) {
+    throw eligibilityCount.error;
+  }
+
+  const totalEligible = eligibilityCount.count ?? 0;
+
+  const { data, error } = await supabase!
     .from(PLAYLIST_TABLE)
     .select('id,title,last_refreshed_on,track_count,sync_status')
     .gte('track_count', 10)
@@ -89,12 +99,24 @@ async function fetchEligiblePlaylists(): Promise<PlaylistRow[]> {
     .order('random')
     .limit(PLAYLIST_LIMIT);
 
-  const { data, error } = await query;
   if (error) {
     throw error;
   }
 
-  return (data as PlaylistRow[] | null) ?? [];
+  const playlists = (data as PlaylistRow[] | null) ?? [];
+  console.log('[diagnostic][prepare]', { totalEligible, selected: playlists.length });
+
+  if (playlists.length < PLAYLIST_LIMIT) {
+    const reason = totalEligible < PLAYLIST_LIMIT ? 'too_few_eligible' : 'insufficient_random_selection';
+    console.warn('[diagnostic][prepare]', {
+      message: 'Selected fewer playlists than requested',
+      totalEligible,
+      selected: playlists.length,
+      reason,
+    });
+  }
+
+  return playlists;
 }
 
 async function finalizeJob(jobId: string, payload: Record<string, unknown>): Promise<void> {
