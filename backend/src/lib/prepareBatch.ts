@@ -72,7 +72,7 @@ export async function executePrepareJob(job: RefreshJobRow): Promise<void> {
   }
 }
 
-/**  
+/**
  * FULL FAST LOGIC (using the view):
  * - Preselect 2000 playlists
  * - Join with view (instant, no heavy joins)
@@ -100,8 +100,8 @@ async function fetchEligiblePlaylists(): Promise<Row[]> {
     where not (v.external_id ilike '${MIX_PREFIX}%')
       and v.track_count >= 10
     order by v.last_refreshed_on asc nulls first
-    limit ${PLAYLIST_LIMIT};
-  `;
+    limit ${PLAYLIST_LIMIT}
+  `; // ← semicolon uklonjen zbog SUPABASE EXECUTE restrikcije
 
   const { data, error } = await supabase.rpc('run_raw', { sql });
 
