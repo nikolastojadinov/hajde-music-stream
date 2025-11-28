@@ -8,6 +8,7 @@ const PLAYLIST_LIMIT = 200;
 const BATCH_DIR = path.resolve(__dirname, '../../tmp/refresh_batches');
 const PLAYLIST_TABLE = 'playlists';
 const JOB_TABLE = 'refresh_jobs';
+const MIX_PREFIXES = ['RDCLAK', 'RDCM', 'RDAMVM', 'RDMM'];
 
 type JobStatus = 'pending' | 'running' | 'done' | 'error';
 type JobType = 'prepare' | 'run';
@@ -28,6 +29,7 @@ type PlaylistRow = {
   last_refreshed_on: string | null;
   track_count: number | null;
   sync_status?: string | null;
+  external_id?: string | null;
 };
 
 export async function executePrepareJob(job: RefreshJobRow): Promise<void> {
@@ -76,25 +78,29 @@ export async function executePrepareJob(job: RefreshJobRow): Promise<void> {
 }
 
 async function fetchEligiblePlaylists(): Promise<PlaylistRow[]> {
-  const eligibilityCount = await supabase!
+  const eligibilityPreMix = await supabase!
     .from(PLAYLIST_TABLE)
     .select('id', { count: 'exact', head: true })
     .gte('track_count', 10)
-    .neq('sync_status', 'deleted')
-    .neq('sync_status', 'empty');
+    .eq('sync_status', 'active');
 
-  if (eligibilityCount.error) {
-    throw eligibilityCount.error;
+  if (eligibilityPreMix.error) {
+    throw eligibilityPreMix.error;
   }
 
-  const totalEligible = eligibilityCount.count ?? 0;
+  const totalBeforeMixExclusion = eligibilityPreMix.count ?? 0;
 
-  const { data, error } = await supabase!
+  let playlistQuery = supabase!
     .from(PLAYLIST_TABLE)
-    .select('id,title,last_refreshed_on,track_count,sync_status')
+    .select('id,title,last_refreshed_on,track_count,sync_status,external_id', { count: 'exact' })
     .gte('track_count', 10)
-    .neq('sync_status', 'deleted')
-    .neq('sync_status', 'empty')
+    .eq('sync_status', 'active');
+
+  MIX_PREFIXES.forEach((prefix) => {
+    playlistQuery = playlistQuery.not('external_id', 'ilike', `${prefix}%`);
+  });
+
+  const { data, error, count } = await playlistQuery
     .order('last_refreshed_on', { ascending: true, nullsFirst: true })
     .order('random')
     .limit(PLAYLIST_LIMIT);
@@ -104,6 +110,10 @@ async function fetchEligiblePlaylists(): Promise<PlaylistRow[]> {
   }
 
   const playlists = (data as PlaylistRow[] | null) ?? [];
+  const totalEligible = count ?? playlists.length;
+  const mixExcluded = Math.max(totalBeforeMixExclusion - totalEligible, 0);
+
+  console.log('[prepare][exclude] mix playlists excluded', { mixExcluded });
   console.log('[diagnostic][prepare]', { totalEligible, selected: playlists.length });
 
   if (playlists.length < PLAYLIST_LIMIT) {

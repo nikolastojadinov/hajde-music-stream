@@ -37,6 +37,7 @@ const MAX_RETRIES = 3;
 const INITIAL_RETRY_DELAY_MS = 1000;
 const BATCH_DIR = path.resolve(__dirname, '../../tmp/refresh_batches');
 const DIAG_PREFIX = '[diag][runBatch]';
+const MIX_PLAYLIST_PREFIXES = ['RDCLAK', 'RDCM', 'RDAMVM', 'RDMM'];
 
 // ============================================================================
 // TYPES
@@ -109,6 +110,13 @@ type BatchFileEntry = {
   playlistId?: string;
   title?: string;
 };
+
+function isMixPlaylist(youtubePlaylistId?: string | null): boolean {
+  if (!youtubePlaylistId) {
+    return false;
+  }
+  return MIX_PLAYLIST_PREFIXES.some(prefix => youtubePlaylistId.startsWith(prefix));
+}
 
 function diagLog(message: string, payload?: Record<string, unknown>): void {
   if (payload) {
@@ -252,6 +260,21 @@ async function runBatchRefresh(job: RefreshJobRow): Promise<BatchResult> {
   };
 
   for (const playlist of playlists) {
+    if (isMixPlaylist(playlist.external_id)) {
+      console.log('[runBatch][skip] mix playlist skipped', {
+        playlistId: playlist.id,
+        youtubePlaylistId: playlist.external_id,
+      });
+      diagLog('runBatchRefresh.playlist.mixSkipped', {
+        refreshSessionId,
+        playlistId: playlist.id,
+        youtubePlaylistId: playlist.external_id,
+        result: { skipped: true, reason: 'mix' },
+      });
+      result.skippedCount += 1;
+      continue;
+    }
+
     console.log('[refresh-session]', { refreshSessionId, step: 'playlist', playlistId: playlist.id, youtubePlaylistId: playlist.external_id });
     diagLog('runBatchRefresh.playlist.start', {
       refreshSessionId,
@@ -347,8 +370,34 @@ async function loadPlaylistsForRefresh(requestedIds?: string[]): Promise<Playlis
     }
 
     const playlistMap = new Map((data || []).map((row: PlaylistRow) => [row.id, row]));
-    const ordered = requestedIds.map(id => playlistMap.get(id)).filter((row): row is PlaylistRow => Boolean(row));
-    diagLog('loadPlaylistsForRefresh.queryByIds.complete', { requestedIdsCount: requestedIds.length, loadedCount: ordered.length });
+    const ordered: PlaylistRow[] = [];
+
+    for (const id of requestedIds) {
+      const row = playlistMap.get(id);
+      if (!row) {
+        continue;
+      }
+
+      if (isMixPlaylist(row.external_id)) {
+        console.log('[runBatch][skip] mix playlist skipped', {
+          playlistId: row.id,
+          youtubePlaylistId: row.external_id,
+        });
+        diagLog('loadPlaylistsForRefresh.mixSkipped', {
+          playlistId: row.id,
+          youtubePlaylistId: row.external_id,
+          source: 'requestedIds',
+        });
+        continue;
+      }
+
+      ordered.push(row);
+    }
+
+    diagLog('loadPlaylistsForRefresh.queryByIds.complete', {
+      requestedIdsCount: requestedIds.length,
+      loadedCount: ordered.length,
+    });
     return ordered;
   }
 
@@ -368,8 +417,26 @@ async function loadPlaylistsForRefresh(requestedIds?: string[]): Promise<Playlis
   }
 
   const fallback = (data || []) as PlaylistRow[];
-  diagLog('loadPlaylistsForRefresh.queryDefault.complete', { loadedCount: fallback.length });
-  return fallback;
+  const filtered: PlaylistRow[] = [];
+
+  for (const row of fallback) {
+    if (isMixPlaylist(row.external_id)) {
+      console.log('[runBatch][skip] mix playlist skipped', {
+        playlistId: row.id,
+        youtubePlaylistId: row.external_id,
+      });
+      diagLog('loadPlaylistsForRefresh.mixSkipped', {
+        playlistId: row.id,
+        youtubePlaylistId: row.external_id,
+        source: 'default',
+      });
+      continue;
+    }
+    filtered.push(row);
+  }
+
+  diagLog('loadPlaylistsForRefresh.queryDefault.complete', { loadedCount: filtered.length });
+  return filtered;
 }
 
 // ============================================================================
