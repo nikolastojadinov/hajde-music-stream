@@ -36,6 +36,7 @@ const PLAYLIST_REFRESH_BATCH_SIZE = parseInt(process.env.PLAYLIST_REFRESH_BATCH_
 const MAX_RETRIES = 3;
 const INITIAL_RETRY_DELAY_MS = 1000;
 const BATCH_DIR = path.resolve(__dirname, '../../tmp/refresh_batches');
+const DIAG_PREFIX = '[diag][runBatch]';
 
 // ============================================================================
 // TYPES
@@ -109,6 +110,37 @@ type BatchFileEntry = {
   title?: string;
 };
 
+function diagLog(message: string, payload?: Record<string, unknown>): void {
+  if (payload) {
+    console.log(DIAG_PREFIX, message, payload);
+  } else {
+    console.log(DIAG_PREFIX, message);
+  }
+}
+
+function maskApiKey(value?: string | null): string {
+  if (!value || value.length === 0) {
+    return 'unknown';
+  }
+  return `${value.slice(0, 6)}...`;
+}
+
+function maskUrlApiKey(url: URL): string {
+  const cloned = new URL(url.toString());
+  const keyParam = cloned.searchParams.get('key');
+  if (keyParam) {
+    cloned.searchParams.set('key', maskApiKey(keyParam));
+  }
+  return cloned.toString();
+}
+
+function truncateBody(body: string, limit = 300): string {
+  if (body.length <= limit) {
+    return body;
+  }
+  return `${body.slice(0, limit)}…`;
+}
+
 type PlaylistUnavailableReason = 'notFound' | 'gone' | 'forbidden' | 'empty';
 
 class PlaylistUnavailableError extends Error {
@@ -139,15 +171,24 @@ export async function executeRunJob(job: RefreshJobRow): Promise<void> {
     slot: job.slot_index,
     scheduledAt: scheduledLocal.toISO(),
   });
+  diagLog('executeRunJob.start', {
+    jobId: job.id,
+    type: job.type,
+    slot: job.slot_index,
+    scheduledAtLocal: scheduledLocal.toISO(),
+    dayKey: job.day_key,
+  });
 
   if (!supabase) {
     console.error('[runBatch] Supabase client unavailable. Marking job done with error');
+    diagLog('executeRunJob.supabaseUnavailable', { jobId: job.id });
     await finalizeJob(job.id, { error: 'Supabase client unavailable' });
     return;
   }
 
   if (job.type !== 'run') {
     console.warn('[runBatch] Job type mismatch; expected run', { jobId: job.id, type: job.type });
+    diagLog('executeRunJob.jobTypeMismatch', { jobId: job.id, type: job.type });
     await finalizeJob(job.id, { error: `Unexpected job type ${job.type}` });
     return;
   }
@@ -161,9 +202,20 @@ export async function executeRunJob(job: RefreshJobRow): Promise<void> {
       failed: result.failureCount,
       skipped: result.skippedCount,
     });
+    diagLog('executeRunJob.complete', {
+      jobId: job.id,
+      successes: result.successCount,
+      failures: result.failureCount,
+      skipped: result.skippedCount,
+    });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     console.error('[runBatch] Unexpected error', { jobId: job.id, error: message });
+    diagLog('executeRunJob.error', {
+      jobId: job.id,
+      message,
+      stack: error instanceof Error ? error.stack : undefined,
+    });
     await finalizeJob(job.id, { error: message });
   }
 }
@@ -175,9 +227,15 @@ export async function executeRunJob(job: RefreshJobRow): Promise<void> {
 async function runBatchRefresh(job: RefreshJobRow): Promise<BatchResult> {
   const refreshSessionId = randomUUID();
   console.log('[refresh-session]', { refreshSessionId, step: 'start', jobId: job.id, slot: job.slot_index, dayKey: job.day_key });
+  diagLog('runBatchRefresh.start', { refreshSessionId, jobId: job.id, slot: job.slot_index, dayKey: job.day_key });
 
+  diagLog('runBatchRefresh.resolveBatchFile.start', { refreshSessionId });
   const { filePath, playlistIds } = await resolveBatchFile(job);
+  diagLog('runBatchRefresh.resolveBatchFile.complete', { refreshSessionId, filePath, playlistIdsCount: playlistIds.length });
+
+  diagLog('runBatchRefresh.loadPlaylists.start', { refreshSessionId, requestedIds: playlistIds.length });
   const playlists = await loadPlaylistsForRefresh(playlistIds);
+  diagLog('runBatchRefresh.loadPlaylists.complete', { refreshSessionId, loadedCount: playlists.length });
   
   console.log('[runBatch] Loaded playlists for refresh', {
     count: playlists.length,
@@ -195,6 +253,12 @@ async function runBatchRefresh(job: RefreshJobRow): Promise<BatchResult> {
 
   for (const playlist of playlists) {
     console.log('[refresh-session]', { refreshSessionId, step: 'playlist', playlistId: playlist.id, youtubePlaylistId: playlist.external_id });
+    diagLog('runBatchRefresh.playlist.start', {
+      refreshSessionId,
+      playlistId: playlist.id,
+      youtubePlaylistId: playlist.external_id,
+      title: playlist.title,
+    });
     try {
       const skipped = await refreshSinglePlaylist(playlist);
       if (skipped) {
@@ -202,6 +266,11 @@ async function runBatchRefresh(job: RefreshJobRow): Promise<BatchResult> {
       } else {
         result.successCount += 1;
       }
+      diagLog('runBatchRefresh.playlist.complete', {
+        refreshSessionId,
+        playlistId: playlist.id,
+        skipped,
+      });
     } catch (error: unknown) {
       result.failureCount += 1;
       const message = error instanceof Error ? error.message : 'Unknown playlist refresh error';
@@ -211,11 +280,19 @@ async function runBatchRefresh(job: RefreshJobRow): Promise<BatchResult> {
         title: playlist.title,
         message,
       });
+      diagLog('runBatchRefresh.playlist.error', {
+        refreshSessionId,
+        playlistId: playlist.id,
+        youtubePlaylistId: playlist.external_id,
+        error: message,
+        stack: error instanceof Error ? error.stack : undefined,
+      });
       result.errors.push({ playlistId: playlist.id, message });
     }
   }
 
   console.log('[refresh-session]', { refreshSessionId, step: 'finished', result });
+  diagLog('runBatchRefresh.complete', { refreshSessionId, result });
   return result;
 }
 
@@ -227,6 +304,7 @@ async function runBatchRefresh(job: RefreshJobRow): Promise<BatchResult> {
 async function resolveBatchFile(job: RefreshJobRow): Promise<{ filePath: string; playlistIds: string[] }> {
   const filePath = path.join(BATCH_DIR, `batch_${job.day_key}_slot_${job.slot_index}.json`);
   console.log('[runBatch] Resolved batch file path', { slot: job.slot_index, filePath });
+  diagLog('resolveBatchFile.read.start', { filePath });
 
   try {
     const raw = await fs.readFile(filePath, 'utf-8');
@@ -237,6 +315,7 @@ async function resolveBatchFile(job: RefreshJobRow): Promise<{ filePath: string;
 
     console.log('[runBatch] Parsed playlist IDs from batch file', { filePath, playlistIds });
     console.log(`Running refresh slot ${job.slot_index} using batch file ${filePath} with ${playlistIds.length} entries`);
+    diagLog('resolveBatchFile.read.complete', { filePath, parsedCount: parsed.length, playlistIds });
     return { filePath, playlistIds };
   } catch (error) {
     console.warn('[runBatch] Failed to load batch file; falling back to DB query', {
@@ -244,12 +323,18 @@ async function resolveBatchFile(job: RefreshJobRow): Promise<{ filePath: string;
       error: (error as Error).message,
     });
     console.log(`Running refresh slot ${job.slot_index} using batch file ${filePath} with 0 entries`);
+    diagLog('resolveBatchFile.read.error', {
+      filePath,
+      error: (error as Error).message,
+      stack: (error as Error).stack,
+    });
     return { filePath, playlistIds: [] };
   }
 }
 
 async function loadPlaylistsForRefresh(requestedIds?: string[]): Promise<PlaylistRow[]> {
   if (requestedIds && requestedIds.length > 0) {
+    diagLog('loadPlaylistsForRefresh.queryByIds.start', { requestedIds });
     const { data, error } = await supabase!
       .from(PLAYLIST_TABLE)
       .select('id, external_id, title, description, region, category, last_refreshed_on, last_etag, fetched_on, item_count')
@@ -257,13 +342,17 @@ async function loadPlaylistsForRefresh(requestedIds?: string[]): Promise<Playlis
 
     if (error) {
       console.error('[runBatch] Failed to load playlists for refresh (batch file)', { error: error.message });
+      diagLog('loadPlaylistsForRefresh.queryByIds.error', { error: error.message });
       throw new Error(`Failed to load playlists: ${error.message}`);
     }
 
     const playlistMap = new Map((data || []).map((row: PlaylistRow) => [row.id, row]));
-    return requestedIds.map(id => playlistMap.get(id)).filter((row): row is PlaylistRow => Boolean(row));
+    const ordered = requestedIds.map(id => playlistMap.get(id)).filter((row): row is PlaylistRow => Boolean(row));
+    diagLog('loadPlaylistsForRefresh.queryByIds.complete', { requestedIdsCount: requestedIds.length, loadedCount: ordered.length });
+    return ordered;
   }
 
+  diagLog('loadPlaylistsForRefresh.queryDefault.start', {});
   const { data, error } = await supabase!
     .from(PLAYLIST_TABLE)
     .select('id, external_id, title, description, region, category, last_refreshed_on, last_etag, fetched_on, item_count')
@@ -274,10 +363,13 @@ async function loadPlaylistsForRefresh(requestedIds?: string[]): Promise<Playlis
 
   if (error) {
     console.error('[runBatch] Failed to load playlists for refresh', { error: error.message });
+    diagLog('loadPlaylistsForRefresh.queryDefault.error', { error: error.message });
     throw new Error(`Failed to load playlists: ${error.message}`);
   }
 
-  return (data || []) as PlaylistRow[];
+  const fallback = (data || []) as PlaylistRow[];
+  diagLog('loadPlaylistsForRefresh.queryDefault.complete', { loadedCount: fallback.length });
+  return fallback;
 }
 
 // ============================================================================
@@ -294,6 +386,7 @@ async function refreshSinglePlaylist(playlist: PlaylistRow): Promise<boolean> {
       playlistId: playlist.id,
       title: playlist.title,
     });
+    diagLog('refreshSinglePlaylist.missingExternalId', { playlistId: playlist.id, title: playlist.title });
     return true; // Count as skipped
   }
 
@@ -304,6 +397,7 @@ async function refreshSinglePlaylist(playlist: PlaylistRow): Promise<boolean> {
       playlistId: playlist.id,
       title: playlist.title,
     });
+    diagLog('refreshSinglePlaylist.missingApiKey', { playlistId: playlist.id });
     throw new Error('YOUTUBE_API_KEY not configured');
   }
 
@@ -312,11 +406,21 @@ async function refreshSinglePlaylist(playlist: PlaylistRow): Promise<boolean> {
     youtubePlaylistId,
     youtubeApiKeyPrefix: env.youtube_api_key.substring(0, 6),
   });
+  diagLog('refreshSinglePlaylist.apiKey', {
+    playlistId: playlist.id,
+    youtubePlaylistId,
+    youtubeApiKey: maskApiKey(env.youtube_api_key),
+  });
 
   console.log('[diagnostic][etag]', {
     playlistId: playlist.id,
     youtubePlaylistId,
     step: 'loaded-from-supabase',
+    lastEtag: playlist.last_etag,
+  });
+  diagLog('refreshSinglePlaylist.etag.loaded', {
+    playlistId: playlist.id,
+    youtubePlaylistId,
     lastEtag: playlist.last_etag,
   });
 
@@ -326,6 +430,10 @@ async function refreshSinglePlaylist(playlist: PlaylistRow): Promise<boolean> {
       youtubePlaylistId,
       step: 'missing-etag',
       message: 'last_etag is NULL or undefined',
+    });
+    diagLog('refreshSinglePlaylist.etag.missing', {
+      playlistId: playlist.id,
+      youtubePlaylistId,
     });
   }
 
@@ -338,11 +446,31 @@ async function refreshSinglePlaylist(playlist: PlaylistRow): Promise<boolean> {
       internalPlaylistId: playlist.id,
       lastEtag: playlist.last_etag,
     });
+    diagLog('refreshSinglePlaylist.fetch.complete', {
+      playlistId: playlist.id,
+      youtubePlaylistId,
+      unchanged: fetchResult.unchanged,
+      itemCount: fetchResult.items.length,
+      newEtag: fetchResult.etag,
+    });
   } catch (error) {
     if (error instanceof PlaylistUnavailableError) {
+      diagLog('refreshSinglePlaylist.playlistUnavailable', {
+        playlistId: playlist.id,
+        youtubePlaylistId,
+        status: error.status,
+        reason: error.reason,
+        message: error.message,
+      });
       await removePlaylistFromDatabase(playlist, error);
       return false;
     }
+    diagLog('refreshSinglePlaylist.fetch.error', {
+      playlistId: playlist.id,
+      youtubePlaylistId,
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
     throw error;
   }
 
@@ -360,12 +488,22 @@ async function refreshSinglePlaylist(playlist: PlaylistRow): Promise<boolean> {
       .from(PLAYLIST_TABLE)
       .update({ last_refreshed_on: now })
       .eq('id', playlist.id);
+    diagLog('refreshSinglePlaylist.supabase.update', {
+      playlistId: playlist.id,
+      action: 'etag-unchanged-update',
+      lastRefreshedOn: now,
+    });
 
     console.log('[diagnostic][etag]', {
       playlistId: playlist.id,
       youtubePlaylistId,
       step: 'unchanged-etag',
       lastEtag: playlist.last_etag,
+    });
+    diagLog('refreshSinglePlaylist.etag.unchanged', {
+      playlistId: playlist.id,
+      youtubePlaylistId,
+      etag: playlist.last_etag,
     });
 
     return true; // Skipped
@@ -380,7 +518,16 @@ async function refreshSinglePlaylist(playlist: PlaylistRow): Promise<boolean> {
   });
 
   // Perform delta sync
+  diagLog('refreshSinglePlaylist.delta.start', {
+    playlistId: playlist.id,
+    youtubePlaylistId,
+    itemCount: fetchResult.items.length,
+  });
   await performDeltaSync(playlist, fetchResult.items, now);
+  diagLog('refreshSinglePlaylist.delta.complete', {
+    playlistId: playlist.id,
+    youtubePlaylistId,
+  });
 
   // Update playlist bookkeeping
   await supabase!
@@ -391,6 +538,13 @@ async function refreshSinglePlaylist(playlist: PlaylistRow): Promise<boolean> {
       item_count: fetchResult.items.length,
     })
     .eq('id', playlist.id);
+  diagLog('refreshSinglePlaylist.supabase.update', {
+    playlistId: playlist.id,
+    action: 'etag-updated',
+    lastRefreshedOn: now,
+    etag: fetchResult.etag,
+    itemCount: fetchResult.items.length,
+  });
 
   console.log('[diagnostic][etag]', {
     playlistId: playlist.id,
@@ -398,11 +552,21 @@ async function refreshSinglePlaylist(playlist: PlaylistRow): Promise<boolean> {
     step: 'saved-etag',
     lastEtag: fetchResult.etag,
   });
+  diagLog('refreshSinglePlaylist.etag.saved', {
+    playlistId: playlist.id,
+    youtubePlaylistId,
+    etag: fetchResult.etag,
+  });
 
   console.log('[runBatch] refreshed playlist fully.', {
     playlistId: playlist.id,
     youtubePlaylistId,
     title: playlist.title,
+    trackCount: fetchResult.items.length,
+  });
+  diagLog('refreshSinglePlaylist.complete', {
+    playlistId: playlist.id,
+    youtubePlaylistId,
     trackCount: fetchResult.items.length,
   });
 
@@ -427,6 +591,11 @@ async function fetchPlaylistItemsWithETag(opts: {
   const items: YouTubePlaylistItem[] = [];
   let pageToken: string | undefined;
   let finalEtag: string | null = null;
+  diagLog('fetchPlaylistItemsWithETag.start', {
+    playlistId: internalPlaylistId,
+    youtubePlaylistId,
+    lastEtag,
+  });
 
   // First request with ETag check
   const firstPage = await fetchPlaylistItemsPage({
@@ -438,6 +607,11 @@ async function fetchPlaylistItemsWithETag(opts: {
   });
 
   if (firstPage.status === 304) {
+    diagLog('fetchPlaylistItemsWithETag.http304', {
+      playlistId: internalPlaylistId,
+      youtubePlaylistId,
+      lastEtag,
+    });
     console.log('[diagnostic][etag]', {
       playlistId: internalPlaylistId,
       youtubePlaylistId,
@@ -448,6 +622,10 @@ async function fetchPlaylistItemsWithETag(opts: {
   }
 
   if (!firstPage.data) {
+    diagLog('fetchPlaylistItemsWithETag.firstPage.noData', {
+      playlistId: internalPlaylistId,
+      youtubePlaylistId,
+    });
     throw new Error('Failed to fetch playlist items from YouTube');
   }
 
@@ -459,10 +637,25 @@ async function fetchPlaylistItemsWithETag(opts: {
   });
 
   finalEtag = firstPage.etag;
-  items.push(...parsePlaylistItemsPage(firstPage.data));
+  const firstItems = parsePlaylistItemsPage(firstPage.data);
+  diagLog('fetchPlaylistItemsWithETag.pageParsed', {
+    playlistId: internalPlaylistId,
+    youtubePlaylistId,
+    page: 1,
+    itemsParsed: firstItems.length,
+    nextPageToken: firstPage.data.nextPageToken ?? null,
+  });
+  items.push(...firstItems);
   pageToken = firstPage.data.nextPageToken;
 
   // Fetch remaining pages (without ETag header, since first page already confirmed change)
+  let pageNumber = 2;
+  if (pageToken) {
+    diagLog('fetchPlaylistItemsWithETag.pagination.begin', {
+      playlistId: internalPlaylistId,
+      youtubePlaylistId,
+    });
+  }
   while (pageToken) {
     const page = await fetchPlaylistItemsPage({
       apiKey,
@@ -474,17 +667,48 @@ async function fetchPlaylistItemsWithETag(opts: {
 
     if (!page.data) {
       console.warn('[runBatch] Failed to fetch page; stopping pagination', { pageToken });
+      diagLog('fetchPlaylistItemsWithETag.pagination.pageNoData', {
+        playlistId: internalPlaylistId,
+        youtubePlaylistId,
+        pageNumber,
+      });
       break;
     }
 
-    items.push(...parsePlaylistItemsPage(page.data));
+    const parsed = parsePlaylistItemsPage(page.data);
+    diagLog('fetchPlaylistItemsWithETag.pageParsed', {
+      playlistId: internalPlaylistId,
+      youtubePlaylistId,
+      page: pageNumber,
+      itemsParsed: parsed.length,
+      nextPageToken: page.data.nextPageToken ?? null,
+    });
+    items.push(...parsed);
     pageToken = page.data.nextPageToken;
+    pageNumber += 1;
+  }
+  if (!pageToken) {
+    diagLog('fetchPlaylistItemsWithETag.pagination.complete', {
+      playlistId: internalPlaylistId,
+      youtubePlaylistId,
+      totalPages: pageNumber - 1,
+    });
   }
 
   if (items.length === 0) {
+    diagLog('fetchPlaylistItemsWithETag.noItems', {
+      playlistId: internalPlaylistId,
+      youtubePlaylistId,
+    });
     throw new PlaylistUnavailableError(200, 'empty', `YouTube returned 0 items for playlist ${youtubePlaylistId}`);
   }
 
+  diagLog('fetchPlaylistItemsWithETag.complete', {
+    playlistId: internalPlaylistId,
+    youtubePlaylistId,
+    itemCount: items.length,
+    finalEtag,
+  });
   return { items, etag: finalEtag, unchanged: false };
 }
 
@@ -524,7 +748,30 @@ async function fetchPlaylistItemsPage(opts: {
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
       assertNoSearchList(url);
+      diagLog('fetchPlaylistItemsPage.request', {
+        attempt,
+        playlistId: internalPlaylistId,
+        youtubePlaylistId: playlistId,
+        url: maskUrlApiKey(url),
+        pageToken: pageToken ?? null,
+        headers,
+        pagination: Boolean(pageToken),
+      });
       const response = await fetch(url.toString(), { headers });
+      const responseClone = response.clone();
+      const responsePreview = await responseClone.text().catch(() => '');
+      const etagHeader = response.headers.get('etag');
+      const quotaHeader = response.headers.get('x-goog-quota-used');
+      diagLog('fetchPlaylistItemsPage.response', {
+        attempt,
+        playlistId: internalPlaylistId,
+        youtubePlaylistId: playlistId,
+        status: response.status,
+        etag: etagHeader,
+        quotaHeader,
+        pagination: Boolean(pageToken),
+        bodyPreview: truncateBody(responsePreview),
+      });
       logQuotaUsage({
         playlistId: internalPlaylistId,
         youtubePlaylistId: playlistId,
@@ -535,6 +782,12 @@ async function fetchPlaylistItemsPage(opts: {
 
       // Handle 304 Not Modified
       if (response.status === 304) {
+        diagLog('fetchPlaylistItemsPage.http304', {
+          attempt,
+          playlistId: internalPlaylistId,
+          youtubePlaylistId: playlistId,
+          lastEtag,
+        });
         return { status: 304, etag: lastEtag ?? null };
       }
 
@@ -542,11 +795,26 @@ async function fetchPlaylistItemsPage(opts: {
       if (response.status === 200) {
         const data = await response.json();
         const etag = response.headers.get('etag');
+        diagLog('fetchPlaylistItemsPage.success', {
+          attempt,
+          playlistId: internalPlaylistId,
+          youtubePlaylistId: playlistId,
+          nextPageToken: data?.nextPageToken ?? null,
+          itemCount: Array.isArray(data?.items) ? data.items.length : 0,
+          etag,
+        });
         return { status: 200, data, etag };
       }
 
       if (response.status === 404 || response.status === 410) {
         const body = await response.text();
+        diagLog('fetchPlaylistItemsPage.notFound', {
+          attempt,
+          playlistId: internalPlaylistId,
+          youtubePlaylistId: playlistId,
+          status: response.status,
+          body: truncateBody(body),
+        });
         throw new PlaylistUnavailableError(
           response.status,
           response.status === 404 ? 'notFound' : 'gone',
@@ -568,6 +836,15 @@ async function fetchPlaylistItemsPage(opts: {
           message,
           stage: stageMessage,
         });
+        diagLog('fetchPlaylistItemsPage.http403', {
+          attempt,
+          playlistId: internalPlaylistId,
+          youtubePlaylistId: playlistId,
+          reason,
+          message,
+          stage: stageMessage,
+          response: errorJson,
+        });
         throw new PlaylistUnavailableError(
           403,
           'forbidden',
@@ -582,15 +859,35 @@ async function fetchPlaylistItemsPage(opts: {
           attempt,
           delayMs: delay,
         });
+        diagLog('fetchPlaylistItemsPage.http429', {
+          attempt,
+          playlistId: internalPlaylistId,
+          youtubePlaylistId: playlistId,
+          delayMs: delay,
+        });
         await sleep(delay);
         continue;
       }
 
       // Handle other errors
       const errorBody = await response.text();
+      diagLog('fetchPlaylistItemsPage.httpError', {
+        attempt,
+        playlistId: internalPlaylistId,
+        youtubePlaylistId: playlistId,
+        status: response.status,
+        body: truncateBody(errorBody),
+      });
       throw new Error(`YouTube API error ${response.status}: ${errorBody}`);
     } catch (error: unknown) {
       lastError = error instanceof Error ? error : new Error(String(error));
+      diagLog('fetchPlaylistItemsPage.networkError', {
+        attempt,
+        playlistId: internalPlaylistId,
+        youtubePlaylistId: playlistId,
+        error: lastError.message,
+        stack: lastError.stack,
+      });
       
       if (attempt < MAX_RETRIES) {
         const delay = INITIAL_RETRY_DELAY_MS * Math.pow(2, attempt - 1);
@@ -599,11 +896,23 @@ async function fetchPlaylistItemsPage(opts: {
           error: lastError.message,
           delayMs: delay,
         });
+        diagLog('fetchPlaylistItemsPage.retry', {
+          attempt,
+          playlistId: internalPlaylistId,
+          youtubePlaylistId: playlistId,
+          nextAttempt: attempt + 1,
+          delayMs: delay,
+        });
         await sleep(delay);
       }
     }
   }
 
+  diagLog('fetchPlaylistItemsPage.failure', {
+    playlistId: internalPlaylistId,
+    youtubePlaylistId: playlistId,
+    error: lastError?.message,
+  });
   throw lastError || new Error('Failed to fetch playlist items after retries');
 }
 
@@ -686,6 +995,10 @@ async function performDeltaSync(
   // Load existing tracks globally (tracks are shared across playlists)
   // We'll query by external_id later for each YouTube item
   const externalIds = youtubeItems.map(item => item.videoId);
+  diagLog('deltaSync.fetchExisting.start', {
+    playlistId: playlist.id,
+    youtubeItems: youtubeItems.length,
+  });
   
   const { data: existingTracks, error } = await supabase!
     .from(TRACKS_TABLE)
@@ -693,10 +1006,18 @@ async function performDeltaSync(
     .in('external_id', externalIds);
 
   if (error) {
+    diagLog('deltaSync.fetchExisting.error', {
+      playlistId: playlist.id,
+      error: error.message,
+    });
     throw new Error(`Failed to load existing tracks: ${error.message}`);
   }
 
   const existing = (existingTracks || []) as TrackRow[];
+  diagLog('deltaSync.fetchExisting.complete', {
+    playlistId: playlist.id,
+    existingCount: existing.length,
+  });
   const existingByYoutubeId = new Map<string, TrackRow>();
   
   for (const track of existing) {
@@ -758,6 +1079,14 @@ async function performDeltaSync(
   await executeBatchInserts(toInsert);
   await executeBatchUpdates(toUpdate);
   await executeBatchDeletes(toDelete, syncTimestamp);
+  diagLog('deltaSync.summary', {
+    playlistId: playlist.id,
+    inserted: toInsert.length,
+    updated: toUpdate.length,
+    deleted: toDelete.length,
+    insertedSample: toInsert.slice(0, 10).map(item => item.external_id),
+    updatedSample: toUpdate.slice(0, 10).map(item => item.id),
+  });
 
   console.log('[runBatch] Delta sync completed', {
     playlistId: playlist.id,
@@ -773,6 +1102,7 @@ async function performDeltaSync(
  */
 async function executeBatchInserts(tracks: any[]): Promise<void> {
   if (tracks.length === 0) return;
+  diagLog('deltaSync.inserts.start', { count: tracks.length });
 
   // Deduplicate by external_id (UNIQUE constraint at database level)
   // Keep only the first occurrence of each external_id
@@ -792,6 +1122,10 @@ async function executeBatchInserts(tracks: any[]): Promise<void> {
       deduplicated: deduplicated.length,
       removed: tracks.length - deduplicated.length,
     });
+    diagLog('deltaSync.inserts.deduplicated', {
+      original: tracks.length,
+      deduplicated: deduplicated.length,
+    });
   }
 
   const chunkSize = 100;
@@ -806,9 +1140,12 @@ async function executeBatchInserts(tracks: any[]): Promise<void> {
         chunkIndex: i / chunkSize,
         error: error.message,
       });
+      diagLog('deltaSync.inserts.error', { chunkIndex: i / chunkSize, error: error.message });
       throw new Error(`Failed to insert tracks: ${error.message}`);
     }
+    diagLog('deltaSync.inserts.chunkComplete', { chunkIndex: i / chunkSize, chunkSize: chunk.length });
   }
+  diagLog('deltaSync.inserts.complete', {});
 }
 
 /**
@@ -816,6 +1153,7 @@ async function executeBatchInserts(tracks: any[]): Promise<void> {
  */
 async function executeBatchUpdates(updates: Array<{ id: string; updates: any }>): Promise<void> {
   if (updates.length === 0) return;
+  diagLog('deltaSync.updates.start', { count: updates.length });
 
   // Group by similar updates to batch efficiently
   for (const { id, updates: updateData } of updates) {
@@ -829,9 +1167,12 @@ async function executeBatchUpdates(updates: Array<{ id: string; updates: any }>)
         trackId: id,
         error: error.message,
       });
+      diagLog('deltaSync.updates.error', { trackId: id, error: error.message });
       // Continue with other updates instead of throwing
     }
+    diagLog('deltaSync.updates.success', { trackId: id });
   }
+  diagLog('deltaSync.updates.complete', {});
 }
 
 /**
@@ -839,6 +1180,7 @@ async function executeBatchUpdates(updates: Array<{ id: string; updates: any }>)
  */
 async function executeBatchDeletes(trackIds: string[], syncTimestamp: string): Promise<void> {
   if (trackIds.length === 0) return;
+  diagLog('deltaSync.deletes.start', { count: trackIds.length });
 
   const chunkSize = 100;
   for (let i = 0; i < trackIds.length; i += chunkSize) {
@@ -856,9 +1198,12 @@ async function executeBatchDeletes(trackIds: string[], syncTimestamp: string): P
         chunkIndex: i / chunkSize,
         error: error.message,
       });
+      diagLog('deltaSync.deletes.error', { chunkIndex: i / chunkSize, error: error.message });
       throw new Error(`Failed to mark tracks as deleted: ${error.message}`);
     }
+    diagLog('deltaSync.deletes.chunkComplete', { chunkIndex: i / chunkSize, chunkSize: chunk.length });
   }
+  diagLog('deltaSync.deletes.complete', {});
 }
 
 // ============================================================================
@@ -876,6 +1221,7 @@ function sleep(ms: number): Promise<void> {
  * Finalize job status in database.
  */
 async function finalizeJob(jobId: string, payload: Record<string, unknown>): Promise<void> {
+  diagLog('finalizeJob.start', { jobId, payload });
   const { error } = await supabase!
     .from(JOB_TABLE)
     .update({ status: 'done', payload })
@@ -883,10 +1229,19 @@ async function finalizeJob(jobId: string, payload: Record<string, unknown>): Pro
 
   if (error) {
     console.error('[runBatch] Failed to update job status', { jobId, error: error.message });
+    diagLog('finalizeJob.error', { jobId, error: error.message });
   }
+  diagLog('finalizeJob.complete', { jobId });
 }
 
 async function removePlaylistFromDatabase(playlist: PlaylistRow, reason: PlaylistUnavailableError): Promise<void> {
+  diagLog('removePlaylist.start', {
+    playlistId: playlist.id,
+    youtubePlaylistId: playlist.external_id,
+    status: reason.status,
+    reason: reason.reason,
+    message: reason.message,
+  });
   const { error } = await supabase!
     .from(PLAYLIST_TABLE)
     .delete()
@@ -901,6 +1256,11 @@ async function removePlaylistFromDatabase(playlist: PlaylistRow, reason: Playlis
       status: reason.status,
       error: error.message,
     });
+    diagLog('removePlaylist.error', {
+      playlistId: playlist.id,
+      youtubePlaylistId: playlist.external_id,
+      error: error.message,
+    });
     throw new Error(`Failed to remove playlist ${playlist.id}: ${error.message}`);
   }
 
@@ -910,5 +1270,11 @@ async function removePlaylistFromDatabase(playlist: PlaylistRow, reason: Playlis
     title: playlist.title,
     reason: reason.reason,
     status: reason.status,
+  });
+  diagLog('removePlaylist.complete', {
+    playlistId: playlist.id,
+    youtubePlaylistId: playlist.external_id,
+    status: reason.status,
+    reason: reason.reason,
   });
 }
