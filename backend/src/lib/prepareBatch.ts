@@ -116,16 +116,18 @@ async function fetchEligiblePlaylists() {
 
   if (ids.length === 0) return [];
 
-  const rows = await supabase.rpc('run_raw_with_params', {
+  // ❗ FIX: params must be `ids`, NOT `[ids]`
+  const { data, error } = await supabase.rpc('run_raw_with_params', {
     sql: TRACK_COUNTS_SQL,
-    params: [ids],
+    params: ids, // <--- CORRECT
   });
 
-  if (rows.error) throw rows.error;
-  const data = rows.data as RawTrackRow[];
+  if (error) throw error;
 
-  const filtered = data
-    .filter((r) => !(r.external_id ?? '').toUpperCase().startsWith(MIX_PREFIX))
+  const rows = data as RawTrackRow[];
+
+  const filtered = rows
+    .filter((r) => !(r.external_id ?? '').toUpperCase().startsWith(MIX_PREFIX)) // remove RD*
     .filter((r) => r.track_count >= 10)
     .sort((a, b) => {
       const A = a.last_refreshed_on ?? '';
