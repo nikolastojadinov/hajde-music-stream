@@ -4,7 +4,8 @@ import { randomUUID } from 'crypto';
 import supabase from '../services/supabaseClient';
 
 const TIMEZONE = 'Europe/Budapest';
-const CRON_EXPRESSION = '5 11 * * *'; // 11:05 local time daily
+// Run scheduler every day at 09:35 local time
+const CRON_EXPRESSION = '35 09 * * *';
 const TABLE_NAME = 'refresh_jobs';
 const PREPARE_TIMES = ['09:15', '10:15', '11:15', '12:15', '13:15', '14:15', '15:15', '16:15', '17:15', '18:15'];
 const RUN_TIMES = ['10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00'];
@@ -27,16 +28,12 @@ export function initDailyRefreshScheduler() {
     return;
   }
 
-  cron.schedule(
-    CRON_EXPRESSION,
-    () => {
-      console.log('[DailyRefreshScheduler] Cron fired, generating fixed slots');
-      void generateDailySlots();
-    },
-    { timezone: TIMEZONE }
-  );
+  cron.schedule(CRON_EXPRESSION, () => {
+    console.log('[DailyRefreshScheduler] Cron fired at 09:35, generating fixed slots');
+    void generateDailySlots();
+  }, { timezone: TIMEZONE });
 
-  console.log('[DailyRefreshScheduler] Cron scheduled for 11:05 Europe/Budapest');
+  console.log('[DailyRefreshScheduler] Cron scheduled for 09:35 Europe/Budapest');
 }
 
 async function generateDailySlots(): Promise<void> {
