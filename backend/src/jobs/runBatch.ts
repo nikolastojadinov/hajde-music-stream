@@ -785,6 +785,8 @@ async function fetchPlaylistItemsWithETag(opts: {
       playlistId: internalPlaylistId,
       youtubePlaylistId,
     });
+    // Iako prepareBatch bira samo playliste sa >= 10 pesama,
+    // ako YouTube iz nekog razloga vrati 0 itema, tretiramo kao "empty" i brišemo playlistu.
     throw new PlaylistUnavailableError(200, 'empty', `YouTube returned 0 items for playlist ${youtubePlaylistId}`);
   }
 
@@ -1319,6 +1321,10 @@ async function finalizeJob(jobId: string, payload: Record<string, unknown>): Pro
   diagLog('finalizeJob.complete', { jobId });
 }
 
+/**
+ * Remove an unavailable playlist from the database.
+ * Important: we DO NOT delete tracks, only relations + playlist row.
+ */
 async function removePlaylistFromDatabase(playlist: PlaylistRow, reason: PlaylistUnavailableError): Promise<void> {
   diagLog('removePlaylist.start', {
     playlistId: playlist.id,
@@ -1327,26 +1333,148 @@ async function removePlaylistFromDatabase(playlist: PlaylistRow, reason: Playlis
     reason: reason.reason,
     message: reason.message,
   });
-  const { error } = await supabase!
+
+  // 1) Remove links from playlist_tracks (junction table)
+  const { error: ptError } = await supabase!
+    .from('playlist_tracks')
+    .delete()
+    .eq('playlist_id', playlist.id);
+
+  if (ptError) {
+    console.error('[runBatch] Failed to delete playlist_tracks for playlist', {
+      playlistId: playlist.id,
+      youtubePlaylistId: playlist.external_id,
+      error: ptError.message,
+    });
+    diagLog('removePlaylist.error.playlist_tracks', {
+      playlistId: playlist.id,
+      youtubePlaylistId: playlist.external_id,
+      error: ptError.message,
+    });
+    throw new Error(`Failed to delete playlist_tracks for playlist ${playlist.id}: ${ptError.message}`);
+  }
+
+  // 2) Remove likes bound to this playlist (playlist_likes)
+  const { error: plError } = await supabase!
+    .from('playlist_likes')
+    .delete()
+    .eq('playlist_id', playlist.id);
+
+  if (plError) {
+    console.error('[runBatch] Failed to delete playlist_likes for playlist', {
+      playlistId: playlist.id,
+      youtubePlaylistId: playlist.external_id,
+      error: plError.message,
+    });
+    diagLog('removePlaylist.error.playlist_likes', {
+      playlistId: playlist.id,
+      youtubePlaylistId: playlist.external_id,
+      error: plError.message,
+    });
+    throw new Error(`Failed to delete playlist_likes for playlist ${playlist.id}: ${plError.message}`);
+  }
+
+  // 3) Remove categories links (playlist_categories)
+  const { error: pcError } = await supabase!
+    .from('playlist_categories')
+    .delete()
+    .eq('playlist_id', playlist.id);
+
+  if (pcError) {
+    console.error('[runBatch] Failed to delete playlist_categories for playlist', {
+      playlistId: playlist.id,
+      youtubePlaylistId: playlist.external_id,
+      error: pcError.message,
+    });
+    diagLog('removePlaylist.error.playlist_categories', {
+      playlistId: playlist.id,
+      youtubePlaylistId: playlist.external_id,
+      error: pcError.message,
+    });
+    throw new Error(`Failed to delete playlist_categories for playlist ${playlist.id}: ${pcError.message}`);
+  }
+
+  // 4) Remove playlist views (analytics)
+  const { error: pvError } = await supabase!
+    .from('playlist_views')
+    .delete()
+    .eq('playlist_id', playlist.id);
+
+  if (pvError) {
+    console.error('[runBatch] Failed to delete playlist_views for playlist', {
+      playlistId: playlist.id,
+      youtubePlaylistId: playlist.external_id,
+      error: pvError.message,
+    });
+    diagLog('removePlaylist.error.playlist_views', {
+      playlistId: playlist.id,
+      youtubePlaylistId: playlist.external_id,
+      error: pvError.message,
+    });
+    throw new Error(`Failed to delete playlist_views for playlist ${playlist.id}: ${pvError.message}`);
+  }
+
+  // 5) Remove per-track likes that are scoped to this playlist (likes.playlist_id)
+  const { error: likesError } = await supabase!
+    .from('likes')
+    .delete()
+    .eq('playlist_id', playlist.id);
+
+  if (likesError) {
+    console.error('[runBatch] Failed to delete likes for playlist', {
+      playlistId: playlist.id,
+      youtubePlaylistId: playlist.external_id,
+      error: likesError.message,
+    });
+    diagLog('removePlaylist.error.likes', {
+      playlistId: playlist.id,
+      youtubePlaylistId: playlist.external_id,
+      error: likesError.message,
+    });
+    throw new Error(`Failed to delete likes for playlist ${playlist.id}: ${likesError.message}`);
+  }
+
+  // 6) Tracks: DO NOT delete songs — just detach them from this playlist
+  const { error: tracksUpdateError } = await supabase!
+    .from(TRACKS_TABLE)
+    .update({ playlist_id: null })
+    .eq('playlist_id', playlist.id);
+
+  if (tracksUpdateError) {
+    console.error('[runBatch] Failed to detach tracks from playlist', {
+      playlistId: playlist.id,
+      youtubePlaylistId: playlist.external_id,
+      error: tracksUpdateError.message,
+    });
+    diagLog('removePlaylist.error.tracks_update', {
+      playlistId: playlist.id,
+      youtubePlaylistId: playlist.external_id,
+      error: tracksUpdateError.message,
+    });
+    throw new Error(`Failed to detach tracks from playlist ${playlist.id}: ${tracksUpdateError.message}`);
+  }
+
+  // 7) Finally remove the playlist itself
+  const { error: playlistError } = await supabase!
     .from(PLAYLIST_TABLE)
     .delete()
     .eq('id', playlist.id);
 
-  if (error) {
+  if (playlistError) {
     console.error('[runBatch] Failed to remove unavailable playlist', {
       playlistId: playlist.id,
       youtubePlaylistId: playlist.external_id,
       title: playlist.title,
       reason: reason.reason,
       status: reason.status,
-      error: error.message,
+      error: playlistError.message,
     });
-    diagLog('removePlaylist.error', {
+    diagLog('removePlaylist.error.playlist', {
       playlistId: playlist.id,
       youtubePlaylistId: playlist.external_id,
-      error: error.message,
+      error: playlistError.message,
     });
-    throw new Error(`Failed to remove playlist ${playlist.id}: ${error.message}`);
+    throw new Error(`Failed to remove playlist ${playlist.id}: ${playlistError.message}`);
   }
 
   console.warn('[runBatch] Removed playlist due to unavailability', {
