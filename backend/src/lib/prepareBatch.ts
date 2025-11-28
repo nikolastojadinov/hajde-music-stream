@@ -5,49 +5,37 @@ import supabase from '../services/supabaseClient';
 
 const TIMEZONE = 'Europe/Budapest';
 const PLAYLIST_LIMIT = 200;
+const PRESELECT_LIMIT = 2000; // first stage
 const BATCH_DIR = path.resolve(__dirname, '../../tmp/refresh_batches');
 const JOB_TABLE = 'refresh_jobs';
 const MIX_PREFIX = 'RD';
 
 /**
- * Base SQL — all playlists that have >= 10 tracks.
- * No filtering, no limit.
+ * 1) FIRST STAGE SQL — pick 2000 oldest playlists by created_at
+ * No JOIN, no GROUP BY → super fast
  */
-const REAL_PLAYLISTS_BASE_SQL = `
-  SELECT
-    p.id,
-    p.title,
-    p.last_refreshed_on,
-    p.external_id,
-    COUNT(t.id)::int AS track_count
-  FROM playlist_tracks pt
-  JOIN tracks t ON t.id = pt.track_id
-  JOIN playlists p ON p.id = pt.playlist_id
-  GROUP BY p.id, p.title, p.last_refreshed_on, p.external_id
-  HAVING COUNT(t.id) >= 10
-`;
-
-/** Total real playlists (>=10 tracks), without mix filter */
-const TOTAL_REAL_SQL = `
-  SELECT COUNT(*)::int AS count
-  FROM (${REAL_PLAYLISTS_BASE_SQL}) AS eligible
-`;
-
-/** Count only mix playlists */
-const MIX_ONLY_SQL = `
-  SELECT COUNT(*)::int AS count
-  FROM (${REAL_PLAYLISTS_BASE_SQL}) AS eligible
-  WHERE eligible.external_id ILIKE '${MIX_PREFIX}%'
+const PRESELECT_SQL = `
+  SELECT id, external_id, created_at
+  FROM playlists
+  ORDER BY created_at ASC
+  LIMIT ${PRESELECT_LIMIT}
 `;
 
 /**
- * Final selection: NO LIMIT here anymore.
- * Sorting happens here, filtering & limiting happens in TypeScript.
+ * 2) SECOND STAGE SQL — compute track counts only for those 2000
  */
-const FINAL_SELECTION_SQL = `
-  SELECT id, title, last_refreshed_on, track_count, external_id
-  FROM (${REAL_PLAYLISTS_BASE_SQL}) AS eligible
-  ORDER BY last_refreshed_on ASC NULLS FIRST
+const TRACK_COUNTS_SQL = `
+  SELECT
+    p.id,
+    p.title,
+    p.external_id,
+    p.last_refreshed_on,
+    COUNT(t.id)::int AS track_count
+  FROM playlists p
+  LEFT JOIN playlist_tracks pt ON pt.playlist_id = p.id
+  LEFT JOIN tracks t ON t.id = pt.track_id
+  WHERE p.id = ANY($1::uuid[])
+  GROUP BY p.id, p.title, p.external_id, p.last_refreshed_on
 `;
 
 type JobStatus = 'pending' | 'running' | 'done' | 'error';
@@ -63,20 +51,18 @@ type RefreshJobRow = {
   payload: Record<string, unknown> | null;
 };
 
-type PlaylistRow = {
+type RawPreRow = {
   id: string;
-  title: string | null;
-  last_refreshed_on: string | null;
-  track_count: number;
+  external_id: string | null;
+  created_at: string;
 };
 
-type CountRow = { count: number | string };
-type RawPlaylistRow = {
+type RawTrackRow = {
   id: string;
   title: string | null;
-  last_refreshed_on: string | null;
-  track_count: number | string;
   external_id: string | null;
+  last_refreshed_on: string | null;
+  track_count: number;
 };
 
 export async function executePrepareJob(job: RefreshJobRow): Promise<void> {
@@ -87,14 +73,7 @@ export async function executePrepareJob(job: RefreshJobRow): Promise<void> {
     scheduledAtBudapest: scheduledLocal.toISO(),
   });
 
-  if (!supabase) {
-    console.error('[PrepareBatch] Supabase client unavailable. Marking job done with error');
-    await finalizeJob(job.id, { error: 'Supabase client unavailable' });
-    return;
-  }
-
   if (job.type !== 'prepare') {
-    console.warn('[PrepareBatch] Job type mismatch; expected prepare', { jobId: job.id, type: job.type });
     await finalizeJob(job.id, { error: `Unexpected job type ${job.type}` });
     return;
   }
@@ -104,105 +83,71 @@ export async function executePrepareJob(job: RefreshJobRow): Promise<void> {
 
     const playlists = await fetchEligiblePlaylists();
 
-    const batchPayload = playlists.map((playlist) => ({
-      playlistId: playlist.id,
-      title: playlist.title ?? '',
-      lastRefreshedOn: playlist.last_refreshed_on,
-      trackCount: playlist.track_count,
+    const batchPayload = playlists.map((p) => ({
+      playlistId: p.id,
+      title: p.title ?? '',
+      lastRefreshedOn: p.last_refreshed_on,
+      trackCount: p.track_count,
     }));
 
     const fileName = `batch_${job.day_key}_slot_${job.slot_index}.json`;
     const filePath = path.join(BATCH_DIR, fileName);
-
     await fs.writeFile(filePath, JSON.stringify(batchPayload, null, 2), 'utf-8');
-    console.log('[PrepareBatch] Batch file written', { filePath });
 
     await finalizeJob(job.id, { file: filePath, entries: batchPayload });
-  } catch (error) {
-    console.error('[PrepareBatch] Error while executing prepare job', error);
-    await finalizeJob(job.id, { error: (error as Error).message || 'Unknown error' });
+  } catch (err) {
+    console.error('[PrepareBatch] Error', err);
+    await finalizeJob(job.id, { error: (err as Error).message });
   }
 }
 
 /**
- * Wrapper that counts totals, logs diagnostics, and returns final filtered playlists.
+ * FULL LOGIC:
+ * - Preselect 2000 oldest playlists
+ * - Fetch track counts only for them
+ * - Filter RD*
+ * - Filter <10 tracks
+ * - Sort by last_refreshed_on
+ * - Limit 200
  */
-async function fetchEligiblePlaylists(): Promise<PlaylistRow[]> {
-  const totalRealEligible = await fetchCount(TOTAL_REAL_SQL);
-  const mixExcluded = await fetchCount(MIX_ONLY_SQL);
-  const playlists = await fetchRealPlaylists();
+async function fetchEligiblePlaylists() {
+  const pre = await runRawQuery<RawPreRow>(PRESELECT_SQL);
+  const ids = pre.map((r) => r.id);
 
-  console.log('[prepare][real]', { totalRealEligible });
-  console.log('[prepare][exclude] mixExcluded', { mixExcluded });
-  console.log('[diagnostic][prepare]', { selected: playlists.length });
+  if (ids.length === 0) return [];
 
-  if (playlists.length < PLAYLIST_LIMIT) {
-    const availableAfterMix = Math.max(totalRealEligible - mixExcluded, 0);
-    const reason = availableAfterMix < PLAYLIST_LIMIT ? 'insufficient_real_playlists' : 'ordered_subset';
-    console.warn('[diagnostic][prepare]', {
-      message: 'Selected fewer playlists than requested',
-      selected: playlists.length,
-      availableAfterMix,
-      reason,
-    });
-  }
+  const rows = await supabase.rpc('run_raw_with_params', {
+    sql: TRACK_COUNTS_SQL,
+    params: [ids],
+  });
 
-  return playlists;
-}
+  if (rows.error) throw rows.error;
+  const data = rows.data as RawTrackRow[];
 
-/**
- * Count helper
- */
-async function fetchCount(sql: string): Promise<number> {
-  const rows = await runRawQuery<CountRow>(sql);
-  const value = rows[0]?.count ?? 0;
-  const numeric = typeof value === 'number' ? value : Number(value);
-  return Number.isFinite(numeric) ? numeric : 0;
-}
-
-/**
- * NEW: fetch ALL playlists from SQL (0 limit), then apply all filtering in TS.
- */
-async function fetchRealPlaylists(): Promise<PlaylistRow[]> {
-  const rows = await runRawQuery<RawPlaylistRow>(FINAL_SELECTION_SQL);
-
-  const filtered = rows
-    .filter((row) => !row.external_id?.toUpperCase().startsWith(MIX_PREFIX)) // remove RD* playlists
-    .filter((row) => (typeof row.track_count === 'number' ? row.track_count : Number(row.track_count)) >= 10)
+  const filtered = data
+    .filter((r) => !(r.external_id ?? '').toUpperCase().startsWith(MIX_PREFIX))
+    .filter((r) => r.track_count >= 10)
     .sort((a, b) => {
       const A = a.last_refreshed_on ?? '';
       const B = b.last_refreshed_on ?? '';
       return A.localeCompare(B);
     })
-    .slice(0, PLAYLIST_LIMIT); // enforce final limit here
+    .slice(0, PLAYLIST_LIMIT);
 
-  return filtered.map((row) => ({
-    id: row.id,
-    title: row.title,
-    last_refreshed_on: row.last_refreshed_on,
-    track_count: Number(row.track_count),
-  }));
+  return filtered;
 }
 
-/** SQL Executor */
 async function runRawQuery<T>(sql: string): Promise<T[]> {
-  const { data, error } = await supabase!.rpc('run_raw', { sql });
-
-  if (error) {
-    throw error;
-  }
-
-  return (data as T[] | null) ?? [];
+  const { data, error } = await supabase.rpc('run_raw', { sql });
+  if (error) throw error;
+  return (data as T[]) ?? [];
 }
 
-/** Finish job */
-async function finalizeJob(jobId: string, payload: Record<string, unknown>): Promise<void> {
-  const { error } = await supabase!
+async function finalizeJob(jobId: string, payload: Record<string, unknown>) {
+  const { error } = await supabase
     .from(JOB_TABLE)
     .update({ status: 'done', payload })
     .eq('id', jobId);
 
-  if (error) {
-    console.error('[PrepareBatch] Failed to update job status', { jobId, error });
-  }
+  if (error) console.error('Failed to update job', error);
 }
