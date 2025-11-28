@@ -9,6 +9,10 @@ const BATCH_DIR = path.resolve(__dirname, '../../tmp/refresh_batches');
 const JOB_TABLE = 'refresh_jobs';
 const MIX_PREFIX = 'RD';
 
+/**
+ * Base SQL — all playlists that have >= 10 tracks.
+ * No filtering, no limit.
+ */
 const REAL_PLAYLISTS_BASE_SQL = `
   SELECT
     p.id,
@@ -23,23 +27,27 @@ const REAL_PLAYLISTS_BASE_SQL = `
   HAVING COUNT(t.id) >= 10
 `;
 
+/** Total real playlists (>=10 tracks), without mix filter */
 const TOTAL_REAL_SQL = `
   SELECT COUNT(*)::int AS count
   FROM (${REAL_PLAYLISTS_BASE_SQL}) AS eligible
 `;
 
+/** Count only mix playlists */
 const MIX_ONLY_SQL = `
   SELECT COUNT(*)::int AS count
   FROM (${REAL_PLAYLISTS_BASE_SQL}) AS eligible
   WHERE eligible.external_id ILIKE '${MIX_PREFIX}%'
 `;
 
+/**
+ * Final selection: NO LIMIT here anymore.
+ * Sorting happens here, filtering & limiting happens in TypeScript.
+ */
 const FINAL_SELECTION_SQL = `
-  SELECT id, title, last_refreshed_on, track_count
+  SELECT id, title, last_refreshed_on, track_count, external_id
   FROM (${REAL_PLAYLISTS_BASE_SQL}) AS eligible
-  WHERE eligible.external_id IS NULL OR eligible.external_id NOT ILIKE '${MIX_PREFIX}%'
   ORDER BY last_refreshed_on ASC NULLS FIRST
-  LIMIT ${PLAYLIST_LIMIT}
 `;
 
 type JobStatus = 'pending' | 'running' | 'done' | 'error';
@@ -63,7 +71,13 @@ type PlaylistRow = {
 };
 
 type CountRow = { count: number | string };
-type RawPlaylistRow = { id: string; title: string | null; last_refreshed_on: string | null; track_count: number | string };
+type RawPlaylistRow = {
+  id: string;
+  title: string | null;
+  last_refreshed_on: string | null;
+  track_count: number | string;
+  external_id: string | null;
+};
 
 export async function executePrepareJob(job: RefreshJobRow): Promise<void> {
   const scheduledLocal = DateTime.fromISO(job.scheduled_at, { zone: 'utc' }).setZone(TIMEZONE);
@@ -110,6 +124,9 @@ export async function executePrepareJob(job: RefreshJobRow): Promise<void> {
   }
 }
 
+/**
+ * Wrapper that counts totals, logs diagnostics, and returns final filtered playlists.
+ */
 async function fetchEligiblePlaylists(): Promise<PlaylistRow[]> {
   const totalRealEligible = await fetchCount(TOTAL_REAL_SQL);
   const mixExcluded = await fetchCount(MIX_ONLY_SQL);
@@ -133,6 +150,9 @@ async function fetchEligiblePlaylists(): Promise<PlaylistRow[]> {
   return playlists;
 }
 
+/**
+ * Count helper
+ */
 async function fetchCount(sql: string): Promise<number> {
   const rows = await runRawQuery<CountRow>(sql);
   const value = rows[0]?.count ?? 0;
@@ -140,16 +160,31 @@ async function fetchCount(sql: string): Promise<number> {
   return Number.isFinite(numeric) ? numeric : 0;
 }
 
+/**
+ * NEW: fetch ALL playlists from SQL (0 limit), then apply all filtering in TS.
+ */
 async function fetchRealPlaylists(): Promise<PlaylistRow[]> {
   const rows = await runRawQuery<RawPlaylistRow>(FINAL_SELECTION_SQL);
-  return rows.map((row) => ({
+
+  const filtered = rows
+    .filter((row) => !row.external_id?.toUpperCase().startsWith(MIX_PREFIX)) // remove RD* playlists
+    .filter((row) => (typeof row.track_count === 'number' ? row.track_count : Number(row.track_count)) >= 10)
+    .sort((a, b) => {
+      const A = a.last_refreshed_on ?? '';
+      const B = b.last_refreshed_on ?? '';
+      return A.localeCompare(B);
+    })
+    .slice(0, PLAYLIST_LIMIT); // enforce final limit here
+
+  return filtered.map((row) => ({
     id: row.id,
-    title: row.title ?? null,
+    title: row.title,
     last_refreshed_on: row.last_refreshed_on,
-    track_count: typeof row.track_count === 'number' ? row.track_count : Number(row.track_count) || 0,
+    track_count: Number(row.track_count),
   }));
 }
 
+/** SQL Executor */
 async function runRawQuery<T>(sql: string): Promise<T[]> {
   const { data, error } = await supabase!.rpc('run_raw', { sql });
 
@@ -160,6 +195,7 @@ async function runRawQuery<T>(sql: string): Promise<T[]> {
   return (data as T[] | null) ?? [];
 }
 
+/** Finish job */
 async function finalizeJob(jobId: string, payload: Record<string, unknown>): Promise<void> {
   const { error } = await supabase!
     .from(JOB_TABLE)
