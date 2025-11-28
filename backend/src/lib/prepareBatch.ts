@@ -8,7 +8,7 @@ const PLAYLIST_LIMIT = 200;
 const BATCH_DIR = path.resolve(__dirname, '../../tmp/refresh_batches');
 const PLAYLIST_TABLE = 'playlists';
 const JOB_TABLE = 'refresh_jobs';
-const MIX_PREFIXES = ['RDCLAK', 'RDCM', 'RDAMVM', 'RDMM'];
+const MIX_PREFIX = 'RD';
 
 type JobStatus = 'pending' | 'running' | 'done' | 'error';
 type JobType = 'prepare' | 'run';
@@ -78,32 +78,29 @@ export async function executePrepareJob(job: RefreshJobRow): Promise<void> {
 }
 
 async function fetchEligiblePlaylists(): Promise<PlaylistRow[]> {
-  const eligibilityPreMix = await supabase!
+  const baseEligibility = await supabase!
     .from(PLAYLIST_TABLE)
     .select('id', { count: 'exact', head: true })
     .gte('track_count', 10)
     .eq('sync_status', 'active');
 
-  if (eligibilityPreMix.error) {
-    throw eligibilityPreMix.error;
+  if (baseEligibility.error) {
+    throw baseEligibility.error;
   }
 
-  const totalBeforeMixExclusion = eligibilityPreMix.count ?? 0;
+  const eligibleBeforeMixFilter = baseEligibility.count ?? 0;
 
-  let playlistQuery = supabase!
+  const filteredQuery = supabase!
     .from(PLAYLIST_TABLE)
     .select('id,title,last_refreshed_on,track_count,sync_status,external_id', { count: 'exact' })
     .gte('track_count', 10)
-    .eq('sync_status', 'active');
-
-  MIX_PREFIXES.forEach((prefix) => {
-    playlistQuery = playlistQuery.not('external_id', 'ilike', `${prefix}%`);
-  });
-
-  const { data, error, count } = await playlistQuery
+    .eq('sync_status', 'active')
+    .not('external_id', 'ilike', `${MIX_PREFIX}%`)
     .order('last_refreshed_on', { ascending: true, nullsFirst: true })
     .order('random')
     .limit(PLAYLIST_LIMIT);
+
+  const { data, error, count } = await filteredQuery;
 
   if (error) {
     throw error;
@@ -111,9 +108,9 @@ async function fetchEligiblePlaylists(): Promise<PlaylistRow[]> {
 
   const playlists = (data as PlaylistRow[] | null) ?? [];
   const totalEligible = count ?? playlists.length;
-  const mixExcluded = Math.max(totalBeforeMixExclusion - totalEligible, 0);
+  const mixExcluded = Math.max(eligibleBeforeMixFilter - totalEligible, 0);
 
-  console.log('[prepare][exclude] mix playlists excluded', { mixExcluded });
+  console.log('[prepare][exclude] skipped mix playlist', { mixExcluded });
   console.log('[diagnostic][prepare]', { totalEligible, selected: playlists.length });
 
   if (playlists.length < PLAYLIST_LIMIT) {
@@ -139,3 +136,4 @@ async function finalizeJob(jobId: string, payload: Record<string, unknown>): Pro
     console.error('[PrepareBatch] Failed to update job status', { jobId, error });
   }
 }
+
