@@ -4,10 +4,10 @@ import { randomUUID } from 'crypto';
 import supabase from '../services/supabaseClient';
 
 const TIMEZONE = 'Europe/Budapest';
-const CRON_EXPRESSION = '5 11 * * *'; // 11:05 daily
-const SLOT_COUNT = 10;
-const PREPARE_OFFSET_MINUTES = 15;
+const CRON_EXPRESSION = '5 11 * * *'; // 11:05 local time daily
 const TABLE_NAME = 'refresh_jobs';
+const PREPARE_TIMES = ['09:15', '10:15', '11:15', '12:15', '13:15', '14:15', '15:15', '16:15', '17:15', '18:15'];
+const RUN_TIMES = ['10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00'];
 
 type JobType = 'prepare' | 'run';
 
@@ -30,7 +30,7 @@ export function initDailyRefreshScheduler() {
   cron.schedule(
     CRON_EXPRESSION,
     () => {
-      console.log('[DailyRefreshScheduler] Cron fired, generating slots');
+      console.log('[DailyRefreshScheduler] Cron fired, generating fixed slots');
       void generateDailySlots();
     },
     { timezone: TIMEZONE }
@@ -41,9 +41,12 @@ export function initDailyRefreshScheduler() {
 
 async function generateDailySlots(): Promise<void> {
   const now = DateTime.now().setZone(TIMEZONE);
-  const dayKey = now.toISODate() ?? now.toFormat('yyyy-MM-dd');
-  const windowStart = now.set({ hour: 11, minute: 30, second: 0, millisecond: 0 });
-  const windowEnd = now.plus({ days: 1 }).set({ hour: 8, minute: 0, second: 0, millisecond: 0 });
+  const dayKey = now.toISODate();
+
+  if (!dayKey) {
+    console.error('[DailyRefreshScheduler] Failed to compute day_key');
+    return;
+  }
 
   try {
     const existing = await supabase
@@ -61,10 +64,9 @@ async function generateDailySlots(): Promise<void> {
       return;
     }
 
-    const runSlots = generateRandomSlots(SLOT_COUNT, windowStart, windowEnd);
-    const jobs = buildJobRows(runSlots, dayKey);
-
+    const jobs = buildFixedJobs(dayKey);
     const insertResult = await supabase.from(TABLE_NAME).insert(jobs);
+
     if (insertResult.error) {
       throw insertResult.error;
     }
@@ -75,41 +77,32 @@ async function generateDailySlots(): Promise<void> {
   }
 }
 
-function generateRandomSlots(count: number, start: DateTime, end: DateTime): DateTime[] {
-  const startMillis = start.toMillis();
-  const endMillis = end.toMillis();
+function buildFixedJobs(dayKey: string): RefreshJobRow[] {
+  const prepareJobs = PREPARE_TIMES.map((time, index) =>
+    createJobRow(index, 'prepare', buildLocalDate(dayKey, time), dayKey)
+  );
 
-  if (endMillis <= startMillis) {
-    throw new Error('[DailyRefreshScheduler] Invalid window: end must be after start');
-  }
+  const runJobs = RUN_TIMES.map((time, index) =>
+    createJobRow(index, 'run', buildLocalDate(dayKey, time), dayKey)
+  );
 
-  const range = endMillis - startMillis;
-  const slots: DateTime[] = [];
-
-  for (let i = 0; i < count; i += 1) {
-    const offset = Math.random() * range;
-    const slotMillis = startMillis + offset;
-    slots.push(DateTime.fromMillis(slotMillis, { zone: TIMEZONE }));
-  }
-
-  return slots.sort((a, b) => a.toMillis() - b.toMillis());
+  return [...prepareJobs, ...runJobs];
 }
 
-function buildJobRows(slots: DateTime[], dayKey: string): RefreshJobRow[] {
-  const rows: RefreshJobRow[] = [];
+function buildLocalDate(dayKey: string, time: string): DateTime {
+  const iso = `${dayKey}T${time}:00`;
+  const date = DateTime.fromISO(iso, { zone: TIMEZONE });
 
-  slots.forEach((slot, index) => {
-    const prepareSlot = slot.minus({ minutes: PREPARE_OFFSET_MINUTES });
+  if (!date.isValid) {
+    throw new Error(`[DailyRefreshScheduler] Invalid slot time: ${iso}`);
+  }
 
-    rows.push(createJobRow(index, 'prepare', prepareSlot, dayKey));
-    rows.push(createJobRow(index, 'run', slot, dayKey));
-  });
-
-  return rows;
+  return date;
 }
 
 function createJobRow(index: number, type: JobType, scheduled: DateTime, dayKey: string): RefreshJobRow {
   const scheduledIso = scheduled.toUTC().toISO();
+
   if (!scheduledIso) {
     throw new Error('[DailyRefreshScheduler] Failed to format scheduled_at timestamp');
   }
