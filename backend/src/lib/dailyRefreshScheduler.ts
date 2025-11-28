@@ -4,14 +4,15 @@ import { randomUUID } from 'crypto';
 import supabase from '../services/supabaseClient';
 
 const TIMEZONE = 'Europe/Budapest';
-// Run scheduler every day at 09:35 local time
-const CRON_EXPRESSION = '35 09 * * *';
+const CRON_EXPRESSION = '15 10 * * *'; // 10:15 local time daily
 const TABLE_NAME = 'refresh_jobs';
-const PREPARE_TIMES = ['09:15', '10:15', '11:15', '12:15', '13:15', '14:15', '15:15', '16:15', '17:15', '18:15'];
-const RUN_TIMES = ['10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00'];
+const SLOT_COUNT = 10;
+const PREPARE_START_HOUR = 10;
+const PREPARE_START_MINUTE = 30;
+const SLOT_INTERVAL_MINUTES = 60;
+const PREPARE_TO_RUN_OFFSET_MINUTES = 10;
 
 type JobType = 'prepare' | 'run';
-
 type RefreshJobRow = {
   id: string;
   slot_index: number;
@@ -28,17 +29,21 @@ export function initDailyRefreshScheduler() {
     return;
   }
 
-  cron.schedule(CRON_EXPRESSION, () => {
-    console.log('[DailyRefreshScheduler] Cron fired at 09:35, generating fixed slots');
-    void generateDailySlots();
-  }, { timezone: TIMEZONE });
+  cron.schedule(
+    CRON_EXPRESSION,
+    () => {
+      console.log('[DailyRefreshScheduler] Cron fired at 10:15, generating deterministic slots');
+      void generateDailySlots();
+    },
+    { timezone: TIMEZONE }
+  );
 
-  console.log('[DailyRefreshScheduler] Cron scheduled for 09:35 Europe/Budapest');
+  console.log('[DailyRefreshScheduler] Cron scheduled for 10:15 Europe/Budapest');
 }
 
 async function generateDailySlots(): Promise<void> {
-  const now = DateTime.now().setZone(TIMEZONE);
-  const dayKey = now.toISODate();
+  const localNow = DateTime.now().setZone(TIMEZONE);
+  const dayKey = localNow.toISODate();
 
   if (!dayKey) {
     console.error('[DailyRefreshScheduler] Failed to compute day_key');
@@ -61,7 +66,7 @@ async function generateDailySlots(): Promise<void> {
       return;
     }
 
-    const jobs = buildFixedJobs(dayKey);
+    const jobs = buildJobRows(dayKey);
     const insertResult = await supabase.from(TABLE_NAME).insert(jobs);
 
     if (insertResult.error) {
@@ -74,20 +79,23 @@ async function generateDailySlots(): Promise<void> {
   }
 }
 
-function buildFixedJobs(dayKey: string): RefreshJobRow[] {
-  const prepareJobs = PREPARE_TIMES.map((time, index) =>
-    createJobRow(index, 'prepare', buildLocalDate(dayKey, time), dayKey)
-  );
+function buildJobRows(dayKey: string): RefreshJobRow[] {
+  const rows: RefreshJobRow[] = [];
+  const prepareStart = buildLocalDate(dayKey, PREPARE_START_HOUR, PREPARE_START_MINUTE);
 
-  const runJobs = RUN_TIMES.map((time, index) =>
-    createJobRow(index, 'run', buildLocalDate(dayKey, time), dayKey)
-  );
+  for (let slot = 0; slot < SLOT_COUNT; slot += 1) {
+    const prepareTime = prepareStart.plus({ minutes: slot * SLOT_INTERVAL_MINUTES });
+    const runTime = prepareTime.plus({ minutes: PREPARE_TO_RUN_OFFSET_MINUTES });
 
-  return [...prepareJobs, ...runJobs];
+    rows.push(createJobRow(slot, 'prepare', prepareTime, dayKey));
+    rows.push(createJobRow(slot, 'run', runTime, dayKey));
+  }
+
+  return rows;
 }
 
-function buildLocalDate(dayKey: string, time: string): DateTime {
-  const iso = `${dayKey}T${time}:00`;
+function buildLocalDate(dayKey: string, hour: number, minute: number): DateTime {
+  const iso = `${dayKey}T${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}:00`;
   const date = DateTime.fromISO(iso, { zone: TIMEZONE });
 
   if (!date.isValid) {
