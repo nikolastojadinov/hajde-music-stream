@@ -51,7 +51,7 @@ export async function executePrepareJob(job: RefreshJobRow): Promise<void> {
     const playlists = await fetchEligiblePlaylists();
 
     const batchPayload = playlists.map(p => ({
-      playlistId: p.id,
+      playlistId: p.external_id,   // ← ISPRAVLJENO (pre je bilo p.id)
       title: p.title ?? '',
       lastRefreshedOn: p.last_refreshed_on,
       trackCount: p.track_count,
