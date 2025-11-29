@@ -38,6 +38,9 @@ const INITIAL_RETRY_DELAY_MS = 1000;
 const BATCH_DIR = path.resolve(__dirname, '../../tmp/refresh_batches');
 const DIAG_PREFIX = '[diag][runBatch]';
 const MIX_PREFIX = 'RD';
+const TRACK_SELECT_CHUNK_SIZE = 400;
+const TRACK_UPSERT_CHUNK_SIZE = 200;
+const MAX_REFRESH_TRACKS = 1200;
 
 // ============================================================================
 // TYPES
@@ -477,6 +480,22 @@ async function refreshSinglePlaylist(playlist: PlaylistRow): Promise<boolean> {
     return true;
   }
 
+  if ((playlist.item_count ?? 0) > MAX_REFRESH_TRACKS) {
+    console.warn('[runBatch] Playlist over max track threshold; skipping before fetch', {
+      playlistId: playlist.id,
+      youtubePlaylistId,
+      itemCount: playlist.item_count,
+      maxAllowed: MAX_REFRESH_TRACKS,
+    });
+    diagLog('refreshSinglePlaylist.oversizedPreFetch', {
+      playlistId: playlist.id,
+      youtubePlaylistId,
+      itemCount: playlist.item_count,
+      maxAllowed: MAX_REFRESH_TRACKS,
+    });
+    return true;
+  }
+
   if (!env.youtube_api_key) {
     console.error('[runBatch] Missing YOUTUBE_API_KEY env var; cannot refresh playlist', {
       playlistId: playlist.id,
@@ -601,6 +620,22 @@ async function refreshSinglePlaylist(playlist: PlaylistRow): Promise<boolean> {
     trackCount: fetchResult.items.length,
     etag: fetchResult.etag,
   });
+
+  if (fetchResult.items.length > MAX_REFRESH_TRACKS) {
+    console.warn('[runBatch] Playlist exceeds MAX_REFRESH_TRACKS after fetch; skipping delta sync', {
+      playlistId: playlist.id,
+      youtubePlaylistId,
+      fetchedCount: fetchResult.items.length,
+      maxAllowed: MAX_REFRESH_TRACKS,
+    });
+    diagLog('refreshSinglePlaylist.oversizedPostFetch', {
+      playlistId: playlist.id,
+      youtubePlaylistId,
+      fetchedCount: fetchResult.items.length,
+      maxAllowed: MAX_REFRESH_TRACKS,
+    });
+    return true;
+  }
 
   // Perform delta sync
   diagLog('refreshSinglePlaylist.delta.start', {
@@ -1086,21 +1121,7 @@ async function performDeltaSync(
     playlistId: playlist.id,
     youtubeItems: youtubeItems.length,
   });
-  
-  const { data: existingTracks, error } = await supabase!
-    .from(TRACKS_TABLE)
-    .select('id, youtube_id, external_id, title, artist, sync_status, cover_url')
-    .in('external_id', externalIds);
-
-  if (error) {
-    diagLog('deltaSync.fetchExisting.error', {
-      playlistId: playlist.id,
-      error: error.message,
-    });
-    throw new Error(`Failed to load existing tracks: ${error.message}`);
-  }
-
-  const existing = (existingTracks || []) as TrackRow[];
+  const existing = await fetchExistingTracksChunked(externalIds);
   diagLog('deltaSync.fetchExisting.complete', {
     playlistId: playlist.id,
     existingCount: existing.length,
@@ -1115,8 +1136,9 @@ async function performDeltaSync(
   }
 
   const receivedIds = new Set<string>();
-  const toInsert: any[] = [];
-  const toUpdate: Array<{ id: string; updates: any }> = [];
+  const toUpsert: any[] = [];
+  let insertedCount = 0;
+  let updatedCount = 0;
 
   // Process YouTube items
   for (const item of youtubeItems) {
@@ -1124,18 +1146,8 @@ async function performDeltaSync(
     const existingTrack = existingByYoutubeId.get(item.videoId);
 
     if (!existingTrack) {
-      // New track (global track, not tied to specific playlist)
-      toInsert.push({
-        youtube_id: item.videoId,
-        external_id: item.videoId,
-        title: item.title,
-        artist: item.channelTitle || 'Unknown Artist',
-        cover_url: item.thumbnailUrl,
-        sync_status: 'active',
-        last_synced_at: syncTimestamp,
-        region: playlist.region,
-        category: playlist.category,
-      });
+      toUpsert.push(buildTrackPayload(item, playlist, syncTimestamp));
+      insertedCount += 1;
     } else {
       // Existing track - check if metadata changed
       const metadataChanged = 
@@ -1144,16 +1156,12 @@ async function performDeltaSync(
         existingTrack.cover_url !== item.thumbnailUrl;
 
       if (metadataChanged || existingTrack.sync_status !== 'active') {
-        toUpdate.push({
+        toUpsert.push({
+          ...buildTrackPayload(item, playlist, syncTimestamp),
           id: existingTrack.id,
-          updates: {
-            title: item.title,
-            artist: item.channelTitle || 'Unknown Artist',
-            cover_url: item.thumbnailUrl,
-            sync_status: 'active',
-            last_synced_at: syncTimestamp,
-          },
+          external_id: existingTrack.external_id ?? item.videoId,
         });
+        updatedCount += 1;
       }
     }
   }
@@ -1163,103 +1171,131 @@ async function performDeltaSync(
   const toDelete: string[] = [];
 
   // Execute batch operations
-  await executeBatchInserts(toInsert);
-  await executeBatchUpdates(toUpdate);
+  await executeBatchUpserts(toUpsert);
   await executeBatchDeletes(toDelete, syncTimestamp);
   diagLog('deltaSync.summary', {
     playlistId: playlist.id,
-    inserted: toInsert.length,
-    updated: toUpdate.length,
+    inserted: insertedCount,
+    updated: updatedCount,
     deleted: toDelete.length,
-    insertedSample: toInsert.slice(0, 10).map(item => item.external_id),
-    updatedSample: toUpdate.slice(0, 10).map(item => item.id),
+    processedSample: toUpsert.slice(0, 10).map(item => item.external_id),
   });
 
   console.log('[runBatch] Delta sync completed', {
     playlistId: playlist.id,
-    inserted: toInsert.length,
-    updated: toUpdate.length,
+    inserted: insertedCount,
+    updated: updatedCount,
     deleted: toDelete.length,
   });
 }
 
-/**
- * Insert new tracks in batches of 100.
- * Deduplicates by external_id before inserting (keeps first occurrence).
- */
-async function executeBatchInserts(tracks: any[]): Promise<void> {
-  if (tracks.length === 0) return;
-  diagLog('deltaSync.inserts.start', { count: tracks.length });
+async function fetchExistingTracksChunked(externalIds: string[]): Promise<TrackRow[]> {
+  const uniqueIds = Array.from(new Set(externalIds.filter(Boolean)));
+  if (uniqueIds.length === 0) {
+    return [];
+  }
 
-  // Deduplicate by external_id (UNIQUE constraint at database level)
-  // Keep only the first occurrence of each external_id
-  const seen = new Map<string, any>();
-  const deduplicated: any[] = [];
-  
-  for (const track of tracks) {
-    if (track.external_id && !seen.has(track.external_id)) {
-      seen.set(track.external_id, track);
-      deduplicated.push(track);
+  const chunks = chunkArray(uniqueIds, TRACK_SELECT_CHUNK_SIZE);
+  const results: TrackRow[] = [];
+
+  for (let i = 0; i < chunks.length; i += 1) {
+    const chunk = chunks[i];
+    const { data, error } = await supabase!
+      .from(TRACKS_TABLE)
+      .select('id, youtube_id, external_id, title, artist, sync_status, cover_url')
+      .in('external_id', chunk);
+
+    if (error) {
+      diagLog('deltaSync.fetchExisting.chunkError', {
+        chunkIndex: i,
+        chunkSize: chunk.length,
+        error: error.message,
+      });
+      throw new Error(`Failed to load existing tracks: ${error.message}`);
     }
-  }
 
-  if (deduplicated.length < tracks.length) {
-    console.warn('[runBatch] Deduplicated tracks before insert', {
-      original: tracks.length,
-      deduplicated: deduplicated.length,
-      removed: tracks.length - deduplicated.length,
-    });
-    diagLog('deltaSync.inserts.deduplicated', {
-      original: tracks.length,
-      deduplicated: deduplicated.length,
+    results.push(...(((data as TrackRow[]) ?? [])));
+    diagLog('deltaSync.fetchExisting.chunkComplete', {
+      chunkIndex: i,
+      chunkSize: chunk.length,
+      accumulated: results.length,
     });
   }
 
-  const chunkSize = 100;
-  for (let i = 0; i < deduplicated.length; i += chunkSize) {
-    const chunk = deduplicated.slice(i, i + chunkSize);
+  return results;
+}
+
+function buildTrackPayload(item: YouTubePlaylistItem, playlist: PlaylistRow, syncTimestamp: string) {
+  return {
+    youtube_id: item.videoId,
+    external_id: item.videoId,
+    title: item.title,
+    artist: item.channelTitle || 'Unknown Artist',
+    cover_url: item.thumbnailUrl,
+    sync_status: 'active',
+    last_synced_at: syncTimestamp,
+    region: playlist.region,
+    category: playlist.category,
+  };
+}
+
+async function executeBatchUpserts(records: any[]): Promise<void> {
+  if (records.length === 0) return;
+  diagLog('deltaSync.upsert.start', { count: records.length });
+
+  const deduped = dedupeByExternalId(records);
+  if (deduped.length < records.length) {
+    diagLog('deltaSync.upsert.deduped', {
+      original: records.length,
+      deduped: deduped.length,
+    });
+  }
+
+  const chunks = chunkArray(deduped, TRACK_UPSERT_CHUNK_SIZE);
+  for (let i = 0; i < chunks.length; i += 1) {
+    const chunk = chunks[i];
     const { error } = await supabase!
       .from(TRACKS_TABLE)
       .upsert(chunk, { onConflict: 'external_id' });
 
     if (error) {
-      console.error('[runBatch] Failed to insert track batch', {
-        chunkIndex: i / chunkSize,
+      console.error('[runBatch] Failed to upsert track chunk', {
+        chunkIndex: i,
         error: error.message,
       });
-      diagLog('deltaSync.inserts.error', { chunkIndex: i / chunkSize, error: error.message });
-      throw new Error(`Failed to insert tracks: ${error.message}`);
+      diagLog('deltaSync.upsert.chunkError', { chunkIndex: i, error: error.message });
+      throw new Error(`Failed to upsert tracks: ${error.message}`);
     }
-    diagLog('deltaSync.inserts.chunkComplete', { chunkIndex: i / chunkSize, chunkSize: chunk.length });
+
+    diagLog('deltaSync.upsert.chunkComplete', {
+      chunkIndex: i,
+      chunkSize: chunk.length,
+    });
   }
-  diagLog('deltaSync.inserts.complete', {});
+
+  diagLog('deltaSync.upsert.complete', {});
 }
 
-/**
- * Update existing tracks in batches.
- */
-async function executeBatchUpdates(updates: Array<{ id: string; updates: any }>): Promise<void> {
-  if (updates.length === 0) return;
-  diagLog('deltaSync.updates.start', { count: updates.length });
-
-  // Group by similar updates to batch efficiently
-  for (const { id, updates: updateData } of updates) {
-    const { error } = await supabase!
-      .from(TRACKS_TABLE)
-      .update(updateData)
-      .eq('id', id);
-
-    if (error) {
-      console.error('[runBatch] Failed to update track', {
-        trackId: id,
-        error: error.message,
-      });
-      diagLog('deltaSync.updates.error', { trackId: id, error: error.message });
-      // Continue with other updates instead of throwing
+function dedupeByExternalId(records: any[]): any[] {
+  const seen = new Map<string, any>();
+  for (const record of records) {
+    const key = record.external_id;
+    if (!key) {
+      continue;
     }
-    diagLog('deltaSync.updates.success', { trackId: id });
+    if (!seen.has(key)) {
+      seen.set(key, record);
+    }
   }
-  diagLog('deltaSync.updates.complete', {});
+  return Array.from(seen.values());
+}
+
+function chunkArray<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
 }
 
 /**
