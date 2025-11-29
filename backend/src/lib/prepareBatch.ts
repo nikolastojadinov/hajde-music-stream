@@ -51,7 +51,7 @@ export async function executePrepareJob(job: RefreshJobRow): Promise<void> {
     const playlists = await fetchEligiblePlaylists();
 
     const batchPayload = playlists.map(p => ({
-      playlistId: p.external_id,   // ← ISPRAVLJENO (pre je bilo p.id)
+      playlistId: p.id,               // ← OVO JE JEDINO ISPRAVNO
       title: p.title ?? '',
       lastRefreshedOn: p.last_refreshed_on,
       trackCount: p.track_count,
@@ -101,7 +101,7 @@ async function fetchEligiblePlaylists(): Promise<Row[]> {
       and v.track_count >= 10
     order by v.last_refreshed_on asc nulls first
     limit ${PLAYLIST_LIMIT}
-  `; // ← semicolon uklonjen zbog SUPABASE EXECUTE restrikcije
+  `;
 
   const { data, error } = await supabase.rpc('run_raw', { sql });
 
