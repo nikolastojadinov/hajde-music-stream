@@ -1,4 +1,5 @@
-import { Link } from "react-router-dom";
+import { useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import { Music } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 
@@ -15,32 +16,28 @@ interface RecentPlaylist {
   last_viewed_at: string;
 }
 
-interface PlaylistView {
-  playlist_id: string;
-  view_count: number;
-  last_viewed_at: string;
-}
-
 interface PlaylistData {
   id: string;
   title: string;
   cover_url: string | null;
 }
 
-const gridClassName = "grid grid-cols-2 gap-3";
-const tileClassName = "flex h-20 items-center gap-2 overflow-hidden rounded-lg bg-card p-1.5";
+const GRID_CLASS = "grid grid-cols-2 gap-1.5";
+const CARD_CLASS = "flex h-14 w-full items-center gap-2 rounded-xl bg-[#1a1a1a] p-1";
+const THUMB_CLASS = "h-12 w-12 flex-shrink-0 overflow-hidden rounded-md bg-muted";
 
-const JumpBackIn = () => {
+const JumpBackGrid = () => {
   const { user } = usePi();
-  
+  const navigate = useNavigate();
+
   const getRandomPlaylistsFallback = async (): Promise<RecentPlaylist[]> => {
     const { data: fallbackData } = await externalSupabase
       .from("playlists")
       .select("id, title, cover_url")
       .limit(6);
 
-    return ((fallbackData || []) as PlaylistData[]).map((p: PlaylistData) => ({
-      ...p,
+    return ((fallbackData || []) as PlaylistData[]).map((playlist) => ({
+      ...playlist,
       view_count: 0,
       last_viewed_at: new Date().toISOString(),
     }));
@@ -49,20 +46,15 @@ const JumpBackIn = () => {
   const { data: playlists, isLoading } = useQuery({
     queryKey: ["recent-playlists", user?.uid],
     queryFn: async () => {
-      // Get real user ID from Pi context
       const userId = user?.uid;
-
       if (!userId) {
-        // No user logged in - show 6 random playlists
         return getRandomPlaylistsFallback();
       }
 
       const url = withBackendOrigin(`/api/playlist-views/top?user_id=${encodeURIComponent(userId)}&limit=6`);
       const response = await fetch(url, {
         credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
       });
 
       if (!response.ok) {
@@ -98,24 +90,23 @@ const JumpBackIn = () => {
         } satisfies RecentPlaylist;
       });
 
-      // If user has less than 6 playlists, fill with random ones
       const validMerged = merged.filter((item) => item.id);
 
       if (validMerged.length < 6) {
-        const existingIds = validMerged.map(p => p.id);
-        const needed = 6 - merged.length;
-        
+        const existingIds = validMerged.map((item) => item.id);
+        const needed = 6 - validMerged.length;
+
         const { data: randomData } = await externalSupabase
           .from("playlists")
           .select("id, title, cover_url")
           .not("id", "in", `(${existingIds.join(",")})`)
           .limit(needed);
-        
+
         if (randomData && randomData.length > 0) {
-          const randomPlaylists = (randomData as PlaylistData[]).map((p: PlaylistData) => ({
-            ...p,
+          const randomPlaylists = (randomData as PlaylistData[]).map((playlist) => ({
+            ...playlist,
             view_count: 0,
-            last_viewed_at: new Date().toISOString()
+            last_viewed_at: new Date().toISOString(),
           }));
           validMerged.push(...randomPlaylists);
         }
@@ -123,46 +114,52 @@ const JumpBackIn = () => {
 
       return validMerged;
     },
-    enabled: true, // Always fetch, even if no user (will show random)
+    enabled: true,
   });
 
-  const gridPlaylists = playlists ? playlists.slice(0, 6) : [];
+  const gridPlaylists = useMemo(() => (playlists ? playlists.slice(0, 6) : []), [playlists]);
 
   if (isLoading) {
     return (
-      <div className={gridClassName} style={{ gridTemplateRows: "repeat(3, auto)" }}>
-        {Array.from({ length: 6 }).map((_, i) => (
-          <Skeleton key={i} className="h-20 rounded-lg bg-card" />
+      <div className={GRID_CLASS} style={{ gridTemplateRows: "repeat(3, auto)" }}>
+        {Array.from({ length: 6 }).map((_, index) => (
+          <Skeleton key={index} className="h-14 rounded-xl bg-[#1a1a1a]" />
         ))}
       </div>
     );
   }
 
-  if (!gridPlaylists || gridPlaylists.length === 0) {
+  if (!gridPlaylists.length) {
     return null;
   }
 
   return (
-    <div className={gridClassName} style={{ gridTemplateRows: "repeat(3, auto)" }}>
+    <div className={GRID_CLASS} style={{ gridTemplateRows: "repeat(3, auto)" }}>
       {gridPlaylists.map((playlist: RecentPlaylist) => (
-        <Link key={playlist.id} to={`/playlist/${playlist.id}`} className={tileClassName}>
-          <div className="h-[58px] w-[58px] flex-shrink-0 overflow-hidden rounded-md bg-muted">
+        <button
+          key={playlist.id}
+          type="button"
+          className={CARD_CLASS}
+          onClick={() => navigate(`/playlist/${playlist.id}`)}
+          aria-label={`Open playlist ${playlist.title}`}
+        >
+          <div className={THUMB_CLASS}>
             {playlist.cover_url ? (
               <img src={playlist.cover_url} alt={playlist.title} className="h-full w-full object-cover" />
             ) : (
               <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-primary/20 to-primary/5">
-                <Music className="h-4 w-4 text-primary/30" />
+                <Music className="h-3.5 w-3.5 text-primary/30" />
               </div>
             )}
           </div>
 
           <div className="min-w-0 flex-1">
-            <h3 className="truncate text-xs font-medium leading-tight text-foreground">{playlist.title}</h3>
+            <p className="truncate text-[12px] font-medium leading-tight text-foreground">{playlist.title}</p>
           </div>
-        </Link>
+        </button>
       ))}
     </div>
   );
 };
 
-export default JumpBackIn;
+export default JumpBackGrid;

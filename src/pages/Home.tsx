@@ -1,6 +1,6 @@
 import PlaylistCard from "@/components/PlaylistCard";
 import FeaturedForYou from "@/components/home/FeaturedForYou";
-import JumpBackIn from "@/components/home/JumpBackIn";
+import JumpBackGrid from "@/components/home/JumpBackGrid";
 import { Search as SearchIcon } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
@@ -60,7 +60,7 @@ const Home = () => {
 
         {/* Jump Back In - Personalized Recent Playlists (2x3 Grid) - NO HEADING */}
         <div className="mb-6 animate-slide-up">
-          <JumpBackIn />
+          <JumpBackGrid />
         </div>
 
         {/* Featured For You Section */}
