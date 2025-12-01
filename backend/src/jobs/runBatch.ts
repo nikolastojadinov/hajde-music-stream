@@ -1,7 +1,3 @@
-/**
- * Playlist Refresh Job - Stable Version
- */
-
 import { DateTime } from 'luxon';
 import path from 'path';
 import { promises as fs } from 'fs';
@@ -9,26 +5,21 @@ import { randomUUID } from 'crypto';
 import env from '../environments';
 import supabase from '../services/supabaseClient';
 
-// ============================================================================
-// CONSTANTS
-// ============================================================================
-
 const TIMEZONE = 'Europe/Budapest';
 const JOB_TABLE = 'refresh_jobs';
 const PLAYLIST_TABLE = 'playlists';
 const TRACKS_TABLE = 'tracks';
+const TRACK_SELECT_CHUNK_SIZE = 400;
+const TRACK_UPSERT_CHUNK_SIZE = 200;
+const PLAYLIST_REFRESH_BATCH_SIZE = parseInt(process.env.PLAYLIST_REFRESH_BATCH_SIZE || '50', 10);
 const YOUTUBE_API_BASE = 'https://www.googleapis.com/youtube/v3';
 const YOUTUBE_PAGE_SIZE = 50;
-const PLAYLIST_REFRESH_BATCH_SIZE = parseInt(process.env.PLAYLIST_REFRESH_BATCH_SIZE || '50', 10);
-const MAX_RETRIES = 3;
-const INITIAL_RETRY_DELAY_MS = 1000;
+const PLAYLIST_TRACK_LIMIT = 500;
+const PAGE_RETRY_ATTEMPTS = 3;
+const PAGE_BACKOFF_MS = [1000, 2000, 4000];
+const MIX_PREFIX = 'RD';
 const BATCH_DIR = path.resolve(__dirname, '../../tmp/refresh_batches');
 const DIAG_PREFIX = '[diag][runBatch]';
-const MIX_PREFIX = 'RD';
-
-// ============================================================================
-// TYPES
-// ============================================================================
 
 export type JobStatus = 'pending' | 'running' | 'done' | 'error';
 export type JobType = 'prepare' | 'run';
@@ -71,6 +62,19 @@ type TrackRow = {
   category: string | null;
 };
 
+type TrackUpsertRecord = {
+  youtube_id: string;
+  external_id: string;
+  title: string;
+  artist: string;
+  cover_url: string | null;
+  sync_status: 'active';
+  last_synced_at: string;
+  region: string | null;
+  category: string | null;
+  id?: string;
+};
+
 type YouTubePlaylistItem = {
   videoId: string;
   title: string;
@@ -79,10 +83,29 @@ type YouTubePlaylistItem = {
   position: number;
 };
 
-type FetchPlaylistItemsResult = {
-  items: YouTubePlaylistItem[];
-  etag: string | null;
-  unchanged: boolean; 
+type FetchPlaylistItemsResult =
+  | { state: 'unchanged'; etag: string | null; diagnostics: PlaylistRefreshDiagnostics }
+  | { state: 'fetched'; etag: string | null; items: YouTubePlaylistItem[]; diagnostics: PlaylistRefreshDiagnostics };
+
+type PlaylistRefreshDiagnostics = {
+  partial_refresh: boolean;
+  reason?:
+    | 'etag-first-page'
+    | 'etag-mid-page'
+    | 'limit-500'
+    | 'retry-failure'
+    | 'invalid-playlist'
+    | 'mix-playlist'
+    | 'empty-playlist'
+    | 'forbidden'
+    | 'not-found'
+    | 'gone';
+  fetched_pages: number;
+  fetched_items: number;
+  etag_304_page?: number;
+  retry_failure_page?: number;
+  total_available?: number | null;
+  logged_overflow?: boolean;
 };
 
 type BatchResult = {
@@ -91,6 +114,7 @@ type BatchResult = {
   failureCount: number;
   skippedCount: number;
   errors: Array<{ playlistId: string; message: string }>;
+  diagnostics: Record<string, PlaylistRefreshDiagnostics>;
 };
 
 type BatchFileEntry = {
@@ -98,40 +122,27 @@ type BatchFileEntry = {
   title?: string;
 };
 
-// ============================================================================
-// HELPERS
-// ============================================================================
+type PlaylistUnavailableReason = 'notFound' | 'gone' | 'forbidden' | 'empty' | 'invalid';
 
-function isMixPlaylist(youtubePlaylistId?: string | null): boolean {
-  return Boolean(youtubePlaylistId && youtubePlaylistId.startsWith(MIX_PREFIX));
-}
-
-function diagLog(message: string, payload?: Record<string, unknown>): void {
-  if (payload) console.log(DIAG_PREFIX, message, payload);
-  else console.log(DIAG_PREFIX, message);
-}
-
-function maskApiKey(value?: string | null): string {
-  if (!value) return 'unknown';
-  return `${value.slice(0, 6)}...`;
-}
-
-function maskUrlApiKey(url: URL): string {
-  const cloned = new URL(url.toString());
-  const keyParam = cloned.searchParams.get('key');
-  if (keyParam) cloned.searchParams.set('key', maskApiKey(keyParam));
-  return cloned.toString();
-}
-
-function truncateBody(body: string, limit = 300): string {
-  return body.length <= limit ? body : `${body.slice(0, limit)}…`;
-}
-
-type PlaylistUnavailableReason = 'notFound' | 'gone' | 'forbidden' | 'empty';
+type PlaylistItemsResponse = {
+  items?: Array<{
+    contentDetails?: { videoId?: string };
+    snippet?: {
+      title?: string;
+      channelTitle?: string;
+      thumbnails?: { default?: { url?: string } };
+      position?: number;
+    };
+  }>;
+  nextPageToken?: string;
+  pageInfo?: { totalResults?: number | null };
+  etag?: string;
+};
 
 class PlaylistUnavailableError extends Error {
   status: number;
   reason: PlaylistUnavailableReason;
+
   constructor(status: number, reason: PlaylistUnavailableReason, message?: string) {
     super(message ?? 'Playlist unavailable');
     this.name = 'PlaylistUnavailableError';
@@ -140,13 +151,56 @@ class PlaylistUnavailableError extends Error {
   }
 }
 
-// ============================================================================
-// MAIN JOB ENTRY
-// ============================================================================
+class PageRetryError extends Error {
+  pageNumber: number;
+
+  constructor(pageNumber: number, message: string) {
+    super(message);
+    this.name = 'PageRetryError';
+    this.pageNumber = pageNumber;
+  }
+}
+
+function diagLog(message: string, payload?: Record<string, unknown>): void {
+  if (payload) {
+    console.log(DIAG_PREFIX, message, payload);
+  } else {
+    console.log(DIAG_PREFIX, message);
+  }
+}
+
+function isMixPlaylist(youtubePlaylistId?: string | null): boolean {
+  return Boolean(youtubePlaylistId && youtubePlaylistId.startsWith(MIX_PREFIX));
+}
+
+function isValidYouTubePlaylistId(value?: string | null): boolean {
+  if (!value) return false;
+  return /^[A-Za-z0-9_-]{16,}$/.test(value);
+}
+
+function maskApiKey(value?: string | null): string {
+  if (!value || value.length === 0) {
+    return 'unknown';
+  }
+  return `${value.slice(0, 6)}...`;
+}
+
+function maskUrlApiKey(url: URL): string {
+  const sanitized = new URL(url.toString());
+  const key = sanitized.searchParams.get('key');
+  if (key) {
+    sanitized.searchParams.set('key', maskApiKey(key));
+  }
+  return sanitized.toString();
+}
+
+function truncateBody(body: string, limit = 300): string {
+  if (body.length <= limit) return body;
+  return `${body.slice(0, limit)}…`;
+}
 
 export async function executeRunJob(job: RefreshJobRow): Promise<void> {
   const scheduledLocal = DateTime.fromISO(job.scheduled_at, { zone: 'utc' }).setZone(TIMEZONE);
-
   console.log('[runBatch] Starting job', {
     jobId: job.id,
     type: job.type,
@@ -154,7 +208,14 @@ export async function executeRunJob(job: RefreshJobRow): Promise<void> {
     scheduledAt: scheduledLocal.toISO(),
   });
 
+  if (!supabase) {
+    console.error('[runBatch] Supabase client unavailable');
+    await finalizeJob(job.id, { error: 'Supabase client unavailable' });
+    return;
+  }
+
   if (job.type !== 'run') {
+    console.warn('[runBatch] Wrong job type', { jobId: job.id, type: job.type });
     await finalizeJob(job.id, { error: `Unexpected job type ${job.type}` });
     return;
   }
@@ -162,21 +223,29 @@ export async function executeRunJob(job: RefreshJobRow): Promise<void> {
   try {
     const result = await runBatchRefresh(job);
     await finalizeJob(job.id, result);
-  } catch (error: unknown) {
+    console.log('[runBatch] Job completed', {
+      jobId: job.id,
+      success: result.successCount,
+      failure: result.failureCount,
+      skipped: result.skippedCount,
+    });
+  } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
-    console.error('[runBatch] Unexpected error', { jobId: job.id, error: message });
+    console.error('[runBatch] Job failed', { jobId: job.id, message });
     await finalizeJob(job.id, { error: message });
   }
 }
 
-// ============================================================================
-// BATCH REFRESH CORE
-// ============================================================================
-
 async function runBatchRefresh(job: RefreshJobRow): Promise<BatchResult> {
   const refreshSessionId = randomUUID();
+  diagLog('runBatchRefresh.start', {
+    refreshSessionId,
+    jobId: job.id,
+    slot: job.slot_index,
+    dayKey: job.day_key,
+  });
 
-  const { filePath, playlistIds } = await resolveBatchFile(job);
+  const { playlistIds } = await resolveBatchFile(job);
   const { playlists, mixSkipped } = await loadPlaylistsForRefresh(playlistIds);
 
   const result: BatchResult = {
@@ -185,117 +254,135 @@ async function runBatchRefresh(job: RefreshJobRow): Promise<BatchResult> {
     failureCount: 0,
     skippedCount: mixSkipped,
     errors: [],
+    diagnostics: {},
   };
 
   for (const playlist of playlists) {
-    if (isMixPlaylist(playlist.external_id)) {
-      result.skippedCount++;
-      continue;
-    }
+    const diagnostics: PlaylistRefreshDiagnostics = {
+      partial_refresh: false,
+      fetched_pages: 0,
+      fetched_items: 0,
+      total_available: null,
+    };
 
     try {
-      const skipped = await refreshSinglePlaylist(playlist);
-      if (skipped) result.skippedCount++;
-      else result.successCount++;
-    } catch (err: unknown) {
-      result.failureCount++;
-      result.errors.push({
+      const skipped = await refreshSinglePlaylist(playlist, diagnostics);
+      result.diagnostics[playlist.id] = { ...diagnostics };
+      if (skipped) {
+        result.skippedCount += 1;
+      } else {
+        result.successCount += 1;
+      }
+    } catch (error) {
+      result.diagnostics[playlist.id] = { ...diagnostics };
+      result.failureCount += 1;
+      const message = error instanceof Error ? error.message : 'Unknown playlist refresh error';
+      result.errors.push({ playlistId: playlist.id, message });
+      console.error('[runBatch] Playlist refresh failed', {
         playlistId: playlist.id,
-        message: err instanceof Error ? err.message : 'Unknown',
+        youtubePlaylistId: playlist.external_id,
+        message,
       });
     }
   }
 
+  diagLog('runBatchRefresh.complete', { refreshSessionId, resultSummary: {
+    success: result.successCount,
+    failure: result.failureCount,
+    skipped: result.skippedCount,
+  } });
   return result;
 }
 
 async function resolveBatchFile(job: RefreshJobRow): Promise<{ filePath: string; playlistIds: string[] }> {
   const filePath = path.join(BATCH_DIR, `batch_${job.day_key}_slot_${job.slot_index}.json`);
-
   try {
     const raw = await fs.readFile(filePath, 'utf-8');
     const parsed = JSON.parse(raw) as BatchFileEntry[];
-    const playlistIds = parsed
-      .map(entry => entry.playlistId)
-      .filter((id): id is string => Boolean(id));
-
+    const playlistIds = Array.isArray(parsed)
+      ? parsed.map(entry => entry?.playlistId).filter((id): id is string => Boolean(id))
+      : [];
+    diagLog('resolveBatchFile.success', { filePath, playlistIdsCount: playlistIds.length });
     return { filePath, playlistIds };
-  } catch {
+  } catch (error) {
+    diagLog('resolveBatchFile.miss', { filePath, error: error instanceof Error ? error.message : String(error) });
     return { filePath, playlistIds: [] };
   }
 }
 
-async function loadPlaylistsForRefresh(requestedIds: string[]): Promise<{ playlists: PlaylistRow[]; mixSkipped: number }> {
+async function loadPlaylistsForRefresh(requestedIds?: string[]): Promise<{ playlists: PlaylistRow[]; mixSkipped: number }> {
   let mixSkipped = 0;
+  let rows: PlaylistRow[] = [];
 
-  if (requestedIds.length > 0) {
-    const { data, error } = await supabase
+  if (requestedIds && requestedIds.length > 0) {
+    const { data, error } = await supabase!
       .from(PLAYLIST_TABLE)
-      .select('*')
+      .select('id, external_id, title, description, region, category, last_refreshed_on, last_etag, fetched_on, item_count')
       .in('id', requestedIds);
 
-    if (error) throw new Error(error.message);
-
-    const rows = data || [];
-    const filtered: PlaylistRow[] = [];
-
-    for (const row of rows) {
-      if (isMixPlaylist(row.external_id)) {
-        mixSkipped++;
-        continue;
-      }
-      filtered.push(row);
+    if (error) {
+      throw new Error(`Failed to load playlists: ${error.message}`);
     }
 
-    return { playlists: filtered, mixSkipped };
+    const map = new Map((data || []).map(row => [row.id, row as PlaylistRow]));
+    rows = requestedIds.map(id => map.get(id)).filter((row): row is PlaylistRow => Boolean(row));
+  } else {
+    const { data, error } = await supabase!
+      .from(PLAYLIST_TABLE)
+      .select('id, external_id, title, description, region, category, last_refreshed_on, last_etag, fetched_on, item_count')
+      .order('last_refreshed_on', { ascending: true, nullsFirst: true })
+      .limit(PLAYLIST_REFRESH_BATCH_SIZE);
+
+    if (error) {
+      throw new Error(`Failed to load playlists: ${error.message}`);
+    }
+
+    rows = (data as PlaylistRow[]) || [];
   }
 
-  const { data, error } = await supabase
-    .from(PLAYLIST_TABLE)
-    .select('*')
-    .order('last_refreshed_on', { ascending: true, nullsFirst: true })
-    .limit(PLAYLIST_REFRESH_BATCH_SIZE);
-
-  if (error) throw new Error(error.message);
-
-  const fallback = data || [];
-  const filtered: PlaylistRow[] = [];
-
-  for (const row of fallback) {
+  const playlists: PlaylistRow[] = [];
+  for (const row of rows) {
     if (isMixPlaylist(row.external_id)) {
-      mixSkipped++;
+      mixSkipped += 1;
       continue;
     }
-    filtered.push(row);
+    playlists.push(row);
   }
 
-  return { playlists: filtered, mixSkipped };
+  return { playlists, mixSkipped };
 }
 
-// ============================================================================
-// SINGLE PLAYLIST REFRESH
-// ============================================================================
+async function refreshSinglePlaylist(playlist: PlaylistRow, diagnostics: PlaylistRefreshDiagnostics): Promise<boolean> {
+  if (!playlist.external_id) {
+    diagnostics.reason = 'invalid-playlist';
+    return true;
+  }
 
-async function refreshSinglePlaylist(playlist: PlaylistRow): Promise<boolean> {
-  if (!playlist.external_id) return true;
+  if (!isValidYouTubePlaylistId(playlist.external_id)) {
+    diagnostics.reason = 'invalid-playlist';
+    diagLog('refreshSinglePlaylist.invalidId', { playlistId: playlist.id, youtubePlaylistId: playlist.external_id });
+    return true;
+  }
 
-  const youtubePlaylistId = playlist.external_id;
+  if (isMixPlaylist(playlist.external_id)) {
+    diagnostics.reason = 'mix-playlist';
+    return true;
+  }
 
   if (!env.youtube_api_key) {
-    throw new Error('Missing YOUTUBE_API_KEY');
+    throw new Error('YOUTUBE_API_KEY not configured');
   }
 
   let fetchResult: FetchPlaylistItemsResult;
-
   try {
-    fetchResult = await fetchPlaylistItemsWithETag({
+    fetchResult = await paginatePlaylistItems({
+      playlist,
+      diagnostics,
       apiKey: env.youtube_api_key,
-      youtubePlaylistId,
-      internalPlaylistId: playlist.id,
-      lastEtag: playlist.last_etag,
     });
   } catch (error) {
     if (error instanceof PlaylistUnavailableError) {
+      diagnostics.reason = diagnostics.reason ?? mapPlaylistUnavailableReason(error.reason);
       await removePlaylistFromDatabase(playlist, error);
       return false;
     }
@@ -304,14 +391,23 @@ async function refreshSinglePlaylist(playlist: PlaylistRow): Promise<boolean> {
 
   const now = new Date().toISOString();
 
-  if (fetchResult.unchanged) {
-    await supabase.from(PLAYLIST_TABLE).update({ last_refreshed_on: now }).eq('id', playlist.id);
+  if (fetchResult.state === 'unchanged') {
+    await supabase!
+      .from(PLAYLIST_TABLE)
+      .update({ last_refreshed_on: now })
+      .eq('id', playlist.id);
+
     return true;
+  }
+
+  if (fetchResult.items.length === 0) {
+    diagnostics.reason = 'empty-playlist';
+    throw new PlaylistUnavailableError(200, 'empty', `Playlist ${playlist.external_id} returned 0 items`);
   }
 
   await performDeltaSync(playlist, fetchResult.items, now);
 
-  await supabase
+  await supabase!
     .from(PLAYLIST_TABLE)
     .update({
       last_refreshed_on: now,
@@ -323,226 +419,496 @@ async function refreshSinglePlaylist(playlist: PlaylistRow): Promise<boolean> {
   return false;
 }
 
-// ============================================================================
-// YOUTUBE FETCH LOGIC (unchanged stable version)
-// ============================================================================
-
-async function fetchPlaylistItemsWithETag(opts: {
+async function paginatePlaylistItems(opts: {
+  playlist: PlaylistRow;
+  diagnostics: PlaylistRefreshDiagnostics;
   apiKey: string;
-  youtubePlaylistId: string;
-  internalPlaylistId: string;
-  lastEtag?: string | null;
 }): Promise<FetchPlaylistItemsResult> {
-  const { apiKey, youtubePlaylistId, internalPlaylistId, lastEtag } = opts;
+  const { playlist, diagnostics, apiKey } = opts;
+  const youtubePlaylistId = playlist.external_id!;
 
-  const firstPage = await fetchPlaylistItemsPage({
-    apiKey,
-    playlistId: youtubePlaylistId,
-    internalPlaylistId,
-    lastEtag,
-  });
+  const aggregated: YouTubePlaylistItem[] = [];
+  let pageToken: string | undefined;
+  let currentPage = 1;
+  let etagToSend: string | null = playlist.last_etag || null;
+  let finalEtag: string | null = playlist.last_etag || null;
+  let overflowLogged = false;
 
-  if (firstPage.status === 304) {
-    return { items: [], etag: lastEtag ?? null, unchanged: true };
-  }
+  while (true) {
+    let page;
+    try {
+      page = await fetchPlaylistPageStrict({
+        apiKey,
+        playlistId: youtubePlaylistId,
+        internalPlaylistId: playlist.id,
+        pageToken,
+        ifNoneMatch: etagToSend,
+        pageNumber: currentPage,
+      });
+    } catch (error) {
+      if (error instanceof PageRetryError) {
+        diagnostics.reason = 'retry-failure';
+        diagnostics.retry_failure_page = error.pageNumber;
+      }
+      throw error;
+    }
 
-  if (!firstPage.data) throw new Error('Failed first page');
+    if (page.status === 304) {
+      diagnostics.etag_304_page = currentPage;
+      diagnostics.reason = currentPage === 1 ? 'etag-first-page' : 'etag-mid-page';
+      if (currentPage === 1) {
+        return {
+          state: 'unchanged',
+          etag: etagToSend,
+          diagnostics: { ...diagnostics },
+        };
+      }
+      break;
+    }
 
-  const items: YouTubePlaylistItem[] = parsePlaylistItemsPage(firstPage.data);
-  let pageToken = firstPage.data.nextPageToken;
-  let finalEtag = firstPage.etag;
+    if (!page.data) {
+      throw new Error('YouTube API returned empty body');
+    }
 
-  while (pageToken) {
-    const page = await fetchPlaylistItemsPage({
-      apiKey,
-      playlistId: youtubePlaylistId,
-      internalPlaylistId,
-      pageToken,
-    });
+    finalEtag = page.etag ?? finalEtag;
+    diagnostics.fetched_pages += 1;
 
-    if (!page.data) break;
+    if (diagnostics.total_available == null && typeof page.data?.pageInfo?.totalResults === 'number') {
+      diagnostics.total_available = page.data.pageInfo.totalResults;
+    }
 
-    items.push(...parsePlaylistItemsPage(page.data));
+    if (!overflowLogged && (diagnostics.total_available || 0) > PLAYLIST_TRACK_LIMIT) {
+      overflowLogged = true;
+      diagnostics.logged_overflow = true;
+      console.warn('[runBatch] Playlist exceeds 500 tracks, truncating refresh', {
+        playlistId: playlist.id,
+        youtubePlaylistId,
+        totalResults: diagnostics.total_available,
+      });
+    }
+
+    const parsed = parsePlaylistItemsPage(page.data);
+
+    const remainingSlots = PLAYLIST_TRACK_LIMIT - aggregated.length;
+    if (remainingSlots <= 0) {
+      diagnostics.partial_refresh = true;
+      diagnostics.reason = 'limit-500';
+      break;
+    }
+
+    aggregated.push(...parsed.slice(0, remainingSlots));
+    diagnostics.fetched_items = aggregated.length;
+
+    if (aggregated.length >= PLAYLIST_TRACK_LIMIT) {
+      diagnostics.partial_refresh = true;
+      diagnostics.reason = 'limit-500';
+      console.warn('[runBatch] Hard stop at 500 tracks', {
+        playlistId: playlist.id,
+        youtubePlaylistId,
+        fetchedItems: aggregated.length,
+      });
+      break;
+    }
+
+    if (!page.data.nextPageToken) {
+      break;
+    }
+
     pageToken = page.data.nextPageToken;
+    currentPage += 1;
+    etagToSend = finalEtag;
   }
 
-  if (items.length === 0) {
+  if (aggregated.length === 0) {
+    diagnostics.reason = 'empty-playlist';
     throw new PlaylistUnavailableError(200, 'empty', `YouTube returned 0 items for playlist ${youtubePlaylistId}`);
   }
 
-  return { items, etag: finalEtag, unchanged: false };
+  return {
+    state: 'fetched',
+    etag: finalEtag,
+    items: aggregated,
+    diagnostics: { ...diagnostics },
+  };
 }
 
-async function fetchPlaylistItemsPage(opts: {
+type PlaylistPageResponse =
+  | { status: 304; data?: undefined; etag: string | null }
+  | { status: 200; data: PlaylistItemsResponse; etag: string | null };
+
+async function fetchPlaylistPageStrict(opts: {
   apiKey: string;
   playlistId: string;
   internalPlaylistId: string;
   pageToken?: string;
-  lastEtag?: string | null;
-}): Promise<{ status: number; data?: any; etag: string | null }> {
-  const { apiKey, playlistId, pageToken, lastEtag } = opts;
+  ifNoneMatch?: string | null;
+  pageNumber: number;
+}): Promise<PlaylistPageResponse> {
+  const { apiKey, playlistId, internalPlaylistId, pageToken, ifNoneMatch, pageNumber } = opts;
 
   const url = new URL(`${YOUTUBE_API_BASE}/playlistItems`);
   url.searchParams.set('key', apiKey);
   url.searchParams.set('playlistId', playlistId);
   url.searchParams.set('part', 'contentDetails,snippet');
   url.searchParams.set('maxResults', YOUTUBE_PAGE_SIZE.toString());
-
-  if (pageToken) url.searchParams.set('pageToken', pageToken);
-
-  const headers: Record<string, string> = { 'Accept-Encoding': 'gzip' };
-  if (lastEtag) headers['If-None-Match'] = lastEtag;
-
-  const response = await fetch(url.toString(), { headers });
-
-  if (response.status === 304) {
-    return { status: 304, etag: lastEtag ?? null };
+  url.searchParams.set('fields', 'items(contentDetails/videoId,snippet(title,channelTitle,thumbnails/default/url,position)),nextPageToken,pageInfo,etag');
+  if (pageToken) {
+    url.searchParams.set('pageToken', pageToken);
   }
 
-  if (response.status === 200) {
-    const data = await response.json();
-    return { status: 200, data, etag: response.headers.get('etag') };
+  const headers: Record<string, string> = {
+    'Accept-Encoding': 'gzip',
+  };
+
+  if (ifNoneMatch) {
+    headers['If-None-Match'] = ifNoneMatch;
   }
 
-  if (response.status === 404 || response.status === 410) {
-    const body = await response.text();
-    throw new PlaylistUnavailableError(
-      response.status,
-      response.status === 404 ? 'notFound' : 'gone',
-      body
-    );
+  let lastError: Error | null = null;
+
+  for (let attempt = 1; attempt <= PAGE_RETRY_ATTEMPTS; attempt += 1) {
+    try {
+      assertNoSearchList(url);
+      diagLog('fetchPlaylistPageStrict.request', {
+        playlistId: internalPlaylistId,
+        youtubePlaylistId: playlistId,
+        pageNumber,
+        attempt,
+        url: maskUrlApiKey(url),
+        headers,
+      });
+
+      const response = await fetch(url.toString(), { headers });
+      const etag = response.headers.get('etag');
+      logQuotaUsage({
+        playlistId: internalPlaylistId,
+        youtubePlaylistId: playlistId,
+        status: response.status,
+        endpoint: 'playlistItems.list',
+        quotaHeader: response.headers.get('x-goog-quota-used'),
+      });
+
+      if (response.status === 304) {
+        diagLog('fetchPlaylistPageStrict.http304', {
+          playlistId: internalPlaylistId,
+          youtubePlaylistId: playlistId,
+          pageNumber,
+          attempt,
+        });
+        return { status: 304, etag: etag || ifNoneMatch || null };
+      }
+
+      if (response.status === 200) {
+        const data = await response.json();
+        diagLog('fetchPlaylistPageStrict.success', {
+          playlistId: internalPlaylistId,
+          youtubePlaylistId: playlistId,
+          pageNumber,
+          attempt,
+          nextPageToken: data?.nextPageToken ?? null,
+        });
+        return { status: 200, data, etag: etag || null };
+      }
+
+      if (response.status === 400) {
+        const text = await response.text();
+        throw new PlaylistUnavailableError(400, 'invalid', text);
+      }
+
+      if (response.status === 403) {
+        const text = await response.text();
+        throw new PlaylistUnavailableError(403, 'forbidden', text);
+      }
+
+      if (response.status === 404) {
+        const text = await response.text();
+        throw new PlaylistUnavailableError(404, 'notFound', text);
+      }
+
+      if (response.status === 410) {
+        const text = await response.text();
+        throw new PlaylistUnavailableError(410, 'gone', text);
+      }
+
+      if (response.status >= 500 && response.status < 600) {
+        lastError = new Error(`YouTube API ${response.status}`);
+        if (attempt < PAGE_RETRY_ATTEMPTS) {
+          await sleep(PAGE_BACKOFF_MS[attempt - 1] || PAGE_BACKOFF_MS[PAGE_BACKOFF_MS.length - 1]);
+          continue;
+        }
+        throw new PageRetryError(pageNumber, lastError.message);
+      }
+
+      const errorBody = await response.text();
+      throw new Error(`YouTube API error ${response.status}: ${truncateBody(errorBody)}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const retryable = shouldRetryNetworkError(message);
+      if (retryable && attempt < PAGE_RETRY_ATTEMPTS) {
+        await sleep(PAGE_BACKOFF_MS[attempt - 1] || PAGE_BACKOFF_MS[PAGE_BACKOFF_MS.length - 1]);
+        continue;
+      }
+      if (retryable) {
+        throw new PageRetryError(pageNumber, message);
+      }
+      throw error;
+    }
   }
 
-  if (response.status === 403) {
-    const body = await response.text();
-    throw new PlaylistUnavailableError(403, 'forbidden', body);
-  }
-
-  const text = await response.text();
-  throw new Error(`YouTube error ${response.status}: ${text}`);
+  throw lastError || new Error('Unknown pagination failure');
 }
 
-function parsePlaylistItemsPage(data: any): YouTubePlaylistItem[] {
+function parsePlaylistItemsPage(data: PlaylistItemsResponse): YouTubePlaylistItem[] {
   const items = Array.isArray(data?.items) ? data.items : [];
   const result: YouTubePlaylistItem[] = [];
 
-  for (const item of items) {
-    const videoId = item?.contentDetails?.videoId;
-    const snippet = item?.snippet;
+  for (const raw of items) {
+    const videoId = raw?.contentDetails?.videoId;
+    const snippet = raw?.snippet;
     if (!videoId || !snippet) continue;
-
     const title = snippet.title || 'Untitled track';
-    if (title === 'Private video' || title === 'Deleted video') continue;
-
+    if (title === 'Private video' || title === 'Deleted video') {
+      continue;
+    }
     result.push({
       videoId,
       title,
       channelTitle: snippet.channelTitle || null,
       thumbnailUrl: snippet.thumbnails?.default?.url || null,
-      position: snippet.position ?? result.length,
+      position: typeof snippet.position === 'number' ? snippet.position : result.length,
     });
   }
 
   return result;
 }
 
-// ============================================================================
-// DELTA SYNC — stable simple version
-// ============================================================================
+function shouldRetryNetworkError(message: string): boolean {
+  const lowered = message.toLowerCase();
+  return (
+    lowered.includes('network') ||
+    lowered.includes('econnreset') ||
+    lowered.includes('timed out') ||
+    lowered.includes('fetch failed')
+  );
+}
 
 async function performDeltaSync(
   playlist: PlaylistRow,
   youtubeItems: YouTubePlaylistItem[],
-  syncTimestamp: string
+  syncTimestamp: string,
 ): Promise<void> {
-  const externalIds = youtubeItems.map(x => x.videoId);
+  const externalIds = youtubeItems.map(item => item.videoId);
+  const existing = await fetchExistingTracksChunked(externalIds);
+  const existingById = new Map<string, TrackRow>();
+  for (const track of existing) {
+    const key = track.youtube_id || track.external_id;
+    if (key) existingById.set(key, track);
+  }
 
-  const { data: existingTracks, error } = await supabase
-    .from(TRACKS_TABLE)
-    .select('*')
-    .in('external_id', externalIds);
-
-  if (error) throw new Error(error.message);
-
-  const existing = (existingTracks || []) as TrackRow[];
-  const existingMap = new Map(existing.map(t => [t.external_id, t]));
-
-  const toInsert: any[] = [];
-  const toUpdate: any[] = [];
-
+  const toUpsert: TrackUpsertRecord[] = [];
   for (const item of youtubeItems) {
-    const existingTrack = existingMap.get(item.videoId);
-
+    const existingTrack = existingById.get(item.videoId);
     if (!existingTrack) {
-      toInsert.push({
-        youtube_id: item.videoId,
-        external_id: item.videoId,
-        title: item.title,
-        artist: item.channelTitle || 'Unknown Artist',
-        cover_url: item.thumbnailUrl,
-        sync_status: 'active',
-        last_synced_at: syncTimestamp,
-        region: playlist.region,
-        category: playlist.category,
-      });
-    } else {
-      const changed =
-        existingTrack.title !== item.title ||
-        existingTrack.artist !== (item.channelTitle || 'Unknown Artist') ||
-        existingTrack.cover_url !== item.thumbnailUrl;
+      toUpsert.push(buildTrackPayload(item, playlist, syncTimestamp));
+      continue;
+    }
 
-      if (changed || existingTrack.sync_status !== 'active') {
-        toUpdate.push({
-          id: existingTrack.id,
-          updates: {
-            title: item.title,
-            artist: item.channelTitle || 'Unknown Artist',
-            cover_url: item.thumbnailUrl,
-            sync_status: 'active',
-            last_synced_at: syncTimestamp,
-          },
-        });
-      }
+    const metadataChanged =
+      existingTrack.title !== item.title ||
+      existingTrack.artist !== (item.channelTitle || 'Unknown Artist') ||
+      existingTrack.cover_url !== item.thumbnailUrl;
+
+    if (metadataChanged || existingTrack.sync_status !== 'active') {
+      toUpsert.push({
+        ...buildTrackPayload(item, playlist, syncTimestamp),
+        id: existingTrack.id,
+        external_id: existingTrack.external_id ?? item.videoId,
+      });
     }
   }
 
-  // INSERT
-  for (let i = 0; i < toInsert.length; i += 100) {
-    const chunk = toInsert.slice(i, i + 100);
-    const { error: insertError } = await supabase
+  await executeBatchUpserts(toUpsert);
+  await executeBatchDeletes([], syncTimestamp);
+}
+
+async function fetchExistingTracksChunked(externalIds: string[]): Promise<TrackRow[]> {
+  const uniqueIds = Array.from(new Set(externalIds.filter(Boolean)));
+  if (uniqueIds.length === 0) return [];
+  const chunks = chunkArray(uniqueIds, TRACK_SELECT_CHUNK_SIZE);
+  const results: TrackRow[] = [];
+  for (const chunk of chunks) {
+    const { data, error } = await supabase!
+      .from(TRACKS_TABLE)
+      .select('id, youtube_id, external_id, title, artist, sync_status, cover_url')
+      .in('external_id', chunk);
+    if (error) {
+      throw new Error(`Failed to load existing tracks: ${error.message}`);
+    }
+    results.push(...(((data as TrackRow[]) ?? [])));
+  }
+  return results;
+}
+
+function buildTrackPayload(item: YouTubePlaylistItem, playlist: PlaylistRow, syncTimestamp: string): TrackUpsertRecord {
+  return {
+    youtube_id: item.videoId,
+    external_id: item.videoId,
+    title: item.title,
+    artist: item.channelTitle || 'Unknown Artist',
+    cover_url: item.thumbnailUrl,
+    sync_status: 'active',
+    last_synced_at: syncTimestamp,
+    region: playlist.region,
+    category: playlist.category,
+  };
+}
+
+async function executeBatchUpserts(records: TrackUpsertRecord[]): Promise<void> {
+  if (records.length === 0) return;
+  const deduped = dedupeByExternalId(records);
+  const chunks = chunkArray(deduped, TRACK_UPSERT_CHUNK_SIZE);
+  for (const chunk of chunks) {
+    const { error } = await supabase!
       .from(TRACKS_TABLE)
       .upsert(chunk, { onConflict: 'external_id' });
-
-    if (insertError) throw new Error(insertError.message);
-  }
-
-  // UPDATE
-  for (const { id, updates } of toUpdate) {
-    await supabase.from(TRACKS_TABLE).update(updates).eq('id', id);
+    if (error) {
+      throw new Error(`Failed to upsert tracks: ${error.message}`);
+    }
   }
 }
 
-// ============================================================================
-// FINALIZE
-// ============================================================================
+function dedupeByExternalId(records: TrackUpsertRecord[]): TrackUpsertRecord[] {
+  const seen = new Map<string, TrackUpsertRecord>();
+  for (const record of records) {
+    const key = record.external_id;
+    if (!key) continue;
+    if (!seen.has(key)) {
+      seen.set(key, record);
+    }
+  }
+  return Array.from(seen.values());
+}
+
+function chunkArray<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
+}
+
+async function executeBatchDeletes(trackIds: string[], syncTimestamp: string): Promise<void> {
+  if (trackIds.length === 0) return;
+  const chunkSize = 100;
+  for (let i = 0; i < trackIds.length; i += chunkSize) {
+    const chunk = trackIds.slice(i, i + chunkSize);
+    const { error } = await supabase!
+      .from(TRACKS_TABLE)
+      .update({
+        sync_status: 'deleted',
+        last_synced_at: syncTimestamp,
+      })
+      .in('id', chunk);
+    if (error) {
+      throw new Error(`Failed to mark tracks as deleted: ${error.message}`);
+    }
+  }
+}
+
+function assertNoSearchList(url: URL): void {
+  if (url.pathname.includes('/search') || url.toString().includes('search?')) {
+    throw new Error('search.list detected');
+  }
+}
+
+function logQuotaUsage(opts: {
+  playlistId: string;
+  youtubePlaylistId: string;
+  status: number;
+  endpoint: string;
+  quotaHeader: string | null;
+}): void {
+  const { playlistId, youtubePlaylistId, status, endpoint, quotaHeader } = opts;
+  console.log('[quota]', { playlistId, youtubePlaylistId, status, endpoint, quota: quotaHeader || 'n/a' });
+}
+
+function mapPlaylistUnavailableReason(reason: PlaylistUnavailableReason): PlaylistRefreshDiagnostics['reason'] {
+  switch (reason) {
+    case 'empty':
+      return 'empty-playlist';
+    case 'forbidden':
+      return 'forbidden';
+    case 'notFound':
+      return 'not-found';
+    case 'gone':
+      return 'gone';
+    case 'invalid':
+    default:
+      return 'invalid-playlist';
+  }
+}
 
 async function finalizeJob(jobId: string, payload: Record<string, unknown>): Promise<void> {
-  await supabase.from(JOB_TABLE).update({ status: 'done', payload }).eq('id', jobId);
+  const { error } = await supabase!
+    .from(JOB_TABLE)
+    .update({ status: 'done', payload })
+    .eq('id', jobId);
+  if (error) {
+    console.error('[runBatch] Failed to update job status', { jobId, error: error.message });
+  }
 }
 
-// ============================================================================
-// REMOVE PLAYLIST
-// ============================================================================
+async function removePlaylistFromDatabase(playlist: PlaylistRow, reason: PlaylistUnavailableError): Promise<void> {
+  const { error: ptError } = await supabase!
+    .from('playlist_tracks')
+    .delete()
+    .eq('playlist_id', playlist.id);
+  if (ptError) throw new Error(`Failed to delete playlist_tracks: ${ptError.message}`);
 
-async function removePlaylistFromDatabase(playlist: PlaylistRow, errorObj: PlaylistUnavailableError): Promise<void> {
-  // Just like stable version
-  await supabase.from('playlist_tracks').delete().eq('playlist_id', playlist.id);
-  await supabase.from('playlist_likes').delete().eq('playlist_id', playlist.id);
-  await supabase.from('playlist_categories').delete().eq('playlist_id', playlist.id);
-  await supabase.from('playlist_views').delete().eq('playlist_id', playlist.id);
-  await supabase.from('likes').delete().eq('playlist_id', playlist.id);
+  const { error: plError } = await supabase!
+    .from('playlist_likes')
+    .delete()
+    .eq('playlist_id', playlist.id);
+  if (plError) throw new Error(`Failed to delete playlist_likes: ${plError.message}`);
 
-  await supabase.from(TRACKS_TABLE).update({ playlist_id: null }).eq('playlist_id', playlist.id);
+  const { error: pcError } = await supabase!
+    .from('playlist_categories')
+    .delete()
+    .eq('playlist_id', playlist.id);
+  if (pcError) throw new Error(`Failed to delete playlist_categories: ${pcError.message}`);
 
-  await supabase.from(PLAYLIST_TABLE).delete().eq('id', playlist.id);
+  const { error: pvError } = await supabase!
+    .from('playlist_views')
+    .delete()
+    .eq('playlist_id', playlist.id);
+  if (pvError) throw new Error(`Failed to delete playlist_views: ${pvError.message}`);
+
+  const { error: likesError } = await supabase!
+    .from('likes')
+    .delete()
+    .eq('playlist_id', playlist.id);
+  if (likesError) throw new Error(`Failed to delete likes: ${likesError.message}`);
+
+  const { error: tracksUpdateError } = await supabase!
+    .from(TRACKS_TABLE)
+    .update({ playlist_id: null })
+    .eq('playlist_id', playlist.id);
+  if (tracksUpdateError) throw new Error(`Failed to detach tracks: ${tracksUpdateError.message}`);
+
+  const { error: playlistError } = await supabase!
+    .from(PLAYLIST_TABLE)
+    .delete()
+    .eq('id', playlist.id);
+  if (playlistError) throw new Error(`Failed to delete playlist: ${playlistError.message}`);
+
+  console.warn('[runBatch] Removed playlist due to unavailability', {
+    playlistId: playlist.id,
+    youtubePlaylistId: playlist.external_id,
+    reason: reason.reason,
+    status: reason.status,
+  });
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
