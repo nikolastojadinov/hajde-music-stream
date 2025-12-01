@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useUser } from '@/contexts/UserContext';
+import { usePi } from '@/contexts/PiContext';
 import { usePremiumDialog } from '@/contexts/PremiumDialogContext';
 import { getBackendOrigin } from '@/lib/backendUrl';
 
@@ -78,7 +78,7 @@ type UseLikesReturn = {
 };
 
 export default function useLikes(): UseLikesReturn {
-  const { user } = useUser();
+  const { user } = usePi();
   const { openDialog } = usePremiumDialog();
   const queryClient = useQueryClient();
   const backendUrl = useMemo(() => getBackendOrigin(), []);

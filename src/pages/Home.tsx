@@ -10,7 +10,7 @@ import { usePlaylists } from "@/hooks/usePlaylists";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { externalSupabase } from "@/lib/externalSupabase";
+import { supabase } from "@/integrations/supabase/client";
 
 const BEST_OF_RNB_PLAYLIST_IDS = [
   "PLDIoUOhQQPlVFjmZnM41bOzoowjfTS4wU",
@@ -36,7 +36,7 @@ const Home = () => {
   const { data: bestOfRnBPlaylists = [], isLoading: isLoadingBestOfRnB, error: bestOfRnBError } = useQuery({
     queryKey: ["best-of-rnb-playlists"],
     queryFn: async () => {
-      const { data, error } = await externalSupabase
+      const { data, error } = await supabase
         .from("playlists")
         .select("id, title, cover_url, external_id")
         .in("external_id", [...BEST_OF_RNB_PLAYLIST_IDS])
@@ -100,7 +100,7 @@ const Home = () => {
 
         <section className="mb-8 md:mb-12 animate-slide-up">
           <h2 className="text-2xl font-bold text-foreground px-4 md:px-8">
-            {t("best_of_rnb")}
+            Best of R&B
           </h2>
           <div className="px-4 md:px-8">
             {bestOfRnBError ? (
