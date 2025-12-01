@@ -1,13 +1,11 @@
-import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Crown, FileText, Globe, LogOut, Pi, Shield, User } from "lucide-react";
+import { Check, Crown, FileText, Globe, LogOut, Pi, Shield, User } from "lucide-react";
 
 import appLogo from "@/assets/app-logo.png";
 import { useLanguage, languages } from "@/contexts/LanguageContext";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { usePi } from "@/contexts/PiContext";
 import { usePremiumDialog } from "@/contexts/PremiumDialogContext";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
 const Header = () => {
   const {
@@ -15,60 +13,56 @@ const Header = () => {
     setLanguage,
     currentLanguage
   } = useLanguage();
-  const [languageDialogOpen, setLanguageDialogOpen] = useState(false);
   const { user, login, logout, loading } = usePi();
   const { openDialog: openPremiumDialog } = usePremiumDialog();
   return <header className="fixed top-0 left-0 right-0 h-16 bg-background/80 backdrop-blur-md border-b border-border/50 z-50">
-      <div className="h-full px-4 md:px-6 flex items-center justify-between">
+      <div className="h-full px-4 md:px-6 flex items-center gap-6">
         <Link to="/" className="flex items-center gap-2 md:gap-3 group">
           <img src={appLogo} alt="PurpleBeats Logo" className="w-[42px] h-[42px] md:w-[52px] md:h-[52px] rounded-lg group-hover:scale-105 transition-transform" />
           <span className="text-lg md:text-xl font-bold text-foreground">
             PurpleMusic
           </span>
         </Link>
+        <div className="flex-1" />
 
         <div className="flex items-center gap-3">
-          <Dialog open={languageDialogOpen} onOpenChange={setLanguageDialogOpen}>
-            <DialogTrigger asChild>
-              <button className="inline-flex items-center gap-2 rounded-full bg-secondary/40 hover:bg-secondary px-3 py-2 text-sm font-medium transition">
-                <Globe className="w-4 h-4" />
-                <span className="hidden sm:inline">{t("language")}</span>
-              </button>
-            </DialogTrigger>
-            <DialogContent className="max-w-md bg-card border-border">
-              <DialogHeader>
-                <DialogTitle className="flex items-center gap-2 text-xl">
-                  <Globe className="h-5 w-5" />
-                  {t("language")}
-                </DialogTitle>
-              </DialogHeader>
-              <div className="max-h-[400px] overflow-y-auto scrollbar-hide pr-2">
-                <div className="grid gap-2">
-                  {languages.map(lang => <button key={lang.code} onClick={() => {
-                  setLanguage(lang.code);
-                  setLanguageDialogOpen(false);
-                }} className={`w-full text-left px-4 py-3 rounded-lg transition-all hover:bg-secondary/80 ${currentLanguage === lang.code ? "bg-secondary font-semibold" : ""}`}>
-                      {lang.nativeName}
-                    </button>)}
-                </div>
-              </div>
-            </DialogContent>
-          </Dialog>
-
-          {!user ? <button onClick={login} disabled={loading} className="inline-flex items-center gap-2 rounded-full border border-amber-400/80 px-4 py-2 text-sm font-semibold text-amber-200 tracking-wide transition hover:bg-amber-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70 disabled:opacity-60">
+            {!user && <button onClick={login} disabled={loading} className="inline-flex items-center gap-2 rounded-full border border-[#F3C969] bg-[#0D0D0D] px-5 py-2 text-sm font-semibold text-[#F3C969] transition hover:bg-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F3C969] disabled:opacity-60">
               <Pi className="w-4 h-4" />
-              {loading ? t("signing_in") : t("sign_in_with_pi")}
-            </button> : <DropdownMenu>
+              {loading ? t("signing_in") : "Login"}
+            </button>}
+
+          {user && <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button className="w-10 h-10 bg-secondary hover:bg-secondary/80 rounded-full flex items-center justify-center transition-all hover:scale-105">
                   <User className="w-5 h-5" />
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-60 bg-card border-border">
-                <div className="px-3 py-2">
-                  <p className="text-xs text-muted-foreground">{t("my_account")}</p>
-                  <p className="font-semibold text-foreground">{user.username}</p>
-                </div>
+                <DropdownMenuItem className="cursor-default py-3" onSelect={event => event.preventDefault()}>
+                  <User className="w-4 h-4 mr-3" />
+                  <div className="flex flex-col">
+                    <span className="text-xs text-muted-foreground">{t("my_account")}</span>
+                    <span className="font-semibold text-foreground">{user.username}</span>
+                  </div>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger>
+                    <Globe className="w-4 h-4 mr-3" />
+                    <span>{t("language")}</span>
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent className="bg-card border-border max-h-64 overflow-y-auto">
+                    {languages.map(lang => <DropdownMenuItem key={lang.code} onSelect={event => {
+                    event.preventDefault();
+                    setLanguage(lang.code);
+                  }}>
+                        <span>{lang.nativeName}</span>
+                        {currentLanguage === lang.code && <Check className="ml-auto h-4 w-4 text-primary" />}
+                      </DropdownMenuItem>)}
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+
                 <DropdownMenuSeparator />
                 {user.premium ? <DropdownMenuItem className="cursor-default py-3 bg-gradient-to-r from-green-500/10 to-emerald-600/10 border border-green-500/20">
                     <Crown className="w-4 h-4 mr-3" />
@@ -80,6 +74,7 @@ const Header = () => {
                     <Crown className="w-4 h-4 mr-3" />
                     <span className="text-foreground font-semibold">{t("go_premium")}</span>
                   </DropdownMenuItem>}
+
                 <DropdownMenuSeparator />
                 <Link to="/privacy">
                   <DropdownMenuItem className="cursor-pointer py-3">
