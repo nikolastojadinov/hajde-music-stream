@@ -1,12 +1,13 @@
-import { User, Globe, Shield, FileText, Crown } from "lucide-react";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { useState } from "react";
 import { Link } from "react-router-dom";
+import { Crown, FileText, Globe, LogOut, Pi, Shield, User } from "lucide-react";
+
 import appLogo from "@/assets/app-logo.png";
 import { useLanguage, languages } from "@/contexts/LanguageContext";
-import { useState } from "react";
 import { usePi } from "@/contexts/PiContext";
 import { usePremiumDialog } from "@/contexts/PremiumDialogContext";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
 const Header = () => {
   const {
@@ -15,11 +16,10 @@ const Header = () => {
     currentLanguage
   } = useLanguage();
   const [languageDialogOpen, setLanguageDialogOpen] = useState(false);
-  const { user, signIn } = usePi();
+  const { user, login, logout, loading } = usePi();
   const { openDialog: openPremiumDialog } = usePremiumDialog();
   return <header className="fixed top-0 left-0 right-0 h-16 bg-background/80 backdrop-blur-md border-b border-border/50 z-50">
       <div className="h-full px-4 md:px-6 flex items-center justify-between">
-        {/* Logo */}
         <Link to="/" className="flex items-center gap-2 md:gap-3 group">
           <img src={appLogo} alt="PurpleBeats Logo" className="w-[42px] h-[42px] md:w-[52px] md:h-[52px] rounded-lg group-hover:scale-105 transition-transform" />
           <span className="text-lg md:text-xl font-bold text-foreground">
@@ -27,102 +27,80 @@ const Header = () => {
           </span>
         </Link>
 
-        {/* Profile Dropdown */}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button className="w-9 h-9 md:w-10 md:h-10 bg-secondary hover:bg-secondary/80 rounded-full flex items-center justify-center transition-all hover:scale-105">
-              <User className="w-4 h-4 md:w-5 md:h-5 text-foreground" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-56 bg-card border-border">
-            {user && (
-              <>
-                <DropdownMenuItem className="cursor-pointer py-3">
-                  <User className="w-4 h-4 mr-3" />
-                  <span className="font-semibold">{user.username}</span>
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-              </>
-            )}
-            {!user && (
-              <>
-                <DropdownMenuItem className="cursor-pointer py-3">
-                  <User className="w-4 h-4 mr-3" />
-                  <span>{t("profile")}</span>
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-              </>
-            )}
-            {user?.premium ? (
-              <DropdownMenuItem className="cursor-pointer py-3 bg-gradient-to-r from-green-500/10 to-emerald-600/10 border border-green-500/20">
-                <Crown className="w-4 h-4 mr-3 text-foreground" />
-                <div className="flex flex-col">
-                  <span className="text-foreground font-semibold text-sm">{t("premium_member")}</span>
-                  <span className="text-xs text-muted-foreground">{t("until")} {new Date(user.premium_until!).toLocaleDateString()}</span>
+        <div className="flex items-center gap-3">
+          <Dialog open={languageDialogOpen} onOpenChange={setLanguageDialogOpen}>
+            <DialogTrigger asChild>
+              <button className="inline-flex items-center gap-2 rounded-full bg-secondary/40 hover:bg-secondary px-3 py-2 text-sm font-medium transition">
+                <Globe className="w-4 h-4" />
+                <span className="hidden sm:inline">{t("language")}</span>
+              </button>
+            </DialogTrigger>
+            <DialogContent className="max-w-md bg-card border-border">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2 text-xl">
+                  <Globe className="h-5 w-5" />
+                  {t("language")}
+                </DialogTitle>
+              </DialogHeader>
+              <div className="max-h-[400px] overflow-y-auto scrollbar-hide pr-2">
+                <div className="grid gap-2">
+                  {languages.map(lang => <button key={lang.code} onClick={() => {
+                  setLanguage(lang.code);
+                  setLanguageDialogOpen(false);
+                }} className={`w-full text-left px-4 py-3 rounded-lg transition-all hover:bg-secondary/80 ${currentLanguage === lang.code ? "bg-secondary font-semibold" : ""}`}>
+                      {lang.nativeName}
+                    </button>)}
                 </div>
-              </DropdownMenuItem>
-            ) : (
-              <DropdownMenuItem 
-                onClick={openPremiumDialog}
-                className="cursor-pointer py-3 bg-gradient-to-r from-amber-500/10 to-yellow-600/10 hover:from-amber-500/20 hover:to-yellow-600/20 border border-amber-500/20"
-              >
-                <Crown className="w-4 h-4 mr-3 text-foreground" />
-                <span className="text-foreground font-semibold">{t("go_premium")}</span>
-              </DropdownMenuItem>
-            )}
-            <DropdownMenuSeparator />
-            {!user && (
-              <DropdownMenuItem onClick={() => signIn()} className="cursor-pointer py-3">
-                <User className="w-4 h-4 mr-3" />
-                <span>{t("sign_in_with_pi")}</span>
-              </DropdownMenuItem>
-            )}
-            
-            <Dialog open={languageDialogOpen} onOpenChange={setLanguageDialogOpen}>
-              <DialogTrigger asChild>
-                <DropdownMenuItem onSelect={e => {
-                e.preventDefault();
-                setLanguageDialogOpen(true);
-              }} className="cursor-pointer py-3">
-                  <Globe className="w-4 h-4 mr-3" />
-                  <span>{t("choose_language")}</span>
-                </DropdownMenuItem>
-              </DialogTrigger>
-              <DialogContent className="max-w-md bg-card border-border">
-                <DialogHeader>
-                  <DialogTitle className="flex items-center gap-2 text-xl">
-                    <Globe className="h-5 w-5" />
-                    {t("language")}
-                  </DialogTitle>
-                </DialogHeader>
-                <div className="max-h-[400px] overflow-y-auto scrollbar-hide pr-2">
-                  <div className="grid gap-2">
-                    {languages.map(lang => <button key={lang.code} onClick={() => {
-                    setLanguage(lang.code);
-                    setLanguageDialogOpen(false);
-                  }} className={`w-full text-left px-4 py-3 rounded-lg transition-all hover:bg-secondary/80 ${currentLanguage === lang.code ? "bg-secondary font-semibold" : ""}`}>
-                        {lang.nativeName}
-                      </button>)}
-                  </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          {!user ? <button onClick={login} disabled={loading} className="inline-flex items-center gap-2 rounded-full border border-amber-400/80 px-4 py-2 text-sm font-semibold text-amber-200 tracking-wide transition hover:bg-amber-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70 disabled:opacity-60">
+              <Pi className="w-4 h-4" />
+              {loading ? t("signing_in") : t("sign_in_with_pi")}
+            </button> : <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="w-10 h-10 bg-secondary hover:bg-secondary/80 rounded-full flex items-center justify-center transition-all hover:scale-105">
+                  <User className="w-5 h-5" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-60 bg-card border-border">
+                <div className="px-3 py-2">
+                  <p className="text-xs text-muted-foreground">{t("my_account")}</p>
+                  <p className="font-semibold text-foreground">{user.username}</p>
                 </div>
-              </DialogContent>
-            </Dialog>
-            
-            <DropdownMenuSeparator />
-            <Link to="/privacy">
-              <DropdownMenuItem className="cursor-pointer py-3">
-                <Shield className="w-4 h-4 mr-3" />
-                <span>{t("privacy_policy")}</span>
-              </DropdownMenuItem>
-            </Link>
-            <Link to="/terms">
-              <DropdownMenuItem className="cursor-pointer py-3">
-                <FileText className="w-4 h-4 mr-3" />
-                <span>{t("terms_of_service")}</span>
-              </DropdownMenuItem>
-            </Link>
-          </DropdownMenuContent>
-        </DropdownMenu>
+                <DropdownMenuSeparator />
+                {user.premium ? <DropdownMenuItem className="cursor-default py-3 bg-gradient-to-r from-green-500/10 to-emerald-600/10 border border-green-500/20">
+                    <Crown className="w-4 h-4 mr-3" />
+                    <div className="flex flex-col">
+                      <span className="text-foreground font-semibold text-sm">{t("premium_member")}</span>
+                      {user.premium_until && <span className="text-xs text-muted-foreground">{t("until")} {new Date(user.premium_until).toLocaleDateString()}</span>}
+                    </div>
+                  </DropdownMenuItem> : <DropdownMenuItem onClick={openPremiumDialog} className="cursor-pointer py-3 bg-gradient-to-r from-amber-500/10 to-yellow-600/10 hover:from-amber-500/20 hover:to-yellow-600/20 border border-amber-500/20">
+                    <Crown className="w-4 h-4 mr-3" />
+                    <span className="text-foreground font-semibold">{t("go_premium")}</span>
+                  </DropdownMenuItem>}
+                <DropdownMenuSeparator />
+                <Link to="/privacy">
+                  <DropdownMenuItem className="cursor-pointer py-3">
+                    <Shield className="w-4 h-4 mr-3" />
+                    <span>{t("privacy_policy")}</span>
+                  </DropdownMenuItem>
+                </Link>
+                <Link to="/terms">
+                  <DropdownMenuItem className="cursor-pointer py-3">
+                    <FileText className="w-4 h-4 mr-3" />
+                    <span>{t("terms_of_service")}</span>
+                  </DropdownMenuItem>
+                </Link>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => logout()} className="cursor-pointer py-3 text-red-400">
+                  <LogOut className="w-4 h-4 mr-3" />
+                  <span>{t("sign_out")}</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>}
+        </div>
       </div>
 
     </header>;
