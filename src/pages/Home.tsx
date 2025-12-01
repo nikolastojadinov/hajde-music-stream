@@ -9,6 +9,19 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { usePlaylists } from "@/hooks/usePlaylists";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
+import { externalSupabase } from "@/lib/externalSupabase";
+
+const BEST_OF_RNB_PLAYLIST_IDS = [
+  "PLDIoUOhQQPlVFjmZnM41bOzoowjfTS4wU",
+  "PLdjynnbWVGDkjusKFwqnRb4p7pCn9ZujU",
+  "PLrZoX_h4DFIvZeenXGhLFXaarIo0ii68d",
+  "PL1puyG1gnPbpmncMC36a6RLm-NSz_Rs18",
+  "PL08ytyBKu7cp10v7cIdGkwLGk6sb_Vcw-",
+  "PLQFaxYyYuinoLi3hvLt4bc8V6yjluTKFd",
+  "PLSmGb1TO3MjTTrI0bMZksM9gbSkwO0wCt",
+  "PL0kNWD0XZExeHWo5PUDC1GFdtY8Mpvnyt",
+] as const;
 
 const Home = () => {
   const { t } = useLanguage();
@@ -20,6 +33,20 @@ const Home = () => {
   const { data: moodPlaylists, isLoading: isLoadingMood } = usePlaylists("mood");
   const { data: genrePlaylists, isLoading: isLoadingGenre } = usePlaylists("genre");
   
+  const { data: bestOfRnBPlaylists = [], isLoading: isLoadingBestOfRnB, error: bestOfRnBError } = useQuery({
+    queryKey: ["best-of-rnb-playlists"],
+    queryFn: async () => {
+      const { data, error } = await externalSupabase
+        .from("playlists")
+        .select("id, title, cover_url, external_id")
+        .in("external_id", [...BEST_OF_RNB_PLAYLIST_IDS])
+        .order("title", { ascending: true });
+
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
   const categories = [
     {
       title: t("recently_played"),
@@ -70,6 +97,51 @@ const Home = () => {
         </div>
 
         <TopSongsSection />
+
+        <section className="mb-8 md:mb-12 animate-slide-up">
+          <h2 className="text-2xl font-bold text-foreground px-4 md:px-8">
+            {t("best_of_rnb")}
+          </h2>
+          <div className="px-4 md:px-8">
+            {bestOfRnBError ? (
+              <div className="text-foreground/60 py-8">
+                Error loading playlists. Please try again later.
+              </div>
+            ) : (
+              <ScrollArea className="w-full whitespace-nowrap rounded-md">
+                <div className="flex w-max space-x-4 pb-4">
+                  {isLoadingBestOfRnB ? (
+                    Array.from({ length: 8 }).map((_, index) => (
+                      <div key={index} className="w-[140px] space-y-2">
+                        <Skeleton className="h-[140px] w-[140px] rounded-md" />
+                        <div className="space-y-1">
+                          <Skeleton className="h-3 w-24" />
+                          <Skeleton className="h-3 w-20" />
+                        </div>
+                      </div>
+                    ))
+                  ) : bestOfRnBPlaylists.length > 0 ? (
+                    bestOfRnBPlaylists.map((playlist) => (
+                      <div key={playlist.id} className="w-[140px]">
+                        <PlaylistCard
+                          id={playlist.id}
+                          title={playlist.title ?? ""}
+                          description=""
+                          imageUrl={playlist.cover_url || "/placeholder.svg"}
+                        />
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-foreground/60 py-8">
+                      No playlists found. Please check the Supabase data.
+                    </div>
+                  )}
+                </div>
+                <ScrollBar orientation="horizontal" />
+              </ScrollArea>
+            )}
+          </div>
+        </section>
 
         {/* Other Categories with horizontal scroll */}
         {categories.map((category, index) => (
