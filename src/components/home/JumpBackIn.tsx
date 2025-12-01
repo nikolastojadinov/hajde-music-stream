@@ -1,10 +1,11 @@
-import { useQuery } from "@tanstack/react-query";
-import { externalSupabase } from "@/lib/externalSupabase";
-import { withBackendOrigin } from "@/lib/backendUrl";
 import { Link } from "react-router-dom";
 import { Music } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePi } from "@/contexts/PiContext";
+import { withBackendOrigin } from "@/lib/backendUrl";
+import { externalSupabase } from "@/lib/externalSupabase";
 
 interface RecentPlaylist {
   id: string;
@@ -25,6 +26,9 @@ interface PlaylistData {
   title: string;
   cover_url: string | null;
 }
+
+const gridClassName = "grid grid-cols-2 gap-3";
+const tileClassName = "flex h-20 items-center gap-2 overflow-hidden rounded-lg bg-card p-1.5";
 
 const JumpBackIn = () => {
   const { user } = usePi();
@@ -126,12 +130,9 @@ const JumpBackIn = () => {
 
   if (isLoading) {
     return (
-      <div
-        className="grid grid-cols-2 gap-3"
-        style={{ gridTemplateRows: "repeat(3, auto)" }}
-      >
+      <div className={gridClassName} style={{ gridTemplateRows: "repeat(3, auto)" }}>
         {Array.from({ length: 6 }).map((_, i) => (
-          <Skeleton key={i} className="h-20 rounded-lg" />
+          <Skeleton key={i} className="h-20 rounded-lg bg-card" />
         ))}
       </div>
     );
@@ -142,36 +143,21 @@ const JumpBackIn = () => {
   }
 
   return (
-    <div
-      className="grid grid-cols-2 gap-3"
-      style={{ gridTemplateRows: "repeat(3, auto)" }}
-    >
+    <div className={gridClassName} style={{ gridTemplateRows: "repeat(3, auto)" }}>
       {gridPlaylists.map((playlist: RecentPlaylist) => (
-        <Link
-          key={playlist.id}
-          to={`/playlist/${playlist.id}`}
-          className="flex h-20 items-center gap-2 overflow-hidden rounded-lg bg-[#111111] p-1.5"
-        >
-          {/* Small Cover Image - 58x58px */}
+        <Link key={playlist.id} to={`/playlist/${playlist.id}`} className={tileClassName}>
           <div className="h-[58px] w-[58px] flex-shrink-0 overflow-hidden rounded-md bg-muted">
             {playlist.cover_url ? (
-              <img
-                src={playlist.cover_url}
-                alt={playlist.title}
-                className="w-full h-full object-cover"
-              />
+              <img src={playlist.cover_url} alt={playlist.title} className="h-full w-full object-cover" />
             ) : (
-              <div className="w-full h-full bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
+              <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-primary/20 to-primary/5">
                 <Music className="h-4 w-4 text-primary/30" />
               </div>
             )}
           </div>
 
-          {/* Text Area - Playlist Title */}
           <div className="min-w-0 flex-1">
-            <h3 className="truncate text-xs font-medium leading-tight text-foreground">
-              {playlist.title}
-            </h3>
+            <h3 className="truncate text-xs font-medium leading-tight text-foreground">{playlist.title}</h3>
           </div>
         </Link>
       ))}
