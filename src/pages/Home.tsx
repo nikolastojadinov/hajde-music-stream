@@ -1,6 +1,7 @@
 import PlaylistCard from "@/components/PlaylistCard";
 import FeaturedForYou from "@/components/home/FeaturedForYou";
 import JumpBackGrid from "@/components/home/JumpBackGrid";
+import TopSongsSection from "@/components/home/TopSongsSection";
 import { Search as SearchIcon } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
@@ -67,6 +68,8 @@ const Home = () => {
         <div className="mb-8 md:mb-12 animate-slide-up">
           <FeaturedForYou />
         </div>
+
+        <TopSongsSection />
 
         {/* Other Categories with horizontal scroll */}
         {categories.map((category, index) => (
