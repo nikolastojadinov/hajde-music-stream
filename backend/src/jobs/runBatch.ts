@@ -72,7 +72,6 @@ type TrackUpsertRecord = {
   last_synced_at: string;
   region: string | null;
   category: string | null;
-  id?: string;
 };
 
 type YouTubePlaylistItem = {
@@ -699,15 +698,16 @@ async function performDeltaSync(
 ): Promise<void> {
   const externalIds = youtubeItems.map(item => item.videoId);
   const existing = await fetchExistingTracksChunked(externalIds);
-  const existingById = new Map<string, TrackRow>();
+  const existingByExternalId = new Map<string, TrackRow>();
   for (const track of existing) {
-    const key = track.youtube_id || track.external_id;
-    if (key) existingById.set(key, track);
+    if (track.external_id) {
+      existingByExternalId.set(track.external_id, track);
+    }
   }
 
   const toUpsert: TrackUpsertRecord[] = [];
   for (const item of youtubeItems) {
-    const existingTrack = existingById.get(item.videoId);
+    const existingTrack = existingByExternalId.get(item.videoId);
     if (!existingTrack) {
       toUpsert.push(buildTrackPayload(item, playlist, syncTimestamp));
       continue;
@@ -721,7 +721,6 @@ async function performDeltaSync(
     if (metadataChanged || existingTrack.sync_status !== 'active') {
       toUpsert.push({
         ...buildTrackPayload(item, playlist, syncTimestamp),
-        id: existingTrack.id,
         external_id: existingTrack.external_id ?? item.videoId,
       });
     }
