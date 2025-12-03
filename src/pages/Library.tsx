@@ -4,15 +4,110 @@ import PlaylistCard from "@/components/PlaylistCard";
 import TrackCard from "@/components/TrackCard";
 import { usePi } from "@/contexts/PiContext";
 import useLikes from "@/hooks/useLikes";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { externalSupabase } from "@/lib/externalSupabase";
+import { useNavigate, Link } from "react-router-dom";
 
 const Library = () => {
   const { user } = usePi();
   const { likedTracks, likedPlaylists, likedTrackIds, toggleTrackLike } = useLikes();
   const { t } = useLanguage();
+  const navigate = useNavigate();
   const userId = user?.uid || null;
   const [activeTab, setActiveTab] = useState<string>("liked-songs");
+  const [myPlaylists, setMyPlaylists] = useState<UserPlaylist[]>([]);
+  const [myPlaylistsLoading, setMyPlaylistsLoading] = useState(false);
+  const [myPlaylistsError, setMyPlaylistsError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!userId) {
+      setMyPlaylists([]);
+      setMyPlaylistsError(null);
+      return;
+    }
+
+    let cancelled = false;
+    const load = async () => {
+      setMyPlaylistsLoading(true);
+      setMyPlaylistsError(null);
+      try {
+        const { data, error } = await externalSupabase
+          .from("playlists")
+          .select("id,title,description,cover_url,is_public,owner_id")
+          .eq("owner_id", userId)
+          .order("created_at", { ascending: false });
+        if (error) throw error;
+        if (!cancelled) {
+          setMyPlaylists((data || []) as UserPlaylist[]);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          const message = err instanceof Error ? err.message : String(err);
+          setMyPlaylistsError(message);
+          setMyPlaylists([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setMyPlaylistsLoading(false);
+        }
+      }
+    };
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+
+  const myPlaylistsContent = useMemo(() => {
+    if (!userId) {
+      return (
+        <div className="text-center py-12 text-muted-foreground">
+          {t("library_sign_in_playlists")}
+        </div>
+      );
+    }
+
+    if (myPlaylistsLoading) {
+      return (
+        <div className="flex items-center justify-center py-12 text-muted-foreground">
+          <span className="animate-pulse">{t("loading")}</span>
+        </div>
+      );
+    }
+
+    if (myPlaylistsError) {
+      return (
+        <div className="rounded-2xl border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
+          {myPlaylistsError}
+        </div>
+      );
+    }
+
+    if (myPlaylists.length === 0) {
+      return (
+        <div className="text-center py-12 text-muted-foreground">
+          <Heart className="w-16 h-16 mx-auto mb-4 opacity-50" />
+          <p>{t("no_playlists_created")}</p>
+          <button
+            onClick={() => navigate("/create")}
+            className="mt-4 px-5 py-2 rounded-full bg-primary text-primary-foreground text-sm font-semibold"
+          >
+            {t("create_playlist_btn")}
+          </button>
+        </div>
+      );
+    }
+
+    return (
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+        {myPlaylists.map((playlist) => (
+          <MyPlaylistCard key={playlist.id} playlist={playlist} />
+        ))}
+      </div>
+    );
+  }, [myPlaylists, myPlaylistsLoading, myPlaylistsError, navigate, t, userId]);
 
   return (
     <div className="flex-1 overflow-y-auto pb-32">
@@ -85,9 +180,55 @@ const Library = () => {
             )}
           </TabsContent>
         </Tabs>
+
+        <section className="mt-12 space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <h2 className="text-2xl font-semibold">{t("my_playlists")}</h2>
+            <Link
+              to="/create"
+              className="inline-flex items-center justify-center rounded-full border border-primary/60 px-4 py-2 text-sm font-semibold text-primary hover:bg-primary/10"
+            >
+              + {t("create_playlist_btn")}
+            </Link>
+          </div>
+          {myPlaylistsContent}
+        </section>
       </div>
     </div>
   );
 };
 
 export default Library;
+
+type UserPlaylist = {
+  id: string;
+  title: string;
+  description?: string | null;
+  cover_url?: string | null;
+  is_public?: boolean | null;
+};
+
+const MyPlaylistCard = ({ playlist }: { playlist: UserPlaylist }) => {
+  const visibilityLabel = playlist.is_public ? "Public" : "Private";
+  return (
+    <Link
+      to={`/playlist/${playlist.id}`}
+      className="group block rounded-2xl border border-border bg-secondary/40 p-4 transition hover:border-primary"
+    >
+      <div className="relative mb-3 overflow-hidden rounded-xl bg-muted">
+        {playlist.cover_url ? (
+          <img src={playlist.cover_url} alt={playlist.title} className="w-full aspect-square object-cover" />
+        ) : (
+          <div className="flex aspect-square items-center justify-center text-muted-foreground">
+            <ListMusic className="w-6 h-6" />
+          </div>
+        )}
+        <span className={`absolute top-3 left-3 rounded-full px-3 py-0.5 text-xs font-semibold ${playlist.is_public ? "bg-emerald-500/20 text-emerald-300" : "bg-purple-500/20 text-purple-100"}`}>
+          {visibilityLabel}
+        </span>
+      </div>
+      <p className="font-semibold line-clamp-1">{playlist.title || "Untitled playlist"}</p>
+      <p className="text-xs text-muted-foreground line-clamp-2">{playlist.description || ""}</p>
+    </Link>
+  );
+};

@@ -1,40 +1,24 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { useNavigate } from "react-router-dom";
-import type { User } from "@supabase/supabase-js";
 import { Globe, Loader2, Lock, Upload, X } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { usePi } from "@/contexts/PiContext";
+import { externalSupabase } from "@/lib/externalSupabase";
 
 const coverBucket = import.meta.env.VITE_SUPABASE_COVER_BUCKET || "playlist-covers";
 
 const CreatePlaylist = () => {
   const navigate = useNavigate();
+  const { user, loading } = usePi();
+  const userId = user?.uid ?? null;
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [coverFile, setCoverFile] = useState<File | null>(null);
   const [coverPreview, setCoverPreview] = useState<string | null>(null);
-  const [user, setUser] = useState<User | null>(null);
-  const [authChecked, setAuthChecked] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    supabase.auth.getUser().then(({ data, error }) => {
-      if (cancelled) return;
-      if (error) {
-        console.error("Failed to resolve Supabase user", error);
-        setFormError("Unable to verify your session. Please refresh and try again.");
-      }
-      setUser(data?.user ?? null);
-      setAuthChecked(true);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   useEffect(() => {
     return () => {
@@ -61,7 +45,7 @@ const CreatePlaylist = () => {
       toast.error("Add a playlist name before continuing.");
       return;
     }
-    if (!user) {
+    if (!userId) {
       setFormError("Please sign in to create playlists.");
       toast.error("Please sign in first.");
       return;
@@ -71,10 +55,10 @@ const CreatePlaylist = () => {
   };
 
   const uploadCoverIfNeeded = async (): Promise<string | null> => {
-    if (!coverFile || !user) return null;
+    if (!coverFile || !userId) return null;
     const extension = coverFile.name.split(".").pop() || "jpg";
-    const objectPath = `covers/${user.id}-${Date.now()}.${extension}`;
-    const { error: uploadError } = await supabase.storage.from(coverBucket).upload(objectPath, coverFile, {
+    const objectPath = `covers/${userId}-${Date.now()}.${extension}`;
+    const { error: uploadError } = await externalSupabase.storage.from(coverBucket).upload(objectPath, coverFile, {
       cacheControl: "3600",
       upsert: true,
       contentType: coverFile.type,
@@ -83,24 +67,24 @@ const CreatePlaylist = () => {
       console.error("Cover upload failed", uploadError);
       throw new Error("Unable to upload cover image. Please try again.");
     }
-    const { data } = supabase.storage.from(coverBucket).getPublicUrl(objectPath);
+    const { data } = externalSupabase.storage.from(coverBucket).getPublicUrl(objectPath);
     return data?.publicUrl ?? null;
   };
 
   const createPlaylist = async (isPublic: boolean) => {
-    if (!user) return;
+    if (!userId) return;
     setIsSaving(true);
     try {
       let coverUrl: string | null = null;
       if (coverFile) {
         coverUrl = await uploadCoverIfNeeded();
       }
-      const { error } = await supabase.from("playlists").insert({
+      const { error } = await externalSupabase.from("playlists").insert({
         title: title.trim(),
         description: description.trim() || null,
         cover_url: coverUrl,
         is_public: isPublic,
-        owner_id: user.id,
+        owner_id: userId,
         created_at: new Date().toISOString(),
       });
       if (error) {
@@ -119,7 +103,7 @@ const CreatePlaylist = () => {
     }
   };
 
-  if (!authChecked) {
+  if (loading) {
     return (
       <div className="flex h-full min-h-screen items-center justify-center bg-gradient-to-b from-[#050109] via-[#0d0519] to-[#030106] text-white">
         <Loader2 className="h-8 w-8 animate-spin" />
@@ -127,7 +111,7 @@ const CreatePlaylist = () => {
     );
   }
 
-  if (!user) {
+  if (!userId) {
     return (
       <div className="flex h-full min-h-screen items-center justify-center bg-gradient-to-b from-[#050109] via-[#0d0519] to-[#030106] text-white px-6 text-center">
         <div className="space-y-6 max-w-lg">
