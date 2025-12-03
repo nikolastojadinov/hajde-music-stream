@@ -3,7 +3,7 @@ import { useLocation } from "react-router-dom";
 import { usePi } from "@/contexts/PiContext";
 import { usePremiumDialog } from "@/contexts/PremiumDialogContext";
 
-const PROMPT_PATHS = ["/create-playlist", "/library"];
+const PROMPT_PATHS = ["/create", "/library"];
 
 const PremiumPromptManager = () => {
   const { user } = usePi();

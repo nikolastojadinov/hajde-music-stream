@@ -18,7 +18,7 @@ const Footer = () => {
   // Mobile navigation
   const mobileNav = [
     { name: t("home"), path: "/", icon: Home },
-    { name: t("create"), path: "/create-playlist", icon: Plus },
+    { name: t("create"), path: "/create", icon: Plus },
     { name: t("search"), path: "/search", icon: Search },
     { name: t("library"), path: "/library", icon: Library },
   ];
