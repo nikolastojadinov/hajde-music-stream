@@ -1,4 +1,4 @@
-// CLEANUP DIRECTIVE: Bring the shared PlaylistForm implementation into the SPA with Vite env support.
+// CLEANUP DIRECTIVE: Fetch playlist categories through the backend API instead of direct Supabase reads.
 import {
   useCallback,
   useEffect,
@@ -14,29 +14,32 @@ import { Check, ChevronDown, Circle, CircleDot, Loader2, Upload, X } from "lucid
 import { externalSupabase } from "@/lib/externalSupabase";
 
 const COVER_BUCKET = import.meta.env.VITE_SUPABASE_PLAYLISTS_BUCKET || "playlists-covers";
-const supabase = externalSupabase;
 
-type CategoryGroup = "region" | "genre" | "era" | "theme";
+export type CategoryGroup = "region" | "era" | "genre" | "theme" | "popularity" | "special";
 
-type CategoryOption = {
+export type CategoryRow = {
   id: number;
-  name: string;
-  label: string;
-  group_type: CategoryGroup;
-};
-
-type CategoryCollections = Record<CategoryGroup, CategoryOption[]>;
-
-type SupabaseCategoryRow = {
-  id: number | string;
-  name: string;
+  name: string | null;
   label: string | null;
   group_type: CategoryGroup | null;
+  key: string | null;
+  group_key: string | null;
 };
 
-type CategoryPayload = {
-  region: number;
-  era: number;
+export type CategoryBuckets = Record<CategoryGroup, CategoryRow[]>;
+
+const EMPTY_CATEGORY_BUCKETS: CategoryBuckets = {
+  region: [],
+  era: [],
+  genre: [],
+  theme: [],
+  popularity: [],
+  special: [],
+};
+
+export type CategoryPayload = {
+  region: number | null;
+  era: number | null;
   genres: number[];
   themes: number[];
   all: number[];
@@ -72,48 +75,49 @@ export type PlaylistFormProps = {
 };
 
 const CATEGORY_CONFIG: Record<
-  CategoryGroup,
-  { label: string; placeholder: string; multi: boolean; helper?: string; required: boolean }
+  "region" | "era" | "genre" | "theme",
+  { label: string; placeholder: string; helper?: string; multi: boolean; required: boolean }
 > = {
   region: {
     label: "Region",
     placeholder: "Select region",
-    multi: false,
     helper: "Listeners find playlists faster when they are tied to a home region.",
+    multi: false,
     required: true,
   },
   era: {
     label: "Era",
     placeholder: "Select era",
-    multi: false,
     helper: "Pick the dominant timeframe for this playlist.",
+    multi: false,
     required: true,
   },
   genre: {
     label: "Genres",
     placeholder: "Pick genres",
-    multi: true,
     helper: "You can choose multiple genres to capture the blend.",
+    multi: true,
     required: false,
   },
   theme: {
     label: "Themes",
     placeholder: "Pick themes",
-    multi: true,
     helper: "Themes are optional, but help with storytelling.",
+    multi: true,
     required: false,
   },
 };
 
-export default function PlaylistForm({ mode, userId, initialData, onSubmit }: PlaylistFormProps) {
+const PlaylistForm = ({ mode, userId, initialData, onSubmit }: PlaylistFormProps) => {
   const [title, setTitle] = useState(initialData?.title ?? "");
   const [description, setDescription] = useState(initialData?.description ?? "");
   const [selectedRegion, setSelectedRegion] = useState<number | null>(initialData?.region_id ?? null);
   const [selectedEra, setSelectedEra] = useState<number | null>(initialData?.era_id ?? null);
   const [selectedGenres, setSelectedGenres] = useState<number[]>(initialData?.genre_ids ?? []);
   const [selectedThemes, setSelectedThemes] = useState<number[]>(initialData?.theme_ids ?? []);
-  const [categories, setCategories] = useState<CategoryCollections>({ region: [], era: [], genre: [], theme: [] });
+  const [categories, setCategories] = useState<CategoryBuckets>(EMPTY_CATEGORY_BUCKETS);
   const [categoriesLoading, setCategoriesLoading] = useState(true);
+  const [categoriesError, setCategoriesError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [coverFile, setCoverFile] = useState<File | null>(null);
@@ -136,46 +140,37 @@ export default function PlaylistForm({ mode, userId, initialData, onSubmit }: Pl
 
   useEffect(() => {
     let isMounted = true;
+
     const loadCategories = async () => {
       setCategoriesLoading(true);
-      const { data, error } = await supabase.from("categories").select("id,name,label,group_type");
+      setCategoriesError(null);
 
-      if (!isMounted) {
-        return;
-      }
-
-      if (error) {
-        console.error("Failed to load categories", error);
-        setFormError(error.message || "Unable to load categories.");
-        setCategoriesLoading(false);
-        return;
-      }
-
-      const collections: CategoryCollections = { region: [], era: [], genre: [], theme: [] };
-      const rows = (data ?? []) as SupabaseCategoryRow[];
-      rows.forEach((entry) => {
-        const parsedId = typeof entry.id === "string" ? Number(entry.id) : entry.id;
-        if (!parsedId || Number.isNaN(parsedId)) {
-          return;
+      try {
+        const response = await fetch("/api/categories");
+        if (!response.ok) {
+          throw new Error(`Failed to fetch categories (${response.status})`);
         }
-        const normalizedGroup: CategoryGroup = entry.group_type ?? "genre";
-        const option: CategoryOption = {
-          id: parsedId,
-          name: entry.name,
-          label: entry.label || entry.name,
-          group_type: normalizedGroup,
-        };
-        collections[normalizedGroup] = [...collections[normalizedGroup], option];
-      });
-
-      const sortOptions = (list: CategoryOption[]) => [...list].sort((a, b) => a.label.localeCompare(b.label));
-      setCategories({
-        region: sortOptions(collections.region),
-        era: sortOptions(collections.era),
-        genre: sortOptions(collections.genre),
-        theme: sortOptions(collections.theme),
-      });
-      setCategoriesLoading(false);
+        const payload = (await response.json()) as Partial<CategoryBuckets>;
+        if (!isMounted) return;
+        setCategories({
+          region: payload.region ?? [],
+          era: payload.era ?? [],
+          genre: payload.genre ?? [],
+          theme: payload.theme ?? [],
+          popularity: payload.popularity ?? [],
+          special: payload.special ?? [],
+        });
+      } catch (error) {
+        console.error("[PlaylistForm] Unable to load categories", error);
+        if (isMounted) {
+          setCategories(EMPTY_CATEGORY_BUCKETS);
+          setCategoriesError("Unable to load categories right now.");
+        }
+      } finally {
+        if (isMounted) {
+          setCategoriesLoading(false);
+        }
+      }
     };
 
     loadCategories();
@@ -191,9 +186,7 @@ export default function PlaylistForm({ mode, userId, initialData, onSubmit }: Pl
 
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (!file) {
-      return;
-    }
+    if (!file) return;
     setCoverFile(file);
     setCoverUrl(null);
     setCoverPreview(URL.createObjectURL(file));
@@ -206,39 +199,36 @@ export default function PlaylistForm({ mode, userId, initialData, onSubmit }: Pl
 
     const extension = coverFile.name.split(".").pop() || "jpg";
     const objectPath = `covers/${userId}-${Date.now()}.${extension}`;
-    const { data, error } = await supabase.storage.from(COVER_BUCKET).upload(objectPath, coverFile, {
+    const { data, error } = await externalSupabase.storage.from(COVER_BUCKET).upload(objectPath, coverFile, {
       cacheControl: "3600",
       contentType: coverFile.type,
       upsert: true,
     });
 
     if (error || !data) {
-      console.error("Cover upload failed", error);
+      console.error("[PlaylistForm] Cover upload failed", error);
       throw new Error(error?.message || "Unable to upload cover image. Please try again.");
     }
 
-    const { data: publicData } = supabase.storage.from(COVER_BUCKET).getPublicUrl(data.path);
+    const { data: publicData } = externalSupabase.storage.from(COVER_BUCKET).getPublicUrl(data.path);
     return publicData?.publicUrl ?? null;
   }, [coverFile, coverUrl, userId]);
 
   const buildCategoryPayload = (): CategoryPayload => {
-    if (!selectedRegion || !selectedEra) {
-      throw new Error("Region and Era selection is required.");
-    }
-    const combined = Array.from(
-      new Set<number>([
-        selectedRegion,
-        selectedEra,
-        ...selectedGenres,
-        ...selectedThemes,
-      ].filter((value): value is number => typeof value === "number" && !Number.isNaN(value))),
-    );
+    const normalizedGenres = Array.from(new Set(selectedGenres.filter((id) => typeof id === "number")));
+    const normalizedThemes = Array.from(new Set(selectedThemes.filter((id) => typeof id === "number")));
+    const uniqueAll = new Set<number>();
+    if (typeof selectedRegion === "number") uniqueAll.add(selectedRegion);
+    if (typeof selectedEra === "number") uniqueAll.add(selectedEra);
+    normalizedGenres.forEach((id) => uniqueAll.add(id));
+    normalizedThemes.forEach((id) => uniqueAll.add(id));
+
     return {
-      region: selectedRegion,
-      era: selectedEra,
-      genres: selectedGenres,
-      themes: selectedThemes,
-      all: combined,
+      region: selectedRegion ?? null,
+      era: selectedEra ?? null,
+      genres: normalizedGenres,
+      themes: normalizedThemes,
+      all: Array.from(uniqueAll),
     };
   };
 
@@ -274,12 +264,13 @@ export default function PlaylistForm({ mode, userId, initialData, onSubmit }: Pl
         uploadCoverIfNeeded(),
         Promise.resolve(buildCategoryPayload()),
       ]);
+
       await onSubmit({
         title: title.trim(),
         description: description.trim() ? description.trim() : null,
         cover_url: uploadedCoverUrl,
-        region_id: categoryPayload.region,
-        era_id: categoryPayload.era,
+        region_id: selectedRegion,
+        era_id: selectedEra,
         genre_ids: categoryPayload.genres,
         theme_ids: categoryPayload.themes,
         category_groups: categoryPayload,
@@ -295,6 +286,7 @@ export default function PlaylistForm({ mode, userId, initialData, onSubmit }: Pl
 
   const currentCover = coverPreview || coverUrl;
   const coverHint = coverFile ? `${(coverFile.size / 1024).toFixed(0)} KB • ${coverFile.type}` : null;
+  const showCategoryStatus = categoriesLoading ? "Loading categories…" : null;
 
   return (
     <form onSubmit={handleSubmit} className="space-y-10">
@@ -371,42 +363,50 @@ export default function PlaylistForm({ mode, userId, initialData, onSubmit }: Pl
           </div>
         </div>
 
-        <div className="mt-10 grid gap-6 md:grid-cols-2">
-          <CategoryDropdown
-            group="region"
-            options={categories.region}
-            loading={categoriesLoading}
-            value={selectedRegion}
-            onChange={(next) => setSelectedRegion(typeof next === "number" ? next : null)}
-          />
-          <CategoryDropdown
-            group="era"
-            options={categories.era}
-            loading={categoriesLoading}
-            value={selectedEra}
-            onChange={(next) => setSelectedEra(typeof next === "number" ? next : null)}
-          />
+        <div className="mt-10 space-y-3">
+          {showCategoryStatus ? <p className="text-sm text-white/60">{showCategoryStatus}</p> : null}
+          <div className="grid gap-6 md:grid-cols-2">
+            <CategoryDropdown
+              group="region"
+              options={categories.region}
+              loading={categoriesLoading}
+              value={selectedRegion}
+              onChange={(next) => setSelectedRegion(typeof next === "number" ? next : null)}
+            />
+            <CategoryDropdown
+              group="era"
+              options={categories.era}
+              loading={categoriesLoading}
+              value={selectedEra}
+              onChange={(next) => setSelectedEra(typeof next === "number" ? next : null)}
+            />
+          </div>
+          <div className="grid gap-6 md:grid-cols-2">
+            <CategoryDropdown
+              group="genre"
+              options={categories.genre}
+              loading={categoriesLoading}
+              value={selectedGenres}
+              onChange={(next) => setSelectedGenres(Array.isArray(next) ? next : [])}
+            />
+            <CategoryDropdown
+              group="theme"
+              options={categories.theme}
+              loading={categoriesLoading}
+              value={selectedThemes}
+              onChange={(next) => setSelectedThemes(Array.isArray(next) ? next : [])}
+            />
+          </div>
         </div>
 
-        <div className="mt-8 grid gap-6 md:grid-cols-2">
-          <CategoryDropdown
-            group="genre"
-            options={categories.genre}
-            loading={categoriesLoading}
-            value={selectedGenres}
-            onChange={(next) => setSelectedGenres(Array.isArray(next) ? next : [])}
-          />
-          <CategoryDropdown
-            group="theme"
-            options={categories.theme}
-            loading={categoriesLoading}
-            value={selectedThemes}
-            onChange={(next) => setSelectedThemes(Array.isArray(next) ? next : [])}
-          />
-        </div>
+        {categoriesError ? (
+          <div className="mt-6 rounded-2xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+            {categoriesError}
+          </div>
+        ) : null}
 
         {formError ? (
-          <div className="mt-6 rounded-2xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+          <div className="mt-4 rounded-2xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-100">
             {formError}
           </div>
         ) : null}
@@ -417,7 +417,7 @@ export default function PlaylistForm({ mode, userId, initialData, onSubmit }: Pl
           </p>
           <button
             type="submit"
-            disabled={isSubmitting || categoriesLoading}
+            disabled={isSubmitting}
             className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-yellow-300 via-yellow-400 to-orange-400 px-6 py-3 font-semibold text-black shadow-lg shadow-yellow-500/40 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isSubmitting ? (
@@ -435,15 +435,20 @@ export default function PlaylistForm({ mode, userId, initialData, onSubmit }: Pl
       </section>
     </form>
   );
-}
+};
+
+export default PlaylistForm;
+
 
 type CategoryDropdownProps = {
-  group: CategoryGroup;
-  options: CategoryOption[];
+  group: "region" | "era" | "genre" | "theme";
+  options: CategoryRow[];
   loading: boolean;
   value: number | number[] | null;
   onChange: (value: number | number[] | null) => void;
 };
+
+const fallbackLabel = (id: number): string => `ID ${id}`;
 
 function CategoryDropdown({ group, options, loading, value, onChange }: CategoryDropdownProps) {
   const config = CATEGORY_CONFIG[group];
@@ -453,20 +458,12 @@ function CategoryDropdown({ group, options, loading, value, onChange }: Category
   const optionMap = useMemo(() => new Map(options.map((option) => [option.id, option])), [options]);
 
   useEffect(() => {
-    if (!open) {
-      return;
-    }
-
+    if (!open) return undefined;
     const handleClick = (event: MouseEvent) => {
-      if (triggerRef.current?.contains(event.target as Node)) {
-        return;
-      }
-      if (panelRef.current?.contains(event.target as Node)) {
-        return;
-      }
+      if (triggerRef.current?.contains(event.target as Node)) return;
+      if (panelRef.current?.contains(event.target as Node)) return;
       setOpen(false);
     };
-
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
   }, [open]);
@@ -474,24 +471,22 @@ function CategoryDropdown({ group, options, loading, value, onChange }: Category
   const isMulti = config.multi;
   const isDisabled = loading || options.length === 0;
 
-  const displayValue = useMemo(() => {
+  const formatValue = useMemo(() => {
     if (isMulti) {
       const ids = Array.isArray(value) ? value : [];
-      if (!ids.length) {
-        return config.placeholder;
-      }
+      if (!ids.length) return config.placeholder;
       if (ids.length === 1) {
-        return optionMap.get(ids[0])?.label ?? config.placeholder;
+        return optionMap.get(ids[0])?.label ?? fallbackLabel(ids[0]);
       }
       return `${ids.length} selected`;
     }
 
-    if (typeof value === "number" && optionMap.has(value)) {
-      return optionMap.get(value)?.label ?? config.placeholder;
+    if (typeof value === "number") {
+      return optionMap.get(value)?.label ?? fallbackLabel(value);
     }
 
     return config.placeholder;
-  }, [config.placeholder, isMulti, optionMap, value]);
+  }, [isMulti, value, optionMap, config.placeholder]);
 
   const toggleMultiSelection = (id: number) => {
     if (!Array.isArray(value)) {
@@ -521,13 +516,12 @@ function CategoryDropdown({ group, options, loading, value, onChange }: Category
   };
 
   const chips = useMemo(() => {
-    if (!isMulti) {
-      return [] as CategoryOption[];
+    if (!isMulti || !Array.isArray(value) || !value.length) {
+      return [] as CategoryRow[];
     }
-    if (!Array.isArray(value) || value.length === 0) {
-      return [] as CategoryOption[];
-    }
-    return value.map((id) => optionMap.get(id)).filter(Boolean) as CategoryOption[];
+    return value
+      .map((id) => optionMap.get(id) ?? ({ id, label: fallbackLabel(id), name: fallbackLabel(id), group_type: null, key: null, group_key: null } as CategoryRow))
+      .filter(Boolean);
   }, [isMulti, optionMap, value]);
 
   return (
@@ -544,7 +538,7 @@ function CategoryDropdown({ group, options, loading, value, onChange }: Category
           disabled={isDisabled}
           className="flex w-full items-center justify-between rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-left text-white outline-none focus:border-yellow-300 focus:ring-2 focus:ring-yellow-400/40 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          <span>{displayValue}</span>
+          <span>{formatValue}</span>
           <ChevronDown className={`h-4 w-4 transition ${open ? "rotate-180" : ""}`} />
         </button>
         {open ? (
@@ -580,13 +574,13 @@ function CategoryDropdown({ group, options, loading, value, onChange }: Category
                       ) : (
                         <Circle className="h-4 w-4 text-white/50" />
                       )}
-                      <span>{option.label}</span>
+                      <span>{option.label?.trim() || option.name || fallbackLabel(option.id)}</span>
                     </button>
                   );
                 })}
               </div>
             )}
-            {Array.isArray(value) && value.length > 0 ? (
+            {isMulti && Array.isArray(value) && value.length > 0 ? (
               <button
                 type="button"
                 onClick={clearSelection}
@@ -608,7 +602,7 @@ function CategoryDropdown({ group, options, loading, value, onChange }: Category
               onClick={() => toggleMultiSelection(chip.id)}
               className="inline-flex items-center gap-1 rounded-full bg-white/10 px-3 py-1 text-xs text-white hover:bg-white/20"
             >
-              {chip.label}
+              {chip.label?.trim() || chip.name || fallbackLabel(chip.id)}
               <X className="h-3 w-3" />
             </button>
           ))}

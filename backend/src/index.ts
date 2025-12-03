@@ -15,6 +15,7 @@ import supabase from './services/supabaseClient';
 import { initDailyRefreshScheduler } from './lib/dailyRefreshScheduler';
 import { initJobProcessor } from './lib/jobProcessor';
 import { getPublicPlaylistStats, registerPlaylistView } from './handlers/playlists/stats';
+import categoriesRouter from './routes/categories';
 
 // Pi Network routes
 import piAuthRouter from './routes/pi/auth';
@@ -161,6 +162,9 @@ app.delete('/likes/playlists/:playlistId', unlikePlaylist);
 // User library overview
 app.use('/library', piAuth);
 app.get('/library', getUserLibrary);
+
+// Public categories endpoint for SPA dropdowns
+app.use('/api/categories', categoriesRouter);
 
 // Pi Network routes under /pi:
 app.use('/pi', piAuthRouter);
