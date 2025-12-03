@@ -16,6 +16,7 @@ import Home from "@/pages/Home";
 import Search from "@/pages/Search";
 import Library from "@/pages/Library";
 import Playlist from "@/pages/Playlist";
+import CreatePlaylist from "@/pages/CreatePlaylist";
 import Favorites from "@/pages/Favorites";
 import Privacy from "@/pages/Privacy";
 import Terms from "@/pages/Terms";
@@ -61,6 +62,8 @@ const App = () => {
                           <Route path="/" element={<Home />} />
                           <Route path="/search" element={<Search />} />
                           <Route path="/library" element={<Library />} />
+                          <Route path="/create" element={<CreatePlaylist />} />
+                          <Route path="/create-playlist" element={<CreatePlaylist />} />
                           <Route path="/playlist/:id" element={<Playlist />} />
                           <Route path="/favorites" element={<Favorites />} />
                           <Route path="/import-csv" element={<ImportCSV />} />
@@ -81,6 +84,8 @@ const App = () => {
                         <Route path="/" element={<Home />} />
                         <Route path="/search" element={<Search />} />
                         <Route path="/library" element={<Library />} />
+                        <Route path="/create" element={<CreatePlaylist />} />
+                        <Route path="/create-playlist" element={<CreatePlaylist />} />
                         <Route path="/playlist/:id" element={<Playlist />} />
                         <Route path="/favorites" element={<Favorites />} />
                         <Route path="/import-csv" element={<ImportCSV />} />
