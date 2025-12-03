@@ -1,191 +1,159 @@
-"use client";
-
-import { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
-import { createClient, type User } from "@supabase/supabase-js";
+import Link from "next/link";
+import { redirect } from "next/navigation";
+import { createClient } from "@supabase/supabase-js";
 import PlaylistForm, { type PlaylistFormInitialData, type PlaylistFormSubmitPayload } from "../../../components/playlist/PlaylistForm";
-import { Loader2 } from "lucide-react";
-import { toast } from "sonner";
+import { requireUser } from "../../../lib/supabase/auth";
+import { updatePlaylistWithCategories, type PlaylistUpdatePayload } from "../../../lib/supabase/playlists";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY;
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error("NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY must be defined");
+if (!supabaseUrl) {
+  throw new Error("NEXT_PUBLIC_SUPABASE_URL must be defined");
 }
 
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+if (!serviceRoleKey) {
+  throw new Error("SUPABASE_SERVICE_ROLE_KEY or NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY must be defined");
+}
 
-export default function EditPlaylistPage() {
-  const router = useRouter();
-  const params = useParams<{ id: string }>();
-  const playlistId = params?.id;
-  const [user, setUser] = useState<User | null>(null);
-  const [initialData, setInitialData] = useState<PlaylistFormInitialData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+const adminClient = createClient(supabaseUrl, serviceRoleKey, {
+  auth: {
+    persistSession: false,
+  },
+});
 
-  useEffect(() => {
-    let isMounted = true;
-    const load = async () => {
-      if (!playlistId) {
-        setError("Missing playlist id");
-        setLoading(false);
-        return;
-      }
+type PlaylistRow = {
+  id: string;
+  title: string;
+  description: string | null;
+  cover_url: string | null;
+  owner_id: string;
+  region: number | string | null;
+  era: number | string | null;
+};
 
-      try {
-        const { data: authData, error: authError } = await supabase.auth.getUser();
-        if (!isMounted) return;
-        if (authError) {
-          console.error("Unable to fetch user", authError);
-          toast.error("Unable to verify your session.");
-          router.replace("/login");
-          return;
-        }
-        if (!authData.user) {
-          router.replace(`/login?redirect=/edit/${playlistId}`);
-          return;
-        }
-        setUser(authData.user);
+type PlaylistCategoryRow = {
+  category_id: number | string;
+  categories: {
+    group_type: string | null;
+  } | null;
+};
 
-        const { data: playlist, error: playlistError } = await supabase
-          .from("playlists")
-          .select("id,title,description,cover_url,owner_id,region,era")
-          .eq("id", playlistId)
-          .single();
+const normalizeNumeric = (value: unknown): number | null => {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string" && value.trim().length > 0) {
+    const parsed = Number(value);
+    return Number.isNaN(parsed) ? null : parsed;
+  }
+  return null;
+};
 
-        if (playlistError || !playlist) {
-          setError(playlistError?.message || "Playlist not found");
-          return;
-        }
+const loadPlaylistForEdit = async (playlistId: string, userId: string): Promise<PlaylistFormInitialData> => {
+  const { data, error } = await adminClient
+    .from("playlists")
+    .select("id,title,description,cover_url,owner_id,region,era")
+    .eq("id", playlistId)
+    .maybeSingle();
 
-        if (playlist.owner_id !== authData.user.id) {
-          setError("You do not have permission to edit this playlist.");
-          return;
-        }
+  const playlist = data as PlaylistRow | null;
 
-        const { data: links, error: linksError } = await supabase
-          .from("playlist_categories")
-          .select("category_id,categories!inner(group_type)")
-          .eq("playlist_id", playlistId);
+  if (error || !playlist) {
+    throw new Error(error?.message || "Playlist not found.");
+  }
 
-        if (linksError) {
-          setError(linksError.message || "Failed to load playlist categories.");
-          return;
-        }
+  if (playlist.owner_id !== userId) {
+    throw new Error("You do not have permission to edit this playlist.");
+  }
 
-        const normalizeId = (value: unknown) => {
-          if (value === null || value === undefined) return null;
-          if (typeof value === "number") return value;
-          if (typeof value === "string") return Number(value);
-          return null;
-        };
+  const { data: links, error: linksError } = await adminClient
+    .from("playlist_categories")
+    .select("category_id,categories!inner(group_type)")
+    .eq("playlist_id", playlistId);
 
-        const genreIds: number[] = [];
-        const themeIds: number[] = [];
-        (links ?? []).forEach((link) => {
-          const parsedId = normalizeId(link.category_id);
-          if (!parsedId) return;
-          const group = (link.categories?.group_type ?? "") as string;
-          if (group === "genre") {
-            genreIds.push(parsedId);
-          } else if (group === "theme") {
-            themeIds.push(parsedId);
-          }
-        });
+  if (linksError) {
+    throw new Error(linksError.message || "Failed to load playlist categories.");
+  }
 
-        const normalized: PlaylistFormInitialData = {
-          id: playlist.id,
-          title: playlist.title,
-          description: playlist.description,
-          cover_url: playlist.cover_url,
-          region_id: normalizeId(playlist.region),
-          era_id: normalizeId(playlist.era),
-          genre_ids: genreIds,
-          theme_ids: themeIds,
-        };
+  const genreIds: number[] = [];
+  const themeIds: number[] = [];
 
-        setInitialData(normalized);
-      } finally {
-        if (isMounted) setLoading(false);
-      }
-    };
+  const categoryLinks = (links ?? []) as PlaylistCategoryRow[];
 
-    load();
-    return () => {
-      isMounted = false;
-    };
-  }, [playlistId, router]);
-
-  const handleUpdate = async (payload: PlaylistFormSubmitPayload) => {
-    if (!user || !initialData) {
-      throw new Error("Missing playlist context");
+  categoryLinks.forEach((link) => {
+    const categoryId = normalizeNumeric(link.category_id);
+    if (!categoryId) {
+      return;
     }
-
-    const { error: updateError } = await supabase
-      .from("playlists")
-      .update({
-        title: payload.title,
-        description: payload.description,
-        cover_url: payload.cover_url,
-        region: payload.region_id,
-        era: payload.era_id,
-      })
-      .eq("id", initialData.id);
-
-    if (updateError) {
-      throw new Error(updateError.message || "Failed to update playlist.");
+    const group = link.categories?.group_type ?? "";
+    if (group === "genre") {
+      genreIds.push(categoryId);
     }
-
-    const { error: deleteError } = await supabase
-      .from("playlist_categories")
-      .delete()
-      .eq("playlist_id", initialData.id);
-
-    if (deleteError) {
-      throw new Error(deleteError.message || "Failed to reset playlist categories.");
+    if (group === "theme") {
+      themeIds.push(categoryId);
     }
+  });
 
-    const categoryIds = [...payload.genre_ids, ...payload.theme_ids];
-    if (categoryIds.length) {
-      const insertPayload = categoryIds.map((category_id) => ({ playlist_id: initialData.id, category_id }));
-      const { error: insertError } = await supabase.from("playlist_categories").insert(insertPayload);
-      if (insertError) {
-        throw new Error(insertError.message || "Failed to apply playlist categories.");
-      }
-    }
-
-    toast.success("Playlist updated");
-    router.push(`/playlist/${initialData.id}`);
+  return {
+    id: playlist.id,
+    title: playlist.title,
+    description: playlist.description,
+    cover_url: playlist.cover_url,
+    region_id: normalizeNumeric(playlist.region),
+    era_id: normalizeNumeric(playlist.era),
+    genre_ids: Array.from(new Set(genreIds)),
+    theme_ids: Array.from(new Set(themeIds)),
   };
+};
 
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-[#050109] via-[#0d0519] to-[#030106] text-white">
-        <Loader2 className="h-8 w-8 animate-spin" />
-      </div>
-    );
+type EditPlaylistPageProps = {
+  params: {
+    id?: string;
+  };
+};
+
+export default async function EditPlaylistPage({ params }: EditPlaylistPageProps) {
+  const playlistId = params?.id;
+  if (!playlistId) {
+    return <ErrorView message="Missing playlist id." />;
   }
 
-  if (error) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-[#050109] via-[#0d0519] to-[#030106] px-6 text-center text-white">
-        <div className="space-y-4">
-          <p className="text-lg font-semibold">{error}</p>
-          <button
-            onClick={() => router.push("/library")}
-            className="inline-flex items-center justify-center rounded-full bg-yellow-400 px-6 py-3 text-black font-semibold shadow-lg shadow-yellow-500/40"
-          >
-            Return to Library
-          </button>
-        </div>
-      </div>
-    );
+  const resolvedPlaylistId = playlistId;
+
+  const user = await requireUser(`/login?redirect=/edit/${resolvedPlaylistId}`);
+
+  let initialData: PlaylistFormInitialData | null = null;
+  let loadError: string | null = null;
+
+  try {
+    initialData = await loadPlaylistForEdit(resolvedPlaylistId, user.id);
+  } catch (error) {
+    loadError = error instanceof Error ? error.message : "Failed to load playlist.";
   }
 
-  if (!initialData || !user) {
-    return null;
+  if (loadError || !initialData) {
+    return <ErrorView message={loadError ?? "Playlist not found."} />;
+  }
+
+  async function updatePlaylist(payload: PlaylistFormSubmitPayload): Promise<void> {
+    "use server";
+
+    if (!payload.category_groups || payload.category_groups.all.length === 0) {
+      throw new Error("Please select at least one category.");
+    }
+
+    const uniqueCategoryIds = Array.from(new Set(payload.category_groups.all));
+    const playlistPayload: PlaylistUpdatePayload = {
+      title: payload.title,
+      description: payload.description,
+      cover_url: payload.cover_url,
+      region: payload.region_id,
+      era: payload.era_id,
+    };
+
+    await updatePlaylistWithCategories(resolvedPlaylistId, playlistPayload, uniqueCategoryIds);
+    redirect(`/playlist/${resolvedPlaylistId}`);
   }
 
   return (
@@ -196,7 +164,27 @@ export default function EditPlaylistPage() {
           <h1 className="text-4xl font-bold">Edit playlist</h1>
           <p className="mt-2 text-white/70">Adjust the metadata, switch the vibe, or retag your playlist for discovery.</p>
         </div>
-        <PlaylistForm mode="edit" userId={user.id} initialData={initialData} onSubmit={handleUpdate} />
+        <PlaylistForm mode="edit" userId={user.id} initialData={initialData} onSubmit={updatePlaylist} />
+      </div>
+    </div>
+  );
+}
+
+type ErrorViewProps = {
+  message: string;
+};
+
+function ErrorView({ message }: ErrorViewProps) {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-[#050109] via-[#0d0519] to-[#030106] px-6 text-center text-white">
+      <div className="space-y-4">
+        <p className="text-lg font-semibold">{message}</p>
+        <Link
+          href="/library"
+          className="inline-flex items-center justify-center rounded-full bg-yellow-400 px-6 py-3 font-semibold text-black shadow-lg shadow-yellow-500/40"
+        >
+          Return to Library
+        </Link>
       </div>
     </div>
   );

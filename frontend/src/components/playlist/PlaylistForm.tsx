@@ -1,9 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type FormEvent,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
 import { createClient } from "@supabase/supabase-js";
 import { toast } from "sonner";
-import { Loader2, Upload, X, Check, ChevronDown } from "lucide-react";
+import { Check, ChevronDown, Circle, CircleDot, Loader2, Upload, X } from "lucide-react";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -24,6 +33,23 @@ type CategoryOption = {
   group_type: CategoryGroup;
 };
 
+type CategoryCollections = Record<CategoryGroup, CategoryOption[]>;
+
+type SupabaseCategoryRow = {
+  id: number | string;
+  name: string;
+  label: string | null;
+  group_type: CategoryGroup | null;
+};
+
+type CategoryPayload = {
+  region: number;
+  era: number;
+  genres: number[];
+  themes: number[];
+  all: number[];
+};
+
 export type PlaylistFormSubmitPayload = {
   title: string;
   description: string | null;
@@ -32,6 +58,7 @@ export type PlaylistFormSubmitPayload = {
   era_id: number;
   genre_ids: number[];
   theme_ids: number[];
+  category_groups: CategoryPayload;
 };
 
 export type PlaylistFormInitialData = {
@@ -52,35 +79,61 @@ export type PlaylistFormProps = {
   onSubmit: (payload: PlaylistFormSubmitPayload) => Promise<void>;
 };
 
+const CATEGORY_CONFIG: Record<CategoryGroup, { label: string; placeholder: string; multi: boolean; helper?: string; required: boolean }> = {
+  region: {
+    label: "Region",
+    placeholder: "Select region",
+    multi: false,
+    helper: "Listeners find playlists faster when they are tied to a home region.",
+    required: true,
+  },
+  era: {
+    label: "Era",
+    placeholder: "Select era",
+    multi: false,
+    helper: "Pick the dominant timeframe for this playlist.",
+    required: true,
+  },
+  genre: {
+    label: "Genres",
+    placeholder: "Pick genres",
+    multi: true,
+    helper: "You can choose multiple genres to capture the blend.",
+    required: false,
+  },
+  theme: {
+    label: "Themes",
+    placeholder: "Pick themes",
+    multi: true,
+    helper: "Themes are optional, but help with storytelling.",
+    required: false,
+  },
+};
+
 export default function PlaylistForm({ mode, userId, initialData, onSubmit }: PlaylistFormProps) {
   const [title, setTitle] = useState(initialData?.title ?? "");
   const [description, setDescription] = useState(initialData?.description ?? "");
-  const [regionId, setRegionId] = useState<number | null>(initialData?.region_id ?? null);
-  const [eraId, setEraId] = useState<number | null>(initialData?.era_id ?? null);
-  const [genreIds, setGenreIds] = useState<number[]>(initialData?.genre_ids ?? []);
-  const [themeIds, setThemeIds] = useState<number[]>(initialData?.theme_ids ?? []);
+  const [selectedRegion, setSelectedRegion] = useState<number | null>(initialData?.region_id ?? null);
+  const [selectedEra, setSelectedEra] = useState<number | null>(initialData?.era_id ?? null);
+  const [selectedGenres, setSelectedGenres] = useState<number[]>(initialData?.genre_ids ?? []);
+  const [selectedThemes, setSelectedThemes] = useState<number[]>(initialData?.theme_ids ?? []);
+  const [categories, setCategories] = useState<CategoryCollections>({ region: [], era: [], genre: [], theme: [] });
+  const [categoriesLoading, setCategoriesLoading] = useState(true);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [coverFile, setCoverFile] = useState<File | null>(null);
   const [coverPreview, setCoverPreview] = useState<string | null>(null);
   const [coverUrl, setCoverUrl] = useState<string | null>(initialData?.cover_url ?? null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [formError, setFormError] = useState<string | null>(null);
-  const [categories, setCategories] = useState<{
-    regions: CategoryOption[];
-    eras: CategoryOption[];
-    genres: CategoryOption[];
-    themes: CategoryOption[];
-  }>({ regions: [], eras: [], genres: [], themes: [] });
-  const [categoriesLoading, setCategoriesLoading] = useState(true);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     setTitle(initialData?.title ?? "");
     setDescription(initialData?.description ?? "");
-    setRegionId(initialData?.region_id ?? null);
-    setEraId(initialData?.era_id ?? null);
-    setGenreIds(initialData?.genre_ids ?? []);
-    setThemeIds(initialData?.theme_ids ?? []);
+    setSelectedRegion(initialData?.region_id ?? null);
+    setSelectedEra(initialData?.era_id ?? null);
+    setSelectedGenres(initialData?.genre_ids ?? []);
+    setSelectedThemes(initialData?.theme_ids ?? []);
     setCoverUrl(initialData?.cover_url ?? null);
     setCoverFile(null);
     setCoverPreview(null);
@@ -90,11 +143,11 @@ export default function PlaylistForm({ mode, userId, initialData, onSubmit }: Pl
     let isMounted = true;
     const loadCategories = async () => {
       setCategoriesLoading(true);
-      const { data, error } = await supabase
-        .from("categories")
-        .select("id,name,label,group_type");
+      const { data, error } = await supabase.from("categories").select("id,name,label,group_type");
 
-      if (!isMounted) return;
+      if (!isMounted) {
+        return;
+      }
 
       if (error) {
         console.error("Failed to load categories", error);
@@ -103,24 +156,30 @@ export default function PlaylistForm({ mode, userId, initialData, onSubmit }: Pl
         return;
       }
 
-      const normalized = (data ?? []).map((item) => {
-        const rawId = typeof item.id === "string" ? parseInt(item.id, 10) : item.id;
-        return {
-          id: Number(rawId),
-          name: item.name,
-          label: item.label ?? item.name,
-          group_type: (item.group_type || "genre") as CategoryGroup,
+      const collections: CategoryCollections = { region: [], era: [], genre: [], theme: [] };
+      const rows = (data ?? []) as SupabaseCategoryRow[];
+      rows.forEach((entry) => {
+        const parsedId = typeof entry.id === "string" ? Number(entry.id) : entry.id;
+        if (!parsedId || Number.isNaN(parsedId)) {
+          return;
+        }
+        const normalizedGroup: CategoryGroup = entry.group_type ?? "genre";
+        const option: CategoryOption = {
+          id: parsedId,
+          name: entry.name,
+          label: entry.label || entry.name,
+          group_type: normalizedGroup,
         };
+        collections[normalizedGroup] = [...collections[normalizedGroup], option];
       });
 
-      const byGroup = {
-        regions: normalized.filter((item) => item.group_type === "region"),
-        eras: normalized.filter((item) => item.group_type === "era"),
-        genres: normalized.filter((item) => item.group_type === "genre"),
-        themes: normalized.filter((item) => item.group_type === "theme"),
-      };
-
-      setCategories(byGroup);
+      const sortOptions = (list: CategoryOption[]) => [...list].sort((a, b) => a.label.localeCompare(b.label));
+      setCategories({
+        region: sortOptions(collections.region),
+        era: sortOptions(collections.era),
+        genre: sortOptions(collections.genre),
+        theme: sortOptions(collections.theme),
+      });
       setCategoriesLoading(false);
     };
 
@@ -131,20 +190,21 @@ export default function PlaylistForm({ mode, userId, initialData, onSubmit }: Pl
   }, []);
 
   useEffect(() => {
-    return () => {
-      if (coverPreview) URL.revokeObjectURL(coverPreview);
-    };
+    if (!coverPreview) return undefined;
+    return () => URL.revokeObjectURL(coverPreview);
   }, [coverPreview]);
 
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (!file) return;
+    if (!file) {
+      return;
+    }
     setCoverFile(file);
     setCoverUrl(null);
     setCoverPreview(URL.createObjectURL(file));
   };
 
-  const uploadCoverIfNeeded = async (): Promise<string | null> => {
+  const uploadCoverIfNeeded = useCallback(async (): Promise<string | null> => {
     if (!coverFile) {
       return coverUrl;
     }
@@ -154,6 +214,7 @@ export default function PlaylistForm({ mode, userId, initialData, onSubmit }: Pl
     const { data, error } = await supabase.storage.from(COVER_BUCKET).upload(objectPath, coverFile, {
       cacheControl: "3600",
       contentType: coverFile.type,
+      upsert: true,
     });
 
     if (error || !data) {
@@ -163,6 +224,27 @@ export default function PlaylistForm({ mode, userId, initialData, onSubmit }: Pl
 
     const { data: publicData } = supabase.storage.from(COVER_BUCKET).getPublicUrl(data.path);
     return publicData?.publicUrl ?? null;
+  }, [coverFile, coverUrl, userId]);
+
+  const buildCategoryPayload = (): CategoryPayload => {
+    if (!selectedRegion || !selectedEra) {
+      throw new Error("Region and Era selection is required.");
+    }
+    const combined = Array.from(
+      new Set<number>([
+        selectedRegion,
+        selectedEra,
+        ...selectedGenres,
+        ...selectedThemes,
+      ].filter((value): value is number => typeof value === "number" && !Number.isNaN(value))),
+    );
+    return {
+      region: selectedRegion,
+      era: selectedEra,
+      genres: selectedGenres,
+      themes: selectedThemes,
+      all: combined,
+    };
   };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -175,15 +257,15 @@ export default function PlaylistForm({ mode, userId, initialData, onSubmit }: Pl
       return;
     }
 
-    if (!regionId) {
-      const message = "Please pick a region.";
+    if (!selectedRegion) {
+      const message = "Region is required.";
       setFormError(message);
       toast.error(message);
       return;
     }
 
-    if (!eraId) {
-      const message = "Please pick an era.";
+    if (!selectedEra) {
+      const message = "Era is required.";
       setFormError(message);
       toast.error(message);
       return;
@@ -193,18 +275,22 @@ export default function PlaylistForm({ mode, userId, initialData, onSubmit }: Pl
     setIsSubmitting(true);
 
     try {
-      const uploadedCoverUrl = await uploadCoverIfNeeded();
+      const [uploadedCoverUrl, categoryPayload] = await Promise.all([
+        uploadCoverIfNeeded(),
+        Promise.resolve(buildCategoryPayload()),
+      ]);
       await onSubmit({
         title: title.trim(),
         description: description.trim() ? description.trim() : null,
         cover_url: uploadedCoverUrl,
-        region_id: regionId,
-        era_id: eraId,
-        genre_ids: genreIds,
-        theme_ids: themeIds,
+        region_id: categoryPayload.region,
+        era_id: categoryPayload.era,
+        genre_ids: categoryPayload.genres,
+        theme_ids: categoryPayload.themes,
+        category_groups: categoryPayload,
       });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Something went wrong.";
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Something went wrong.";
       setFormError(message);
       toast.error(message);
     } finally {
@@ -230,7 +316,7 @@ export default function PlaylistForm({ mode, userId, initialData, onSubmit }: Pl
                   <button
                     type="button"
                     className="absolute right-3 top-3 rounded-full bg-black/70 p-2 text-white"
-                    onClick={(event) => {
+                    onClick={(event: ReactMouseEvent<HTMLButtonElement>) => {
                       event.stopPropagation();
                       setCoverFile(null);
                       setCoverPreview(null);
@@ -290,42 +376,37 @@ export default function PlaylistForm({ mode, userId, initialData, onSubmit }: Pl
           </div>
         </div>
 
-        <div className="mt-8 grid gap-6 md:grid-cols-2">
-          <SingleSelectField
-            id="playlist-region"
-            label="Region"
-            placeholder="Select region"
-            value={regionId}
-            onChange={setRegionId}
-            disabled={categoriesLoading}
-            options={categories.regions}
+        <div className="mt-10 grid gap-6 md:grid-cols-2">
+          <CategoryDropdown
+            group="region"
+            options={categories.region}
+            loading={categoriesLoading}
+            value={selectedRegion}
+            onChange={(next) => setSelectedRegion(typeof next === "number" ? next : null)}
           />
-
-          <SingleSelectField
-            id="playlist-era"
-            label="Era"
-            placeholder="Select era"
-            value={eraId}
-            onChange={setEraId}
-            disabled={categoriesLoading}
-            options={categories.eras}
+          <CategoryDropdown
+            group="era"
+            options={categories.era}
+            loading={categoriesLoading}
+            value={selectedEra}
+            onChange={(next) => setSelectedEra(typeof next === "number" ? next : null)}
           />
         </div>
 
         <div className="mt-8 grid gap-6 md:grid-cols-2">
-          <MultiSelectField
-            label="Genres"
-            placeholder="Pick genres"
-            options={categories.genres}
-            selectedIds={genreIds}
-            onChange={setGenreIds}
+          <CategoryDropdown
+            group="genre"
+            options={categories.genre}
+            loading={categoriesLoading}
+            value={selectedGenres}
+            onChange={(next) => setSelectedGenres(Array.isArray(next) ? next : [])}
           />
-          <MultiSelectField
-            label="Themes"
-            placeholder="Pick themes"
-            options={categories.themes}
-            selectedIds={themeIds}
-            onChange={setThemeIds}
+          <CategoryDropdown
+            group="theme"
+            options={categories.theme}
+            loading={categoriesLoading}
+            value={selectedThemes}
+            onChange={(next) => setSelectedThemes(Array.isArray(next) ? next : [])}
           />
         </div>
 
@@ -349,8 +430,10 @@ export default function PlaylistForm({ mode, userId, initialData, onSubmit }: Pl
                 <Loader2 className="h-4 w-4 animate-spin" />
                 {mode === "create" ? "Creating..." : "Saving..."}
               </>
+            ) : mode === "create" ? (
+              "Create playlist"
             ) : (
-              mode === "create" ? "Create playlist" : "Save changes"
+              "Save changes"
             )}
           </button>
         </div>
@@ -359,126 +442,180 @@ export default function PlaylistForm({ mode, userId, initialData, onSubmit }: Pl
   );
 }
 
-type SingleSelectFieldProps = {
-  id: string;
-  label: string;
-  placeholder: string;
-  value: number | null;
-  onChange: (value: number | null) => void;
-  disabled?: boolean;
+type CategoryDropdownProps = {
+  group: CategoryGroup;
   options: CategoryOption[];
+  loading: boolean;
+  value: number | number[] | null;
+  onChange: (value: number | number[] | null) => void;
 };
 
-function SingleSelectField({ id, label, placeholder, value, onChange, disabled, options }: SingleSelectFieldProps) {
-  return (
-    <div className="space-y-2 text-white">
-      <label htmlFor={id} className="text-sm uppercase tracking-wide text-white/70">
-        {label}
-      </label>
-      <div className="relative">
-        <select
-          id={id}
-          value={value ?? ""}
-          onChange={(event) => onChange(event.target.value ? Number(event.target.value) : null)}
-          disabled={disabled}
-          className="w-full appearance-none rounded-2xl border border-white/10 bg-black/20 px-4 py-3 pr-10 text-white outline-none focus:border-yellow-300 focus:ring-2 focus:ring-yellow-400/40 disabled:opacity-50"
-        >
-          <option value="" disabled>
-            {placeholder}
-          </option>
-          {options.map((option) => (
-            <option key={option.id} value={option.id} className="text-black">
-              {option.label}
-            </option>
-          ))}
-        </select>
-        <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-white/60" />
-      </div>
-    </div>
-  );
-}
-
-type MultiSelectFieldProps = {
-  label: string;
-  placeholder: string;
-  options: CategoryOption[];
-  selectedIds: number[];
-  onChange: (ids: number[]) => void;
-};
-
-function MultiSelectField({ label, placeholder, options, selectedIds, onChange }: MultiSelectFieldProps) {
+function CategoryDropdown({ group, options, loading, value, onChange }: CategoryDropdownProps) {
+  const config = CATEGORY_CONFIG[group];
   const [open, setOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
   const optionMap = useMemo(() => new Map(options.map((option) => [option.id, option])), [options]);
 
   useEffect(() => {
-    const handleClickAway = (event: MouseEvent) => {
-      if (!containerRef.current) return;
-      if (!containerRef.current.contains(event.target as Node)) {
-        setOpen(false);
+    if (!open) {
+      return;
+    }
+
+    const handleClick = (event: MouseEvent) => {
+      if (triggerRef.current?.contains(event.target as Node)) {
+        return;
       }
+      if (panelRef.current?.contains(event.target as Node)) {
+        return;
+      }
+      setOpen(false);
     };
 
-    document.addEventListener("mousedown", handleClickAway);
-    return () => document.removeEventListener("mousedown", handleClickAway);
-  }, []);
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
 
-  const toggleOption = (id: number) => {
-    if (selectedIds.includes(id)) {
-      onChange(selectedIds.filter((value) => value !== id));
+  const isMulti = config.multi;
+  const isDisabled = loading || options.length === 0;
+
+  const displayValue = useMemo(() => {
+    if (isMulti) {
+      const ids = Array.isArray(value) ? value : [];
+      if (!ids.length) {
+        return config.placeholder;
+      }
+      if (ids.length === 1) {
+        return optionMap.get(ids[0])?.label ?? config.placeholder;
+      }
+      return `${ids.length} selected`;
+    }
+
+    if (typeof value === "number" && optionMap.has(value)) {
+      return optionMap.get(value)?.label ?? config.placeholder;
+    }
+
+    return config.placeholder;
+  }, [config.placeholder, isMulti, optionMap, value]);
+
+  const toggleMultiSelection = (id: number) => {
+    if (!Array.isArray(value)) {
+      onChange([id]);
+      return;
+    }
+    if (value.includes(id)) {
+      onChange(value.filter((existing) => existing !== id));
     } else {
-      onChange([...selectedIds, id]);
+      onChange([...value, id]);
     }
   };
 
-  return (
-    <div className="space-y-2 text-white" ref={containerRef}>
-      <p className="text-sm uppercase tracking-wide text-white/70">{label}</p>
-      <button
-        type="button"
-        onClick={() => setOpen((prev) => !prev)}
-        className="flex w-full items-center justify-between rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-left text-white outline-none focus:border-yellow-300 focus:ring-2 focus:ring-yellow-400/40"
-      >
-        <span>{selectedIds.length ? `${selectedIds.length} selected` : placeholder}</span>
-        <ChevronDown className={`h-4 w-4 transition ${open ? "rotate-180" : ""}`} />
-      </button>
-      {open ? (
-        <div className="relative">
-          <div className="absolute z-20 mt-2 max-h-56 w-full overflow-y-auto rounded-2xl border border-white/10 bg-[#120725] p-2 shadow-2xl">
-            {options.length === 0 ? (
-              <p className="py-4 text-center text-sm text-white/60">No options</p>
-            ) : (
-              options.map((option) => {
-                const checked = selectedIds.includes(option.id);
-                return (
-                  <button
-                    type="button"
-                    key={option.id}
-                    onClick={() => toggleOption(option.id)}
-                    className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm hover:bg-white/5"
-                  >
-                    <span
-                      className={`flex h-5 w-5 items-center justify-center rounded border ${
-                        checked ? "border-yellow-300 bg-yellow-300/20" : "border-white/30"
-                      }`}
-                    >
-                      {checked ? <Check className="h-3 w-3 text-yellow-300" /> : null}
-                    </span>
-                    <span>{option.label}</span>
-                  </button>
-                );
-              })
-            )}
-          </div>
-        </div>
-      ) : null}
+  const selectSingle = (id: number) => {
+    if (!isMulti) {
+      onChange(id);
+      setOpen(false);
+    }
+  };
 
-      {selectedIds.length ? (
+  const clearSelection = () => {
+    if (isMulti) {
+      onChange([]);
+    } else {
+      onChange(null);
+    }
+  };
+
+  const chips = useMemo(() => {
+    if (!isMulti) {
+      return [] as CategoryOption[];
+    }
+    if (!Array.isArray(value) || value.length === 0) {
+      return [] as CategoryOption[];
+    }
+    return value.map((id) => optionMap.get(id)).filter(Boolean) as CategoryOption[];
+  }, [isMulti, optionMap, value]);
+
+  return (
+    <div className="space-y-2 text-white">
+      <div className="flex items-center justify-between">
+        <p className="text-sm uppercase tracking-wide text-white/70">{config.label}</p>
+        {!config.required ? <span className="text-xs text-white/50">Optional</span> : null}
+      </div>
+      <div className="relative">
+        <button
+          type="button"
+          ref={triggerRef}
+          onClick={() => setOpen((prev) => !prev)}
+          disabled={isDisabled}
+          className="flex w-full items-center justify-between rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-left text-white outline-none focus:border-yellow-300 focus:ring-2 focus:ring-yellow-400/40 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <span>{displayValue}</span>
+          <ChevronDown className={`h-4 w-4 transition ${open ? "rotate-180" : ""}`} />
+        </button>
+        {open ? (
+          <div
+            ref={panelRef}
+            className="absolute z-20 mt-2 max-h-64 w-full overflow-y-auto rounded-2xl border border-white/10 bg-[#120725] p-2 shadow-2xl"
+          >
+            {options.length === 0 ? (
+              <p className="py-4 text-center text-sm text-white/60">No categories yet</p>
+            ) : (
+              <div className="space-y-1">
+                {options.map((option) => {
+                  const isChecked = isMulti
+                    ? Array.isArray(value) && value.includes(option.id)
+                    : typeof value === "number" && value === option.id;
+                  return (
+                    <button
+                      key={option.id}
+                      type="button"
+                      className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm hover:bg-white/5"
+                      onClick={() => (isMulti ? toggleMultiSelection(option.id) : selectSingle(option.id))}
+                    >
+                      {isMulti ? (
+                        <span
+                          className={`flex h-5 w-5 items-center justify-center rounded border ${
+                            isChecked ? "border-yellow-300 bg-yellow-300/20" : "border-white/30"
+                          }`}
+                        >
+                          {isChecked ? <Check className="h-3 w-3 text-yellow-300" /> : null}
+                        </span>
+                      ) : isChecked ? (
+                        <CircleDot className="h-4 w-4 text-yellow-300" />
+                      ) : (
+                        <Circle className="h-4 w-4 text-white/50" />
+                      )}
+                      <span>{option.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {Array.isArray(value) && value.length > 0 ? (
+              <button
+                type="button"
+                onClick={clearSelection}
+                className="mt-2 w-full rounded-xl border border-white/10 px-3 py-2 text-center text-xs uppercase tracking-wide text-white/70 hover:bg-white/5"
+              >
+                Clear selection
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+      {config.helper ? <p className="text-xs text-white/60">{config.helper}</p> : null}
+      {chips.length ? (
         <div className="flex flex-wrap gap-2">
-          {selectedIds.map((id) => (
-            <span key={id} className="rounded-full bg-white/10 px-3 py-1 text-xs text-white">
-              {optionMap.get(id)?.label ?? id}
-            </span>
+          {chips.map((chip) => (
+            <button
+              key={chip.id}
+              type="button"
+              onClick={() => toggleMultiSelection(chip.id)}
+              className="inline-flex items-center gap-1 rounded-full bg-white/10 px-3 py-1 text-xs text-white hover:bg-white/20"
+            >
+              {chip.label}
+              <X className="h-3 w-3" />
+            </button>
           ))}
         </div>
       ) : null}
