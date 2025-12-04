@@ -2,6 +2,53 @@
   command = "npm run build"
   publish = "build"
 
+[build.environment]
+  NODE_VERSION = "20"
+  GIT_LFS_ENABLED = "1"
+  # VITE_SUPABASE_URL
+  # VITE_SUPABASE_ANON_KEY
+  # VITE_BACKEND_URL
+  # VITE_PI_APP_ID
+  # VITE_FRONTEND_URL
+
+[[redirects]]
+  from = "/library"
+  to = "https://hajde-music-stream.onrender.com/library"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/studio/*"
+  to = "https://hajde-music-stream.onrender.com/api/studio/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/*"
+  to = "https://hajde-music-stream.onrender.com/api/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/pi/*"
+  to = "https://hajde-music-stream.onrender.com/pi/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+[dev]
+  command = "npm run dev"
+  port = 5173
+  targetPort = 8080
+  publish = "build"
+[build]
+  command = "npm run build"
+  publish = "build"
+
 [[redirects]]
   from = "/library"
   to = "https://hajde-music-stream.onrender.com/library"
