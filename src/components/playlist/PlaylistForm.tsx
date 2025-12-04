@@ -1,4 +1,4 @@
-// CLEANUP DIRECTIVE: Backend-only category loading with conditional payload emission.
+// CLEANUP DIRECTIVE: Fetch playlist categories through backend-aware API calls keyed by VITE_BACKEND_URL.
 import {
   useCallback,
   useEffect,
@@ -54,7 +54,7 @@ export type PlaylistFormSubmitPayload = {
   era_id: number;
   genre_ids: number[];
   theme_ids: number[];
-  category_groups?: CategoryPayload;
+  category_groups: CategoryPayload;
 };
 
 export type PlaylistFormInitialData = {
@@ -266,9 +266,10 @@ const PlaylistForm = ({ mode, userId, initialData, onSubmit }: PlaylistFormProps
     setIsSubmitting(true);
 
     try {
-      const categoryPayload = buildCategoryPayload();
-      const normalizedCategoryGroups = categoryPayload.all.length > 0 ? categoryPayload : undefined;
-      const [uploadedCoverUrl] = await Promise.all([uploadCoverIfNeeded()]);
+      const [uploadedCoverUrl, categoryPayload] = await Promise.all([
+        uploadCoverIfNeeded(),
+        Promise.resolve(buildCategoryPayload()),
+      ]);
 
       await onSubmit({
         title: title.trim(),
@@ -278,7 +279,7 @@ const PlaylistForm = ({ mode, userId, initialData, onSubmit }: PlaylistFormProps
         era_id: selectedEra,
         genre_ids: categoryPayload.genres,
         theme_ids: categoryPayload.themes,
-        category_groups: normalizedCategoryGroups,
+        category_groups: categoryPayload,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Something went wrong.";
@@ -289,355 +290,330 @@ const PlaylistForm = ({ mode, userId, initialData, onSubmit }: PlaylistFormProps
     }
   };
 
-  const currentCover = coverPreview ?? coverUrl;
-
-  const resetCover = () => {
-    setCoverFile(null);
-    setCoverPreview(null);
-    setCoverUrl(null);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
-    }
-  };
-
-  const formDescription =
-    mode === "create"
-      ? "Curate a new playlist and publish it to Hajde Studio. Make sure you select the best matching categories, so listeners can find it quickly."
-      : "Update your playlist details. Changes instantly sync across Hajde Studio experiences.";
+  const currentCover = coverPreview || coverUrl;
+  const coverHint = coverFile ? `${(coverFile.size / 1024).toFixed(0)} KB • ${coverFile.type}` : null;
+  const showCategoryStatus = categoriesLoading ? "Loading categories…" : null;
 
   return (
-    <form className="space-y-8" onSubmit={handleSubmit}>
-      <div className="space-y-2">
-        <div>
-          <p className="text-sm text-neutral-11">{formDescription}</p>
-        </div>
-
-        <div className="grid gap-8 md:grid-cols-2">
-          <div className="space-y-4">
-            <label className="block text-sm font-medium text-neutral-12">
-              Playlist cover
-            </label>
-            <CoverUploader
-              currentCover={currentCover}
-              isSubmitting={isSubmitting}
-              isLoading={categoriesLoading}
-              onRemove={resetCover}
-              onFileChange={handleFileChange}
-              fileInputRef={fileInputRef}
+    <form onSubmit={handleSubmit} className="space-y-10">
+      <section className="rounded-3xl border border-white/10 bg-white/5 p-8 text-white shadow-[0_20px_60px_rgba(0,0,0,0.4)]">
+        <div className="flex flex-col gap-8 lg:flex-row">
+          <div
+            className="flex h-56 w-56 cursor-pointer flex-col items-center justify-center rounded-3xl border border-dashed border-white/30 bg-black/30 text-center transition hover:border-yellow-300/70"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            {currentCover ? (
+              <div className="relative h-full w-full">
+                <img src={currentCover} alt="Cover preview" className="h-full w-full rounded-3xl object-cover" />
+                {coverPreview ? (
+                  <button
+                    type="button"
+                    className="absolute right-3 top-3 rounded-full bg-black/70 p-2 text-white"
+                    onClick={(event: ReactMouseEvent<HTMLButtonElement>) => {
+                      event.stopPropagation();
+                      setCoverFile(null);
+                      setCoverPreview(null);
+                      setCoverUrl(initialData?.cover_url ?? null);
+                    }}
+                    aria-label="Remove selected cover"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                ) : null}
+              </div>
+            ) : (
+              <>
+                <Upload className="mb-3 h-10 w-10 text-yellow-300" />
+                <p className="text-sm">Upload square cover</p>
+                <span className="text-xs text-white/60">PNG • JPG • WEBP</span>
+              </>
+            )}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              onChange={handleFileChange}
+              className="hidden"
             />
           </div>
 
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-neutral-12">Title *</label>
+          <div className="flex-1 space-y-5">
+            <div className="space-y-2">
+              <label htmlFor="playlist-title" className="text-sm uppercase tracking-wide text-white/70">
+                Title
+              </label>
               <input
-                type="text"
-                className="mt-1 w-full rounded-md border border-neutral-6 bg-neutral-2 p-2 text-sm text-neutral-12 focus:border-primary focus:outline-none"
+                id="playlist-title"
                 value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="Ex: Balkan Sunrise"
-                required
+                onChange={(event) => setTitle(event.target.value)}
+                placeholder="Purple Midnight Energy"
+                className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-lg text-white outline-none focus:border-yellow-300 focus:ring-2 focus:ring-yellow-400/40"
               />
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-neutral-12">Description</label>
+            <div className="space-y-2">
+              <label htmlFor="playlist-description" className="text-sm uppercase tracking-wide text-white/70">
+                Description
+              </label>
               <textarea
-                className="mt-1 w-full rounded-md border border-neutral-6 bg-neutral-2 p-2 text-sm text-neutral-12 focus:border-primary focus:outline-none"
+                id="playlist-description"
+                value={description}
+                onChange={(event) => setDescription(event.target.value)}
+                placeholder="Tell your listeners what this playlist feels like..."
                 rows={4}
-                value={description ?? ""}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Describe the mood, story, or inspiration behind this playlist."
+                className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-base text-white outline-none focus:border-yellow-300 focus:ring-2 focus:ring-yellow-400/40"
               />
-              <p className="mt-2 text-xs text-neutral-9">Optional but recommended.</p>
             </div>
+
+            {coverHint ? <p className="text-sm text-white/60">{coverHint}</p> : null}
           </div>
         </div>
-      </div>
 
-      <div className="space-y-6">
-        <div className="space-y-2">
-          <div className="flex items-center gap-2">
-            <p className="text-sm font-medium text-neutral-12">Categories</p>
-            {categoriesLoading ? (
-              <span className="inline-flex items-center gap-1 text-xs text-neutral-9">
-                <Loader2 className="h-3 w-3 animate-spin" /> Loading categories
-              </span>
-            ) : categoriesError ? (
-              <span className="text-xs text-destructive">{categoriesError}</span>
-            ) : null}
+        <div className="mt-10 space-y-3">
+          {showCategoryStatus ? <p className="text-sm text-white/60">{showCategoryStatus}</p> : null}
+          <div className="grid gap-6 md:grid-cols-2">
+            <CategoryDropdown
+              group="region"
+              options={categories.region}
+              loading={categoriesLoading}
+              value={selectedRegion}
+              onChange={(next) => setSelectedRegion(typeof next === "number" ? next : null)}
+            />
+            <CategoryDropdown
+              group="era"
+              options={categories.era}
+              loading={categoriesLoading}
+              value={selectedEra}
+              onChange={(next) => setSelectedEra(typeof next === "number" ? next : null)}
+            />
           </div>
-          <p className="text-xs text-neutral-9">
-            Categories help us bucket playlists properly. Required fields are marked with a *.
+          <div className="grid gap-6 md:grid-cols-2">
+            <CategoryDropdown
+              group="genre"
+              options={categories.genre}
+              loading={categoriesLoading}
+              value={selectedGenres}
+              onChange={(next) => setSelectedGenres(Array.isArray(next) ? next : [])}
+            />
+            <CategoryDropdown
+              group="theme"
+              options={categories.theme}
+              loading={categoriesLoading}
+              value={selectedThemes}
+              onChange={(next) => setSelectedThemes(Array.isArray(next) ? next : [])}
+            />
+          </div>
+        </div>
+
+        {categoriesError ? (
+          <div className="mt-6 rounded-2xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+            {categoriesError}
+          </div>
+        ) : null}
+
+        {formError ? (
+          <div className="mt-4 rounded-2xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+            {formError}
+          </div>
+        ) : null}
+
+        <div className="mt-8 flex flex-wrap items-center justify-between gap-4">
+          <p className="text-sm text-white/60">
+            Public playlists appear in Search. Private ones stay yours until you share the link.
           </p>
+          <button
+            type="submit"
+            disabled={isSubmitting}
+            className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-yellow-300 via-yellow-400 to-orange-400 px-6 py-3 font-semibold text-black shadow-lg shadow-yellow-500/40 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isSubmitting ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                {mode === "create" ? "Creating..." : "Saving..."}
+              </>
+            ) : mode === "create" ? (
+              "Create playlist"
+            ) : (
+              "Save changes"
+            )}
+          </button>
         </div>
-
-        <div className="grid gap-6 md:grid-cols-2">
-          <CategoryDropdown
-            label={CATEGORY_CONFIG.region.label}
-            helper={CATEGORY_CONFIG.region.helper}
-            placeholder={CATEGORY_CONFIG.region.placeholder}
-            options={categories.region}
-            multiSelect={false}
-            required
-            selectedValue={selectedRegion}
-            onChange={(value) => setSelectedRegion(value as number | null)}
-            disabled={categoriesLoading || !!categoriesError}
-          />
-
-          <CategoryDropdown
-            label={CATEGORY_CONFIG.era.label}
-            helper={CATEGORY_CONFIG.era.helper}
-            placeholder={CATEGORY_CONFIG.era.placeholder}
-            options={categories.era}
-            multiSelect={false}
-            required
-            selectedValue={selectedEra}
-            onChange={(value) => setSelectedEra(value as number | null)}
-            disabled={categoriesLoading || !!categoriesError}
-          />
-        </div>
-
-        <div className="grid gap-6 md:grid-cols-2">
-          <CategoryDropdown
-            label={CATEGORY_CONFIG.genre.label}
-            helper={CATEGORY_CONFIG.genre.helper}
-            placeholder={CATEGORY_CONFIG.genre.placeholder}
-            options={categories.genre}
-            multiSelect
-            selectedValue={selectedGenres}
-            onChange={(value) => setSelectedGenres(value as number[])}
-            disabled={categoriesLoading || !!categoriesError}
-          />
-
-          <CategoryDropdown
-            label={CATEGORY_CONFIG.theme.label}
-            helper={CATEGORY_CONFIG.theme.helper}
-            placeholder={CATEGORY_CONFIG.theme.placeholder}
-            options={categories.theme}
-            multiSelect
-            selectedValue={selectedThemes}
-            onChange={(value) => setSelectedThemes(value as number[])}
-            disabled={categoriesLoading || !!categoriesError}
-          />
-        </div>
-      </div>
-
-      {formError ? <p className="text-sm text-destructive">{formError}</p> : null}
-
-      <div className="flex items-center gap-4">
-        <button
-          type="submit"
-          disabled={isSubmitting || categoriesLoading}
-          className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-neutral-1 transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-70"
-        >
-          {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-          {mode === "create" ? "Publish playlist" : "Save changes"}
-        </button>
-
-        <div className="text-xs text-neutral-9">
-          Required fields are marked with a * symbol.
-        </div>
-      </div>
+      </section>
     </form>
   );
 };
 
-const CoverUploader = ({
-  currentCover,
-  isSubmitting,
-  isLoading,
-  onRemove,
-  onFileChange,
-  fileInputRef,
-}: {
-  currentCover: string | null;
-  isSubmitting: boolean;
-  isLoading: boolean;
-  onRemove: () => void;
-  onFileChange: (event: ChangeEvent<HTMLInputElement>) => void;
-  fileInputRef: React.RefObject<HTMLInputElement>;
-}) => {
-  return (
-    <div className="rounded-lg border border-dashed border-neutral-6 p-4">
-      <div className="flex items-center gap-4">
-        {currentCover ? (
-          <div className="relative h-24 w-24 overflow-hidden rounded-md">
-            <img src={currentCover} alt="Playlist cover preview" className="h-full w-full object-cover" />
-            <button
-              type="button"
-              className="absolute right-1 top-1 rounded-full bg-neutral-1/80 p-1 text-neutral-12 shadow"
-              disabled={isSubmitting}
-              onClick={onRemove}
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-        ) : (
-          <div className="flex h-24 w-24 items-center justify-center rounded-md bg-neutral-3 text-neutral-9">
-            <Upload className="h-6 w-6" />
-          </div>
-        )}
+export default PlaylistForm;
 
-        <div className="flex-1 space-y-2">
-          <p className="text-sm font-medium text-neutral-12">Playlist artwork</p>
-          <p className="text-xs text-neutral-9">Recommended size: 512x512px. JPEG or PNG.</p>
 
-          <div className="flex items-center gap-3">
-            <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-neutral-6 px-3 py-1.5 text-xs font-medium text-neutral-12 transition hover:border-neutral-8">
-              <Upload className="h-4 w-4" />
-              Upload file
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                disabled={isSubmitting || isLoading}
-                onChange={onFileChange}
-              />
-            </label>
-            {currentCover ? (
-              <button
-                type="button"
-                className="text-xs text-neutral-9 underline"
-                disabled={isSubmitting}
-                onClick={onRemove}
-              >
-                Remove
-              </button>
-            ) : null}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+type CategoryDropdownProps = {
+  group: "region" | "era" | "genre" | "theme";
+  options: CategoryRow[];
+  loading: boolean;
+  value: number | number[] | null;
+  onChange: (value: number | number[] | null) => void;
 };
 
-const CategoryDropdown = ({
-  label,
-  helper,
-  placeholder,
-  options,
-  multiSelect,
-  required,
-  selectedValue,
-  onChange,
-  disabled,
-}: CategoryDropdownProps) => {
-  const [isOpen, setIsOpen] = useState(false);
+const fallbackLabel = (id: number): string => `ID ${id}`;
 
-  const toggle = () => setIsOpen((prev) => !prev);
+function CategoryDropdown({ group, options, loading, value, onChange }: CategoryDropdownProps) {
+  const config = CATEGORY_CONFIG[group];
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const optionMap = useMemo(() => new Map(options.map((option) => [option.id, option])), [options]);
 
-  const closeMenu = () => setIsOpen(false);
+  useEffect(() => {
+    if (!open) return undefined;
+    const handleClick = (event: MouseEvent) => {
+      if (triggerRef.current?.contains(event.target as Node)) return;
+      if (panelRef.current?.contains(event.target as Node)) return;
+      setOpen(false);
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
 
-  const handleOptionClick = (event: ReactMouseEvent<HTMLButtonElement>, optionId: number) => {
-    event.preventDefault();
-    event.stopPropagation();
+  const isMulti = config.multi;
+  const isDisabled = loading || options.length === 0;
 
-    if (multiSelect) {
-      const current = Array.isArray(selectedValue) ? selectedValue : [];
-      const exists = current.includes(optionId);
-      const updated = exists ? current.filter((id) => id !== optionId) : [...current, optionId];
-      onChange(updated);
+  const formatValue = useMemo(() => {
+    if (isMulti) {
+      const ids = Array.isArray(value) ? value : [];
+      if (!ids.length) return config.placeholder;
+      if (ids.length === 1) {
+        return optionMap.get(ids[0])?.label ?? fallbackLabel(ids[0]);
+      }
+      return `${ids.length} selected`;
+    }
+
+    if (typeof value === "number") {
+      return optionMap.get(value)?.label ?? fallbackLabel(value);
+    }
+
+    return config.placeholder;
+  }, [isMulti, value, optionMap, config.placeholder]);
+
+  const toggleMultiSelection = (id: number) => {
+    if (!Array.isArray(value)) {
+      onChange([id]);
+      return;
+    }
+    if (value.includes(id)) {
+      onChange(value.filter((existing) => existing !== id));
     } else {
-      onChange(optionId === selectedValue ? null : optionId);
-      closeMenu();
+      onChange([...value, id]);
     }
   };
 
-  const displayLabel = useMemo(() => {
-    if (multiSelect) {
-      const selectedIds = Array.isArray(selectedValue) ? selectedValue : [];
-      if (selectedIds.length === 0) return placeholder;
-      if (selectedIds.length === 1) {
-        const option = options.find((opt) => opt.id === selectedIds[0]);
-        return option?.label ?? placeholder;
-      }
-      return `${selectedIds.length} selected`;
+  const selectSingle = (id: number) => {
+    if (!isMulti) {
+      onChange(id);
+      setOpen(false);
     }
+  };
 
-    if (typeof selectedValue === "number") {
-      return options.find((opt) => opt.id === selectedValue)?.label ?? placeholder;
+  const clearSelection = () => {
+    if (isMulti) {
+      onChange([]);
+    } else {
+      onChange(null);
     }
+  };
 
-    return placeholder;
-  }, [multiSelect, options, placeholder, selectedValue]);
+  const chips = useMemo(() => {
+    if (!isMulti || !Array.isArray(value) || !value.length) {
+      return [] as CategoryRow[];
+    }
+    return value
+      .map((id) => optionMap.get(id) ?? ({ id, label: fallbackLabel(id), name: fallbackLabel(id), group_type: null, key: null, group_key: null } as CategoryRow))
+      .filter(Boolean);
+  }, [isMulti, optionMap, value]);
 
   return (
-    <div className="space-y-2">
-      <label className="block text-sm font-medium text-neutral-12">
-        {label} {required ? "*" : null}
-      </label>
-      {helper ? <p className="text-xs text-neutral-9">{helper}</p> : null}
-
+    <div className="space-y-2 text-white">
+      <div className="flex items-center justify-between">
+        <p className="text-sm uppercase tracking-wide text-white/70">{config.label}</p>
+        {!config.required ? <span className="text-xs text-white/50">Optional</span> : null}
+      </div>
       <div className="relative">
         <button
           type="button"
-          disabled={disabled}
-          onClick={toggle}
-          className="flex w-full items-center justify-between rounded-md border border-neutral-6 bg-neutral-2 px-3 py-2 text-left text-sm text-neutral-12 focus:border-primary focus:outline-none disabled:cursor-not-allowed"
+          ref={triggerRef}
+          onClick={() => setOpen((prev) => !prev)}
+          disabled={isDisabled}
+          className="flex w-full items-center justify-between rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-left text-white outline-none focus:border-yellow-300 focus:ring-2 focus:ring-yellow-400/40 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          <span className={displayLabel === placeholder ? "text-neutral-9" : ""}>{displayLabel}</span>
-          <ChevronDown className="h-4 w-4" />
+          <span>{formatValue}</span>
+          <ChevronDown className={`h-4 w-4 transition ${open ? "rotate-180" : ""}`} />
         </button>
-
-        {isOpen ? (
-          <div className="absolute z-10 mt-2 w-full rounded-md border border-neutral-6 bg-neutral-1 shadow-lg">
-            <div className="max-h-56 overflow-y-auto p-2 text-sm">
-              {options.length === 0 ? (
-                <p className="px-3 py-2 text-xs text-neutral-9">No options available.</p>
-              ) : (
-                options.map((option) => {
-                  const isSelected = multiSelect
-                    ? Array.isArray(selectedValue) && selectedValue.includes(option.id)
-                    : selectedValue === option.id;
-
+        {open ? (
+          <div
+            ref={panelRef}
+            className="absolute z-20 mt-2 max-h-64 w-full overflow-y-auto rounded-2xl border border-white/10 bg-[#120725] p-2 shadow-2xl"
+          >
+            {options.length === 0 ? (
+              <p className="py-4 text-center text-sm text-white/60">No categories yet</p>
+            ) : (
+              <div className="space-y-1">
+                {options.map((option) => {
+                  const isChecked = isMulti
+                    ? Array.isArray(value) && value.includes(option.id)
+                    : typeof value === "number" && value === option.id;
                   return (
                     <button
                       key={option.id}
                       type="button"
-                      onClick={(event) => handleOptionClick(event, option.id)}
-                      className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left hover:bg-neutral-3"
+                      className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm hover:bg-white/5"
+                      onClick={() => (isMulti ? toggleMultiSelection(option.id) : selectSingle(option.id))}
                     >
-                      {multiSelect ? (
-                        isSelected ? (
-                          <Check className="h-4 w-4" />
-                        ) : (
-                          <Circle className="h-4 w-4" />
-                        )
-                      ) : isSelected ? (
-                        <CircleDot className="h-4 w-4" />
+                      {isMulti ? (
+                        <span
+                          className={`flex h-5 w-5 items-center justify-center rounded border ${
+                            isChecked ? "border-yellow-300 bg-yellow-300/20" : "border-white/30"
+                          }`}
+                        >
+                          {isChecked ? <Check className="h-3 w-3 text-yellow-300" /> : null}
+                        </span>
+                      ) : isChecked ? (
+                        <CircleDot className="h-4 w-4 text-yellow-300" />
                       ) : (
-                        <Circle className="h-4 w-4" />
+                        <Circle className="h-4 w-4 text-white/50" />
                       )}
-                      <span>{option.label ?? option.name}</span>
+                      <span>{option.label?.trim() || option.name || fallbackLabel(option.id)}</span>
                     </button>
                   );
-                })
-              )}
-            </div>
-            <div className="border-t border-neutral-6 p-2 text-right">
-              <button type="button" className="text-xs text-neutral-9 underline" onClick={closeMenu}>
-                Close
+                })}
+              </div>
+            )}
+            {isMulti && Array.isArray(value) && value.length > 0 ? (
+              <button
+                type="button"
+                onClick={clearSelection}
+                className="mt-2 w-full rounded-xl border border-white/10 px-3 py-2 text-center text-xs uppercase tracking-wide text-white/70 hover:bg-white/5"
+              >
+                Clear selection
               </button>
-            </div>
+            ) : null}
           </div>
         ) : null}
       </div>
+      {config.helper ? <p className="text-xs text-white/60">{config.helper}</p> : null}
+      {chips.length ? (
+        <div className="flex flex-wrap gap-2">
+          {chips.map((chip) => (
+            <button
+              key={chip.id}
+              type="button"
+              onClick={() => toggleMultiSelection(chip.id)}
+              className="inline-flex items-center gap-1 rounded-full bg-white/10 px-3 py-1 text-xs text-white hover:bg-white/20"
+            >
+              {chip.label?.trim() || chip.name || fallbackLabel(chip.id)}
+              <X className="h-3 w-3" />
+            </button>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
-};
-
-type CategoryDropdownProps = {
-  label: string;
-  helper?: string;
-  placeholder: string;
-  options: CategoryRow[];
-  multiSelect: boolean;
-  required?: boolean;
-  selectedValue: number | number[] | null;
-  onChange: (value: number | number[] | null) => void;
-  disabled?: boolean;
-};
-
-export default PlaylistForm;
+}
