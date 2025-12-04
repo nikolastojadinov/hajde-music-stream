@@ -2,9 +2,9 @@ import { Loader2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import PlaylistForm, { type PlaylistFormSubmitPayload } from "@/components/playlist/PlaylistForm";
-import { withBackendOrigin } from "@/lib/backendUrl";
 import { usePi } from "@/contexts/PiContext";
 import { requirePiBrowser } from "@/lib/piBrowser";
+import { fetchWithPiAuth } from "@/lib/fetcher";
 
 const CreatePlaylist = () => {
   const navigate = useNavigate();
@@ -23,11 +23,8 @@ const CreatePlaylist = () => {
       throw new Error("You must be signed in to create playlists.");
     }
 
-    const url = withBackendOrigin("/api/studio/playlists");
-    const response = await fetch(url, {
+    const response = await fetchWithPiAuth("/api/studio/playlists", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
       body: JSON.stringify(payload),
     });
 
