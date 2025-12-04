@@ -9,7 +9,7 @@ import PlaylistForm, {
 } from "@/components/playlist/PlaylistForm";
 import { usePi } from "@/contexts/PiContext";
 import { externalSupabase } from "@/lib/externalSupabase";
-import { getOwnerIdForWallet } from "@/lib/userOwnerId";
+import { fetchOwnerProfile } from "@/lib/ownerProfile";
 
 const normalizeNumber = (value: unknown): number | null => {
   if (typeof value === "number" && Number.isFinite(value)) {
@@ -52,13 +52,15 @@ const EditPlaylist = () => {
       setPageError(null);
 
       try {
-        const ownerId = await getOwnerIdForWallet(user.uid);
+        const profile = await fetchOwnerProfile();
         if (cancelled) {
           return;
         }
-        if (!ownerId) {
+        if (!profile?.owner_id) {
           throw new Error("Unable to resolve your account. Please sign out and try again.");
         }
+
+        const ownerId = profile.owner_id;
 
         const { data, error } = await externalSupabase
           .from("playlists")

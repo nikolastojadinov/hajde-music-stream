@@ -8,7 +8,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { externalSupabase } from "@/lib/externalSupabase";
 import { useNavigate, Link } from "react-router-dom";
-import { getOwnerIdForWallet } from "@/lib/userOwnerId";
+import { fetchOwnerProfile } from "@/lib/ownerProfile";
 
 const Library = () => {
   const { user } = usePi();
@@ -33,13 +33,15 @@ const Library = () => {
       setMyPlaylistsLoading(true);
       setMyPlaylistsError(null);
       try {
-        const ownerId = await getOwnerIdForWallet(userId);
+        const profile = await fetchOwnerProfile();
         if (cancelled) {
           return;
         }
-        if (!ownerId) {
+        if (!profile?.owner_id) {
           throw new Error("Unable to resolve your account. Please sign out and try again.");
         }
+
+        const ownerId = profile.owner_id;
 
         const { data, error } = await externalSupabase
           .from("playlists")

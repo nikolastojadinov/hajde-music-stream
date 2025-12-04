@@ -16,6 +16,7 @@ import { initJobProcessor } from './lib/jobProcessor';
 import { getPublicPlaylistStats, registerPlaylistView } from './handlers/playlists/stats';
 import categoriesRouter from './routes/categories';
 import studioPlaylistsRouter from './routes/studioPlaylists';
+import usersRouter from './routes/users';
 
 import piAuthRouter from './routes/pi/auth';
 import piPaymentsRouter from './routes/pi/payments';
@@ -167,6 +168,9 @@ app.use('/api/categories', categoriesRouter);
 
 // PurpleMusic Studio playlist creation
 app.use('/api/studio/playlists', studioPlaylistsRouter);
+
+// Authenticated user profile helpers
+app.use('/api/users', usersRouter);
 
 // Pi Network routes under /pi:
 app.use('/pi', piAuthRouter);
