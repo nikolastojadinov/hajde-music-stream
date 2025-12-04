@@ -8,6 +8,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { externalSupabase } from "@/lib/externalSupabase";
 import { useNavigate, Link } from "react-router-dom";
+import { getOwnerIdForWallet } from "@/lib/userOwnerId";
 
 const Library = () => {
   const { user } = usePi();
@@ -32,10 +33,18 @@ const Library = () => {
       setMyPlaylistsLoading(true);
       setMyPlaylistsError(null);
       try {
+        const ownerId = await getOwnerIdForWallet(userId);
+        if (cancelled) {
+          return;
+        }
+        if (!ownerId) {
+          throw new Error("Unable to resolve your account. Please sign out and try again.");
+        }
+
         const { data, error } = await externalSupabase
           .from("playlists")
           .select("id,title,description,cover_url,is_public,owner_id")
-          .eq("owner_id", userId)
+          .eq("owner_id", ownerId)
           .order("created_at", { ascending: false });
         if (error) throw error;
         if (!cancelled) {
