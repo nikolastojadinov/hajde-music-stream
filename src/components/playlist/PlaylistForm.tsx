@@ -55,6 +55,7 @@ export type PlaylistFormSubmitPayload = {
   genre_ids: number[];
   theme_ids: number[];
   category_groups: CategoryPayload;
+  is_public: boolean;
 };
 
 export type PlaylistFormInitialData = {
@@ -66,6 +67,7 @@ export type PlaylistFormInitialData = {
   era_id: number | null;
   genre_ids: number[];
   theme_ids: number[];
+  is_public: boolean | null;
 };
 
 export type PlaylistFormProps = {
@@ -116,6 +118,7 @@ const PlaylistForm = ({ mode, userId, initialData, onSubmit }: PlaylistFormProps
   const [selectedEra, setSelectedEra] = useState<number | null>(initialData?.era_id ?? null);
   const [selectedGenres, setSelectedGenres] = useState<number[]>(initialData?.genre_ids ?? []);
   const [selectedThemes, setSelectedThemes] = useState<number[]>(initialData?.theme_ids ?? []);
+  const [isPublic, setIsPublic] = useState<boolean>(initialData?.is_public ?? true);
   const [categories, setCategories] = useState<CategoryBuckets>(EMPTY_CATEGORY_BUCKETS);
   const [categoriesLoading, setCategoriesLoading] = useState(true);
   const [categoriesError, setCategoriesError] = useState<string | null>(null);
@@ -137,6 +140,7 @@ const PlaylistForm = ({ mode, userId, initialData, onSubmit }: PlaylistFormProps
     setCoverUrl(initialData?.cover_url ?? null);
     setCoverFile(null);
     setCoverPreview(null);
+    setIsPublic(initialData?.is_public ?? true);
   }, [initialData]);
 
   useEffect(() => {
@@ -280,6 +284,7 @@ const PlaylistForm = ({ mode, userId, initialData, onSubmit }: PlaylistFormProps
         genre_ids: categoryPayload.genres,
         theme_ids: categoryPayload.themes,
         category_groups: categoryPayload,
+        is_public: isPublic,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Something went wrong.";
@@ -363,6 +368,31 @@ const PlaylistForm = ({ mode, userId, initialData, onSubmit }: PlaylistFormProps
                 rows={4}
                 className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-base text-white outline-none focus:border-yellow-300 focus:ring-2 focus:ring-yellow-400/40"
               />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm uppercase tracking-wide text-white/70">Visibility</label>
+              <p className="text-xs text-white/60">Odaberi да ли се плејлиста појављује у претрази или остаје само у твом Library-ју.</p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {[{ id: true, label: "Public", helper: "Vidljiva svima i појављује се у Search-у." }, { id: false, label: "Private", helper: "Види је само аутор у My Library секцији." }].map((option) => {
+                  const active = isPublic === option.id;
+                  return (
+                    <button
+                      key={String(option.id)}
+                      type="button"
+                      onClick={() => setIsPublic(option.id)}
+                      className={`w-full rounded-2xl border px-4 py-3 text-left transition ${
+                        active
+                          ? "border-yellow-400/80 bg-yellow-400/10 text-white"
+                          : "border-white/15 bg-black/20 text-white/70 hover:border-white/40"
+                      }`}
+                    >
+                      <p className="font-semibold">{option.label}</p>
+                      <p className="text-xs text-white/60">{option.helper}</p>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
             {coverHint ? <p className="text-sm text-white/60">{coverHint}</p> : null}

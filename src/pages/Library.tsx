@@ -1,4 +1,4 @@
-import { Heart, ListMusic } from "lucide-react";
+import { Heart, ListMusic, Pencil } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import PlaylistCard from "@/components/PlaylistCard";
 import TrackCard from "@/components/TrackCard";
@@ -8,6 +8,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { externalSupabase } from "@/lib/externalSupabase";
 import { useNavigate, Link } from "react-router-dom";
+import type { KeyboardEvent, MouseEvent } from "react";
 import { fetchOwnerProfile } from "@/lib/ownerProfile";
 
 const Library = () => {
@@ -220,11 +221,24 @@ type UserPlaylist = {
 };
 
 const MyPlaylistCard = ({ playlist }: { playlist: UserPlaylist }) => {
+  const navigate = useNavigate();
   const visibilityLabel = playlist.is_public ? "Public" : "Private";
+
+  const openPlaylist = () => navigate(`/playlist/${playlist.id}`);
+  const openEditor = (event: MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    navigate(`/edit/${playlist.id}`);
+  };
+
   return (
-    <Link
-      to={`/playlist/${playlist.id}`}
-      className="group block rounded-2xl border border-border bg-secondary/40 p-4 transition hover:border-primary"
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={openPlaylist}
+      onKeyDown={(event: KeyboardEvent<HTMLDivElement>) => {
+        if (event.key === "Enter") openPlaylist();
+      }}
+      className="group rounded-2xl border border-border bg-secondary/40 p-4 transition hover:border-primary focus:outline-none focus:ring-2 focus:ring-primary"
     >
       <div className="relative mb-3 overflow-hidden rounded-xl bg-muted">
         {playlist.cover_url ? (
@@ -237,9 +251,16 @@ const MyPlaylistCard = ({ playlist }: { playlist: UserPlaylist }) => {
         <span className={`absolute top-3 left-3 rounded-full px-3 py-0.5 text-xs font-semibold ${playlist.is_public ? "bg-emerald-500/20 text-emerald-300" : "bg-purple-500/20 text-purple-100"}`}>
           {visibilityLabel}
         </span>
+        <button
+          type="button"
+          onClick={openEditor}
+          className="absolute top-3 right-3 rounded-full bg-black/60 px-3 py-1 text-xs font-semibold text-white hover:bg-black/80"
+        >
+          <Pencil className="mr-1 inline h-3 w-3" /> Edit
+        </button>
       </div>
       <p className="font-semibold line-clamp-1">{playlist.title || "Untitled playlist"}</p>
       <p className="text-xs text-muted-foreground line-clamp-2">{playlist.description || ""}</p>
-    </Link>
+    </div>
   );
 };

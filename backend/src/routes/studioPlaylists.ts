@@ -28,6 +28,7 @@ type PlaylistFormSubmitPayload = {
   genre_ids: number[];
   theme_ids: number[];
   category_groups?: CategoryPayload;
+  is_public?: boolean;
 };
 
 type SanitizedPayload = PlaylistFormSubmitPayload;
@@ -80,6 +81,12 @@ const sanitizePayload = (body: unknown): { value?: SanitizedPayload; error?: str
   const genreIds = sanitizeNumberArray(candidate.genre_ids);
   const themeIds = sanitizeNumberArray(candidate.theme_ids);
   const categoryGroups = sanitizeCategoryPayload(candidate.category_groups);
+  const visibility =
+    typeof candidate.is_public === 'boolean'
+      ? candidate.is_public
+      : typeof candidate.is_public === 'string'
+        ? candidate.is_public !== 'false'
+        : true;
 
   return {
     value: {
@@ -94,6 +101,7 @@ const sanitizePayload = (body: unknown): { value?: SanitizedPayload; error?: str
       genre_ids: genreIds,
       theme_ids: themeIds,
       category_groups: categoryGroups,
+      is_public: visibility,
     },
   };
 };
@@ -140,7 +148,7 @@ router.post('/', async (req: AuthedRequest, res: Response) => {
         title: value.title,
         description: value.description,
         cover_url: value.cover_url,
-        is_public: true,
+        is_public: value.is_public ?? true,
         owner_id: ownerId,
         region: value.region_id,
         era: value.era_id,
@@ -180,6 +188,7 @@ router.post('/', async (req: AuthedRequest, res: Response) => {
       era_id: playlistRow.era,
       genre_ids: value.genre_ids,
       theme_ids: value.theme_ids,
+      is_public: value.is_public ?? true,
     });
   } catch (err) {
     console.error('[studioPlaylists] unexpected error', err);

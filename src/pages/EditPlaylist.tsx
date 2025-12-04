@@ -64,7 +64,7 @@ const EditPlaylist = () => {
 
         const { data, error } = await externalSupabase
           .from("playlists")
-          .select("id,title,description,cover_url,owner_id,region,era")
+          .select("id,title,description,cover_url,owner_id,region,era,is_public")
           .eq("id", id)
           .single();
 
@@ -109,6 +109,7 @@ const EditPlaylist = () => {
           era_id: normalizeNumber(data.era),
           genre_ids: Array.from(new Set(genreIds)),
           theme_ids: Array.from(new Set(themeIds)),
+          is_public: typeof data.is_public === "boolean" ? data.is_public : Boolean(data.is_public),
         };
 
         if (!cancelled) {
@@ -145,6 +146,7 @@ const EditPlaylist = () => {
         cover_url: payload.cover_url,
         region: payload.region_id,
         era: payload.era_id,
+        is_public: payload.is_public,
       })
       .eq("id", id);
 
