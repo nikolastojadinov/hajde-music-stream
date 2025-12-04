@@ -56,6 +56,7 @@ app.use(express.json())
 // Handle CORS:
 const allowedOrigins = [
   env.frontend_url,
+  'https://purplemusictestnet.netlify.app',
   'https://sandbox.minepi.com',
   'https://minepi.com',
   'https://web.minepi.com',
