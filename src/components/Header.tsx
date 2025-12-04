@@ -18,7 +18,7 @@ import { usePremiumDialog } from "@/contexts/PremiumDialogContext";
 
 const Header = () => {
   const { t, setLanguage, currentLanguage } = useLanguage();
-  const { user, login, logout, loading } = usePi();
+  const { user, login, logout, authenticating } = usePi();
   const { openDialog: openPremiumDialog } = usePremiumDialog();
 
   const displayName = user?.username ?? "GOST";
@@ -40,11 +40,11 @@ const Header = () => {
           {isGuest && (
             <button
               onClick={login}
-              disabled={loading}
+              disabled={authenticating}
               className="inline-flex items-center gap-2 rounded-full border border-[#F7C948] bg-transparent px-6 py-2 text-sm font-semibold text-[#F7C948] transition hover:bg-[#F7C948]/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F7C948]/70 disabled:opacity-60"
             >
               <Pi className="w-4 h-4" />
-              {loading ? t("signing_in") : "Login"}
+              {authenticating ? t("signing_in") : "Login"}
             </button>
           )}
 

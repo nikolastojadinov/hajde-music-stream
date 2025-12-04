@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { AuthProvider as PiAuthProvider, useAuth } from "@/hooks/useAuth";
 
 export type PiUser = {
   uid: string;
@@ -10,9 +11,15 @@ export type PiUser = {
 type PiContextValue = {
   user: PiUser | null;
   loading: boolean;
+  authenticating: boolean;
   isPiBrowser: boolean;
   setUserFromPi: (next: PiUser | null) => void;
   clearPiUser: () => void;
+  login: () => Promise<void>;
+  logout: () => Promise<void>;
+  signIn: () => Promise<void>;
+  createPayment: (params: { amount: number; memo: string; metadata?: Record<string, unknown> }) => Promise<void>;
+  isProcessingPayment: boolean;
 };
 
 let piUserStore: PiUser | null = null;
@@ -21,9 +28,15 @@ const listeners = new Set<(next: PiUser | null) => void>();
 const PiContext = createContext<PiContextValue>({
   user: null,
   loading: true,
+  authenticating: false,
   isPiBrowser: false,
   setUserFromPi: () => undefined,
   clearPiUser: () => undefined,
+  login: async () => undefined,
+  logout: async () => undefined,
+  signIn: async () => undefined,
+  createPayment: async () => undefined,
+  isProcessingPayment: false,
 });
 
 const normalizePiUser = (next: PiUser): PiUser => ({
@@ -88,25 +101,11 @@ export const getBackendHeaders = (): Record<string, string> => {
   };
 };
 
-export const PiProvider = ({ children }: { children: ReactNode }) => {
+const PiStateProvider = ({ children }: { children: ReactNode }) => {
+  const auth = useAuth();
   const [user, setUser] = useState<PiUser | null>(piUserStore);
-  const [loading, setLoading] = useState(true);
+  const [hydrating, setHydrating] = useState(true);
   const [isPiBrowser, setIsPiBrowser] = useState(() => detectPiBrowser());
-
-  useEffect(() => {
-    setIsPiBrowser(detectPiBrowser());
-
-    if (!piUserStore) {
-      const hydratedUser = readPiUserFromWindow();
-      if (hydratedUser) {
-        setUserFromPi(hydratedUser);
-      }
-    } else {
-      setUser(piUserStore);
-    }
-
-    setLoading(false);
-  }, []);
 
   useEffect(() => {
     const listener = (next: PiUser | null) => {
@@ -119,18 +118,73 @@ export const PiProvider = ({ children }: { children: ReactNode }) => {
     };
   }, []);
 
+  useEffect(() => {
+    setIsPiBrowser(detectPiBrowser());
+
+    if (!piUserStore) {
+      const hydratedUser = readPiUserFromWindow();
+      if (hydratedUser) {
+        setUserFromPi(hydratedUser);
+      } else {
+        clearPiUser();
+      }
+    }
+
+    setHydrating(false);
+  }, []);
+
+  useEffect(() => {
+    if (auth.user) {
+      setUserFromPi({
+        uid: auth.user.uid,
+        username: auth.user.username ?? null,
+        premium: Boolean(auth.user.premium),
+        premium_until: auth.user.premium_until ?? null,
+      });
+      return;
+    }
+
+    if (!hydrating) {
+      clearPiUser();
+    }
+  }, [auth.user, hydrating]);
+
   const value = useMemo<PiContextValue>(
     () => ({
       user,
-      loading,
+      loading: hydrating,
+      authenticating: auth.loading,
       isPiBrowser,
       setUserFromPi,
       clearPiUser,
+      login: auth.login,
+      logout: auth.logout,
+      signIn: auth.signIn ?? auth.login,
+      createPayment: auth.createPayment,
+      isProcessingPayment: auth.isProcessingPayment,
     }),
-    [user, loading, isPiBrowser],
+    [
+      user,
+      hydrating,
+      auth.loading,
+      isPiBrowser,
+      auth.login,
+      auth.logout,
+      auth.signIn,
+      auth.createPayment,
+      auth.isProcessingPayment,
+    ],
   );
 
   return <PiContext.Provider value={value}>{children}</PiContext.Provider>;
+};
+
+export const PiProvider = ({ children }: { children: ReactNode }) => {
+  return (
+    <PiAuthProvider>
+      <PiStateProvider>{children}</PiStateProvider>
+    </PiAuthProvider>
+  );
 };
 
 export const usePi = () => useContext(PiContext);
