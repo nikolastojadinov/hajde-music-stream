@@ -4,9 +4,8 @@ import cors from 'cors';
 import express, { Request, Response, NextFunction } from 'express';
 import cookieParser from 'cookie-parser';
 import logger from 'morgan';
+
 import env from './environments';
-// Legacy payments endpoints removed in favor of /api/payments/verify
-// import mountPaymentsEndpoints from './handlers/payments';
 import mountPaymentsVerify from './handlers/paymentsVerify';
 import mountUserEndpoints from './handlers/users';
 import mountNotificationEndpoints from './handlers/notifications';
@@ -16,13 +15,12 @@ import { initDailyRefreshScheduler } from './lib/dailyRefreshScheduler';
 import { initJobProcessor } from './lib/jobProcessor';
 import { getPublicPlaylistStats, registerPlaylistView } from './handlers/playlists/stats';
 import categoriesRouter from './routes/categories';
+import studioPlaylistsRouter from './routes/studioPlaylists';
 
-// Pi Network routes
 import piAuthRouter from './routes/pi/auth';
 import piPaymentsRouter from './routes/pi/payments';
 import playlistViewsRouter from './routes/playlistViews';
 
-// New modular routers
 import { getLikedSongs, likeSong, unlikeSong } from './handlers/likes/songs';
 import { getLikedPlaylists, likePlaylist, unlikePlaylist } from './handlers/likes/playlists';
 import { getUserLibrary } from './handlers/library/getLibrary';
@@ -139,7 +137,7 @@ app.use('/user', userRouter);
 // Notification endpoints under /notifications:
 const notificationRouter = express.Router();
 mountNotificationEndpoints(notificationRouter);
-app.use("/notifications", notificationRouter);
+app.use('/notifications', notificationRouter);
 
 // Pi Auth middleware for protected resource groups
 app.use('/likes', piAuth);
@@ -165,6 +163,9 @@ app.get('/library', getUserLibrary);
 
 // Public categories endpoint for SPA dropdowns
 app.use('/api/categories', categoriesRouter);
+
+// PurpleMusic Studio playlist creation
+app.use('/api/studio/playlists', studioPlaylistsRouter);
 
 // Pi Network routes under /pi:
 app.use('/pi', piAuthRouter);

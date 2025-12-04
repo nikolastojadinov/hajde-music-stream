@@ -1,10 +1,21 @@
-// CLEANUP DIRECTIVE: Restoring the SPA create playlist page with the shared PlaylistForm.
+// CLEANUP DIRECTIVE: Wire CreatePlaylist to the backend /api/studio/playlists endpoint via PlaylistForm.
 import { Loader2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import PlaylistForm, { type PlaylistFormSubmitPayload } from "@/components/playlist/PlaylistForm";
-import { externalSupabase } from "@/lib/externalSupabase";
+import { withBackendOrigin } from "@/lib/backendUrl";
 import { usePi } from "@/contexts/PiContext";
+
+type CreatePlaylistResponse = {
+  id: string;
+  title: string;
+  description: string | null;
+  cover_url: string | null;
+  region_id: number;
+  era_id: number;
+  genre_ids: number[];
+  theme_ids: number[];
+};
 
 const CreatePlaylist = () => {
   const navigate = useNavigate();
@@ -15,34 +26,35 @@ const CreatePlaylist = () => {
       throw new Error("You must be signed in to create playlists.");
     }
 
-    const { data, error } = await externalSupabase
-      .from("playlists")
-      .insert({
-        title: payload.title,
-        description: payload.description,
-        cover_url: payload.cover_url,
-        owner_id: user.uid,
-        region: payload.region_id,
-        era: payload.era_id,
-      })
-      .select("id")
-      .single();
+    const url = withBackendOrigin("/api/studio/playlists");
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify(payload),
+    });
 
-    if (error || !data) {
-      throw new Error(error?.message || "Failed to create playlist.");
+    let responseBody: CreatePlaylistResponse | { error?: string; message?: string } | null = null;
+    try {
+      responseBody = await response.json();
+    } catch (_) {
+      responseBody = null;
     }
 
-    const categoryIds = Array.from(new Set(payload.category_groups?.all ?? []));
-    if (categoryIds.length > 0) {
-      const rows = categoryIds.map((category_id) => ({ playlist_id: data.id, category_id }));
-      const { error: categoryError } = await externalSupabase.from("playlist_categories").insert(rows);
-      if (categoryError) {
-        throw new Error(categoryError.message || "Failed to link playlist categories.");
-      }
+    if (!response.ok || !responseBody || !("id" in responseBody)) {
+      const message =
+        (responseBody && "error" in responseBody && responseBody.error) ||
+        (responseBody && "message" in responseBody && responseBody.message) ||
+        "Unable to create playlist.";
+      throw new Error(message);
+    }
+
+    if (import.meta.env.DEV) {
+      console.debug("[CreatePlaylist] Playlist created", responseBody);
     }
 
     toast.success("Playlist created");
-    navigate(`/playlist/${data.id}`);
+    navigate("/library");
   };
 
   if (loading) {
