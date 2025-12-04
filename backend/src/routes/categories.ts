@@ -59,7 +59,9 @@ const normalizeCategory = (row: CategoryRow): CategoryResponseItem => {
   };
 };
 
-router.get('/', async (_req: Request, res: Response) => {
+router.get('/', async (req: Request, res: Response) => {
+  const requester = (req as Request & { currentUser?: { uid?: string } | null }).currentUser?.uid ?? null;
+  console.log('[categories] Incoming request', { requester });
   if (!supabase) {
     return res.status(500).json({ error: 'Supabase client is not configured.' });
   }

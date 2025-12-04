@@ -1,4 +1,4 @@
-// CLEANUP DIRECTIVE: Fetch playlist categories through the backend API instead of direct Supabase reads.
+// CLEANUP DIRECTIVE: Fetch playlist categories through backend-aware API calls keyed by VITE_BACKEND_URL.
 import {
   useCallback,
   useEffect,
@@ -12,6 +12,7 @@ import {
 import { toast } from "sonner";
 import { Check, ChevronDown, Circle, CircleDot, Loader2, Upload, X } from "lucide-react";
 import { externalSupabase } from "@/lib/externalSupabase";
+import { withBackendOrigin } from "@/lib/backendUrl";
 
 const COVER_BUCKET = import.meta.env.VITE_SUPABASE_PLAYLISTS_BUCKET || "playlists-covers";
 
@@ -146,7 +147,12 @@ const PlaylistForm = ({ mode, userId, initialData, onSubmit }: PlaylistFormProps
       setCategoriesError(null);
 
       try {
-        const response = await fetch("/api/categories");
+        const categoriesUrl = withBackendOrigin("/api/categories");
+        console.log("[PlaylistForm] Fetching categories from", categoriesUrl);
+        if (!categoriesUrl) {
+          throw new Error("Missing backend URL");
+        }
+        const response = await fetch(categoriesUrl, { credentials: "include" });
         if (!response.ok) {
           throw new Error(`Failed to fetch categories (${response.status})`);
         }
