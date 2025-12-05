@@ -130,6 +130,13 @@ const normalizeVisibility = (value: unknown): boolean => {
   return true;
 };
 
+const normalizeCategoryIds = (values?: number[] | null): number[] => {
+  if (!values || !values.length) {
+    return [];
+  }
+  return Array.from(new Set(values.filter((value) => isPositiveNumber(value)))).sort((a, b) => a - b);
+};
+
 type PlaylistRow = {
   id: string;
   title: string;
@@ -443,22 +450,26 @@ router.put('/:id', async (req: AuthedRequest, res: Response) => {
       return res.status(500).json({ error: 'Unable to update playlist' });
     }
 
-    const { error: deleteError } = await supabase.from('playlist_categories').delete().eq('playlist_id', playlistId);
-    if (deleteError) {
-      console.error('[studioPlaylists] category reset error', deleteError);
-      return res.status(500).json({ error: 'Unable to update playlist' });
-    }
+    const existingCategoryIds = normalizeCategoryIds(existing.payload.category_groups?.all);
+    const categoryIds = normalizeCategoryIds(value.category_groups?.all);
+    const categoriesChanged =
+      existingCategoryIds.length !== categoryIds.length ||
+      existingCategoryIds.some((categoryId, index) => categoryId !== categoryIds[index]);
 
-    const categoryIds = Array.from(new Set(value.category_groups?.all ?? [])).filter((categoryId) =>
-      isPositiveNumber(categoryId),
-    );
-
-    if (categoryIds.length) {
-      const rows = categoryIds.map((categoryId) => ({ playlist_id: playlistId, category_id: categoryId }));
-      const { error: categoryInsertError } = await supabase.from('playlist_categories').insert(rows);
-      if (categoryInsertError) {
-        console.error('[studioPlaylists] category insert error', categoryInsertError);
+    if (categoriesChanged) {
+      const { error: deleteError } = await supabase.from('playlist_categories').delete().eq('playlist_id', playlistId);
+      if (deleteError) {
+        console.error('[studioPlaylists] category reset error', deleteError);
         return res.status(500).json({ error: 'Unable to update playlist' });
+      }
+
+      if (categoryIds.length) {
+        const rows = categoryIds.map((categoryId) => ({ playlist_id: playlistId, category_id: categoryId }));
+        const { error: categoryInsertError } = await supabase.from('playlist_categories').insert(rows);
+        if (categoryInsertError) {
+          console.error('[studioPlaylists] category insert error', categoryInsertError);
+          return res.status(500).json({ error: 'Unable to update playlist' });
+        }
       }
     }
 
