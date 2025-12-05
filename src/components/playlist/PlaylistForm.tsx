@@ -15,6 +15,9 @@ import { externalSupabase } from "@/lib/externalSupabase";
 import { withBackendOrigin } from "@/lib/backendUrl";
 
 const COVER_BUCKET = import.meta.env.VITE_SUPABASE_PLAYLISTS_BUCKET || "playlists-covers";
+const MAX_COVER_BYTES = 1024 * 1024; // 1MB
+const MAX_COVER_DIMENSION = 1024; // px
+                <span className="text-[11px] text-white/50">Max 1MB / 1024x1024px</span>
 
 export type CategoryGroup = "region" | "era" | "genre" | "theme" | "popularity" | "special";
 
@@ -36,6 +39,35 @@ const EMPTY_CATEGORY_BUCKETS: CategoryBuckets = {
   theme: [],
   popularity: [],
   special: [],
+};
+
+const readImageDimensions = (file: File): Promise<{ width: number; height: number }> =>
+  new Promise((resolve, reject) => {
+    const image = new Image();
+    const objectUrl = URL.createObjectURL(file);
+
+    image.onload = () => {
+      resolve({ width: image.width, height: image.height });
+      URL.revokeObjectURL(objectUrl);
+    };
+
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error("Unable to read image dimensions."));
+    };
+
+    image.src = objectUrl;
+  });
+
+const validateCoverFile = async (file: File) => {
+  if (file.size > MAX_COVER_BYTES) {
+    throw new Error("Cover image must be 1MB or smaller.");
+  }
+
+  const { width, height } = await readImageDimensions(file);
+  if (width > MAX_COVER_DIMENSION || height > MAX_COVER_DIMENSION) {
+    throw new Error("Cover image must be 1024x1024px or smaller.");
+  }
 };
 
 export type CategoryPayload = {
@@ -194,12 +226,21 @@ const PlaylistForm = ({ mode, userId, initialData, onSubmit }: PlaylistFormProps
     return () => URL.revokeObjectURL(coverPreview);
   }, [coverPreview]);
 
-  const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
-    setCoverFile(file);
-    setCoverUrl(null);
-    setCoverPreview(URL.createObjectURL(file));
+
+    try {
+      await validateCoverFile(file);
+      setCoverFile(file);
+      setCoverUrl(null);
+      setCoverPreview(URL.createObjectURL(file));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Invalid cover image.";
+      toast.error(message);
+      setFormError(message);
+      event.target.value = "";
+    }
   };
 
   const uploadCoverIfNeeded = useCallback(async (): Promise<string | null> => {
