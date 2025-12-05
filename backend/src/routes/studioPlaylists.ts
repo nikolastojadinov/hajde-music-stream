@@ -590,6 +590,89 @@ router.put('/:id', async (req: AuthedRequest, res: Response) => {
   }
 });
 
+router.delete('/:id', async (req: AuthedRequest, res: Response) => {
+  try {
+    if (!supabase) {
+      console.error('[studioPlaylists] Supabase client is not configured');
+      return res.status(500).json({ error: 'Unable to delete playlist' });
+    }
+
+    const walletId = req.user?.id;
+    if (!walletId) {
+      return res.status(401).json({ error: 'not_authenticated' });
+    }
+
+    const playlistId = req.params.id;
+    if (!playlistId) {
+      return res.status(400).json({ error: 'Missing playlist id' });
+    }
+
+    const { data: userRow, error: userLookupError } = await supabase
+      .from('users')
+      .select('id')
+      .eq('wallet', walletId)
+      .limit(1)
+      .maybeSingle();
+
+    if (userLookupError) {
+      console.error('[studioPlaylists] user lookup error', userLookupError);
+      return res.status(500).json({ error: 'Unable to delete playlist' });
+    }
+
+    if (!userRow?.id) {
+      return res.status(403).json({ error: 'user_not_registered' });
+    }
+
+    const ownerId = userRow.id as string;
+
+    const { data: playlistRow, error: playlistLookupError } = await supabase
+      .from('playlists')
+      .select('id')
+      .eq('id', playlistId)
+      .eq('owner_id', ownerId)
+      .maybeSingle();
+
+    if (playlistLookupError) {
+      console.error('[studioPlaylists] playlist lookup error', playlistLookupError);
+      return res.status(500).json({ error: 'Unable to delete playlist' });
+    }
+
+    if (!playlistRow) {
+      return res.status(404).json({ error: 'playlist_not_found' });
+    }
+
+    const cleanupTargets = [
+      { table: 'playlist_tracks', column: 'playlist_id' },
+      { table: 'playlist_categories', column: 'playlist_id' },
+      { table: 'playlist_views', column: 'playlist_id' },
+    ];
+
+    for (const target of cleanupTargets) {
+      const { error } = await supabase.from(target.table).delete().eq(target.column, playlistId);
+      if (error) {
+        console.error(`[studioPlaylists] ${target.table} cleanup error`, error);
+        return res.status(500).json({ error: 'Unable to delete playlist' });
+      }
+    }
+
+    const { error: deleteError } = await supabase
+      .from('playlists')
+      .delete()
+      .eq('id', playlistId)
+      .eq('owner_id', ownerId);
+
+    if (deleteError) {
+      console.error('[studioPlaylists] playlist delete error', deleteError);
+      return res.status(500).json({ error: 'Unable to delete playlist' });
+    }
+
+    return res.json({ success: true });
+  } catch (err) {
+    console.error('[studioPlaylists] unexpected delete error', err);
+    return res.status(500).json({ error: 'Unable to delete playlist' });
+  }
+});
+
 router.post('/:id/tracks', async (req: AuthedRequest, res: Response) => {
   try {
     if (!supabase) {

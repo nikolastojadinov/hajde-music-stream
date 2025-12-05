@@ -55,6 +55,7 @@ const EditPlaylist = () => {
   const [initialData, setInitialData] = useState<PlaylistFormInitialData | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
   const [pageLoading, setPageLoading] = useState(true);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -149,6 +150,41 @@ const EditPlaylist = () => {
     navigate(`/playlist/${id}`);
   };
 
+  const handleDelete = async () => {
+    if (!user || !id) {
+      toast.error("Missing playlist context.");
+      return;
+    }
+
+    const confirmed = window.confirm("Are you sure you want to delete this playlist? This action cannot be undone.");
+    if (!confirmed) return;
+
+    setDeleting(true);
+
+    try {
+      const response = await fetchWithPiAuth(`/api/studio/playlists/${id}`, { method: "DELETE" });
+      let payload: { success?: boolean; error?: string } | null = null;
+      try {
+        payload = await response.json();
+      } catch (_) {
+        payload = null;
+      }
+
+      if (!response.ok || payload?.success !== true) {
+        const message = payload?.error || "Failed to delete playlist.";
+        throw new Error(message);
+      }
+
+      toast.success("Playlist deleted");
+      navigate("/library");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to delete playlist.";
+      toast.error(message);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   if (pageLoading || loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-[#050109] via-[#0d0519] to-[#030106] text-white">
@@ -186,6 +222,20 @@ const EditPlaylist = () => {
           <p className="mt-2 text-white/70">Adjust the metadata, switch the vibe, or retag your playlist for discovery.</p>
         </div>
         <PlaylistForm mode="edit" userId={user.uid} initialData={initialData} onSubmit={handleUpdate} />
+        <div className="rounded-3xl border border-red-500/30 bg-red-500/5 p-6 text-sm text-white/80">
+          <h3 className="text-xl font-semibold text-white">Delete playlist</h3>
+          <p className="mt-2 text-white/70">
+            Removing this playlist will delete all of its songs and category tags. This action cannot be undone.
+          </p>
+          <button
+            type="button"
+            onClick={handleDelete}
+            disabled={deleting}
+            className="mt-4 inline-flex items-center justify-center rounded-full border border-red-400/60 bg-transparent px-6 py-3 text-sm font-semibold text-red-200 transition hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {deleting ? "Deleting…" : "Delete playlist"}
+          </button>
+        </div>
       </div>
     </div>
   );
