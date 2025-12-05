@@ -663,7 +663,7 @@ router.post('/:id/tracks', async (req: AuthedRequest, res: Response) => {
 
     const { data: existingRow, error: existingError } = await supabase
       .from('playlist_tracks')
-      .select('id')
+      .select('track_id')
       .eq('playlist_id', playlistId)
       .eq('track_id', trackId)
       .maybeSingle();
@@ -699,7 +699,7 @@ router.post('/:id/tracks', async (req: AuthedRequest, res: Response) => {
         track_id: trackId,
         position: nextPosition,
       })
-      .select('id, position')
+      .select('playlist_id, track_id, position, added_at')
       .single();
 
     if (insertError || !insertedRow) {
@@ -709,8 +709,10 @@ router.post('/:id/tracks', async (req: AuthedRequest, res: Response) => {
 
     return res.status(201).json({
       success: true,
-      playlist_track_id: insertedRow.id,
+      playlist_id: insertedRow.playlist_id,
+      track_id: insertedRow.track_id,
       position: insertedRow.position,
+      added_at: insertedRow.added_at ?? null,
     });
   } catch (err) {
     console.error('[studioPlaylists] unexpected playlist track error', err);

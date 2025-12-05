@@ -3,8 +3,10 @@ import { fetchWithPiAuth } from "@/lib/fetcher";
 export type AddTrackToPlaylistResponse = {
   success: boolean;
   already_exists?: boolean;
-  playlist_track_id?: string;
+  playlist_id?: string;
+  track_id?: string;
   position?: number;
+  added_at?: string | null;
 };
 
 export async function addTrackToPlaylist(playlistId: string, trackId: string) {
