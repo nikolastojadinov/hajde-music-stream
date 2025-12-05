@@ -106,6 +106,142 @@ const sanitizePayload = (body: unknown): { value?: SanitizedPayload; error?: str
   };
 };
 
+const normalizeNumber = (value: unknown): number | null => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === 'string' && value.trim().length) {
+    const parsed = Number(value);
+    return Number.isNaN(parsed) ? null : parsed;
+  }
+  return null;
+};
+
+const normalizeVisibility = (value: unknown): boolean => {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  if (typeof value === 'string') {
+    return value !== 'false';
+  }
+  if (typeof value === 'number') {
+    return value !== 0;
+  }
+  return true;
+};
+
+type PlaylistRow = {
+  id: string;
+  title: string;
+  description: string | null;
+  cover_url: string | null;
+  owner_id: string;
+  region: number | string | null;
+  era: number | string | null;
+  is_public: boolean | string | number | null;
+};
+
+type PlaylistCategoryRow = {
+  category_id: number | string | null;
+  categories?: {
+    group_type?: string | null;
+  } | null;
+};
+
+type PlaylistResponsePayload = {
+  id: string;
+  title: string;
+  description: string | null;
+  cover_url: string | null;
+  region_id: number | null;
+  era_id: number | null;
+  genre_ids: number[];
+  theme_ids: number[];
+  category_groups: CategoryPayload;
+  is_public: boolean;
+};
+
+const buildPlaylistResponse = (
+  playlist: PlaylistRow,
+  categories: PlaylistCategoryRow[] | null,
+): PlaylistResponsePayload => {
+  const genreIds: number[] = [];
+  const themeIds: number[] = [];
+
+  (categories ?? []).forEach((row) => {
+    const parsedId = normalizeNumber(row.category_id);
+    if (!parsedId) return;
+    const group = row.categories?.group_type ?? '';
+    if (group === 'genre') {
+      genreIds.push(parsedId);
+    }
+    if (group === 'theme') {
+      themeIds.push(parsedId);
+    }
+  });
+
+  const uniqueGenres = Array.from(new Set(genreIds));
+  const uniqueThemes = Array.from(new Set(themeIds));
+  const regionId = normalizeNumber(playlist.region);
+  const eraId = normalizeNumber(playlist.era);
+  const allCategoryIds = Array.from(new Set([...uniqueGenres, ...uniqueThemes]));
+
+  return {
+    id: playlist.id,
+    title: playlist.title,
+    description: playlist.description,
+    cover_url: playlist.cover_url,
+    region_id: regionId,
+    era_id: eraId,
+    genre_ids: uniqueGenres,
+    theme_ids: uniqueThemes,
+    category_groups: {
+      region: regionId,
+      era: eraId,
+      genres: uniqueGenres,
+      themes: uniqueThemes,
+      all: allCategoryIds,
+    },
+    is_public: normalizeVisibility(playlist.is_public),
+  };
+};
+
+const fetchPlaylistForOwner = async (
+  playlistId: string,
+  ownerId: string,
+): Promise<{ payload?: PlaylistResponsePayload; status?: number; error?: string }> => {
+  const { data: playlistRow, error: playlistError } = await supabase
+    .from('playlists')
+    .select('id,title,description,cover_url,owner_id,region,era,is_public')
+    .eq('id', playlistId)
+    .maybeSingle();
+
+  if (playlistError) {
+    console.error('[studioPlaylists] playlist fetch error', playlistError);
+    return { status: 500, error: 'Unable to load playlist' };
+  }
+
+  if (!playlistRow) {
+    return { status: 404, error: 'Playlist not found' };
+  }
+
+  if (playlistRow.owner_id !== ownerId) {
+    return { status: 403, error: 'not_authorized' };
+  }
+
+  const { data: categoryRows, error: categoryError } = await supabase
+    .from('playlist_categories')
+    .select('category_id,categories!inner(group_type)')
+    .eq('playlist_id', playlistId);
+
+  if (categoryError) {
+    console.error('[studioPlaylists] category fetch error', categoryError);
+    return { status: 500, error: 'Unable to load playlist' };
+  }
+
+  return { payload: buildPlaylistResponse(playlistRow as PlaylistRow, categoryRows as PlaylistCategoryRow[]) };
+};
+
 router.post('/', async (req: AuthedRequest, res: Response) => {
   try {
     if (!supabase) {
@@ -193,6 +329,148 @@ router.post('/', async (req: AuthedRequest, res: Response) => {
   } catch (err) {
     console.error('[studioPlaylists] unexpected error', err);
     return res.status(500).json({ error: 'Unable to create playlist' });
+  }
+});
+
+router.get('/:id', async (req: AuthedRequest, res: Response) => {
+  try {
+    if (!supabase) {
+      console.error('[studioPlaylists] Supabase client is not configured');
+      return res.status(500).json({ error: 'Unable to load playlist' });
+    }
+
+    const walletId = req.user?.id;
+    if (!walletId) {
+      return res.status(401).json({ error: 'not_authenticated' });
+    }
+
+    const playlistId = req.params.id;
+    if (!playlistId) {
+      return res.status(400).json({ error: 'Missing playlist id' });
+    }
+
+    const { data: userRow, error: userLookupError } = await supabase
+      .from('users')
+      .select('id')
+      .eq('wallet', walletId)
+      .limit(1)
+      .maybeSingle();
+
+    if (userLookupError) {
+      console.error('[studioPlaylists] user lookup error', userLookupError);
+      return res.status(500).json({ error: 'Unable to load playlist' });
+    }
+
+    if (!userRow?.id) {
+      return res.status(403).json({ error: 'user_not_registered' });
+    }
+
+    const ownedPlaylist = await fetchPlaylistForOwner(playlistId, userRow.id as string);
+    if (!ownedPlaylist.payload) {
+      return res.status(ownedPlaylist.status ?? 500).json({ error: ownedPlaylist.error ?? 'Unable to load playlist' });
+    }
+
+    return res.json(ownedPlaylist.payload);
+  } catch (err) {
+    console.error('[studioPlaylists] unexpected load error', err);
+    return res.status(500).json({ error: 'Unable to load playlist' });
+  }
+});
+
+router.put('/:id', async (req: AuthedRequest, res: Response) => {
+  try {
+    if (!supabase) {
+      console.error('[studioPlaylists] Supabase client is not configured');
+      return res.status(500).json({ error: 'Unable to update playlist' });
+    }
+
+    const walletId = req.user?.id;
+    if (!walletId) {
+      return res.status(401).json({ error: 'not_authenticated' });
+    }
+
+    const playlistId = req.params.id;
+    if (!playlistId) {
+      return res.status(400).json({ error: 'Missing playlist id' });
+    }
+
+    const { value, error } = sanitizePayload(req.body);
+    if (error || !value) {
+      return res.status(400).json({ error });
+    }
+
+    const { data: userRow, error: userLookupError } = await supabase
+      .from('users')
+      .select('id')
+      .eq('wallet', walletId)
+      .limit(1)
+      .maybeSingle();
+
+    if (userLookupError) {
+      console.error('[studioPlaylists] user lookup error', userLookupError);
+      return res.status(500).json({ error: 'Unable to update playlist' });
+    }
+
+    if (!userRow?.id) {
+      return res.status(403).json({ error: 'user_not_registered' });
+    }
+
+    const ownerId = userRow.id as string;
+
+    const existing = await fetchPlaylistForOwner(playlistId, ownerId);
+    if (!existing.payload) {
+      return res.status(existing.status ?? 500).json({ error: existing.error ?? 'Unable to update playlist' });
+    }
+
+    const primaryGenre = value.genre_ids[0] ?? null;
+
+    const { error: updateError } = await supabase
+      .from('playlists')
+      .update({
+        title: value.title,
+        description: value.description,
+        cover_url: value.cover_url,
+        region: value.region_id,
+        era: value.era_id,
+        genre: primaryGenre,
+        is_public: value.is_public ?? true,
+      })
+      .eq('id', playlistId)
+      .eq('owner_id', ownerId);
+
+    if (updateError) {
+      console.error('[studioPlaylists] update error', updateError);
+      return res.status(500).json({ error: 'Unable to update playlist' });
+    }
+
+    const { error: deleteError } = await supabase.from('playlist_categories').delete().eq('playlist_id', playlistId);
+    if (deleteError) {
+      console.error('[studioPlaylists] category reset error', deleteError);
+      return res.status(500).json({ error: 'Unable to update playlist' });
+    }
+
+    const categoryIds = Array.from(new Set(value.category_groups?.all ?? [])).filter((categoryId) =>
+      isPositiveNumber(categoryId),
+    );
+
+    if (categoryIds.length) {
+      const rows = categoryIds.map((categoryId) => ({ playlist_id: playlistId, category_id: categoryId }));
+      const { error: categoryInsertError } = await supabase.from('playlist_categories').insert(rows);
+      if (categoryInsertError) {
+        console.error('[studioPlaylists] category insert error', categoryInsertError);
+        return res.status(500).json({ error: 'Unable to update playlist' });
+      }
+    }
+
+    const refreshed = await fetchPlaylistForOwner(playlistId, ownerId);
+    if (!refreshed.payload) {
+      return res.status(refreshed.status ?? 500).json({ error: 'Playlist updated but failed to reload' });
+    }
+
+    return res.json(refreshed.payload);
+  } catch (err) {
+    console.error('[studioPlaylists] unexpected update error', err);
+    return res.status(500).json({ error: 'Unable to update playlist' });
   }
 });
 

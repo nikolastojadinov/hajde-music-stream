@@ -1,5 +1,5 @@
 // CLEANUP DIRECTIVE: Restoring the SPA edit playlist page with the shared PlaylistForm.
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -8,8 +8,7 @@ import PlaylistForm, {
   type PlaylistFormSubmitPayload,
 } from "@/components/playlist/PlaylistForm";
 import { usePi } from "@/contexts/PiContext";
-import { externalSupabase } from "@/lib/externalSupabase";
-import { fetchOwnerProfile } from "@/lib/ownerProfile";
+import { fetchWithPiAuth } from "@/lib/fetcher";
 
 const normalizeNumber = (value: unknown): number | null => {
   if (typeof value === "number" && Number.isFinite(value)) {
@@ -20,6 +19,33 @@ const normalizeNumber = (value: unknown): number | null => {
     return Number.isNaN(parsed) ? null : parsed;
   }
   return null;
+};
+
+const toNumberArray = (value: unknown): number[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const unique = new Set<number>();
+  value.forEach((entry) => {
+    const normalized = normalizeNumber(entry);
+    if (typeof normalized === "number") {
+      unique.add(normalized);
+    }
+  });
+  return Array.from(unique);
+};
+
+type StudioPlaylistResponse = {
+  id: string;
+  title: string;
+  description: string | null;
+  cover_url: string | null;
+  region_id: number | null;
+  era_id: number | null;
+  genre_ids: number[];
+  theme_ids: number[];
+  is_public: boolean;
+  error?: string;
 };
 
 const EditPlaylist = () => {
@@ -52,64 +78,28 @@ const EditPlaylist = () => {
       setPageError(null);
 
       try {
-        const profile = await fetchOwnerProfile();
-        if (cancelled) {
-          return;
-        }
-        if (!profile?.owner_id) {
-          throw new Error("Unable to resolve your account. Please sign out and try again.");
-        }
-
-        const ownerId = profile.owner_id;
-
-        const { data, error } = await externalSupabase
-          .from("playlists")
-          .select("id,title,description,cover_url,owner_id,region,era,is_public")
-          .eq("id", id)
-          .single();
-
-        if (error || !data) {
-          throw new Error(error?.message || "Playlist not found.");
+        const response = await fetchWithPiAuth(`/api/studio/playlists/${id}`);
+        let payload: StudioPlaylistResponse | null = null;
+        try {
+          payload = (await response.json()) as StudioPlaylistResponse;
+        } catch (_) {
+          payload = null;
         }
 
-        if (data.owner_id !== ownerId) {
-          throw new Error("You do not have permission to edit this playlist.");
+        if (!response.ok || !payload) {
+          throw new Error(payload?.error || "Failed to load playlist.");
         }
-
-        const { data: links, error: linksError } = await externalSupabase
-          .from("playlist_categories")
-          .select("category_id,categories!inner(group_type)")
-          .eq("playlist_id", id);
-
-        if (linksError) {
-          throw new Error(linksError.message || "Failed to load playlist categories.");
-        }
-
-        const genreIds: number[] = [];
-        const themeIds: number[] = [];
-
-        (links ?? []).forEach((link) => {
-          const parsedId = normalizeNumber(link.category_id);
-          if (!parsedId) return;
-          const group = link.categories?.group_type ?? "";
-          if (group === "genre") {
-            genreIds.push(parsedId);
-          }
-          if (group === "theme") {
-            themeIds.push(parsedId);
-          }
-        });
 
         const normalized: PlaylistFormInitialData = {
-          id: data.id,
-          title: data.title,
-          description: data.description,
-          cover_url: data.cover_url,
-          region_id: normalizeNumber(data.region),
-          era_id: normalizeNumber(data.era),
-          genre_ids: Array.from(new Set(genreIds)),
-          theme_ids: Array.from(new Set(themeIds)),
-          is_public: typeof data.is_public === "boolean" ? data.is_public : Boolean(data.is_public),
+          id: payload.id,
+          title: payload.title,
+          description: payload.description,
+          cover_url: payload.cover_url,
+          region_id: normalizeNumber(payload.region_id),
+          era_id: normalizeNumber(payload.era_id),
+          genre_ids: toNumberArray(payload.genre_ids),
+          theme_ids: toNumberArray(payload.theme_ids),
+          is_public: typeof payload.is_public === "boolean" ? payload.is_public : Boolean(payload.is_public),
         };
 
         if (!cancelled) {
@@ -138,38 +128,21 @@ const EditPlaylist = () => {
       throw new Error("Missing playlist context.");
     }
 
-    const { error: updateError } = await externalSupabase
-      .from("playlists")
-      .update({
-        title: payload.title,
-        description: payload.description,
-        cover_url: payload.cover_url,
-        region: payload.region_id,
-        era: payload.era_id,
-        is_public: payload.is_public,
-      })
-      .eq("id", id);
+    const response = await fetchWithPiAuth(`/api/studio/playlists/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    });
 
-    if (updateError) {
-      throw new Error(updateError.message || "Failed to update playlist.");
+    let responseBody: StudioPlaylistResponse | { error?: string } | null = null;
+    try {
+      responseBody = await response.json();
+    } catch (_) {
+      responseBody = null;
     }
 
-    const { error: deleteError } = await externalSupabase
-      .from("playlist_categories")
-      .delete()
-      .eq("playlist_id", id);
-
-    if (deleteError) {
-      throw new Error(deleteError.message || "Failed to reset playlist categories.");
-    }
-
-    const categoryIds = Array.from(new Set(payload.category_groups?.all ?? []));
-    if (categoryIds.length > 0) {
-      const rows = categoryIds.map((category_id) => ({ playlist_id: id, category_id }));
-      const { error: insertError } = await externalSupabase.from("playlist_categories").insert(rows);
-      if (insertError) {
-        throw new Error(insertError.message || "Failed to apply playlist categories.");
-      }
+    if (!response.ok) {
+      const message = (responseBody as { error?: string } | null)?.error || "Failed to update playlist.";
+      throw new Error(message);
     }
 
     toast.success("Playlist updated");
