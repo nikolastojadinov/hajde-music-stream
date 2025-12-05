@@ -419,7 +419,7 @@ router.post('/cover-upload-url', async (req: AuthedRequest, res: Response) => {
 
     const { data: signedData, error: signedError } = await supabase.storage
       .from(PLAYLIST_COVER_BUCKET)
-      .createSignedUploadUrl(objectPath, expiresInSeconds);
+      .createSignedUploadUrl(objectPath, { expiresIn: expiresInSeconds, upsert: true });
 
     if (signedError || !signedData) {
       console.error('[studioPlaylists] create signed upload url error', signedError);
