@@ -239,6 +239,13 @@ type PlaylistTrackRow = {
   } | null;
 };
 
+type PlaylistTrackQueryRow = {
+  track_id?: string | null;
+  position?: number | null;
+  added_at?: string | null;
+  tracks?: PlaylistTrackRow['tracks'] | PlaylistTrackRow['tracks'][];
+};
+
 type PlaylistTrackPayload = {
   track_id: string;
   title: string | null;
@@ -343,19 +350,25 @@ const fetchPlaylistForOwner = async (
     return { status: 500, error: 'Unable to load playlist' };
   }
 
-  const tracksPayload: PlaylistTrackPayload[] = (trackRows ?? [])
+  const queryTrackRows: PlaylistTrackQueryRow[] = Array.isArray(trackRows)
+    ? (trackRows as PlaylistTrackQueryRow[])
+    : [];
+
+  const tracksPayload: PlaylistTrackPayload[] = queryTrackRows
     .map((row) => {
-      const track = (row as PlaylistTrackRow).tracks;
-      if (!track) return null;
+      const relation = Array.isArray(row.tracks) ? row.tracks[0] : row.tracks;
+      if (!relation) return null;
+      const trackId = typeof row.track_id === 'string' && row.track_id.length ? row.track_id : relation.id;
+      if (!trackId) return null;
       return {
-        track_id: (row as PlaylistTrackRow).track_id,
-        title: track.title ?? null,
-        artist: track.artist ?? null,
-        cover_url: track.cover_url ?? null,
-        duration: track.duration ?? null,
-        external_id: track.external_id ?? null,
-        position: (row as PlaylistTrackRow).position ?? null,
-        added_at: (row as PlaylistTrackRow).added_at ?? null,
+        track_id: trackId,
+        title: relation.title ?? null,
+        artist: relation.artist ?? null,
+        cover_url: relation.cover_url ?? null,
+        duration: relation.duration ?? null,
+        external_id: relation.external_id ?? null,
+        position: typeof row.position === 'number' ? row.position : null,
+        added_at: typeof row.added_at === 'string' ? row.added_at : null,
       } satisfies PlaylistTrackPayload;
     })
     .filter((row): row is PlaylistTrackPayload => Boolean(row));
@@ -385,8 +398,6 @@ router.post('/', async (req: AuthedRequest, res: Response) => {
     if (error || !value) {
       return res.status(400).json({ error });
     }
-
-    const tracksToRemove = normalizeTrackIds((req.body as any)?.remove_track_ids);
 
     const { data: userRow, error: userLookupError } = await supabase
       .from('users')
@@ -589,6 +600,8 @@ router.put('/:id', async (req: AuthedRequest, res: Response) => {
     if (error || !value) {
       return res.status(400).json({ error });
     }
+
+    const tracksToRemove = normalizeTrackIds((req.body as any)?.remove_track_ids);
 
     const { data: userRow, error: userLookupError } = await supabase
       .from('users')
