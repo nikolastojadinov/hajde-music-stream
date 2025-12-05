@@ -415,11 +415,11 @@ router.post('/cover-upload-url', async (req: AuthedRequest, res: Response) => {
     const ownerId = userRow.id as string;
     const timestamp = Date.now();
     const objectPath = `covers/${ownerId}-${timestamp}.${extension}`;
-    const expiresInSeconds = 120;
+    const expiresInSeconds = 60; // Supabase default for signed upload URLs
 
     const { data: signedData, error: signedError } = await supabase.storage
       .from(PLAYLIST_COVER_BUCKET)
-      .createSignedUploadUrl(objectPath, { expiresIn: expiresInSeconds, upsert: true });
+      .createSignedUploadUrl(objectPath, { upsert: true });
 
     if (signedError || !signedData) {
       console.error('[studioPlaylists] create signed upload url error', signedError);
