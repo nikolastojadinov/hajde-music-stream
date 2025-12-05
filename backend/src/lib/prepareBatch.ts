@@ -51,7 +51,7 @@ export async function executePrepareJob(job: RefreshJobRow): Promise<void> {
     const playlists = await fetchEligiblePlaylists();
 
     const batchPayload = playlists.map(p => ({
-      playlistId: p.id,               
+      playlistId: p.id,
       title: p.title ?? '',
       lastRefreshedOn: p.last_refreshed_on,
       trackCount: p.track_count,
@@ -73,12 +73,12 @@ export async function executePrepareJob(job: RefreshJobRow): Promise<void> {
 }
 
 /**
- * FULL FAST LOGIC (using the view):
+ * NEW LOGIC:
  * - Preselect 2000 playlists
- * - Join with view (instant, no heavy joins)
- * - Filter RD*
- * - Filter <10 tracks
- * - Sort by last_refreshed_on
+ * - Join with view
+ * - Filter RD mixes
+ * - Filter ONLY empty playlists (track_count = 0)
+ * - Sort by last_refreshed_on ASC
  * - Limit 200
  */
 async function fetchEligiblePlaylists(): Promise<Row[]> {
@@ -89,7 +89,7 @@ async function fetchEligiblePlaylists(): Promise<Row[]> {
       order by created_at asc
       limit ${PRESELECT_LIMIT}
     )
-    select 
+    select
       v.id,
       v.title,
       v.external_id,
@@ -98,7 +98,7 @@ async function fetchEligiblePlaylists(): Promise<Row[]> {
     from v_playlist_track_counts v
     join pre on pre.id = v.id
     where not (v.external_id ilike '${MIX_PREFIX}%')
-      and v.track_count >= 10
+      and v.track_count = 0        -- EMPTY PLAYLISTS ONLY
     order by v.last_refreshed_on asc nulls first
     limit ${PLAYLIST_LIMIT}
   `;
