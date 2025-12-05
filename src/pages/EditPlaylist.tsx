@@ -1,7 +1,7 @@
 // CLEANUP DIRECTIVE: Restoring the SPA edit playlist page with the shared PlaylistForm.
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { Loader2 } from "lucide-react";
+import { Loader2, Music2, RotateCcw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import PlaylistForm, {
   type PlaylistFormInitialData,
@@ -45,7 +45,19 @@ type StudioPlaylistResponse = {
   genre_ids: number[];
   theme_ids: number[];
   is_public: boolean;
+  tracks?: StudioPlaylistTrack[] | null;
   error?: string;
+};
+
+type StudioPlaylistTrack = {
+  track_id: string;
+  title: string | null;
+  artist: string | null;
+  cover_url: string | null;
+  duration: number | null;
+  external_id: string | null;
+  position: number | null;
+  added_at: string | null;
 };
 
 const EditPlaylist = () => {
@@ -56,6 +68,8 @@ const EditPlaylist = () => {
   const [pageError, setPageError] = useState<string | null>(null);
   const [pageLoading, setPageLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
+  const [playlistTracks, setPlaylistTracks] = useState<StudioPlaylistTrack[]>([]);
+  const [removeTrackIds, setRemoveTrackIds] = useState<string[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -103,11 +117,28 @@ const EditPlaylist = () => {
           is_public: typeof payload.is_public === "boolean" ? payload.is_public : Boolean(payload.is_public),
         };
 
+        const normalizedTracks: StudioPlaylistTrack[] = Array.isArray(payload.tracks)
+          ? payload.tracks.map((track, index) => ({
+              track_id: track.track_id,
+              title: track.title ?? null,
+              artist: track.artist ?? null,
+              cover_url: track.cover_url ?? null,
+              duration: typeof track.duration === "number" ? track.duration : null,
+              external_id: track.external_id ?? null,
+              position: typeof track.position === "number" ? track.position : index,
+              added_at: track.added_at ?? null,
+            }))
+          : [];
+
         if (!cancelled) {
           setInitialData(normalized);
+          setPlaylistTracks(normalizedTracks);
+          setRemoveTrackIds([]);
         }
       } catch (err) {
         if (!cancelled) {
+          setPlaylistTracks([]);
+          setRemoveTrackIds([]);
           setPageError(err instanceof Error ? err.message : "Failed to load playlist.");
         }
       } finally {
@@ -148,6 +179,15 @@ const EditPlaylist = () => {
 
     toast.success("Playlist updated");
     navigate(`/playlist/${id}`);
+  };
+
+  const handleToggleTrackRemoval = (trackId: string) => {
+    setRemoveTrackIds((current) => {
+      if (current.includes(trackId)) {
+        return current.filter((id) => id !== trackId);
+      }
+      return [...current, trackId];
+    });
   };
 
   const handleDelete = async () => {
@@ -221,7 +261,20 @@ const EditPlaylist = () => {
           <h1 className="text-4xl font-bold">Edit playlist</h1>
           <p className="mt-2 text-white/70">Adjust the metadata, switch the vibe, or retag your playlist for discovery.</p>
         </div>
-        <PlaylistForm mode="edit" userId={user.uid} initialData={initialData} onSubmit={handleUpdate} />
+        <PlaylistForm
+          mode="edit"
+          userId={user.uid}
+          initialData={initialData}
+          onSubmit={handleUpdate}
+          removeTrackIds={removeTrackIds}
+          afterCoverSlot={
+            <PlaylistTracksSlot
+              tracks={playlistTracks}
+              pendingRemovalIds={removeTrackIds}
+              onToggleRemoval={handleToggleTrackRemoval}
+            />
+          }
+        />
         <div className="rounded-3xl border border-red-500/30 bg-red-500/5 p-6 text-sm text-white/80">
           <h3 className="text-xl font-semibold text-white">Delete playlist</h3>
           <p className="mt-2 text-white/70">
@@ -239,6 +292,94 @@ const EditPlaylist = () => {
       </div>
     </div>
   );
+};
+
+type PlaylistTracksSlotProps = {
+  tracks: StudioPlaylistTrack[];
+  pendingRemovalIds: string[];
+  onToggleRemoval: (trackId: string) => void;
+};
+
+function PlaylistTracksSlot({ tracks, pendingRemovalIds, onToggleRemoval }: PlaylistTracksSlotProps) {
+  if (!tracks.length) {
+    return (
+      <div className="rounded-3xl border border-white/15 bg-black/20 p-4 text-sm text-white/70">
+        <p>No tracks in this playlist yet.</p>
+        <p className="mt-1 text-xs text-white/40">Add songs from Studio to see them here.</p>
+      </div>
+    );
+  }
+
+  const sortedTracks = [...tracks].sort((a, b) => {
+    const aPos = typeof a.position === "number" ? a.position : Number.MAX_SAFE_INTEGER;
+    const bPos = typeof b.position === "number" ? b.position : Number.MAX_SAFE_INTEGER;
+    return aPos - bPos;
+  });
+
+  return (
+    <div className="rounded-3xl border border-white/15 bg-black/30 p-4 text-sm text-white">
+      <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.2em] text-white/50">
+        <span>Playlist tracks</span>
+        <span className={pendingRemovalIds.length ? "text-red-200" : "text-white/40"}>
+          {pendingRemovalIds.length ? `${pendingRemovalIds.length} pending removal` : `${sortedTracks.length} total`}
+        </span>
+      </div>
+      <div className="mt-4 flex max-h-[420px] flex-col gap-3 overflow-y-auto pr-1">
+        {sortedTracks.map((track) => {
+          const pending = pendingRemovalIds.includes(track.track_id);
+          return (
+            <div
+              key={track.track_id}
+              className={`flex items-center gap-3 rounded-2xl border px-3 py-2 ${
+                pending ? "border-red-400/60 bg-red-500/10 text-white/80" : "border-white/10 bg-white/5"
+              }`}
+            >
+              <div className="h-12 w-12 flex-shrink-0 overflow-hidden rounded-2xl bg-white/5">
+                {track.cover_url ? (
+                  <img src={track.cover_url} alt={track.title ?? "Track artwork"} className="h-full w-full object-cover" />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center text-white/40">
+                    <Music2 className="h-5 w-5" />
+                  </div>
+                )}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium text-white">{track.title ?? "Untitled track"}</p>
+                <p className="truncate text-xs text-white/60">{track.artist ?? "Unknown artist"}</p>
+                {pending ? <p className="text-[10px] uppercase text-red-200">Pending removal</p> : null}
+              </div>
+              <div className="flex flex-col items-end gap-1 text-right">
+                <span className="text-xs text-white/60">{formatDuration(track.duration)}</span>
+                <button
+                  type="button"
+                  onClick={() => onToggleRemoval(track.track_id)}
+                  className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs font-semibold transition ${
+                    pending ? "border-red-300 text-red-200 hover:bg-red-500/10" : "border-white/20 text-white/80 hover:border-white/50"
+                  }`}
+                >
+                  {pending ? <RotateCcw className="h-3.5 w-3.5" /> : <Trash2 className="h-3.5 w-3.5" />}
+                  {pending ? "Undo" : "Remove"}
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <p className="mt-3 text-[11px] text-white/50">
+        {pendingRemovalIds.length ? "Save changes to confirm removals." : "Use the trash icon to queue removals."}
+      </p>
+    </div>
+  );
+}
+
+const formatDuration = (duration: number | null): string => {
+  if (typeof duration !== "number" || Number.isNaN(duration) || duration <= 0) {
+    return "—";
+  }
+  const totalSeconds = duration > 1000 ? Math.round(duration / 1000) : Math.round(duration);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 };
 
 export default EditPlaylist;

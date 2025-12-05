@@ -141,6 +141,19 @@ const normalizeCategoryIds = (values?: number[] | null): number[] => {
   return Array.from(new Set(values.filter((value) => isPositiveNumber(value)))).sort((a, b) => a - b);
 };
 
+const normalizeTrackIds = (values: unknown): string[] => {
+  if (!Array.isArray(values)) {
+    return [];
+  }
+  const unique = new Set<string>();
+  values.forEach((value) => {
+    if (typeof value === 'string' && value.trim().length) {
+      unique.add(value.trim());
+    }
+  });
+  return Array.from(unique);
+};
+
 const extensionFromFilename = (filename?: string | null): string | null => {
   if (!filename || typeof filename !== 'string') {
     return null;
@@ -209,11 +222,38 @@ type PlaylistResponsePayload = {
   theme_ids: number[];
   category_groups: CategoryPayload;
   is_public: boolean;
+  tracks: PlaylistTrackPayload[];
+};
+
+type PlaylistTrackRow = {
+  track_id: string;
+  position: number | null;
+  added_at: string | null;
+  tracks?: {
+    id: string;
+    title?: string | null;
+    artist?: string | null;
+    cover_url?: string | null;
+    duration?: number | null;
+    external_id?: string | null;
+  } | null;
+};
+
+type PlaylistTrackPayload = {
+  track_id: string;
+  title: string | null;
+  artist: string | null;
+  cover_url: string | null;
+  duration: number | null;
+  external_id: string | null;
+  position: number | null;
+  added_at: string | null;
 };
 
 const buildPlaylistResponse = (
   playlist: PlaylistRow,
   categories: PlaylistCategoryRow[] | null,
+  tracks: PlaylistTrackPayload[],
 ): PlaylistResponsePayload => {
   const genreIds: number[] = [];
   const themeIds: number[] = [];
@@ -253,6 +293,7 @@ const buildPlaylistResponse = (
       all: allCategoryIds,
     },
     is_public: normalizeVisibility(playlist.is_public),
+    tracks,
   };
 };
 
@@ -289,7 +330,43 @@ const fetchPlaylistForOwner = async (
     return { status: 500, error: 'Unable to load playlist' };
   }
 
-  return { payload: buildPlaylistResponse(playlistRow as PlaylistRow, categoryRows as PlaylistCategoryRow[]) };
+  const { data: trackRows, error: trackError } = await supabase
+    .from('playlist_tracks')
+    .select(
+      `track_id,position,added_at,tracks!inner(id,title,artist,cover_url,duration,external_id)`
+    )
+    .eq('playlist_id', playlistId)
+    .order('position', { ascending: true });
+
+  if (trackError) {
+    console.error('[studioPlaylists] track fetch error', trackError);
+    return { status: 500, error: 'Unable to load playlist' };
+  }
+
+  const tracksPayload: PlaylistTrackPayload[] = (trackRows ?? [])
+    .map((row) => {
+      const track = (row as PlaylistTrackRow).tracks;
+      if (!track) return null;
+      return {
+        track_id: (row as PlaylistTrackRow).track_id,
+        title: track.title ?? null,
+        artist: track.artist ?? null,
+        cover_url: track.cover_url ?? null,
+        duration: track.duration ?? null,
+        external_id: track.external_id ?? null,
+        position: (row as PlaylistTrackRow).position ?? null,
+        added_at: (row as PlaylistTrackRow).added_at ?? null,
+      } satisfies PlaylistTrackPayload;
+    })
+    .filter((row): row is PlaylistTrackPayload => Boolean(row));
+
+  return {
+    payload: buildPlaylistResponse(
+      playlistRow as PlaylistRow,
+      categoryRows as PlaylistCategoryRow[],
+      tracksPayload,
+    ),
+  };
 };
 
 router.post('/', async (req: AuthedRequest, res: Response) => {
@@ -308,6 +385,8 @@ router.post('/', async (req: AuthedRequest, res: Response) => {
     if (error || !value) {
       return res.status(400).json({ error });
     }
+
+    const tracksToRemove = normalizeTrackIds((req.body as any)?.remove_track_ids);
 
     const { data: userRow, error: userLookupError } = await supabase
       .from('users')
@@ -575,6 +654,19 @@ router.put('/:id', async (req: AuthedRequest, res: Response) => {
           console.error('[studioPlaylists] category insert error', categoryInsertError);
           return res.status(500).json({ error: 'Unable to update playlist' });
         }
+      }
+    }
+
+    if (tracksToRemove.length) {
+      const { error: trackDeleteError } = await supabase
+        .from('playlist_tracks')
+        .delete()
+        .eq('playlist_id', playlistId)
+        .in('track_id', tracksToRemove);
+
+      if (trackDeleteError) {
+        console.error('[studioPlaylists] remove tracks error', trackDeleteError);
+        return res.status(500).json({ error: 'Unable to update playlist' });
       }
     }
 

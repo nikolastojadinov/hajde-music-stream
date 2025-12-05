@@ -8,6 +8,7 @@ import {
   type ChangeEvent,
   type FormEvent,
   type MouseEvent as ReactMouseEvent,
+  type ReactNode,
 } from "react";
 import { toast } from "sonner";
 import { Check, ChevronDown, Circle, CircleDot, Loader2, Upload, X } from "lucide-react";
@@ -96,6 +97,7 @@ export type PlaylistFormSubmitPayload = {
   theme_ids: number[];
   category_groups: CategoryPayload;
   is_public: boolean;
+  remove_track_ids?: string[];
 };
 
 export type PlaylistFormInitialData = {
@@ -115,6 +117,8 @@ export type PlaylistFormProps = {
   userId: string;
   initialData?: PlaylistFormInitialData;
   onSubmit: (payload: PlaylistFormSubmitPayload) => Promise<void>;
+  afterCoverSlot?: ReactNode;
+  removeTrackIds?: string[];
 };
 
 const CATEGORY_CONFIG: Record<
@@ -151,7 +155,7 @@ const CATEGORY_CONFIG: Record<
   },
 };
 
-const PlaylistForm = ({ mode, userId, initialData, onSubmit }: PlaylistFormProps) => {
+const PlaylistForm = ({ mode, userId, initialData, onSubmit, afterCoverSlot, removeTrackIds = [] }: PlaylistFormProps) => {
   const [title, setTitle] = useState(initialData?.title ?? "");
   const [description, setDescription] = useState(initialData?.description ?? "");
   const [selectedRegion, setSelectedRegion] = useState<number | null>(initialData?.region_id ?? null);
@@ -351,6 +355,10 @@ const PlaylistForm = ({ mode, userId, initialData, onSubmit }: PlaylistFormProps
         Promise.resolve(buildCategoryPayload()),
       ]);
 
+      const sanitizedRemoveTrackIds = Array.isArray(removeTrackIds) && removeTrackIds.length
+        ? Array.from(new Set(removeTrackIds.map((id) => id.trim()).filter((id) => id.length > 0)))
+        : [];
+
       await onSubmit({
         title: title.trim(),
         description: description.trim() ? description.trim() : null,
@@ -361,6 +369,7 @@ const PlaylistForm = ({ mode, userId, initialData, onSubmit }: PlaylistFormProps
         theme_ids: categoryPayload.themes,
         category_groups: categoryPayload,
         is_public: isPublic,
+        remove_track_ids: sanitizedRemoveTrackIds.length ? sanitizedRemoveTrackIds : undefined,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Something went wrong.";
@@ -379,43 +388,46 @@ const PlaylistForm = ({ mode, userId, initialData, onSubmit }: PlaylistFormProps
     <form onSubmit={handleSubmit} className="space-y-10">
       <section className="rounded-3xl border border-white/10 bg-white/5 p-8 text-white shadow-[0_20px_60px_rgba(0,0,0,0.4)]">
         <div className="flex flex-col gap-8 lg:flex-row">
-          <div
-            className="flex h-56 w-56 cursor-pointer flex-col items-center justify-center rounded-3xl border border-dashed border-white/30 bg-black/30 text-center transition hover:border-yellow-300/70"
-            onClick={() => fileInputRef.current?.click()}
-          >
-            {currentCover ? (
-              <div className="relative h-full w-full">
-                <img src={currentCover} alt="Cover preview" className="h-full w-full rounded-3xl object-cover" />
-                {coverPreview ? (
-                  <button
-                    type="button"
-                    className="absolute right-3 top-3 rounded-full bg-black/70 p-2 text-white"
-                    onClick={(event: ReactMouseEvent<HTMLButtonElement>) => {
-                      event.stopPropagation();
-                      setCoverFile(null);
-                      setCoverPreview(null);
-                      setCoverUrl(initialData?.cover_url ?? null);
-                    }}
-                    aria-label="Remove selected cover"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                ) : null}
-              </div>
-            ) : (
-              <>
-                <Upload className="mb-3 h-10 w-10 text-yellow-300" />
-                <p className="text-sm">Upload square cover</p>
-                <span className="text-xs text-white/60">PNG • JPG • WEBP</span>
-              </>
-            )}
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/png,image/jpeg,image/webp"
-              onChange={handleFileChange}
-              className="hidden"
-            />
+          <div className="flex flex-col gap-4">
+            <div
+              className="flex h-56 w-56 cursor-pointer flex-col items-center justify-center rounded-3xl border border-dashed border-white/30 bg-black/30 text-center transition hover:border-yellow-300/70"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              {currentCover ? (
+                <div className="relative h-full w-full">
+                  <img src={currentCover} alt="Cover preview" className="h-full w-full rounded-3xl object-cover" />
+                  {coverPreview ? (
+                    <button
+                      type="button"
+                      className="absolute right-3 top-3 rounded-full bg-black/70 p-2 text-white"
+                      onClick={(event: ReactMouseEvent<HTMLButtonElement>) => {
+                        event.stopPropagation();
+                        setCoverFile(null);
+                        setCoverPreview(null);
+                        setCoverUrl(initialData?.cover_url ?? null);
+                      }}
+                      aria-label="Remove selected cover"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  ) : null}
+                </div>
+              ) : (
+                <>
+                  <Upload className="mb-3 h-10 w-10 text-yellow-300" />
+                  <p className="text-sm">Upload square cover</p>
+                  <span className="text-xs text-white/60">PNG • JPG • WEBP</span>
+                </>
+              )}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                onChange={handleFileChange}
+                className="hidden"
+              />
+            </div>
+            {afterCoverSlot ? <div className="w-full lg:w-56">{afterCoverSlot}</div> : null}
           </div>
 
           <div className="flex-1 space-y-5">
