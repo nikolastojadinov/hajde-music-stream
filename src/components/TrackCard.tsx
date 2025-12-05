@@ -1,5 +1,6 @@
 import { Play, Heart } from "lucide-react";
 import { usePlayer } from "@/contexts/PlayerContext";
+import AddToPlaylistButton from "@/components/AddToPlaylistButton";
 
 interface TrackCardProps {
   id: string;
@@ -53,26 +54,33 @@ const TrackCard = ({ id, title, artist, imageUrl, youtubeId, duration, liked = f
         <p className="text-sm text-muted-foreground truncate">{artist}</p>
       </div>
       
-      {/* Like button */}
-      <button
-        onClick={handleLikeClick}
-        className="p-2 hover:scale-110 transition-transform flex-shrink-0"
-        aria-label={liked ? "Unlike song" : "Like song"}
-      >
-        <Heart 
-          className={`w-5 h-5 transition-all ${
-            liked 
-              ? "fill-primary text-primary" 
-              : "text-muted-foreground hover:text-foreground"
-          }`}
+      <div className="flex items-center gap-2 flex-shrink-0">
+        <AddToPlaylistButton
+          trackId={id}
+          trackTitle={title}
+          variant="ghost"
+          triggerClassName="hover:text-primary"
+          iconSize={16}
         />
-      </button>
-      
-      {duration && (
-        <div className="text-sm text-muted-foreground flex-shrink-0">
-          {formatDuration(duration)}
-        </div>
-      )}
+        <button
+          onClick={handleLikeClick}
+          className="p-2 hover:scale-110 transition-transform"
+          aria-label={liked ? "Unlike song" : "Like song"}
+        >
+          <Heart
+            className={`w-5 h-5 transition-all ${
+              liked
+                ? "fill-primary text-primary"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          />
+        </button>
+        {duration && (
+          <div className="text-sm text-muted-foreground">
+            {formatDuration(duration)}
+          </div>
+        )}
+      </div>
     </div>
   );
 };

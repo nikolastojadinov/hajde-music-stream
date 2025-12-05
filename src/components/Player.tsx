@@ -3,6 +3,7 @@ import { Slider } from "@/components/ui/slider";
 import { usePlayer } from "@/contexts/PlayerContext";
 import { useIsMobile } from "@/hooks/use-mobile";
 import useLikes from "@/hooks/useLikes";
+import AddToPlaylistButton from "@/components/AddToPlaylistButton";
 const Player = () => {
   const isMobile = useIsMobile();
   const {
@@ -103,16 +104,24 @@ const Player = () => {
             </button>
           </div>
 
-          {/* Volume */}
+          {/* Volume & Actions */}
           <div className="w-full max-w-md flex items-center justify-between">
-            <button
-              onClick={handleToggleLike}
-              disabled={likeDisabled}
-              className={`transition-colors ${isCurrentTrackLiked ? 'text-primary' : 'text-muted-foreground hover:text-primary'} ${likeDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-              aria-label={isCurrentTrackLiked ? 'Unlike song' : 'Like song'}
-            >
-              <Heart className={`w-6 h-6 ${isCurrentTrackLiked ? 'fill-current' : ''}`} />
-            </button>
+            <div className="flex items-center gap-2">
+              <AddToPlaylistButton
+                trackId={currentTrackId ?? undefined}
+                trackTitle={currentVideoTitle}
+                variant="ghost"
+                triggerClassName="text-muted-foreground hover:text-primary"
+              />
+              <button
+                onClick={handleToggleLike}
+                disabled={likeDisabled}
+                className={`transition-colors ${isCurrentTrackLiked ? 'text-primary' : 'text-muted-foreground hover:text-primary'} ${likeDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                aria-label={isCurrentTrackLiked ? 'Unlike song' : 'Like song'}
+              >
+                <Heart className={`w-6 h-6 ${isCurrentTrackLiked ? 'fill-current' : ''}`} />
+              </button>
+            </div>
             <div className="flex items-center gap-3">
               <Volume2 className="w-5 h-5 text-muted-foreground" />
               <Slider value={[volume]} max={100} step={1} className="w-32" onValueChange={handleVolumeChange} />
@@ -125,6 +134,13 @@ const Player = () => {
   // Mini Player UI (bez player iframe-a - on je u YouTubePlayerContainer)
   return <div className="fixed bottom-20 md:bottom-0 left-0 right-0 bg-card/95 backdrop-blur-md border-t border-border z-30">
       <div className="relative">
+        <div className="absolute bottom-2 right-3 z-20 md:hidden">
+          <AddToPlaylistButton
+            trackId={currentTrackId ?? undefined}
+            trackTitle={currentVideoTitle}
+            triggerClassName="bg-primary text-primary-foreground shadow-lg hover:bg-primary/90"
+          />
+        </div>
         {/* Expand button */}
         <button onClick={() => setIsFullscreen(true)} className="absolute top-2 left-1/2 -translate-x-1/2 text-muted-foreground hover:text-foreground transition-colors z-10">
           <ChevronUp className="w-5 h-5" />
@@ -172,6 +188,12 @@ const Player = () => {
 
           {/* Volume */}
           <div className="hidden md:flex items-center gap-2 flex-1 justify-end">
+            <AddToPlaylistButton
+              trackId={currentTrackId ?? undefined}
+              trackTitle={currentVideoTitle}
+              variant="ghost"
+              triggerClassName="text-muted-foreground hover:text-primary"
+            />
             <Volume2 className="w-5 h-5 text-muted-foreground" />
             <Slider value={[volume]} max={100} step={1} className="w-24" onValueChange={handleVolumeChange} />
           </div>

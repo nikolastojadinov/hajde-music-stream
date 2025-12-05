@@ -590,4 +590,132 @@ router.put('/:id', async (req: AuthedRequest, res: Response) => {
   }
 });
 
+router.post('/:id/tracks', async (req: AuthedRequest, res: Response) => {
+  try {
+    if (!supabase) {
+      console.error('[studioPlaylists] Supabase client is not configured');
+      return res.status(500).json({ error: 'Unable to update playlist tracks' });
+    }
+
+    const walletId = req.user?.id;
+    if (!walletId) {
+      return res.status(401).json({ error: 'not_authenticated' });
+    }
+
+    const playlistId = req.params.id;
+    if (!playlistId) {
+      return res.status(400).json({ error: 'Missing playlist id' });
+    }
+
+    const trackId = typeof req.body?.track_id === 'string' ? req.body.track_id.trim() : null;
+    if (!trackId) {
+      return res.status(400).json({ error: 'missing_track_id' });
+    }
+
+    const { data: userRow, error: userLookupError } = await supabase
+      .from('users')
+      .select('id')
+      .eq('wallet', walletId)
+      .limit(1)
+      .maybeSingle();
+
+    if (userLookupError) {
+      console.error('[studioPlaylists] user lookup error', userLookupError);
+      return res.status(500).json({ error: 'Unable to update playlist tracks' });
+    }
+
+    if (!userRow?.id) {
+      return res.status(403).json({ error: 'user_not_registered' });
+    }
+
+    const ownerId = userRow.id as string;
+
+    const { data: playlistRow, error: playlistError } = await supabase
+      .from('playlists')
+      .select('id')
+      .eq('id', playlistId)
+      .eq('owner_id', ownerId)
+      .maybeSingle();
+
+    if (playlistError) {
+      console.error('[studioPlaylists] playlist ownership error', playlistError);
+      return res.status(500).json({ error: 'Unable to update playlist tracks' });
+    }
+
+    if (!playlistRow) {
+      return res.status(404).json({ error: 'playlist_not_found' });
+    }
+
+    const { data: trackRow, error: trackError } = await supabase
+      .from('tracks')
+      .select('id')
+      .eq('id', trackId)
+      .maybeSingle();
+
+    if (trackError) {
+      console.error('[studioPlaylists] track lookup error', trackError);
+      return res.status(500).json({ error: 'Unable to update playlist tracks' });
+    }
+
+    if (!trackRow) {
+      return res.status(404).json({ error: 'track_not_found' });
+    }
+
+    const { data: existingRow, error: existingError } = await supabase
+      .from('playlist_tracks')
+      .select('id')
+      .eq('playlist_id', playlistId)
+      .eq('track_id', trackId)
+      .maybeSingle();
+
+    if (existingError) {
+      console.error('[studioPlaylists] playlist track lookup error', existingError);
+      return res.status(500).json({ error: 'Unable to update playlist tracks' });
+    }
+
+    if (existingRow) {
+      return res.json({ success: true, already_exists: true });
+    }
+
+    const { data: lastPositionRow, error: positionError } = await supabase
+      .from('playlist_tracks')
+      .select('position')
+      .eq('playlist_id', playlistId)
+      .order('position', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (positionError) {
+      console.error('[studioPlaylists] playlist track position lookup error', positionError);
+      return res.status(500).json({ error: 'Unable to update playlist tracks' });
+    }
+
+    const nextPosition = (lastPositionRow?.position ?? 0) + 1;
+
+    const { data: insertedRow, error: insertError } = await supabase
+      .from('playlist_tracks')
+      .insert({
+        playlist_id: playlistId,
+        track_id: trackId,
+        position: nextPosition,
+      })
+      .select('id, position')
+      .single();
+
+    if (insertError || !insertedRow) {
+      console.error('[studioPlaylists] playlist track insert error', insertError);
+      return res.status(500).json({ error: 'Unable to update playlist tracks' });
+    }
+
+    return res.status(201).json({
+      success: true,
+      playlist_track_id: insertedRow.id,
+      position: insertedRow.position,
+    });
+  } catch (err) {
+    console.error('[studioPlaylists] unexpected playlist track error', err);
+    return res.status(500).json({ error: 'Unable to update playlist tracks' });
+  }
+});
+
 export default router;

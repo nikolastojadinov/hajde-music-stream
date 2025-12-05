@@ -4,12 +4,11 @@ import PlaylistCard from "@/components/PlaylistCard";
 import TrackCard from "@/components/TrackCard";
 import { usePi } from "@/contexts/PiContext";
 import useLikes from "@/hooks/useLikes";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { externalSupabase } from "@/lib/externalSupabase";
 import { useNavigate, Link } from "react-router-dom";
 import type { KeyboardEvent, MouseEvent } from "react";
-import { fetchOwnerProfile } from "@/lib/ownerProfile";
+import { useMyPlaylists, type UserPlaylist } from "@/hooks/useMyPlaylists";
 
 const Library = () => {
   const { user } = usePi();
@@ -18,59 +17,17 @@ const Library = () => {
   const navigate = useNavigate();
   const userId = user?.uid || null;
   const [activeTab, setActiveTab] = useState<string>("liked-songs");
-  const [myPlaylists, setMyPlaylists] = useState<UserPlaylist[]>([]);
-  const [myPlaylistsLoading, setMyPlaylistsLoading] = useState(false);
-  const [myPlaylistsError, setMyPlaylistsError] = useState<string | null>(null);
+  const {
+    data: myPlaylists = [],
+    isLoading: myPlaylistsLoading,
+    error: myPlaylistsError,
+  } = useMyPlaylists({ enabled: Boolean(userId) });
 
-  useEffect(() => {
-    if (!userId) {
-      setMyPlaylists([]);
-      setMyPlaylistsError(null);
-      return;
-    }
-
-    let cancelled = false;
-    const load = async () => {
-      setMyPlaylistsLoading(true);
-      setMyPlaylistsError(null);
-      try {
-        const profile = await fetchOwnerProfile();
-        if (cancelled) {
-          return;
-        }
-        if (!profile?.owner_id) {
-          throw new Error("Unable to resolve your account. Please sign out and try again.");
-        }
-
-        const ownerId = profile.owner_id;
-
-        const { data, error } = await externalSupabase
-          .from("playlists")
-          .select("id,title,description,cover_url,is_public,owner_id")
-          .eq("owner_id", ownerId)
-          .order("created_at", { ascending: false });
-        if (error) throw error;
-        if (!cancelled) {
-          setMyPlaylists((data || []) as UserPlaylist[]);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          const message = err instanceof Error ? err.message : String(err);
-          setMyPlaylistsError(message);
-          setMyPlaylists([]);
-        }
-      } finally {
-        if (!cancelled) {
-          setMyPlaylistsLoading(false);
-        }
-      }
-    };
-
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, [userId]);
+  const playlistsErrorMessage = myPlaylistsError
+    ? myPlaylistsError instanceof Error
+      ? myPlaylistsError.message
+      : String(myPlaylistsError)
+    : null;
 
   const myPlaylistsContent = useMemo(() => {
     if (!userId) {
@@ -89,10 +46,10 @@ const Library = () => {
       );
     }
 
-    if (myPlaylistsError) {
+    if (playlistsErrorMessage) {
       return (
         <div className="rounded-2xl border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
-          {myPlaylistsError}
+          {playlistsErrorMessage}
         </div>
       );
     }
@@ -119,7 +76,7 @@ const Library = () => {
         ))}
       </div>
     );
-  }, [myPlaylists, myPlaylistsLoading, myPlaylistsError, navigate, t, userId]);
+  }, [myPlaylists, myPlaylistsLoading, playlistsErrorMessage, navigate, t, userId]);
 
   return (
     <div className="flex-1 overflow-y-auto pb-32">
@@ -211,14 +168,6 @@ const Library = () => {
 };
 
 export default Library;
-
-type UserPlaylist = {
-  id: string;
-  title: string;
-  description?: string | null;
-  cover_url?: string | null;
-  is_public?: boolean | null;
-};
 
 const MyPlaylistCard = ({ playlist }: { playlist: UserPlaylist }) => {
   const navigate = useNavigate();

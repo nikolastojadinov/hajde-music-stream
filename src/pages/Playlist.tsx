@@ -12,6 +12,7 @@ import { PlaylistHeaderStats } from "@/components/playlists/PlaylistHeaderStats"
 import { useSWRConfig } from "swr";
 import { withBackendOrigin } from "@/lib/backendUrl";
 import { usePlaylistViewTracking } from "@/hooks/usePlaylistViewTracking";
+import AddToPlaylistButton from "@/components/AddToPlaylistButton";
 
 const Playlist = () => {
   const { id } = useParams<{ id: string }>();
@@ -246,7 +247,15 @@ const Playlist = () => {
                   <div className={`font-medium truncate ${isCurrent ? "text-primary" : ""}`}>{track.title}</div>
                   <div className="text-sm text-muted-foreground truncate">{track.artist}</div>
                 </div>
-                <div className="text-sm text-muted-foreground hidden sm:block">{formatDuration(track.duration)}</div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <div className="text-sm text-muted-foreground hidden sm:block">{formatDuration(track.duration)}</div>
+                  <AddToPlaylistButton
+                    trackId={track.id}
+                    trackTitle={track.title}
+                    variant="ghost"
+                    triggerClassName="text-muted-foreground/80 hover:text-primary"
+                  />
+                </div>
               </div>
             );
           })}
