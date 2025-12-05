@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import { Check, ChevronDown, Circle, CircleDot, Loader2, Upload, X } from "lucide-react";
 import { externalSupabase } from "@/lib/externalSupabase";
 import { withBackendOrigin } from "@/lib/backendUrl";
+import { fetchWithPiAuth } from "@/lib/fetcher";
 
 const COVER_BUCKET = import.meta.env.VITE_SUPABASE_PLAYLISTS_BUCKET || "playlists-covers";
 const MAX_COVER_BYTES = 1024 * 1024; // 1MB
@@ -76,6 +77,13 @@ export type CategoryPayload = {
   genres: number[];
   themes: number[];
   all: number[];
+};
+
+type SignedCoverUploadResponse = {
+  bucket: string;
+  path: string;
+  token: string;
+  publicUrl: string | null;
 };
 
 export type PlaylistFormSubmitPayload = {
@@ -243,27 +251,54 @@ const PlaylistForm = ({ mode, userId, initialData, onSubmit }: PlaylistFormProps
     }
   };
 
+  const negotiateCoverUpload = useCallback(async (file: File): Promise<SignedCoverUploadResponse> => {
+    const response = await fetchWithPiAuth("/api/studio/playlists/cover-upload-url", {
+      method: "POST",
+      body: JSON.stringify({ filename: file.name, contentType: file.type }),
+    });
+
+    let payload: SignedCoverUploadResponse & { error?: string } | null = null;
+    try {
+      payload = (await response.json()) as SignedCoverUploadResponse & { error?: string };
+    } catch (_) {
+      payload = null;
+    }
+
+    if (!response.ok || !payload?.token || !payload?.path) {
+      const message = payload?.error || "Unable to negotiate cover upload.";
+      throw new Error(message);
+    }
+
+    return {
+      bucket: payload.bucket,
+      path: payload.path,
+      token: payload.token,
+      publicUrl: payload.publicUrl ?? null,
+    };
+  }, []);
+
   const uploadCoverIfNeeded = useCallback(async (): Promise<string | null> => {
     if (!coverFile) {
       return coverUrl;
     }
 
-    const extension = coverFile.name.split(".").pop() || "jpg";
-    const objectPath = `covers/${userId}-${Date.now()}.${extension}`;
-    const { data, error } = await externalSupabase.storage.from(COVER_BUCKET).upload(objectPath, coverFile, {
-      cacheControl: "3600",
-      contentType: coverFile.type,
-      upsert: true,
-    });
+    const negotiation = await negotiateCoverUpload(coverFile);
+    const { error } = await externalSupabase.storage
+      .from(COVER_BUCKET)
+      .uploadToSignedUrl(negotiation.path, negotiation.token, coverFile);
 
-    if (error || !data) {
+    if (error) {
       console.error("[PlaylistForm] Cover upload failed", error);
-      throw new Error(error?.message || "Unable to upload cover image. Please try again.");
+      throw new Error(error.message || "Unable to upload cover image. Please try again.");
     }
 
-    const { data: publicData } = externalSupabase.storage.from(COVER_BUCKET).getPublicUrl(data.path);
+    if (negotiation.publicUrl) {
+      return negotiation.publicUrl;
+    }
+
+    const { data: publicData } = externalSupabase.storage.from(COVER_BUCKET).getPublicUrl(negotiation.path);
     return publicData?.publicUrl ?? null;
-  }, [coverFile, coverUrl, userId]);
+  }, [coverFile, coverUrl, negotiateCoverUpload]);
 
   const buildCategoryPayload = (): CategoryPayload => {
     const normalizedGenres = Array.from(new Set(selectedGenres.filter((id) => typeof id === "number")));

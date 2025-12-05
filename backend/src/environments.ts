@@ -22,6 +22,7 @@ interface Environment {
   platform_api_url: string;
   supabase_url: string;
   supabase_service_role_key: string;
+  supabase_playlists_bucket: string;
   frontend_url: string;
   enable_run_jobs: boolean;
 }
@@ -35,6 +36,7 @@ const env: Environment = {
   platform_api_url: process.env.PLATFORM_API_URL || 'https://api.minepi.com',
   supabase_url: process.env.SUPABASE_URL || '',
   supabase_service_role_key: process.env.SUPABASE_SERVICE_ROLE_KEY || '',
+  supabase_playlists_bucket: process.env.SUPABASE_PLAYLISTS_BUCKET || 'playlists-covers',
   frontend_url: process.env.FRONTEND_URL || 'http://localhost:3314',
   enable_run_jobs: (process.env.ENABLE_RUN_JOBS || 'true').toLowerCase() !== 'false',
 };

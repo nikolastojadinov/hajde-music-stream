@@ -1,9 +1,13 @@
 import { Router, Request, Response } from 'express';
 import { piAuth } from '../middleware/piAuth';
 import supabase from '../services/supabaseClient';
+import env from '../environments';
 
 const router = Router();
 router.use(piAuth);
+
+const PLAYLIST_COVER_BUCKET = env.supabase_playlists_bucket || 'playlists-covers';
+const ALLOWED_COVER_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp'];
 
 type AuthedRequest = Request & {
   user?: {
@@ -135,6 +139,45 @@ const normalizeCategoryIds = (values?: number[] | null): number[] => {
     return [];
   }
   return Array.from(new Set(values.filter((value) => isPositiveNumber(value)))).sort((a, b) => a - b);
+};
+
+const extensionFromFilename = (filename?: string | null): string | null => {
+  if (!filename || typeof filename !== 'string') {
+    return null;
+  }
+  const parts = filename.split('.');
+  if (parts.length < 2) {
+    return null;
+  }
+  return parts.pop()?.trim().toLowerCase() || null;
+};
+
+const extensionFromMime = (mime?: string | null): string | null => {
+  if (!mime || typeof mime !== 'string') {
+    return null;
+  }
+  if (!mime.startsWith('image/')) {
+    return null;
+  }
+  return mime.replace('image/', '').trim().toLowerCase() || null;
+};
+
+const sanitizeCoverUploadMetadata = (
+  body: unknown,
+): { extension: string; error?: string } => {
+  const fallback = 'jpg';
+  if (!body || typeof body !== 'object') {
+    return { extension: fallback };
+  }
+
+  const payload = body as { filename?: string; contentType?: string };
+  let extension = extensionFromFilename(payload.filename) ?? extensionFromMime(payload.contentType) ?? fallback;
+
+  if (!ALLOWED_COVER_EXTENSIONS.includes(extension)) {
+    extension = fallback;
+  }
+
+  return { extension };
 };
 
 type PlaylistRow = {
@@ -336,6 +379,68 @@ router.post('/', async (req: AuthedRequest, res: Response) => {
   } catch (err) {
     console.error('[studioPlaylists] unexpected error', err);
     return res.status(500).json({ error: 'Unable to create playlist' });
+  }
+});
+
+router.post('/cover-upload-url', async (req: AuthedRequest, res: Response) => {
+  try {
+    if (!supabase) {
+      console.error('[studioPlaylists] Supabase client is not configured');
+      return res.status(500).json({ error: 'Unable to negotiate upload' });
+    }
+
+    const walletId = req.user?.id;
+    if (!walletId) {
+      return res.status(401).json({ error: 'not_authenticated' });
+    }
+
+    const { extension } = sanitizeCoverUploadMetadata(req.body);
+
+    const { data: userRow, error: userLookupError } = await supabase
+      .from('users')
+      .select('id')
+      .eq('wallet', walletId)
+      .limit(1)
+      .maybeSingle();
+
+    if (userLookupError) {
+      console.error('[studioPlaylists] user lookup error', userLookupError);
+      return res.status(500).json({ error: 'Unable to negotiate upload' });
+    }
+
+    if (!userRow?.id) {
+      return res.status(403).json({ error: 'user_not_registered' });
+    }
+
+    const ownerId = userRow.id as string;
+    const timestamp = Date.now();
+    const objectPath = `covers/${ownerId}-${timestamp}.${extension}`;
+    const expiresInSeconds = 120;
+
+    const { data: signedData, error: signedError } = await supabase.storage
+      .from(PLAYLIST_COVER_BUCKET)
+      .createSignedUploadUrl(objectPath, expiresInSeconds);
+
+    if (signedError || !signedData) {
+      console.error('[studioPlaylists] create signed upload url error', signedError);
+      return res.status(500).json({ error: 'Unable to negotiate upload' });
+    }
+
+    const { data: publicData } = supabase.storage.from(PLAYLIST_COVER_BUCKET).getPublicUrl(objectPath);
+
+    const signedUrl = (signedData as { signedUrl?: string }).signedUrl ?? null;
+
+    return res.json({
+      bucket: PLAYLIST_COVER_BUCKET,
+      path: objectPath,
+      token: signedData.token,
+      signedUrl,
+      expires_in: expiresInSeconds,
+      publicUrl: publicData?.publicUrl ?? null,
+    });
+  } catch (err) {
+    console.error('[studioPlaylists] unexpected negotiate upload error', err);
+    return res.status(500).json({ error: 'Unable to negotiate upload' });
   }
 });
 
