@@ -1,7 +1,10 @@
 import cron from 'node-cron';
 import { DateTime } from 'luxon';
 import supabase from '../services/supabaseClient';
-import { executePrepareJob } from './prepareBatch';
+
+// ***** OVDE JE IZMJENA — KORISTI NOVI PREPARE BATCH *****
+import { executePrepareJob } from './prepareBatch1';
+
 import { executeRunJob } from '../jobs/runBatch';
 import env from '../environments';
 
