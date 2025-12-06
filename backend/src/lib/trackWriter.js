@@ -1,23 +1,24 @@
 /**
- * Track Writer - UPSERT-based track management
- * 
- * Fixes "duplicate key value violates unique constraint uq_tracks_external_id"
- * by using proper UPSERT with ON CONFLICT (external_id) DO UPDATE.
- * 
- * NO deletes, NO sync_status, NO delta sync - only insert or update.
+ * Track Writer - UPSERT tracks + INSERT playlist_tracks
+ *
+ * FIX:
+ * - tracks više NE smeju da sadrže playlist_id (to pravi UPDATE konflikt)
+ * - sada radimo:
+ *    1) upsert tracks (jedan video = jedan track)
+ *    2) insert playlist_tracks (playlist-track veza)
  */
 
 import supabase from '../services/supabaseClient.js';
 
-const BATCH_SIZE = 100;
+const TRACK_BATCH = 100;
+const PT_BATCH = 200;
 
 /**
- * Write tracks to database using UPSERT.
- * Inserts new tracks or updates existing ones based on external_id.
- * 
- * @param {string} playlistId - Playlist UUID
- * @param {Array<Object>} youtubeItems - YouTube items: { videoId, title, channelTitle, thumbnailUrl, position }
- * @param {string} newEtag - New ETag to return (caller will store it)
+ * Writes (upserts) tracks and links them to playlist via playlist_tracks.
+ *
+ * @param {string} playlistId
+ * @param {Array<Object>} youtubeItems
+ * @param {string} newEtag
  * @returns {Promise<{trackIds: string[], etag: string}>}
  */
 export async function writeTracks(playlistId, youtubeItems, newEtag) {
@@ -27,90 +28,94 @@ export async function writeTracks(playlistId, youtubeItems, newEtag) {
   }
 
   const now = new Date().toISOString();
-  
-  // Map YouTube items to track records
-  const trackRecords = youtubeItems.map(item => ({
+
+  // TRACK RECORDS (NO playlist_id!)
+  const tracks = youtubeItems.map(item => ({
     external_id: item.videoId,
     youtube_id: item.videoId,
     title: item.title || 'Untitled',
     artist: item.channelTitle || 'Unknown Artist',
     cover_url: item.thumbnailUrl || null,
-    playlist_id: playlistId,
     last_synced_at: now,
   }));
 
-  const allTrackIds = [];
-  const batches = chunkArray(trackRecords, BATCH_SIZE);
+  // 1️⃣ UPSERT TRACKS
+  const trackIds = await upsertTracksInBatches(tracks);
 
-  console.log('[trackWriter] Writing tracks', {
-    playlistId,
-    total: trackRecords.length,
-    batches: batches.length,
-  });
+  // Map trackIds by position (because we insert playlist_tracks by order)
+  const playlistTrackRecords = trackIds.map((trackId, index) => ({
+    playlist_id: playlistId,
+    track_id: trackId,
+    position: index,
+    added_at: now,
+  }));
 
-  // Process each batch
-  for (let i = 0; i < batches.length; i++) {
-    const batch = batches[i];
-    
-    try {
-      const trackIds = await upsertBatch(batch);
-      allTrackIds.push(...trackIds);
-      
-      console.log('[trackWriter] Batch complete', {
-        batch: i + 1,
-        total: batches.length,
-        count: trackIds.length,
-      });
-    } catch (error) {
-      // Log error but continue with next batch
-      console.error('[trackWriter] Batch failed, continuing', {
-        batch: i + 1,
-        error: error.message,
-      });
-    }
-  }
+  // 2️⃣ INSERT playlist_tracks ENTRIES
+  await insertPlaylistTrackLinks(playlistTrackRecords);
 
-  return { trackIds: allTrackIds, etag: newEtag };
+  return { trackIds, etag: newEtag };
 }
 
 /**
- * Upsert a batch of tracks.
- * ON CONFLICT (external_id) DO UPDATE.
- * 
- * @param {Array<Object>} batch - Track records
- * @returns {Promise<string[]>} - Array of track IDs
+ * UPSERT tracks in batches
  */
-async function upsertBatch(batch) {
+async function upsertTracksInBatches(tracks) {
+  const chunks = chunkArray(tracks, TRACK_BATCH);
+  const allTrackIds = [];
+
+  for (const batch of chunks) {
+    const ids = await upsertTrackBatch(batch);
+    allTrackIds.push(...ids);
+  }
+
+  return allTrackIds;
+}
+
+/**
+ * UPSERT track batch
+ */
+async function upsertTrackBatch(batch) {
   const { data, error } = await supabase
     .from('tracks')
     .upsert(batch, {
       onConflict: 'external_id',
-      ignoreDuplicates: false, // We want UPDATE on conflict
+      ignoreDuplicates: false,
     })
     .select('id');
 
   if (error) {
-    console.error('[trackWriter] Upsert error', {
-      message: error.message,
-      code: error.code,
-    });
+    console.error('[trackWriter] Upsert error', error.message);
     throw error;
   }
 
-  return data ? data.map(row => row.id) : [];
+  return data.map(r => r.id);
 }
 
 /**
- * Split array into chunks.
- * 
- * @param {Array} array - Input array
- * @param {number} size - Chunk size
- * @returns {Array<Array>} - Array of chunks
+ * INSERT playlist_tracks links in batches
  */
-function chunkArray(array, size) {
-  const chunks = [];
-  for (let i = 0; i < array.length; i += size) {
-    chunks.push(array.slice(i, i + size));
+async function insertPlaylistTrackLinks(records) {
+  const chunks = chunkArray(records, PT_BATCH);
+
+  for (const batch of chunks) {
+    const { error } = await supabase
+      .from('playlist_tracks')
+      .insert(batch);
+
+    if (error) {
+      // We do NOT stop the whole process; just log
+      console.error('[trackWriter] playlist_tracks insert error', error.message);
+    }
   }
-  return chunks;
+}
+
+/**
+ * Helper: Split into chunks
+ */
+function chunkArray(arr, size) {
+  const out = [];
+  for (let i = 0; i < arr.length; i += size) {
+    out.push(arr.slice(i, i + size));
+  }
+  return out;
 }
