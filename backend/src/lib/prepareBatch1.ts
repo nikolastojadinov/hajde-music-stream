@@ -4,7 +4,7 @@ import { DateTime } from 'luxon';
 import supabase from '../services/supabaseClient';
 
 const TIMEZONE = 'Europe/Budapest';
-const PLAYLIST_LIMIT = 200;
+const PLAYLIST_LIMIT = 200; // koliko praznih playlisti uzima po slotu
 const BATCH_DIR = path.resolve(__dirname, '../../tmp/refresh_batches');
 const JOB_TABLE = 'refresh_jobs';
 const MIX_PREFIX = 'RD';
@@ -71,25 +71,32 @@ export async function executePrepareJob(job: RefreshJobRow): Promise<void> {
 }
 
 /**
- * SELECTS ONLY EMPTY PLAYLISTS (no tracks in playlist_tracks)
- * - Not RD*
- * - Ordered by created_at
- * - Limit 200
+ * PRAVI FILTER ZA PRAZNE PLAYLISTE:
+ * - Playlist NEMA nijednu pesmu u "tracks" tabeli
+ * - Nije RD* (YouTube mix)
+ * - Vraća 200 najstarijih
  */
 async function fetchEmptyPlaylists(): Promise<Row[]> {
   const sql = `
     with empty_playlists as (
-      select p.id, p.title, p.external_id, p.created_at
+      select 
+        p.id, 
+        p.title, 
+        p.external_id, 
+        p.created_at
       from playlists p
-      left join playlist_tracks pt on pt.playlist_id = p.id
-      where pt.playlist_id is null
-        and not (p.external_id ilike '${MIX_PREFIX}%')
+      where not exists (
+        select 1 
+        from tracks t 
+        where t.playlist_id = p.id
+      )
+      and not (p.external_id ilike '${MIX_PREFIX}%')
     )
     select id, title, external_id, created_at
     from empty_playlists
     order by created_at asc
     limit ${PLAYLIST_LIMIT}
-  `; // <-- NEMA ; !!!
+  `; // !!! nema semicolon posle backtick-a, ispravljeno
 
   const { data, error } = await supabase.rpc('run_raw', { sql });
 
