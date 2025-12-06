@@ -419,8 +419,6 @@ async function refreshSinglePlaylist(
   const now = new Date().toISOString();
 
   if (fetchResult.state === 'unchanged') {
-    // ETag kaže da se sadržaj nije promenio na YouTube-u,
-    // ali mi ipak radimo "touch" na last_refreshed_on da znamo da je playlist proverena.
     await supabase!
       .from(PLAYLIST_TABLE)
       .update({ last_refreshed_on: now })
@@ -434,7 +432,7 @@ async function refreshSinglePlaylist(
     throw new PlaylistUnavailableError(200, 'empty', `Playlist ${playlist.external_id} returned 0 items`);
   }
 
-  // 🔥 Nova logika: FULL REBUILD (fetchTracks.js stil)
+  // FULL REBUILD: upsert tracks + full replace playlist_tracks
   await syncPlaylistTracksFull(playlist, fetchResult.items, now);
 
   await supabase!
@@ -726,10 +724,11 @@ function shouldRetryNetworkError(message: string): boolean {
 }
 
 /**
- * 🔥 Glavna nova funkcija – "fetchTracks.js style" FULL REBUILD:
+ * FULL REBUILD (fetchTracks.js stil):
  * - upsertuje sve pesme u `tracks` (po external_id)
- * - kompletno briše stare redove iz `playlist_tracks` za tu playlistu
- * - ubacuje nove `playlist_tracks` po trenutnom redosledu
+ * - briše stare redove iz `playlist_tracks` za tu playlistu
+ * - ubacuje NOVE redove u `playlist_tracks` po trenutnom redosledu
+ * - deduplikuje (playlist_id, track_id) da ne lupa u UNIQUE indexe
  */
 async function syncPlaylistTracksFull(
   playlist: PlaylistRow,
@@ -738,7 +737,7 @@ async function syncPlaylistTracksFull(
 ): Promise<void> {
   if (youtubeItems.length === 0) return;
 
-  // 1) Upsert tracks (tracks table)
+  // 1) Upsert tracks
   const trackRecords: TrackUpsertRecord[] = youtubeItems.map(item => ({
     youtube_id: item.videoId,
     external_id: item.videoId,
@@ -809,7 +808,6 @@ async function syncPlaylistTracksFull(
   });
 
   if (linkRows.length === 0) {
-    // Teoretski ne bi smelo da se desi, ali neka bude guard.
     console.warn('[runBatch] No playlist_tracks rows built after sync', {
       playlistId: playlist.id,
       youtubePlaylistId: playlist.external_id,
@@ -817,7 +815,18 @@ async function syncPlaylistTracksFull(
     return;
   }
 
-  const playlistTrackChunks = chunkArray(linkRows, PLAYLIST_TRACKS_CHUNK_SIZE);
+  // ❗ DEDUPE po (playlist_id, track_id) da ne pucaju UNIQUE indexi
+  const dedupeMap = new Map<string, PlaylistTrackInsert>();
+  for (const row of linkRows) {
+    const key = `${row.playlist_id}::${row.track_id}`;
+    const existing = dedupeMap.get(key);
+    if (!existing || row.position < existing.position) {
+      dedupeMap.set(key, row);
+    }
+  }
+  const dedupedLinkRows = Array.from(dedupeMap.values());
+
+  const playlistTrackChunks = chunkArray(dedupedLinkRows, PLAYLIST_TRACKS_CHUNK_SIZE);
   for (const chunk of playlistTrackChunks) {
     const { error } = await supabase!
       .from(PLAYLIST_TRACKS_TABLE)
