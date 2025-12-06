@@ -35,7 +35,7 @@ export async function executePrepareJob(job: RefreshJobRow): Promise<void> {
   console.log('[PrepareBatch1] Starting job', {
     jobId: job.id,
     type: job.type,
-    scheduledAtBudapest: scheduledLocal.toISO(),
+    scheduledAtBudapest: scheduledLocal.toISO()
   });
 
   if (job.type !== 'prepare') {
@@ -62,7 +62,7 @@ export async function executePrepareJob(job: RefreshJobRow): Promise<void> {
 
     await finalizeJob(job.id, {
       file: filePath,
-      entries: batchPayload.length,
+      entries: batchPayload.length
     });
   } catch (err) {
     console.error('[PrepareBatch1] Error', err);
@@ -71,11 +71,10 @@ export async function executePrepareJob(job: RefreshJobRow): Promise<void> {
 }
 
 /**
- * SELECTS ONLY EMPTY PLAYLISTS:
- * - No tracks in playlist_tracks
+ * SELECTS ONLY EMPTY PLAYLISTS (no tracks in playlist_tracks)
  * - Not RD*
  * - Ordered by created_at
- * - Limited to 200
+ * - Limit 200
  */
 async function fetchEmptyPlaylists(): Promise<Row[]> {
   const sql = `
@@ -89,8 +88,8 @@ async function fetchEmptyPlaylists(): Promise<Row[]> {
     select id, title, external_id, created_at
     from empty_playlists
     order by created_at asc
-    limit ${PLAYLIST_LIMIT};
-  `;
+    limit ${PLAYLIST_LIMIT}
+  `; // <-- NEMA ; !!!
 
   const { data, error } = await supabase.rpc('run_raw', { sql });
 
