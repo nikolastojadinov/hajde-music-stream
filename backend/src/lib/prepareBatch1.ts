@@ -47,6 +47,7 @@ export async function executePrepareJob(job: RefreshJobRow): Promise<void> {
   try {
     await fs.mkdir(BATCH_DIR, { recursive: true });
 
+    // ⬅️ OVDE SE POZIVA ISPRAVAN SQL
     const playlists = await fetchEmptyPlaylists();
 
     console.log('[PrepareBatch1] Valid empty playlists fetched:', playlists.length);
@@ -84,11 +85,10 @@ export async function executePrepareJob(job: RefreshJobRow): Promise<void> {
 }
 
 /**
- * PRAVI LISTU PRAZNIH PLAYLISTA KOJE SU:
- *  - YouTube plejliste (validan external_id)
- *  - Nemaju nijednu pesmu u playlist_tracks tabeli
- *  - Nisu RD mix plejliste
- *  - Imaju validan YouTube playlist ID format
+ * VRAĆA listu praznih YouTube plejlista:
+ *  - validan externeal_id (YT playlist ID)
+ *  - nije RD (mix)
+ *  - nema nijedan red u playlist_tracks
  */
 async function fetchEmptyPlaylists(): Promise<Row[]> {
   const sql = `
@@ -111,8 +111,8 @@ async function fetchEmptyPlaylists(): Promise<Row[]> {
     select id, title, external_id, created_at
     from empty_playlists
     order by created_at asc
-    limit ${PLAYLIST_LIMIT};
-  `;
+    limit ${PLAYLIST_LIMIT}
+  `; // ⬅️ NEMA TAČKE-ZAREZA → Supabase RPC to traži!
 
   const { data, error } = await supabase.rpc('run_raw', { sql });
 
