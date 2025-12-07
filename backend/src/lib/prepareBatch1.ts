@@ -86,7 +86,7 @@ export async function executePrepareJob(job: RefreshJobRow): Promise<void> {
 /**
  * PRAVI LISTU PRAZNIH PLAYLISTA KOJE SU:
  *  - YouTube plejliste (validan external_id)
- *  - Nemaju nijednu pesmu u tracks tabeli
+ *  - Nemaju nijednu pesmu u playlist_tracks tabeli
  *  - Nisu RD mix plejliste
  *  - Imaju validan YouTube playlist ID format
  */
@@ -100,18 +100,18 @@ async function fetchEmptyPlaylists(): Promise<Row[]> {
         p.created_at
       from playlists p
       where p.external_id is not null
-      and p.external_id ~ '^[A-Za-z0-9_-]{16,}$'
-      and not (p.external_id ilike '${MIX_PREFIX}%')
-      and not exists (
-        select 1 
-        from tracks t 
-        where t.playlist_id = p.id
-      )
+        and p.external_id ~ '^[A-Za-z0-9_-]{16,}$'
+        and not (p.external_id ilike '${MIX_PREFIX}%')
+        and not exists (
+          select 1 
+          from playlist_tracks pt
+          where pt.playlist_id = p.id
+        )
     )
     select id, title, external_id, created_at
     from empty_playlists
     order by created_at asc
-    limit ${PLAYLIST_LIMIT}
+    limit ${PLAYLIST_LIMIT};
   `;
 
   const { data, error } = await supabase.rpc('run_raw', { sql });
