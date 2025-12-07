@@ -737,8 +737,8 @@ async function syncPlaylistTracksFull(
 ): Promise<void> {
   if (youtubeItems.length === 0) return;
 
-  // 1) Upsert tracks
-  const trackRecords: TrackUpsertRecord[] = youtubeItems.map(item => ({
+  // 1) Upsert tracks — prvo deduplikacija po external_id
+  const rawTrackRecords: TrackUpsertRecord[] = youtubeItems.map(item => ({
     youtube_id: item.videoId,
     external_id: item.videoId,
     title: item.title,
@@ -749,6 +749,16 @@ async function syncPlaylistTracksFull(
     region: playlist.region,
     category: playlist.category,
   }));
+
+  // ❗ bitno: jedan external_id = jedan red u upsertu
+  const trackMap = new Map<string, TrackUpsertRecord>();
+  for (const rec of rawTrackRecords) {
+    if (!trackMap.has(rec.external_id)) {
+      trackMap.set(rec.external_id, rec);
+    }
+    // ako već postoji, ostavljamo prvi viđeni – svejedno je, jer su to isti videoId
+  }
+  const trackRecords = Array.from(trackMap.values());
 
   const upsertChunks = chunkArray(trackRecords, TRACK_UPSERT_CHUNK_SIZE);
   for (const chunk of upsertChunks) {
