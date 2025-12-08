@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { usePiPayments } from "@/lib/pi/usePiPayments";
 import type { AuthResult } from "@/types/pi-sdk";
+import { toast } from "@/hooks/use-toast";
 
 export type AuthUser = {
   uid: string;
@@ -179,6 +180,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setAuthUser(profile);
       pendingGoPremium.current = !profile.premium;
       setWelcomeVisible(true);
+
+      const username = profile.username?.trim() || "Pioneer";
+      const premiumUntilDate = profile.premium_until ? new Date(profile.premium_until) : null;
+      const premiumUntilValid = Boolean(
+        profile.premium &&
+        premiumUntilDate &&
+        !Number.isNaN(premiumUntilDate.getTime()) &&
+        premiumUntilDate.getTime() > Date.now(),
+      );
+
+      const message = premiumUntilValid
+        ? `Welcome, ${username} — Premium member until ${premiumUntilDate.toLocaleDateString()}`
+        : `Welcome, ${username}!`;
+
+      toast({
+        title: message,
+        duration: 3200,
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Authentication failed";
       const cancelled = message.toLowerCase().includes("cancel");
