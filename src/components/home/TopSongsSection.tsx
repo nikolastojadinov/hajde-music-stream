@@ -8,6 +8,8 @@ export default function TopSongsSection() {
   const [isFading, setIsFading] = useState(false);
   const touchStartX = useRef<number | null>(null);
   const touchCurrentX = useRef<number | null>(null);
+  const touchStartY = useRef<number | null>(null);
+  const touchCurrentY = useRef<number | null>(null);
   const lastIndex = VIDEO_IDS.length - 1;
 
   const videoSrc = useMemo(() => {
@@ -40,31 +42,48 @@ export default function TopSongsSection() {
     const touch = event.touches[0];
     touchStartX.current = touch?.clientX ?? null;
     touchCurrentX.current = touch?.clientX ?? null;
+    touchStartY.current = touch?.clientY ?? null;
+    touchCurrentY.current = touch?.clientY ?? null;
   };
 
   const handleTouchMove = (event: React.TouchEvent<HTMLDivElement>) => {
     const touch = event.touches[0];
     if (touch) {
       touchCurrentX.current = touch.clientX;
+      touchCurrentY.current = touch.clientY;
     }
   };
 
   const handleTouchEnd = () => {
-    if (touchStartX.current == null || touchCurrentX.current == null) {
+    if (
+      touchStartX.current == null ||
+      touchCurrentX.current == null ||
+      touchStartY.current == null ||
+      touchCurrentY.current == null
+    ) {
       touchStartX.current = null;
       touchCurrentX.current = null;
+      touchStartY.current = null;
+      touchCurrentY.current = null;
       return;
     }
 
     const deltaX = touchStartX.current - touchCurrentX.current;
-    if (deltaX > SWIPE_THRESHOLD) {
-      goToNext();
-    } else if (deltaX < -SWIPE_THRESHOLD) {
-      goToPrev();
+    const deltaY = touchStartY.current - touchCurrentY.current;
+    const horizontalDominant = Math.abs(deltaX) > Math.abs(deltaY);
+
+    if (horizontalDominant && Math.abs(deltaX) > SWIPE_THRESHOLD) {
+      if (deltaX > 0) {
+        goToNext();
+      } else {
+        goToPrev();
+      }
     }
 
     touchStartX.current = null;
     touchCurrentX.current = null;
+    touchStartY.current = null;
+    touchCurrentY.current = null;
   };
 
   return (
@@ -86,6 +105,10 @@ export default function TopSongsSection() {
             className={`h-[220px] w-full rounded-xl border-0 transition-opacity duration-300 md:h-[340px] ${isFading ? "opacity-0" : "opacity-100"}`}
             allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
             allowFullScreen
+          />
+          <div
+            className="swipe-layer pointer-events-none absolute inset-0 z-[5]"
+            aria-hidden="true"
           />
         </div>
         <div className="mt-4 flex items-center justify-center gap-2">
