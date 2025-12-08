@@ -40,14 +40,24 @@ export default function TopSongsSection() {
   }, []);
 
   useEffect(() => {
-    const node = carouselRef.current;
-    if (!node) return;
-
     const resetTouches = () => {
       touchStartX.current = null;
       touchCurrentX.current = null;
       touchStartY.current = null;
       touchCurrentY.current = null;
+    };
+
+    const withinCarousel = (touch?: Touch | null) => {
+      if (!touch) return false;
+      const node = carouselRef.current;
+      if (!node) return false;
+      const rect = node.getBoundingClientRect();
+      return (
+        touch.clientX >= rect.left &&
+        touch.clientX <= rect.right &&
+        touch.clientY >= rect.top &&
+        touch.clientY <= rect.bottom
+      );
     };
 
     const handleTouchStart = (event: TouchEvent) => {
@@ -56,6 +66,10 @@ export default function TopSongsSection() {
         return;
       }
       const touch = event.touches[0];
+      if (!withinCarousel(touch)) {
+        resetTouches();
+        return;
+      }
       touchStartX.current = touch.clientX;
       touchCurrentX.current = touch.clientX;
       touchStartY.current = touch.clientY;
@@ -63,16 +77,18 @@ export default function TopSongsSection() {
     };
 
     const handleTouchMove = (event: TouchEvent) => {
-      if (event.touches.length !== 1) {
-        resetTouches();
+      if (touchStartX.current == null || touchStartY.current == null) {
         return;
       }
       const touch = event.touches[0];
+      if (!withinCarousel(touch)) {
+        return;
+      }
       touchCurrentX.current = touch.clientX;
       touchCurrentY.current = touch.clientY;
     };
 
-    const handleTouchEnd = () => {
+    const handleTouchEnd = (event: TouchEvent) => {
       if (
         touchStartX.current == null ||
         touchCurrentX.current == null ||
@@ -83,11 +99,17 @@ export default function TopSongsSection() {
         return;
       }
 
+      const touch = event.changedTouches[0];
+      if (!withinCarousel(touch)) {
+        resetTouches();
+        return;
+      }
+
       const deltaX = touchStartX.current - touchCurrentX.current;
       const deltaY = touchStartY.current - touchCurrentY.current;
       const horizontalDominant = Math.abs(deltaX) > Math.abs(deltaY);
 
-      if (horizontalDominant && Math.abs(deltaX) > SWIPE_THRESHOLD) {
+      if (horizontalDominant && Math.abs(deltaX) >= SWIPE_THRESHOLD) {
         if (deltaX > 0) {
           goToNext();
         } else {
@@ -100,16 +122,16 @@ export default function TopSongsSection() {
 
     const handleTouchCancel = () => resetTouches();
 
-    node.addEventListener("touchstart", handleTouchStart, { passive: true });
-    node.addEventListener("touchmove", handleTouchMove, { passive: true });
-    node.addEventListener("touchend", handleTouchEnd);
-    node.addEventListener("touchcancel", handleTouchCancel);
+    window.addEventListener("touchstart", handleTouchStart, { passive: true });
+    window.addEventListener("touchmove", handleTouchMove, { passive: true });
+    window.addEventListener("touchend", handleTouchEnd);
+    window.addEventListener("touchcancel", handleTouchCancel);
 
     return () => {
-      node.removeEventListener("touchstart", handleTouchStart);
-      node.removeEventListener("touchmove", handleTouchMove);
-      node.removeEventListener("touchend", handleTouchEnd);
-      node.removeEventListener("touchcancel", handleTouchCancel);
+      window.removeEventListener("touchstart", handleTouchStart);
+      window.removeEventListener("touchmove", handleTouchMove);
+      window.removeEventListener("touchend", handleTouchEnd);
+      window.removeEventListener("touchcancel", handleTouchCancel);
     };
   }, [goToNext, goToPrev]);
 

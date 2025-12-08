@@ -24,10 +24,10 @@ const loginButtonStyles = `
   border: 1px solid rgba(255, 255, 255, 0.35);
   border-radius: 999px;
   height: 46px;
-  width: 160px;
-  min-width: 160px;
-  max-width: 160px;
-  padding: 0 18px;
+  width: 150px;
+  min-width: 150px;
+  max-width: 150px;
+  padding: 0 16px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
