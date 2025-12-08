@@ -12,8 +12,7 @@ const PlaylistCard = ({ id, title, description, imageUrl }: PlaylistCardProps) =
   return (
     <Link to={`/playlist/${id}`} className="group block">
       <div className="bg-card p-3 rounded-lg hover:bg-secondary/80 transition-all duration-300">
-        {/* 16:9 cover image container */}
-        <div className="relative mb-3 w-full h-40 rounded-md bg-black flex items-center justify-center overflow-hidden">
+        <div className="relative mb-3 w-full h-28 rounded-md bg-black overflow-hidden flex items-center justify-center">
           {imageUrl ? (
             <img
               src={imageUrl}
@@ -21,13 +20,12 @@ const PlaylistCard = ({ id, title, description, imageUrl }: PlaylistCardProps) =
               className="max-w-full max-h-full object-contain object-center"
             />
           ) : (
-            <div className="w-full h-full bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
+            <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-primary/20 to-primary/5">
               <Music className="w-8 h-8 text-primary/30" />
             </div>
           )}
         </div>
 
-        {/* Text area */}
         <div className="space-y-1">
           <h3 className="font-semibold text-sm text-foreground truncate leading-tight">{title}</h3>
           <p className="text-xs text-muted-foreground line-clamp-2 leading-tight min-h-[2.5rem]">
