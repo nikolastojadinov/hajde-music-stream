@@ -16,9 +16,9 @@ const PremiumDialog = ({ open, onOpenChange }: PremiumDialogProps) => {
   const [message, setMessage] = useState<string | null>(null);
 
   const plans = [
-    { id: 'weekly' as const, name: t('weekly_plan'), price: '1π', duration: `7 ${t('days_access')}` },
-    { id: 'monthly' as const, name: t('monthly_plan'), price: '3.14π', duration: `30 ${t('days_access')}` },
-    { id: 'yearly' as const, name: t('yearly_plan'), price: '31.4π', duration: `365 ${t('days_access')}` },
+    { id: 'weekly' as const, name: t('weekly_plan'), price: '1testpi', duration: `7 ${t('days_access')}` },
+    { id: 'monthly' as const, name: t('monthly_plan'), price: '3.14testpi', duration: `30 ${t('days_access')}` },
+    { id: 'yearly' as const, name: t('yearly_plan'), price: '31.4testpi', duration: `365 ${t('days_access')}` },
   ];
 
   const handleActivate = async () => {
