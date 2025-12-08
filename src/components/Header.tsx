@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Check, Crown, FileText, Globe, LogOut, Pi, Shield, User } from "lucide-react";
 
@@ -17,6 +17,83 @@ import {
 import { usePi } from "@/contexts/PiContext";
 import { usePremiumDialog } from "@/contexts/PremiumDialogContext";
 
+const loginButtonStyles = `
+.pm-login-btn {
+  background: linear-gradient(120deg, #fff7cc, #f7cf5d, #f29b38);
+  color: #1a1200;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 999px;
+  height: 44px;
+  padding: 0 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-width: 140px;
+  max-width: 260px;
+  width: auto;
+  flex-shrink: 0;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.25);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
+}
+
+.pm-login-btn:hover:not(:disabled) {
+  transform: translateY(-1px) scale(1.01);
+  box-shadow: 0 16px 32px rgba(0, 0, 0, 0.3);
+  filter: brightness(1.04);
+}
+
+.pm-login-btn:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.25);
+}
+
+.pm-login-btn:disabled {
+  opacity: 0.75;
+  cursor: not-allowed;
+}
+
+.pm-login-btn[data-loading="true"] {
+  cursor: progress;
+}
+
+.pi-icon-circle {
+  background: rgba(0, 0, 0, 0.85);
+  color: #f7d972;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: inset 0 0 0 1px rgba(247, 217, 114, 0.35);
+  flex-shrink: 0;
+}
+
+.pi-icon {
+  width: 15px;
+  height: 15px;
+}
+
+.pm-login-text {
+  font-size: clamp(12px, 3vw, 15px);
+  line-height: 1.2;
+  text-align: left;
+  white-space: normal;
+}
+
+.pm-login-btn[data-long-label="true"] {
+  padding: 0 16px;
+  gap: 10px;
+}
+
+.pm-login-btn[data-long-label="true"] .pm-login-text {
+  font-size: clamp(11px, 2.8vw, 13px);
+}
+`;
+
 const Header = () => {
   const [menuOpen, setMenuOpen] = useState(false);
   const [languageOpen, setLanguageOpen] = useState(false);
@@ -26,6 +103,27 @@ const Header = () => {
 
   const displayName = user?.username ?? "GOST";
   const isGuest = !user;
+  const loginShortRaw = t("login_short");
+  const loginLabel =
+    loginShortRaw && loginShortRaw !== "login_short" ? loginShortRaw : t("sign_in_with_pi");
+  const loginButtonText = authenticating ? t("signing_in") : loginLabel;
+  const isLongLoginText = loginButtonText.length > 16;
+
+  useEffect(() => {
+    const styleTag = document.createElement("style");
+    styleTag.setAttribute("data-header-login", "true");
+    styleTag.textContent = loginButtonStyles;
+    document.head.appendChild(styleTag);
+    return () => {
+      document.head.removeChild(styleTag);
+    };
+  }, []);
+
+  const handleLogin = () => {
+    if (!authenticating) {
+      login();
+    }
+  };
 
   return (
     <header className="fixed top-0 left-0 right-0 h-16 bg-background/80 backdrop-blur-md border-b border-border/50 z-50">
@@ -42,12 +140,19 @@ const Header = () => {
         <div className="flex items-center gap-3">
           {isGuest && (
             <button
-              onClick={login}
+              type="button"
+              className="pm-login-btn"
+              onClick={handleLogin}
               disabled={authenticating}
-              className="inline-flex items-center gap-2 rounded-full border border-[#F7C948] bg-transparent px-6 py-2 text-sm font-semibold text-[#F7C948] transition hover:bg-[#F7C948]/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F7C948]/70 disabled:opacity-60"
+              data-long-label={isLongLoginText ? "true" : "false"}
+              data-loading={authenticating ? "true" : "false"}
+              aria-label={loginButtonText}
+              title={loginButtonText}
             >
-              <Pi className="w-4 h-4" />
-              {t("sign_in_with_pi")}
+              <div className="pi-icon-circle">
+                <Pi className="pi-icon" />
+              </div>
+              <span className="pm-login-text">{loginButtonText}</span>
             </button>
           )}
 

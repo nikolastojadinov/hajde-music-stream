@@ -34,6 +34,34 @@ export const languages: Language[] = [
   { code: "sr", name: "Serbian", nativeName: "Српски" },
 ];
 
+const loginShortOverrides: Record<string, string> = {
+  sr: "Prijavi se",
+  vi: "Đăng nhập",
+  hi: "लॉग इन करें",
+  en: "Log in",
+  ko: "로그인",
+  am: "ግባ",
+  "en-ng": "Log in",
+  id: "Masuk",
+  fil: "Mag-log in",
+  ms: "Log masuk",
+  ur: "لاگ ان کریں",
+  bn: "লগ ইন করুন",
+  th: "เข้าสู่ระบบ",
+  ru: "Войти",
+  pt: "Entrar",
+  tr: "Giriş yap",
+  de: "Anmelden",
+  fr: "Se connecter",
+  es: "Iniciar sesión",
+  it: "Accedi",
+  nl: "Inloggen",
+  pl: "Zaloguj się",
+  hu: "Bejelentkezés",
+  cs: "Přihlásit se",
+  el: "Σύνδεση",
+};
+
 type LanguageContextType = {
   currentLanguage: string;
   setLanguage: (code: string) => void;
@@ -2852,6 +2880,18 @@ const getTranslations = (lang: string): Record<string, string> => {
       "unlike_playlist": "Unlike playlist",
     },
   };
+
+  Object.entries(loginShortOverrides).forEach(([code, value]) => {
+    if (translations[code]) {
+      translations[code].login_short = value;
+    }
+  });
+
+  Object.values(translations).forEach(dictionary => {
+    if (!dictionary.login_short) {
+      dictionary.login_short = dictionary.sign_in_with_pi || "Log in";
+    }
+  });
 
   return translations[lang] || translations.en;
 };
