@@ -1,8 +1,5 @@
-// -----------------------------------------------------------
-// Purple Music – Search.tsx (Hybrid Fuzzy Search + Supabase)
-// -----------------------------------------------------------
-
 import { useState, useEffect, useRef, useMemo } from "react";
+import Fuse from "fuse.js";
 import { Search as SearchIcon, Clock, Music, ListMusic, User, History } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -10,8 +7,8 @@ import { useNavigate } from "react-router-dom";
 import { usePlayer } from "@/contexts/PlayerContext";
 import { usePi } from "@/contexts/PiContext";
 import { externalSupabase } from "@/lib/externalSupabase";
-import Fuse from "@/lib/fuse"; // ← fuzzy engine (UMD build)
 
+// Types
 interface Track {
   id: string;
   external_id: string;
@@ -53,7 +50,6 @@ const Search = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [activeTab, setActiveTab] = useState<FilterTab>("playlists");
-
   const [results, setResults] = useState<SearchResults>({
     tracks: [],
     playlists: [],
@@ -64,14 +60,9 @@ const Search = () => {
   const [history, setHistory] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
-  // -----------------------------------------------
-  // AbortController for canceling old Supabase queries
-  // -----------------------------------------------
   const abortRef = useRef<AbortController | null>(null);
 
-  // -----------------------------------------------
-  // Load search history from localStorage
-  // -----------------------------------------------
+  // Load search history
   useEffect(() => {
     const stored = localStorage.getItem("pm_search_history");
     if (stored) setHistory(JSON.parse(stored));
@@ -84,32 +75,24 @@ const Search = () => {
     localStorage.setItem("pm_search_history", JSON.stringify(updated));
   };
 
-  // -----------------------------------------------
-  // Debounce input
-  // -----------------------------------------------
+  // Debounce
   useEffect(() => {
-    const timer = setTimeout(() => setDebouncedSearch(searchTerm.trim()), 250);
-    return () => clearTimeout(timer);
+    const t = setTimeout(() => setDebouncedSearch(searchTerm.trim()), 300);
+    return () => clearTimeout(t);
   }, [searchTerm]);
 
   useEffect(() => {
-    if (searchTerm.length > 0) setActiveTab("playlists");
+    if (searchTerm) setActiveTab("playlists");
   }, [searchTerm]);
 
-  // -----------------------------------------------
-  // Highlight matched segments
-  // -----------------------------------------------
-  const highlightMatch = (text: string, q: string) => {
-    if (!q) return text;
-    const regex = new RegExp(`(${q})`, "gi");
-    return text.replace(regex, "<mark>$1</mark>");
+  // Highlight fuzzy matches
+  const highlightMatch = (text: string, query: string) => {
+    if (!query) return text;
+    const reg = new RegExp(`(${query})`, "gi");
+    return text.replace(reg, "<mark>$1</mark>");
   };
 
-  // -----------------------------------------------
-  // HYBRID SEARCH PIPELINE (C)
-  // 1. fuzzy matching local suggestions (instant)
-  // 2. supabase confirmation & fetching
-  // -----------------------------------------------
+  // Hybrid fuzzy + Supabase
   useEffect(() => {
     if (!debouncedSearch) {
       setResults({ tracks: [], playlists: [], artistGroups: [] });
@@ -117,88 +100,72 @@ const Search = () => {
       return;
     }
 
-    const runSearch = async () => {
+    const run = async () => {
       abortRef.current?.abort();
       const controller = new AbortController();
       abortRef.current = controller;
 
       setIsLoading(true);
 
-      // -------------------------------------------
-      // STEP 1: Fuzzy Suggestions (local only)
-      // -------------------------------------------
-      const searchSpace = [
-        ...history,
-        ...suggestions,
-      ];
-
-      const fuse = new Fuse(searchSpace, {
-        includeScore: true,
-        shouldSort: true,
-        threshold: 0.35, // SUPERIOR fuzzy accuracy
-      });
-
-      const fuzzyOutput = fuse.search(debouncedSearch).map((x) => x.item);
-
-      // Merge fuzzy output + history results
-      const combinedSuggestions = Array.from(
-        new Set([...fuzzyOutput, ...searchSpace])
-      )
-        .filter((x) => x.toLowerCase().includes(debouncedSearch.toLowerCase()))
-        .slice(0, 10);
-
-      setSuggestions(combinedSuggestions);
-
-      // -------------------------------------------
-      // STEP 2: Supabase database search
-      // -------------------------------------------
       try {
+        // Fetch cached items (optional)
+        const cache = JSON.parse(localStorage.getItem("pm_search_cache") || "[]");
+
+        // Local fuzzy search first
+        const fuse = new Fuse(cache, {
+          keys: ["title", "artist", "playlistName"],
+          threshold: 0.35,
+          includeScore: true,
+        });
+
+        const fuzzyMatches = fuse.search(debouncedSearch).map((x) => x.item);
+
         const pattern = `%${debouncedSearch}%`;
 
+        // Query Supabase in parallel
         const [tracksRes, playlistsRes, artistRes] = await Promise.all([
           externalSupabase
             .from("tracks")
             .select("id, external_id, title, artist, cover_url, duration")
             .or(`title.ilike.${pattern},artist.ilike.${pattern}`)
-            .limit(25)
+            .limit(20)
             .abortSignal(controller.signal),
 
           externalSupabase
             .from("playlists")
             .select("id, title, cover_url, description")
             .ilike("title", pattern)
-            .limit(25)
+            .limit(20)
             .abortSignal(controller.signal),
 
           externalSupabase
             .from("tracks")
             .select("id, external_id, title, artist, cover_url, duration")
             .ilike("artist", pattern)
-            .limit(25)
+            .limit(20)
             .abortSignal(controller.signal),
         ]);
 
-        const tracks: Track[] = tracksRes.data || [];
+        const tracks = tracksRes.data || [];
 
         const playlistsWithCounts = await Promise.all(
-          (playlistsRes.data || []).map(async (playlist) => {
+          (playlistsRes.data || []).map(async (p) => {
             const { count } = await externalSupabase
               .from("playlist_tracks")
               .select("*", { count: "exact", head: true })
-              .eq("playlist_id", playlist.id);
-
-            return { playlist, count: count || 0 };
+              .eq("playlist_id", p.id);
+            return { playlist: p, count: count || 0 };
           })
         );
 
-        const playlists: Playlist[] = playlistsWithCounts
-          .filter((x) => x.count > 0)
-          .map((x) => x.playlist);
+        const playlists = playlistsWithCounts
+          .filter(({ count }) => count > 0)
+          .map(({ playlist }) => playlist);
 
         const artistMap = new Map<string, Track[]>();
-        (artistRes.data || []).forEach((track) => {
-          const list = artistMap.get(track.artist) || [];
-          artistMap.set(track.artist, [...list, track]);
+        (artistRes.data || []).forEach((trk: Track) => {
+          const existing = artistMap.get(trk.artist) || [];
+          artistMap.set(trk.artist, [...existing, trk]);
         });
 
         const artistGroups = Array.from(artistMap.entries())
@@ -210,49 +177,41 @@ const Search = () => {
 
         setResults({ tracks, playlists, artistGroups });
 
+        const s = new Set<string>();
+        fuzzyMatches.forEach((i) => s.add(i.title || i.artist || ""));
+        tracks.forEach((t) => s.add(t.title));
+        playlists.forEach((p) => s.add(p.title));
+        artistGroups.forEach((g) => s.add(g.artist));
+
+        setSuggestions([...s].slice(0, 10));
         saveHistory(debouncedSearch);
       } catch (err) {
-        if ((err as any).name !== "AbortError") {
-          console.error("Search error:", err);
-        }
+        if ((err as any).name !== "AbortError") console.error(err);
       } finally {
         setIsLoading(false);
       }
     };
 
-    runSearch();
+    run();
   }, [debouncedSearch]);
 
-  // -----------------------------------------------
-  // Helpers
-  // -----------------------------------------------
-  const handleTrackClick = (track: Track) => {
-    playTrack(track.external_id, track.title, track.artist, track.id);
-  };
+  const handleTrackClick = (t: Track) =>
+    playTrack(t.external_id, t.title, t.artist, t.id);
 
-  const handlePlaylistClick = (id: string) => {
-    navigate(`/playlist/${id}`);
-  };
+  const handlePlaylistClick = (id: string) => navigate(`/playlist/${id}`);
 
-  const handleSuggestionClick = (term: string) => {
-    setSearchTerm(term);
-  };
+  const handleSuggestionClick = (term: string) => setSearchTerm(term);
 
-  const formatDuration = (seconds: number | null) => {
-    if (!seconds) return "";
-    const m = Math.floor(seconds / 60);
-    const s = seconds % 60;
-    return `${m}:${s.toString().padStart(2, "0")}`;
+  const formatDuration = (sec: number | null) => {
+    if (!sec) return "";
+    return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
   };
 
   const hasResults =
-    results.tracks.length > 0 ||
-    results.playlists.length > 0 ||
-    results.artistGroups.length > 0;
+    results.tracks.length ||
+    results.playlists.length ||
+    results.artistGroups.length;
 
-  // -----------------------------------------------
-  // Browse categories
-  // -----------------------------------------------
   const browseCategories = useMemo(
     () => [
       { id: 1, title: t("genre_pop"), color: "from-pink-500 to-purple-500" },
@@ -265,14 +224,11 @@ const Search = () => {
     [t]
   );
 
-  // -----------------------------------------------
-  // UI
-  // -----------------------------------------------
   return (
     <div className="relative flex-1 overflow-y-auto pb-32">
       <div className="p-4 md:p-8 max-w-3xl mx-auto">
 
-        {/* SEARCH BAR + AUTOCOMPLETE */}
+        {/* Search input */}
         <div className="relative mb-8">
           <SearchIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
 
@@ -281,20 +237,20 @@ const Search = () => {
             placeholder={t("search_placeholder")}
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-12 h-12 bg-card border-border text-foreground"
-            autoFocus={isAuthenticated}
+            className="pl-12 h-12 bg-card border-border text-foreground placeholder:text-muted-foreground"
             disabled={!isAuthenticated}
+            autoFocus={isAuthenticated}
           />
 
-          {searchTerm.length > 0 && (
+          {/* Autocomplete */}
+          {searchTerm.length > 0 && (suggestions.length > 0 || history.length > 0) && (
             <div className="absolute z-50 mt-2 w-full bg-card border border-border rounded-lg shadow-lg max-h-80 overflow-y-auto animate-fade-in">
-
+              
               {history.length > 0 && (
                 <>
                   <h4 className="px-3 pt-3 pb-1 text-xs text-muted-foreground uppercase flex items-center gap-2">
                     <History className="w-4 h-4" /> {t("recent_searches")}
                   </h4>
-
                   {history.map((h) => (
                     <div
                       key={h}
@@ -312,7 +268,6 @@ const Search = () => {
                   <h4 className="px-3 pt-3 pb-1 text-xs text-muted-foreground uppercase flex items-center gap-2">
                     <SearchIcon className="w-4 h-4" /> {t("suggestions")}
                   </h4>
-
                   {suggestions.map((s) => (
                     <div
                       key={s}
@@ -327,22 +282,19 @@ const Search = () => {
           )}
         </div>
 
-        {/* LOADING */}
-        {isLoading && (
-          <p className="text-muted-foreground">{t("search_loading")}...</p>
-        )}
+        {/* Loading */}
+        {isLoading && <p className="text-muted-foreground">{t("search_loading")}...</p>}
 
-        {/* SEARCH RESULTS */}
+        {/* Results */}
         {!isLoading && debouncedSearch && hasResults && (
           <div className="animate-fade-in space-y-10">
-
-            {/* PLAYLISTS */}
+            
+            {/* Playlists */}
             {results.playlists.length > 0 && (
               <section>
                 <h2 className="text-xl font-bold flex items-center gap-2 mb-3">
                   <ListMusic className="w-5 h-5" /> {t("search_section_playlists")}
                 </h2>
-
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                   {results.playlists.map((p) => (
                     <div
@@ -371,13 +323,12 @@ const Search = () => {
               </section>
             )}
 
-            {/* SONGS */}
+            {/* Songs */}
             {results.tracks.length > 0 && (
               <section>
-                <h2 className="text-xl font-bold flex itemscenter gap-2 mb-3">
+                <h2 className="text-xl font-bold flex items-center gap-2 mb-3">
                   <Music className="w-5 h-5" /> {t("search_section_songs")}
                 </h2>
-
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                   {results.tracks.map((t) => (
                     <div
@@ -394,7 +345,6 @@ const Search = () => {
                           </div>
                         )}
                       </div>
-
                       <h3 className="text-sm font-medium line-clamp-1">{t.title}</h3>
                       <p className="text-xs text-muted-foreground">{t.artist}</p>
                     </div>
@@ -403,7 +353,7 @@ const Search = () => {
               </section>
             )}
 
-            {/* ARTISTS */}
+            {/* Artists */}
             {results.artistGroups.length > 0 && (
               <section>
                 <h2 className="text-xl font-bold flex items-center gap-2 mb-3">
@@ -452,11 +402,10 @@ const Search = () => {
           </div>
         )}
 
-        {/* DEFAULT CONTENT */}
+        {/* Default browse */}
         {!debouncedSearch && (
           <div className="animate-fade-in">
             <h2 className="text-2xl font-bold mb-4">{t("browse_all")}</h2>
-
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
               {browseCategories.map((cat) => (
                 <div
@@ -469,7 +418,6 @@ const Search = () => {
             </div>
           </div>
         )}
-
       </div>
     </div>
   );
