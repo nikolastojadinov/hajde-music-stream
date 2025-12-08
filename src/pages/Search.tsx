@@ -1,5 +1,5 @@
-import { useState, useEffect, useMemo } from "react";
-import { Search as SearchIcon, Music, ListMusic, User } from "lucide-react";
+import { useState, useEffect, useRef, useMemo } from "react";
+import { Search as SearchIcon, Clock, Music, ListMusic, User, History } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useNavigate } from "react-router-dom";
@@ -7,7 +7,6 @@ import { usePlayer } from "@/contexts/PlayerContext";
 import { usePi } from "@/contexts/PiContext";
 import { externalSupabase } from "@/lib/externalSupabase";
 
-// Types - matching Supabase schema exactly
 interface Track {
   id: string;
   external_id: string;
@@ -35,7 +34,9 @@ interface SearchResults {
   artistGroups: ArtistGroup[];
 }
 
-type FilterTab = 'playlists' | 'songs' | 'artists';
+type FilterTab = "playlists" | "songs" | "artists";
+
+const MAX_HISTORY = 10;
 
 const Search = () => {
   const { t } = useLanguage();
@@ -43,91 +44,106 @@ const Search = () => {
   const { playTrack } = usePlayer();
   const { user } = usePi();
   const isAuthenticated = Boolean(user);
-  
+
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [activeTab, setActiveTab] = useState<FilterTab>('playlists');
+  const [activeTab, setActiveTab] = useState<FilterTab>("playlists");
   const [results, setResults] = useState<SearchResults>({
     tracks: [],
     playlists: [],
     artistGroups: [],
   });
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [history, setHistory] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Debounce 300ms
+  const abortRef = useRef<AbortController | null>(null);
+
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedSearch(searchTerm.trim());
-    }, 300);
+    const stored = localStorage.getItem("pm_search_history");
+    if (stored) setHistory(JSON.parse(stored));
+  }, []);
+
+  const saveHistory = (term: string) => {
+    if (!term) return;
+    const updated = [term, ...history.filter((x) => x !== term)].slice(0, MAX_HISTORY);
+    setHistory(updated);
+    localStorage.setItem("pm_search_history", JSON.stringify(updated));
+  };
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(searchTerm.trim()), 300);
     return () => clearTimeout(timer);
   }, [searchTerm]);
 
-  // Reset to default tab when search changes
   useEffect(() => {
-    if (searchTerm.length > 0) {
-      setActiveTab('playlists');
-    }
+    if (searchTerm.length > 0) setActiveTab("playlists");
   }, [searchTerm]);
 
-  // Perform search
+  const highlightMatch = (text: string, query: string) => {
+    if (!query) return text;
+    const regex = new RegExp(`(${query})`, "gi");
+    return text.replace(regex, "<mark>$1</mark>");
+  };
+
   useEffect(() => {
     if (!debouncedSearch) {
       setResults({ tracks: [], playlists: [], artistGroups: [] });
+      setSuggestions([]);
       return;
     }
 
-    const performSearch = async () => {
+    const fetchResults = async () => {
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+
       setIsLoading(true);
+
       try {
-        const searchPattern = `%${debouncedSearch}%`;
+        const pattern = `%${debouncedSearch}%`;
 
-        // Parallel queries with Promise.all
-        const [tracksResponse, playlistsResponse, artistTracksResponse] = await Promise.all([
-          // Query 1: Tracks matching title or artist
+        const [tracksRes, playlistsRes, artistRes] = await Promise.all([
           externalSupabase
-            .from('tracks')
-            .select('id, external_id, title, artist, cover_url, duration')
-            .or(`title.ilike.${searchPattern},artist.ilike.${searchPattern}`)
-            .limit(20),
+            .from("tracks")
+            .select("id, external_id, title, artist, cover_url, duration")
+            .or(`title.ilike.${pattern},artist.ilike.${pattern}`)
+            .limit(20)
+            .abortSignal(controller.signal),
 
-          // Query 2: Playlists matching title
           externalSupabase
-            .from('playlists')
-            .select('id, title, cover_url, description')
-            .ilike('title', searchPattern)
-            .limit(20),
+            .from("playlists")
+            .select("id, title, cover_url, description")
+            .ilike("title", pattern)
+            .limit(20)
+            .abortSignal(controller.signal),
 
-          // Query 3: Tracks for artist grouping
           externalSupabase
-            .from('tracks')
-            .select('id, external_id, title, artist, cover_url, duration')
-            .ilike('artist', searchPattern)
-            .limit(20),
+            .from("tracks")
+            .select("id, external_id, title, artist, cover_url, duration")
+            .ilike("artist", pattern)
+            .limit(20)
+            .abortSignal(controller.signal),
         ]);
 
-        // Process tracks
-        const tracks: Track[] = tracksResponse.data || [];
+        const tracks: Track[] = tracksRes.data || [];
 
-        // Process playlists - fetch track counts
         const playlistsWithCounts = await Promise.all(
-          (playlistsResponse.data || []).map(async (playlist) => {
+          (playlistsRes.data || []).map(async (playlist) => {
             const { count } = await externalSupabase
-              .from('playlist_tracks')
-              .select('*', { count: 'exact', head: true })
-              .eq('playlist_id', playlist.id);
-            
+              .from("playlist_tracks")
+              .select("*", { count: "exact", head: true })
+              .eq("playlist_id", playlist.id);
             return { playlist, count: count || 0 };
           })
         );
 
-        // Filter playlists with item_count > 0
         const playlists: Playlist[] = playlistsWithCounts
           .filter(({ count }) => count > 0)
           .map(({ playlist }) => playlist);
 
-        // Process artist grouping
         const artistMap = new Map<string, Track[]>();
-        (artistTracksResponse.data || []).forEach((track: Track) => {
+        (artistRes.data || []).forEach((track: Track) => {
           const existing = artistMap.get(track.artist) || [];
           artistMap.set(track.artist, [...existing, track]);
         });
@@ -140,473 +156,271 @@ const Search = () => {
           .sort((a, b) => a.artist.localeCompare(b.artist));
 
         setResults({ tracks, playlists, artistGroups });
-      } catch (error) {
-        console.error('Search error:', error);
-        setResults({ tracks: [], playlists: [], artistGroups: [] });
+
+        const s = new Set<string>();
+        tracks.forEach((t) => s.add(t.title));
+        playlists.forEach((p) => s.add(p.title));
+        artistGroups.forEach((g) => s.add(g.artist));
+        setSuggestions([...s].slice(0, 10));
+
+        saveHistory(debouncedSearch);
+      } catch (err) {
+        if ((err as any).name !== "AbortError") {
+          console.error("Search error:", err);
+          setResults({ tracks: [], playlists: [], artistGroups: [] });
+        }
       } finally {
         setIsLoading(false);
       }
     };
 
-    performSearch();
+    fetchResults();
   }, [debouncedSearch]);
 
-  // IDENTICAL to TrackCard playback - uses playTrack from PlayerContext
   const handleTrackClick = (track: Track) => {
     playTrack(track.external_id, track.title, track.artist, track.id);
   };
 
-  // IDENTICAL to PlaylistCard navigation
-  const handlePlaylistClick = (playlistId: string) => {
-    navigate(`/playlist/${playlistId}`);
+  const handlePlaylistClick = (id: string) => {
+    navigate(`/playlist/${id}`);
+  };
+
+  const handleSuggestionClick = (term: string) => {
+    setSearchTerm(term);
   };
 
   const formatDuration = (seconds: number | null) => {
     if (!seconds) return "";
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, "0")}`;
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m}:${s.toString().padStart(2, "0")}`;
   };
 
-  const hasResults = results.tracks.length > 0 || results.playlists.length > 0 || results.artistGroups.length > 0;
-  const showEmptyState = debouncedSearch.length > 0 && !isLoading && !hasResults;
+  const hasResults =
+    results.tracks.length > 0 ||
+    results.playlists.length > 0 ||
+    results.artistGroups.length > 0;
 
-  const browseCategories = useMemo(() => [
-    { id: 1, title: t("genre_pop"), color: "from-pink-500 to-purple-500" },
-    { id: 2, title: t("genre_rock"), color: "from-red-500 to-orange-500" },
-    { id: 3, title: t("genre_hiphop"), color: "from-yellow-500 to-green-500" },
-    { id: 4, title: t("genre_electronic"), color: "from-blue-500 to-cyan-500" },
-    { id: 5, title: t("genre_jazz"), color: "from-indigo-500 to-purple-500" },
-    { id: 6, title: t("genre_classical"), color: "from-gray-500 to-slate-500" },
-    { id: 7, title: t("genre_rnb"), color: "from-rose-500 to-pink-500" },
-    { id: 8, title: t("genre_country"), color: "from-amber-500 to-yellow-500" },
-  ], [t]);
+  const browseCategories = useMemo(
+    () => [
+      { id: 1, title: t("genre_pop"), color: "from-pink-500 to-purple-500" },
+      { id: 2, title: t("genre_rock"), color: "from-red-500 to-orange-500" },
+      { id: 3, title: t("genre_hiphop"), color: "from-yellow-500 to-green-500" },
+      { id: 4, title: t("genre_electronic"), color: "from-blue-500 to-cyan-500" },
+      { id: 5, title: t("genre_jazz"), color: "from-indigo-500 to-purple-500" },
+      { id: 6, title: t("genre_classical"), color: "from-gray-500 to-slate-500" },
+    ],
+    [t]
+  );
 
   return (
     <div className="relative flex-1 overflow-y-auto pb-32">
-      <style>{`
-        .blocked-search-page-msg {
-          position: fixed;
-          top: clamp(56px, 18vh, 200px);
-          left: 50%;
-          transform: translateX(-50%);
-          width: min(90%, 420px);
-          padding: 14px 20px;
-          background: rgba(0, 0, 0, 0.85);
-          border-radius: 16px;
-          color: var(--pm-gold);
-          font-size: 16px;
-          text-align: center;
-          z-index: 10000;
-          pointer-events: none;
-          box-shadow: 0 15px 30px rgba(0, 0, 0, 0.45);
-          backdrop-filter: blur(10px);
-        }
-      `}</style>
-      <div
-        className="p-4 md:p-8 transition-all duration-200"
-        style={
-          !isAuthenticated
-            ? {
-                filter: "blur(6px)",
-                opacity: 0.5,
-                pointerEvents: "none",
-              }
-            : undefined
-        }
-      >
-        {/* Search Input */}
-        <div className="mb-6 max-w-2xl animate-fade-in">
-          <div className="relative">
-            <SearchIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-            <Input
-              type="text"
-              placeholder={t("search_placeholder")}
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-12 h-12 bg-card border-border text-foreground placeholder:text-muted-foreground"
-              autoFocus={isAuthenticated}
-              disabled={!isAuthenticated}
-              readOnly={!isAuthenticated}
-              aria-disabled={!isAuthenticated}
-            />
-          </div>
+      <div className="p-4 md:p-8 max-w-3xl mx-auto">
+
+        {/* SEARCH INPUT + AUTOCOMPLETE */}
+        <div className="relative mb-8">
+          <SearchIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+
+          <Input
+            type="text"
+            placeholder={t("search_placeholder")}
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="pl-12 h-12 bg-card border-border text-foreground placeholder:text-muted-foreground"
+            autoFocus={isAuthenticated}
+            disabled={!isAuthenticated}
+          />
+
+          {searchTerm.length > 0 && (suggestions.length > 0 || history.length > 0) && (
+            <div className="absolute z-50 mt-2 w-full bg-card border border-border rounded-lg shadow-lg max-h-80 overflow-y-auto animate-fade-in">
+
+              {history.length > 0 && (
+                <>
+                  <h4 className="px-3 pt-3 pb-1 text-xs text-muted-foreground uppercase flex items-center gap-2">
+                    <History className="w-4 h-4" /> {t("recent_searches")}
+                  </h4>
+
+                  {history.map((h) => (
+                    <div
+                      key={h}
+                      onClick={() => handleSuggestionClick(h)}
+                      className="px-3 py-2 text-sm cursor-pointer hover:bg-white/5"
+                    >
+                      {h}
+                    </div>
+                  ))}
+                </>
+              )}
+
+              {suggestions.length > 0 && (
+                <>
+                  <h4 className="px-3 pt-3 pb-1 text-xs text-muted-foreground uppercase flex items-center gap-2">
+                    <SearchIcon className="w-4 h-4" /> {t("suggestions")}
+                  </h4>
+
+                  {suggestions.map((s) => (
+                    <div
+                      key={s}
+                      onClick={() => handleSuggestionClick(s)}
+                      className="px-3 py-2 text-sm cursor-pointer hover:bg-white/5"
+                      dangerouslySetInnerHTML={{ __html: highlightMatch(s, searchTerm) }}
+                    />
+                  ))}
+                </>
+              )}
+            </div>
+          )}
         </div>
 
-        {/* Filter Tabs - Show only when searching */}
-        {searchTerm.length > 0 && (
-          <div className="mb-8 max-w-2xl flex gap-2 animate-fade-in">
-            <button
-              onClick={() => setActiveTab('playlists')}
-              className={`flex-1 px-3 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${
-                activeTab === 'playlists'
-                  ? 'border-2 border-yellow-500 text-yellow-500 bg-yellow-500/10'
-                  : 'border-2 border-yellow-600/40 text-yellow-600/70 hover:border-yellow-500/60 hover:text-yellow-500/90'
-              }`}
-            >
-              <span className="flex items-center justify-center gap-1.5">
-                <ListMusic className="w-4 h-4" />
-                <span className="hidden xs:inline">Playlists</span>
-                <span className="xs:hidden">Lists</span>
-              </span>
-            </button>
-            
-            <button
-              onClick={() => setActiveTab('songs')}
-              className={`flex-1 px-3 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${
-                activeTab === 'songs'
-                  ? 'border-2 border-yellow-500 text-yellow-500 bg-yellow-500/10'
-                  : 'border-2 border-yellow-600/40 text-yellow-600/70 hover:border-yellow-500/60 hover:text-yellow-500/90'
-              }`}
-            >
-              <span className="flex items-center justify-center gap-1.5">
-                <Music className="w-4 h-4" />
-                Songs
-              </span>
-            </button>
-            
-            <button
-              onClick={() => setActiveTab('artists')}
-              className={`flex-1 px-3 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${
-                activeTab === 'artists'
-                  ? 'border-2 border-yellow-500 text-yellow-500 bg-yellow-500/10'
-                  : 'border-2 border-yellow-600/40 text-yellow-600/70 hover:border-yellow-500/60 hover:text-yellow-500/90'
-              }`}
-            >
-              <span className="flex items-center justify-center gap-1.5">
-                <User className="w-4 h-4" />
-                Artists
-              </span>
-            </button>
-          </div>
+        {/* LOADING */}
+        {isLoading && (
+          <p className="text-muted-foreground">{t("search_loading")}...</p>
         )}
 
-        {/* Search Results */}
-        {debouncedSearch.length > 0 && (
-          <div className="mb-12">
-            {isLoading ? (
-              <div className="space-y-8">
-                <div className="animate-pulse">
-                  <div className="h-8 w-48 bg-muted rounded mb-4"></div>
-                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
-                    {[1, 2, 3, 4, 5, 6].map((i) => (
-                      <div key={i}>
-                        <div className="aspect-square bg-muted rounded-lg mb-2"></div>
-                        <div className="h-4 w-3/4 bg-muted rounded mb-2"></div>
-                        <div className="h-3 w-full bg-muted rounded"></div>
+        {/* RESULTS */}
+        {!isLoading && debouncedSearch && hasResults && (
+          <div className="animate-fade-in space-y-10">
+
+            {/* PLAYLISTS */}
+            {results.playlists.length > 0 && (
+              <section>
+                <h2 className="text-xl font-bold flex items-center gap-2 mb-3">
+                  <ListMusic className="w-5 h-5" /> {t("search_section_playlists")}
+                </h2>
+
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                  {results.playlists.map((p) => (
+                    <div
+                      key={p.id}
+                      className="cursor-pointer group"
+                      onClick={() => handlePlaylistClick(p.id)}
+                    >
+                      <div className="aspect-square rounded-lg overflow-hidden bg-card mb-2 transition-all group-hover:scale-105">
+                        {p.cover_url ? (
+                          <img
+                            src={p.cover_url}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center bg-muted">
+                            <ListMusic className="w-8 h-8 text-muted-foreground" />
+                          </div>
+                        )}
                       </div>
-                    ))}
-                  </div>
+                      <h3 className="text-sm font-medium">{p.title}</h3>
+                      {p.description && (
+                        <p className="text-xs text-muted-foreground line-clamp-1">
+                          {p.description}
+                        </p>
+                      )}
+                    </div>
+                  ))}
                 </div>
-              </div>
-            ) : showEmptyState ? (
-              <div className="text-center py-12">
-                <p className="text-muted-foreground text-lg">
-                  {t("search_no_results").replace("{query}", debouncedSearch)}
-                </p>
-                <p className="text-muted-foreground text-sm mt-2">
-                  {t("search_try_different")}
-                </p>
-              </div>
-            ) : hasResults ? (
-              <div className="space-y-10 animate-fade-in">
-                {/* PLAYLISTS Tab */}
-                {activeTab === 'playlists' && results.playlists.length > 0 && (
-                  <section>
-                    <div className="flex items-center gap-2 mb-4">
-                      <ListMusic className="w-6 h-6 text-primary" />
-                      <h2 className="text-2xl font-bold text-foreground">
-                        {`${t("search_section_playlists")} (${results.playlists.length})`}
-                      </h2>
-                    </div>
+              </section>
+            )}
 
-                    {/* Mobile: Vertical list */}
-                    <div className="md:hidden space-y-2">
-                      {results.playlists.map((playlist) => (
-                        <div
-                          key={playlist.id}
-                          onClick={() => handlePlaylistClick(playlist.id)}
-                          className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 active:bg-white/10 transition-colors cursor-pointer"
-                        >
-                          <div className="w-16 h-16 rounded-md bg-card flex-shrink-0 overflow-hidden">
-                            {playlist.cover_url ? (
-                              <img
-                                src={playlist.cover_url}
-                                alt={playlist.title}
-                                className="w-full h-full object-cover"
-                                onError={(e) => {
-                                  (e.target as HTMLImageElement).src = "/placeholder.svg";
-                                }}
-                              />
-                            ) : (
-                              <div className="w-full h-full bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
-                                <ListMusic className="w-6 h-6 text-primary/50" />
-                              </div>
-                            )}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <h3 className="font-medium text-sm line-clamp-1 mb-1 text-foreground">
-                              {playlist.title}
-                            </h3>
-                            {playlist.description && (
-                              <p className="text-xs text-muted-foreground line-clamp-1">
-                                {playlist.description}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+            {/* SONGS */}
+            {results.tracks.length > 0 && (
+              <section>
+                <h2 className="text-xl font-bold flex items-center gap-2 mb-3">
+                  <Music className="w-5 h-5" /> {t("search_section_songs")}
+                </h2>
 
-                    {/* Desktop: Grid layout */}
-                    <div className="hidden md:grid md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
-                      {results.playlists.map((playlist) => (
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                  {results.tracks.map((t) => (
+                    <div
+                      key={t.id}
+                      className="cursor-pointer group"
+                      onClick={() => handleTrackClick(t)}
+                    >
+                      <div className="aspect-square rounded-lg overflow-hidden bg-card mb-2 transition-all group-hover:scale-105">
+                        {t.cover_url ? (
+                          <img src={t.cover_url} className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center bg-muted">
+                            <Music className="w-8 h-8 text-muted-foreground" />
+                          </div>
+                        )}
+                      </div>
+
+                      <h3 className="text-sm font-medium line-clamp-1">{t.title}</h3>
+                      <p className="text-xs text-muted-foreground">{t.artist}</p>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {/* ARTISTS */}
+            {results.artistGroups.length > 0 && (
+              <section>
+                <h2 className="text-xl font-bold flex items-center gap-2 mb-3">
+                  <User className="w-5 h-5" /> {t("search_section_artists")}
+                </h2>
+
+                {results.artistGroups.map((g) => (
+                  <div key={g.artist} className="mb-6">
+                    <h3 className="text-lg font-semibold text-muted-foreground mb-2">
+                      {g.artist}
+                    </h3>
+
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                      {g.tracks.map((track) => (
                         <div
-                          key={playlist.id}
-                          onClick={() => handlePlaylistClick(playlist.id)}
+                          key={track.id}
                           className="cursor-pointer group"
+                          onClick={() => handleTrackClick(track)}
                         >
-                          <div className="aspect-square bg-card rounded-lg mb-3 overflow-hidden transition-transform group-hover:scale-105">
-                            {playlist.cover_url ? (
+                          <div className="aspect-square rounded-lg overflow-hidden bg-card mb-2 transition-all group-hover:scale-105">
+                            {track.cover_url ? (
                               <img
-                                src={playlist.cover_url}
-                                alt={playlist.title}
+                                src={track.cover_url}
                                 className="w-full h-full object-cover"
-                                onError={(e) => {
-                                  (e.target as HTMLImageElement).src = "/placeholder.svg";
-                                }}
                               />
                             ) : (
-                              <div className="w-full h-full bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
-                                <ListMusic className="w-8 h-8 text-primary/50" />
+                              <div className="w-full h-full flex items-center justify-center bg-muted">
+                                <Music className="w-8 h-8 text-muted-foreground" />
                               </div>
                             )}
                           </div>
-                          <h3 className="font-medium line-clamp-2 text-sm mb-1 text-foreground">
-                            {playlist.title}
-                          </h3>
-                          {playlist.description && (
-                            <p className="text-xs text-muted-foreground line-clamp-2">
-                              {playlist.description}
+
+                          <h4 className="text-sm font-medium line-clamp-1">
+                            {track.title}
+                          </h4>
+
+                          {track.duration && (
+                            <p className="text-xs text-muted-foreground flex items-center gap-1">
+                              <Clock className="w-3 h-3" /> {formatDuration(track.duration)}
                             </p>
                           )}
                         </div>
                       ))}
                     </div>
-                  </section>
-                )}
-
-                {/* SONGS Tab */}
-                {activeTab === 'songs' && results.tracks.length > 0 && (
-                  <section>
-                    <div className="flex items-center gap-2 mb-4">
-                      <Music className="w-6 h-6 text-primary" />
-                      <h2 className="text-2xl font-bold text-foreground">
-                        {`${t("search_section_songs")} (${results.tracks.length})`}
-                      </h2>
-                    </div>
-
-                    {/* Mobile: Vertical list */}
-                    <div className="md:hidden space-y-2">
-                      {results.tracks.map((track) => (
-                        <div
-                          key={track.id}
-                          onClick={() => handleTrackClick(track)}
-                          className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 active:bg-white/10 transition-colors cursor-pointer"
-                        >
-                          <div className="w-16 h-16 rounded-md bg-card flex-shrink-0 overflow-hidden">
-                            {track.cover_url ? (
-                              <img
-                                src={track.cover_url}
-                                alt={track.title}
-                                className="w-full h-full object-cover"
-                                onError={(e) => {
-                                  (e.target as HTMLImageElement).src = "/placeholder.svg";
-                                }}
-                              />
-                            ) : (
-                              <div className="w-full h-full bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
-                                <Music className="w-6 h-6 text-primary/50" />
-                              </div>
-                            )}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <h3 className="font-medium text-sm line-clamp-1 mb-1 text-foreground">
-                              {track.title}
-                            </h3>
-                            <p className="text-xs text-muted-foreground">{track.artist}</p>
-                          </div>
-                          {track.duration && (
-                            <div className="text-xs text-muted-foreground flex-shrink-0">
-                              {formatDuration(track.duration)}
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* Desktop: Grid layout */}
-                    <div className="hidden md:grid md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
-                      {results.tracks.map((track) => (
-                        <div
-                          key={track.id}
-                          onClick={() => handleTrackClick(track)}
-                          className="cursor-pointer group"
-                        >
-                          <div className="aspect-square bg-card rounded-lg mb-3 overflow-hidden transition-transform group-hover:scale-105">
-                            {track.cover_url ? (
-                              <img
-                                src={track.cover_url}
-                                alt={track.title}
-                                className="w-full h-full object-cover"
-                                onError={(e) => {
-                                  (e.target as HTMLImageElement).src = "/placeholder.svg";
-                                }}
-                              />
-                            ) : (
-                              <div className="w-full h-full bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
-                                <Music className="w-8 h-8 text-primary/50" />
-                              </div>
-                            )}
-                          </div>
-                          <h3 className="font-medium line-clamp-2 text-sm mb-1 text-foreground">
-                            {track.title}
-                          </h3>
-                          <p className="text-xs text-muted-foreground line-clamp-1">
-                            {track.artist}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  </section>
-                )}
-
-                {/* ARTISTS Tab */}
-                {activeTab === 'artists' && results.artistGroups.length > 0 && (
-                  <section>
-                    <div className="flex items-center gap-2 mb-4">
-                      <User className="w-6 h-6 text-primary" />
-                      <h2 className="text-2xl font-bold text-foreground">
-                        {`${t("search_section_artists")} (${results.artistGroups.length})`}
-                      </h2>
-                    </div>
-
-                    <div className="space-y-6">
-                      {results.artistGroups.map((group) => (
-                        <div key={group.artist} className="space-y-3">
-                          {/* Artist name - NOT CLICKABLE */}
-                          <h3 className="text-lg font-semibold text-muted-foreground px-2">
-                            {group.artist}
-                          </h3>
-
-                          {/* Mobile: Vertical list of tracks */}
-                          <div className="md:hidden space-y-2">
-                            {group.tracks.map((track) => (
-                              <div
-                                key={track.id}
-                                onClick={() => handleTrackClick(track)}
-                                className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 active:bg-white/10 transition-colors cursor-pointer"
-                              >
-                                <div className="w-12 h-12 rounded-md bg-card flex-shrink-0 overflow-hidden">
-                                  {track.cover_url ? (
-                                    <img
-                                      src={track.cover_url}
-                                      alt={track.title}
-                                      className="w-full h-full object-cover"
-                                      onError={(e) => {
-                                        (e.target as HTMLImageElement).src = "/placeholder.svg";
-                                      }}
-                                    />
-                                  ) : (
-                                    <div className="w-full h-full bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
-                                      <Music className="w-4 h-4 text-primary/50" />
-                                    </div>
-                                  )}
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                  <h4 className="font-medium text-sm line-clamp-1 text-foreground">
-                                    {track.title}
-                                  </h4>
-                                </div>
-                                {track.duration && (
-                                  <div className="text-xs text-muted-foreground flex-shrink-0">
-                                    {formatDuration(track.duration)}
-                                  </div>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-
-                          {/* Desktop: Grid layout of tracks */}
-                          <div className="hidden md:grid md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
-                            {group.tracks.map((track) => (
-                              <div
-                                key={track.id}
-                                onClick={() => handleTrackClick(track)}
-                                className="cursor-pointer group"
-                              >
-                                <div className="aspect-square bg-card rounded-lg mb-3 overflow-hidden transition-transform group-hover:scale-105">
-                                  {track.cover_url ? (
-                                    <img
-                                      src={track.cover_url}
-                                      alt={track.title}
-                                      className="w-full h-full object-cover"
-                                      onError={(e) => {
-                                        (e.target as HTMLImageElement).src = "/placeholder.svg";
-                                      }}
-                                    />
-                                  ) : (
-                                    <div className="w-full h-full bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
-                                      <Music className="w-8 h-8 text-primary/50" />
-                                    </div>
-                                  )}
-                                </div>
-                                <h4 className="font-medium line-clamp-2 text-sm text-foreground">
-                                  {track.title}
-                                </h4>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </section>
-                )}
-              </div>
-            ) : null}
+                  </div>
+                ))}
+              </section>
+            )}
           </div>
         )}
 
-        {/* Browse by Genre - Show when no search */}
+        {/* DEFAULT BROWSE VIEW */}
         {!debouncedSearch && (
           <div className="animate-fade-in">
-            <h2 className="text-2xl font-bold mb-6 text-foreground">{t("browse_all")}</h2>
+            <h2 className="text-2xl font-bold mb-4">{t("browse_all")}</h2>
+
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-              {browseCategories.map((category) => (
+              {browseCategories.map((cat) => (
                 <div
-                  key={category.id}
-                  className="relative h-32 rounded-lg overflow-hidden cursor-pointer group hover:scale-105 transition-transform"
+                  key={cat.id}
+                  className={`h-32 rounded-lg bg-gradient-to-br ${cat.color} flex items-center justify-center text-white font-bold text-lg cursor-pointer hover:scale-105 transition-transform`}
                 >
-                  <div
-                    className={`absolute inset-0 bg-gradient-to-br ${category.color} opacity-80 group-hover:opacity-100 transition-opacity`}
-                  />
-                  <div className="relative h-full flex items-center justify-center p-4">
-                    <h3 className="text-foreground text-xl font-bold text-center">
-                      {category.title}
-                    </h3>
-                  </div>
+                  {cat.title}
                 </div>
               ))}
             </div>
           </div>
         )}
       </div>
-
-      {!isAuthenticated && (
-        <div className="pointer-events-none fixed inset-0 z-[9998]">
-          <div className="blocked-search-page-msg">{t("login_to_search")}</div>
-        </div>
-      )}
     </div>
   );
 };
