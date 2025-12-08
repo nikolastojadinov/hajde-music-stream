@@ -13,18 +13,15 @@ const PlaylistCard = ({ id, title, description, imageUrl }: PlaylistCardProps) =
     <Link to={`/playlist/${id}`} className="group block">
       <div className="bg-card p-3 rounded-lg hover:bg-secondary/80 transition-all duration-300">
         {/* 16:9 cover image container */}
-        <div
-          className="relative mb-3 w-full rounded-md overflow-hidden bg-black/40"
-          style={{ aspectRatio: "16 / 9" }}
-        >
+        <div className="relative mb-3 w-full h-40 rounded-md bg-black flex items-center justify-center overflow-hidden">
           {imageUrl ? (
             <img
               src={imageUrl}
               alt={title}
-              className="w-full h-full object-cover"
+              className="max-w-full max-h-full object-contain object-center"
             />
           ) : (
-            <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-primary/20 to-primary/5">
+            <div className="w-full h-full bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
               <Music className="w-8 h-8 text-primary/30" />
             </div>
           )}
