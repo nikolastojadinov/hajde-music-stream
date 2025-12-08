@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Check, Crown, FileText, Globe, LogOut, Pi, Shield, User } from "lucide-react";
 
@@ -23,20 +23,20 @@ const loginButtonStyles = `
   color: #1a1200;
   border: 1px solid rgba(255, 255, 255, 0.35);
   border-radius: 999px;
-  height: 44px;
+  height: 46px;
+  width: 220px;
+  min-width: 220px;
+  max-width: 220px;
   padding: 0 20px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 12px;
-  min-width: 140px;
-  max-width: 260px;
-  width: auto;
-  flex-shrink: 0;
   font-weight: 600;
   letter-spacing: 0.02em;
   box-shadow: 0 12px 28px rgba(0, 0, 0, 0.25);
   transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
+  overflow: hidden;
 }
 
 .pm-login-btn:hover:not(:disabled) {
@@ -70,6 +70,7 @@ const loginButtonStyles = `
   justify-content: center;
   box-shadow: inset 0 0 0 1px rgba(247, 217, 114, 0.35);
   flex-shrink: 0;
+  transition: transform 0.2s ease;
 }
 
 .pi-icon {
@@ -78,21 +79,20 @@ const loginButtonStyles = `
 }
 
 .pm-login-text {
-  font-size: clamp(12px, 3vw, 15px);
-  line-height: 1.2;
-  text-align: left;
-  white-space: normal;
-}
-
-.pm-login-btn[data-long-label="true"] {
-  padding: 0 16px;
-  gap: 10px;
-}
-
-.pm-login-btn[data-long-label="true"] .pm-login-text {
-  font-size: clamp(11px, 2.8vw, 13px);
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+  line-height: 1.15;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 `;
+
+const LOGIN_LABEL_BASE_SIZE = 16;
+const LOGIN_LABEL_MIN_SIZE = 9;
+const ICON_CIRCLE_BASE = 26;
+const ICON_GLYPH_BASE = 15;
 
 const Header = () => {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -100,6 +100,10 @@ const Header = () => {
   const { t, setLanguage, currentLanguage } = useLanguage();
   const { user, login, logout, authenticating } = usePi();
   const { openDialog: openPremiumDialog } = usePremiumDialog();
+  const loginButtonRef = useRef<HTMLButtonElement | null>(null);
+  const loginLabelRef = useRef<HTMLSpanElement | null>(null);
+  const [loginLabelFontSize, setLoginLabelFontSize] = useState(LOGIN_LABEL_BASE_SIZE);
+  const [iconScale, setIconScale] = useState(1);
 
   const displayName = user?.username ?? "GOST";
   const isGuest = !user;
@@ -107,7 +111,27 @@ const Header = () => {
   const loginLabel =
     loginShortRaw && loginShortRaw !== "login_short" ? loginShortRaw : t("sign_in_with_pi");
   const loginButtonText = authenticating ? t("signing_in") : loginLabel;
-  const isLongLoginText = loginButtonText.length > 16;
+  const circleSize = ICON_CIRCLE_BASE * iconScale;
+  const iconSize = ICON_GLYPH_BASE * iconScale;
+
+  const adjustLoginLabel = useCallback(() => {
+    const labelEl = loginLabelRef.current;
+    if (!labelEl) return;
+
+    let size = LOGIN_LABEL_BASE_SIZE;
+    labelEl.style.fontSize = `${size}px`;
+
+    let guard = LOGIN_LABEL_BASE_SIZE;
+    while (size > LOGIN_LABEL_MIN_SIZE && labelEl.scrollWidth > labelEl.clientWidth && guard > 0) {
+      size -= 1;
+      guard -= 1;
+      labelEl.style.fontSize = `${size}px`;
+    }
+
+    setLoginLabelFontSize(size);
+    const nextScale = Math.max(0.75, Math.min(1, Number((size / LOGIN_LABEL_BASE_SIZE).toFixed(2))));
+    setIconScale(nextScale);
+  }, []);
 
   useEffect(() => {
     const styleTag = document.createElement("style");
@@ -118,6 +142,31 @@ const Header = () => {
       document.head.removeChild(styleTag);
     };
   }, []);
+
+  useLayoutEffect(() => {
+    adjustLoginLabel();
+  }, [adjustLoginLabel, loginButtonText, isGuest]);
+
+  useEffect(() => {
+    const buttonNode = loginButtonRef.current;
+    if (!buttonNode) {
+      return;
+    }
+
+    if (typeof ResizeObserver !== "undefined") {
+      const observer = new ResizeObserver(() => adjustLoginLabel());
+      observer.observe(buttonNode);
+      return () => observer.disconnect();
+    }
+
+    if (typeof window !== "undefined") {
+      const handleResize = () => adjustLoginLabel();
+      window.addEventListener("resize", handleResize);
+      return () => window.removeEventListener("resize", handleResize);
+    }
+
+    return undefined;
+  }, [adjustLoginLabel, isGuest]);
 
   const handleLogin = () => {
     if (!authenticating) {
@@ -142,17 +191,26 @@ const Header = () => {
             <button
               type="button"
               className="pm-login-btn"
+              ref={loginButtonRef}
               onClick={handleLogin}
               disabled={authenticating}
-              data-long-label={isLongLoginText ? "true" : "false"}
               data-loading={authenticating ? "true" : "false"}
               aria-label={loginButtonText}
               title={loginButtonText}
             >
-              <div className="pi-icon-circle">
-                <Pi className="pi-icon" />
+              <div
+                className="pi-icon-circle"
+                style={{ width: `${circleSize}px`, height: `${circleSize}px` }}
+              >
+                <Pi className="pi-icon" style={{ width: `${iconSize}px`, height: `${iconSize}px` }} />
               </div>
-              <span className="pm-login-text">{loginButtonText}</span>
+              <span
+                ref={loginLabelRef}
+                className="pm-login-text"
+                style={{ fontSize: `${loginLabelFontSize}px` }}
+              >
+                {loginButtonText}
+              </span>
             </button>
           )}
 
