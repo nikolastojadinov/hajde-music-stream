@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
-import { LanguageProvider } from "@/contexts/LanguageContext";
+import { LanguageProvider, useLanguage } from "@/contexts/LanguageContext";
 import { PlayerProvider } from "@/contexts/PlayerContext";
 import { PiProvider, usePi } from "@/contexts/PiContext";
 import { PremiumDialogProvider } from "@/contexts/PremiumDialogContext";
@@ -46,6 +46,21 @@ const AuthGate = ({ children }: AuthGateProps) => {
   return <>{children}</>;
 };
 
+const GlobalAuthOverlay = () => {
+  const { authenticating } = usePi();
+  const { t } = useLanguage();
+
+  if (!authenticating) {
+    return null;
+  }
+
+  return (
+    <div className="fixed inset-0 z-[3000] flex items-center justify-center bg-black text-white">
+      <p className="text-lg font-semibold animate-pulse">{t("pi_authentication")}</p>
+    </div>
+  );
+};
+
 const App = () => {
   return (
     <QueryClientProvider client={queryClient}>
@@ -57,6 +72,7 @@ const App = () => {
                 <PlayerProvider>
                   <Toaster />
                   <Sonner />
+                  <GlobalAuthOverlay />
                   <BrowserRouter>
                     <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
                       <div className="hidden flex-1 overflow-hidden pt-16 md:flex">

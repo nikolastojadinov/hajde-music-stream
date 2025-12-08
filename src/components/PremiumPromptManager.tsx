@@ -2,29 +2,26 @@ import { useEffect, useRef } from "react";
 import { useLocation } from "react-router-dom";
 import { usePi } from "@/contexts/PiContext";
 import { usePremiumDialog } from "@/contexts/PremiumDialogContext";
+import { useAuth } from "@/hooks/useAuth";
 
 const PROMPT_PATHS = ["/create", "/library"];
 
 const PremiumPromptManager = () => {
   const { user } = usePi();
   const { openDialog } = usePremiumDialog();
+  const { goPremiumVisible, dismissGoPremium } = useAuth();
   const location = useLocation();
-  const initialPromptShown = useRef(false);
   const lastPromptPath = useRef<string | null>(null);
 
-  // Show dialog 3 seconds after welcome for non-premium users
+  // Trigger premium modal when welcome flow marks it visible
   useEffect(() => {
-    if (!user || user.premium || initialPromptShown.current) {
+    if (!goPremiumVisible) {
       return;
     }
 
-    initialPromptShown.current = true;
-    const timer = setTimeout(() => {
-      openDialog();
-    }, 3000);
-
-    return () => clearTimeout(timer);
-  }, [user, openDialog]);
+    openDialog();
+    dismissGoPremium();
+  }, [goPremiumVisible, openDialog, dismissGoPremium]);
 
   // Auto-open dialog on specific routes for non-premium users
   useEffect(() => {

@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useNavigate } from "react-router-dom";
 import { usePlayer } from "@/contexts/PlayerContext";
+import { usePi } from "@/contexts/PiContext";
 import { externalSupabase } from "@/lib/externalSupabase";
 
 // Types - matching Supabase schema exactly
@@ -40,6 +41,8 @@ const Search = () => {
   const { t } = useLanguage();
   const navigate = useNavigate();
   const { playTrack } = usePlayer();
+  const { user } = usePi();
+  const isAuthenticated = Boolean(user);
   
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -180,8 +183,19 @@ const Search = () => {
   ], [t]);
 
   return (
-    <div className="flex-1 overflow-y-auto pb-32">
-      <div className="p-4 md:p-8">
+    <div className="relative flex-1 overflow-y-auto pb-32">
+      <div
+        className="p-4 md:p-8 transition-all duration-200"
+        style={
+          !isAuthenticated
+            ? {
+                filter: "blur(4px)",
+                opacity: 0.6,
+                pointerEvents: "none",
+              }
+            : undefined
+        }
+      >
         {/* Search Input */}
         <div className="mb-6 max-w-2xl animate-fade-in">
           <div className="relative">
@@ -565,6 +579,14 @@ const Search = () => {
           </div>
         )}
       </div>
+
+      {!isAuthenticated && (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-4">
+          <div className="rounded-2xl border border-border bg-background/90 px-6 py-4 text-center shadow-lg">
+            <p className="text-base font-semibold text-foreground">{t("login_to_search")}</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

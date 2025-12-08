@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Check, Crown, FileText, Globe, LogOut, Pi, Shield, User } from "lucide-react";
 
@@ -17,6 +18,8 @@ import { usePi } from "@/contexts/PiContext";
 import { usePremiumDialog } from "@/contexts/PremiumDialogContext";
 
 const Header = () => {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [languageOpen, setLanguageOpen] = useState(false);
   const { t, setLanguage, currentLanguage } = useLanguage();
   const { user, login, logout, authenticating } = usePi();
   const { openDialog: openPremiumDialog } = usePremiumDialog();
@@ -44,11 +47,11 @@ const Header = () => {
               className="inline-flex items-center gap-2 rounded-full border border-[#F7C948] bg-transparent px-6 py-2 text-sm font-semibold text-[#F7C948] transition hover:bg-[#F7C948]/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F7C948]/70 disabled:opacity-60"
             >
               <Pi className="w-4 h-4" />
-              {authenticating ? t("signing_in") : "Login"}
+              {t("sign_in_with_pi")}
             </button>
           )}
 
-          <DropdownMenu>
+          <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
             <DropdownMenuTrigger asChild>
               <button
                 className="w-10 h-10 bg-secondary hover:bg-secondary/80 rounded-full flex items-center justify-center transition-all hover:scale-105"
@@ -67,7 +70,7 @@ const Header = () => {
               </DropdownMenuItem>
               <DropdownMenuSeparator />
 
-              <DropdownMenuSub>
+              <DropdownMenuSub open={languageOpen} onOpenChange={setLanguageOpen}>
                 <DropdownMenuSubTrigger>
                   <Globe className="w-4 h-4 mr-3" />
                   <span>{t("language")}</span>
@@ -79,6 +82,8 @@ const Header = () => {
                       onSelect={event => {
                         event.preventDefault();
                         setLanguage(lang.code);
+                        setLanguageOpen(false);
+                        setMenuOpen(false);
                       }}
                     >
                       <span>{lang.nativeName}</span>
