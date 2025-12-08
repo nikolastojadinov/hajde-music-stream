@@ -1,3 +1,5 @@
+// backend/src/lib/dailyRefreshScheduler.ts
+
 import cron from 'node-cron';
 import { DateTime } from 'luxon';
 import { randomUUID } from 'crypto';
@@ -6,13 +8,17 @@ import supabase from '../services/supabaseClient';
 const TIMEZONE = 'Europe/Budapest';
 const CRON_EXPRESSION = '15 10 * * *'; // 10:15 local time daily
 const TABLE_NAME = 'refresh_jobs';
-const SLOT_COUNT = 10;
+
+// 🔥 POVEĆANO SA 10 NA 15
+const SLOT_COUNT = 15;
+
 const PREPARE_START_HOUR = 10;
 const PREPARE_START_MINUTE = 30;
 const SLOT_INTERVAL_MINUTES = 60;
 const PREPARE_TO_RUN_OFFSET_MINUTES = 10;
 
 type JobType = 'prepare' | 'run';
+
 type RefreshJobRow = {
   id: string;
   slot_index: number;
