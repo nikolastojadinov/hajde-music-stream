@@ -1,3 +1,7 @@
+// -----------------------------------------------------------
+// Purple Music – Search.tsx (Hybrid Fuzzy Search + Supabase)
+// -----------------------------------------------------------
+
 import { useState, useEffect, useRef, useMemo } from "react";
 import { Search as SearchIcon, Clock, Music, ListMusic, User, History } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -6,6 +10,7 @@ import { useNavigate } from "react-router-dom";
 import { usePlayer } from "@/contexts/PlayerContext";
 import { usePi } from "@/contexts/PiContext";
 import { externalSupabase } from "@/lib/externalSupabase";
+import Fuse from "@/lib/fuse"; // ← fuzzy engine (UMD build)
 
 interface Track {
   id: string;
@@ -48,17 +53,25 @@ const Search = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [activeTab, setActiveTab] = useState<FilterTab>("playlists");
+
   const [results, setResults] = useState<SearchResults>({
     tracks: [],
     playlists: [],
     artistGroups: [],
   });
+
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [history, setHistory] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
+  // -----------------------------------------------
+  // AbortController for canceling old Supabase queries
+  // -----------------------------------------------
   const abortRef = useRef<AbortController | null>(null);
 
+  // -----------------------------------------------
+  // Load search history from localStorage
+  // -----------------------------------------------
   useEffect(() => {
     const stored = localStorage.getItem("pm_search_history");
     if (stored) setHistory(JSON.parse(stored));
@@ -71,8 +84,11 @@ const Search = () => {
     localStorage.setItem("pm_search_history", JSON.stringify(updated));
   };
 
+  // -----------------------------------------------
+  // Debounce input
+  // -----------------------------------------------
   useEffect(() => {
-    const timer = setTimeout(() => setDebouncedSearch(searchTerm.trim()), 300);
+    const timer = setTimeout(() => setDebouncedSearch(searchTerm.trim()), 250);
     return () => clearTimeout(timer);
   }, [searchTerm]);
 
@@ -80,12 +96,20 @@ const Search = () => {
     if (searchTerm.length > 0) setActiveTab("playlists");
   }, [searchTerm]);
 
-  const highlightMatch = (text: string, query: string) => {
-    if (!query) return text;
-    const regex = new RegExp(`(${query})`, "gi");
+  // -----------------------------------------------
+  // Highlight matched segments
+  // -----------------------------------------------
+  const highlightMatch = (text: string, q: string) => {
+    if (!q) return text;
+    const regex = new RegExp(`(${q})`, "gi");
     return text.replace(regex, "<mark>$1</mark>");
   };
 
+  // -----------------------------------------------
+  // HYBRID SEARCH PIPELINE (C)
+  // 1. fuzzy matching local suggestions (instant)
+  // 2. supabase confirmation & fetching
+  // -----------------------------------------------
   useEffect(() => {
     if (!debouncedSearch) {
       setResults({ tracks: [], playlists: [], artistGroups: [] });
@@ -93,13 +117,41 @@ const Search = () => {
       return;
     }
 
-    const fetchResults = async () => {
+    const runSearch = async () => {
       abortRef.current?.abort();
       const controller = new AbortController();
       abortRef.current = controller;
 
       setIsLoading(true);
 
+      // -------------------------------------------
+      // STEP 1: Fuzzy Suggestions (local only)
+      // -------------------------------------------
+      const searchSpace = [
+        ...history,
+        ...suggestions,
+      ];
+
+      const fuse = new Fuse(searchSpace, {
+        includeScore: true,
+        shouldSort: true,
+        threshold: 0.35, // SUPERIOR fuzzy accuracy
+      });
+
+      const fuzzyOutput = fuse.search(debouncedSearch).map((x) => x.item);
+
+      // Merge fuzzy output + history results
+      const combinedSuggestions = Array.from(
+        new Set([...fuzzyOutput, ...searchSpace])
+      )
+        .filter((x) => x.toLowerCase().includes(debouncedSearch.toLowerCase()))
+        .slice(0, 10);
+
+      setSuggestions(combinedSuggestions);
+
+      // -------------------------------------------
+      // STEP 2: Supabase database search
+      // -------------------------------------------
       try {
         const pattern = `%${debouncedSearch}%`;
 
@@ -108,21 +160,21 @@ const Search = () => {
             .from("tracks")
             .select("id, external_id, title, artist, cover_url, duration")
             .or(`title.ilike.${pattern},artist.ilike.${pattern}`)
-            .limit(20)
+            .limit(25)
             .abortSignal(controller.signal),
 
           externalSupabase
             .from("playlists")
             .select("id, title, cover_url, description")
             .ilike("title", pattern)
-            .limit(20)
+            .limit(25)
             .abortSignal(controller.signal),
 
           externalSupabase
             .from("tracks")
             .select("id, external_id, title, artist, cover_url, duration")
             .ilike("artist", pattern)
-            .limit(20)
+            .limit(25)
             .abortSignal(controller.signal),
         ]);
 
@@ -134,21 +186,22 @@ const Search = () => {
               .from("playlist_tracks")
               .select("*", { count: "exact", head: true })
               .eq("playlist_id", playlist.id);
+
             return { playlist, count: count || 0 };
           })
         );
 
         const playlists: Playlist[] = playlistsWithCounts
-          .filter(({ count }) => count > 0)
-          .map(({ playlist }) => playlist);
+          .filter((x) => x.count > 0)
+          .map((x) => x.playlist);
 
         const artistMap = new Map<string, Track[]>();
-        (artistRes.data || []).forEach((track: Track) => {
-          const existing = artistMap.get(track.artist) || [];
-          artistMap.set(track.artist, [...existing, track]);
+        (artistRes.data || []).forEach((track) => {
+          const list = artistMap.get(track.artist) || [];
+          artistMap.set(track.artist, [...list, track]);
         });
 
-        const artistGroups: ArtistGroup[] = Array.from(artistMap.entries())
+        const artistGroups = Array.from(artistMap.entries())
           .map(([artist, tracks]) => ({
             artist,
             tracks: tracks.sort((a, b) => a.title.localeCompare(b.title)),
@@ -157,26 +210,22 @@ const Search = () => {
 
         setResults({ tracks, playlists, artistGroups });
 
-        const s = new Set<string>();
-        tracks.forEach((t) => s.add(t.title));
-        playlists.forEach((p) => s.add(p.title));
-        artistGroups.forEach((g) => s.add(g.artist));
-        setSuggestions([...s].slice(0, 10));
-
         saveHistory(debouncedSearch);
       } catch (err) {
         if ((err as any).name !== "AbortError") {
           console.error("Search error:", err);
-          setResults({ tracks: [], playlists: [], artistGroups: [] });
         }
       } finally {
         setIsLoading(false);
       }
     };
 
-    fetchResults();
+    runSearch();
   }, [debouncedSearch]);
 
+  // -----------------------------------------------
+  // Helpers
+  // -----------------------------------------------
   const handleTrackClick = (track: Track) => {
     playTrack(track.external_id, track.title, track.artist, track.id);
   };
@@ -201,6 +250,9 @@ const Search = () => {
     results.playlists.length > 0 ||
     results.artistGroups.length > 0;
 
+  // -----------------------------------------------
+  // Browse categories
+  // -----------------------------------------------
   const browseCategories = useMemo(
     () => [
       { id: 1, title: t("genre_pop"), color: "from-pink-500 to-purple-500" },
@@ -213,11 +265,14 @@ const Search = () => {
     [t]
   );
 
+  // -----------------------------------------------
+  // UI
+  // -----------------------------------------------
   return (
     <div className="relative flex-1 overflow-y-auto pb-32">
       <div className="p-4 md:p-8 max-w-3xl mx-auto">
 
-        {/* SEARCH INPUT + AUTOCOMPLETE */}
+        {/* SEARCH BAR + AUTOCOMPLETE */}
         <div className="relative mb-8">
           <SearchIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
 
@@ -226,12 +281,12 @@ const Search = () => {
             placeholder={t("search_placeholder")}
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-12 h-12 bg-card border-border text-foreground placeholder:text-muted-foreground"
+            className="pl-12 h-12 bg-card border-border text-foreground"
             autoFocus={isAuthenticated}
             disabled={!isAuthenticated}
           />
 
-          {searchTerm.length > 0 && (suggestions.length > 0 || history.length > 0) && (
+          {searchTerm.length > 0 && (
             <div className="absolute z-50 mt-2 w-full bg-card border border-border rounded-lg shadow-lg max-h-80 overflow-y-auto animate-fade-in">
 
               {history.length > 0 && (
@@ -277,7 +332,7 @@ const Search = () => {
           <p className="text-muted-foreground">{t("search_loading")}...</p>
         )}
 
-        {/* RESULTS */}
+        {/* SEARCH RESULTS */}
         {!isLoading && debouncedSearch && hasResults && (
           <div className="animate-fade-in space-y-10">
 
@@ -297,10 +352,7 @@ const Search = () => {
                     >
                       <div className="aspect-square rounded-lg overflow-hidden bg-card mb-2 transition-all group-hover:scale-105">
                         {p.cover_url ? (
-                          <img
-                            src={p.cover_url}
-                            className="w-full h-full object-cover"
-                          />
+                          <img src={p.cover_url} className="w-full h-full object-cover" />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center bg-muted">
                             <ListMusic className="w-8 h-8 text-muted-foreground" />
@@ -322,7 +374,7 @@ const Search = () => {
             {/* SONGS */}
             {results.tracks.length > 0 && (
               <section>
-                <h2 className="text-xl font-bold flex items-center gap-2 mb-3">
+                <h2 className="text-xl font-bold flex itemscenter gap-2 mb-3">
                   <Music className="w-5 h-5" /> {t("search_section_songs")}
                 </h2>
 
@@ -373,10 +425,7 @@ const Search = () => {
                         >
                           <div className="aspect-square rounded-lg overflow-hidden bg-card mb-2 transition-all group-hover:scale-105">
                             {track.cover_url ? (
-                              <img
-                                src={track.cover_url}
-                                className="w-full h-full object-cover"
-                              />
+                              <img src={track.cover_url} className="w-full h-full object-cover" />
                             ) : (
                               <div className="w-full h-full flex items-center justify-center bg-muted">
                                 <Music className="w-8 h-8 text-muted-foreground" />
@@ -403,7 +452,7 @@ const Search = () => {
           </div>
         )}
 
-        {/* DEFAULT BROWSE VIEW */}
+        {/* DEFAULT CONTENT */}
         {!debouncedSearch && (
           <div className="animate-fade-in">
             <h2 className="text-2xl font-bold mb-4">{t("browse_all")}</h2>
@@ -420,6 +469,7 @@ const Search = () => {
             </div>
           </div>
         )}
+
       </div>
     </div>
   );
