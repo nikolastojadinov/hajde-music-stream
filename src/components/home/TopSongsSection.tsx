@@ -10,6 +10,7 @@ export default function TopSongsSection() {
   const touchCurrentX = useRef<number | null>(null);
   const touchStartY = useRef<number | null>(null);
   const touchCurrentY = useRef<number | null>(null);
+  const carouselRef = useRef<HTMLDivElement | null>(null);
   const lastIndex = VIDEO_IDS.length - 1;
 
   const videoSrc = useMemo(() => {
@@ -38,65 +39,90 @@ export default function TopSongsSection() {
     setActiveIndex(prev => Math.max(prev - 1, 0));
   }, []);
 
-  const handleTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
-    const touch = event.touches[0];
-    touchStartX.current = touch?.clientX ?? null;
-    touchCurrentX.current = touch?.clientX ?? null;
-    touchStartY.current = touch?.clientY ?? null;
-    touchCurrentY.current = touch?.clientY ?? null;
-  };
+  useEffect(() => {
+    const node = carouselRef.current;
+    if (!node) return;
 
-  const handleTouchMove = (event: React.TouchEvent<HTMLDivElement>) => {
-    const touch = event.touches[0];
-    if (touch) {
-      touchCurrentX.current = touch.clientX;
-      touchCurrentY.current = touch.clientY;
-    }
-  };
-
-  const handleTouchEnd = () => {
-    if (
-      touchStartX.current == null ||
-      touchCurrentX.current == null ||
-      touchStartY.current == null ||
-      touchCurrentY.current == null
-    ) {
+    const resetTouches = () => {
       touchStartX.current = null;
       touchCurrentX.current = null;
       touchStartY.current = null;
       touchCurrentY.current = null;
-      return;
-    }
+    };
 
-    const deltaX = touchStartX.current - touchCurrentX.current;
-    const deltaY = touchStartY.current - touchCurrentY.current;
-    const horizontalDominant = Math.abs(deltaX) > Math.abs(deltaY);
-
-    if (horizontalDominant && Math.abs(deltaX) > SWIPE_THRESHOLD) {
-      if (deltaX > 0) {
-        goToNext();
-      } else {
-        goToPrev();
+    const handleTouchStart = (event: TouchEvent) => {
+      if (event.touches.length !== 1) {
+        resetTouches();
+        return;
       }
-    }
+      const touch = event.touches[0];
+      touchStartX.current = touch.clientX;
+      touchCurrentX.current = touch.clientX;
+      touchStartY.current = touch.clientY;
+      touchCurrentY.current = touch.clientY;
+    };
 
-    touchStartX.current = null;
-    touchCurrentX.current = null;
-    touchStartY.current = null;
-    touchCurrentY.current = null;
-  };
+    const handleTouchMove = (event: TouchEvent) => {
+      if (event.touches.length !== 1) {
+        resetTouches();
+        return;
+      }
+      const touch = event.touches[0];
+      touchCurrentX.current = touch.clientX;
+      touchCurrentY.current = touch.clientY;
+    };
+
+    const handleTouchEnd = () => {
+      if (
+        touchStartX.current == null ||
+        touchCurrentX.current == null ||
+        touchStartY.current == null ||
+        touchCurrentY.current == null
+      ) {
+        resetTouches();
+        return;
+      }
+
+      const deltaX = touchStartX.current - touchCurrentX.current;
+      const deltaY = touchStartY.current - touchCurrentY.current;
+      const horizontalDominant = Math.abs(deltaX) > Math.abs(deltaY);
+
+      if (horizontalDominant && Math.abs(deltaX) > SWIPE_THRESHOLD) {
+        if (deltaX > 0) {
+          goToNext();
+        } else {
+          goToPrev();
+        }
+      }
+
+      resetTouches();
+    };
+
+    const handleTouchCancel = () => resetTouches();
+
+    node.addEventListener("touchstart", handleTouchStart, { passive: true });
+    node.addEventListener("touchmove", handleTouchMove, { passive: true });
+    node.addEventListener("touchend", handleTouchEnd);
+    node.addEventListener("touchcancel", handleTouchCancel);
+
+    return () => {
+      node.removeEventListener("touchstart", handleTouchStart);
+      node.removeEventListener("touchmove", handleTouchMove);
+      node.removeEventListener("touchend", handleTouchEnd);
+      node.removeEventListener("touchcancel", handleTouchCancel);
+    };
+  }, [goToNext, goToPrev]);
 
   return (
     <section className="w-full animate-slide-up mb-8 md:mb-12">
       <div className="rounded-2xl bg-[#1a1a1a] p-4 md:p-6 shadow-lg">
         <h2 className="text-center text-lg md:text-2xl font-bold text-white mb-4">TOP 5 Songs Today</h2>
         <div
+          ref={carouselRef}
           className="relative w-full overflow-hidden rounded-xl"
-          onTouchStart={handleTouchStart}
-          onTouchMove={handleTouchMove}
-          onTouchEnd={handleTouchEnd}
           role="group"
           aria-roledescription="carousel"
+          style={{ touchAction: "pan-y" }}
         >
           <iframe
             key={videoSrc}
@@ -107,7 +133,8 @@ export default function TopSongsSection() {
             allowFullScreen
           />
           <div
-            className="swipe-layer pointer-events-none absolute inset-0 z-[5]"
+            className="swipe-layer absolute inset-0 z-[5]"
+            style={{ pointerEvents: "none" }}
             aria-hidden="true"
           />
         </div>
