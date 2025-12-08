@@ -15,13 +15,13 @@ const PlaylistCard = ({ id, title, description, imageUrl }: PlaylistCardProps) =
       className="group block"
     >
       <div className="bg-card p-3 rounded-lg hover:bg-secondary/80 transition-all duration-300">
-        {/* Consistent aspect-square image container */}
-        <div className="relative mb-3 aspect-square rounded-md overflow-hidden bg-muted">
+        {/* Aspect-square image container with centered art */}
+        <div className="relative mb-3 aspect-square rounded-md bg-black/40 flex items-center justify-center">
           {imageUrl ? (
             <img 
               src={imageUrl} 
               alt={title} 
-              className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" 
+              className="w-full h-full object-contain object-center"
             />
           ) : (
             <div className="w-full h-full bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
