@@ -23,15 +23,15 @@ const loginButtonStyles = `
   color: #1a1200;
   border: 1px solid rgba(255, 255, 255, 0.35);
   border-radius: 999px;
-  height: 46px;
+  height: 44px;
   width: 150px;
   min-width: 150px;
   max-width: 150px;
-  padding: 0 16px;
+  padding: 0 14px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 12px;
+  gap: 8px;
   flex-shrink: 0;
   font-weight: 600;
   letter-spacing: 0.02em;
@@ -63,8 +63,8 @@ const loginButtonStyles = `
 .pi-icon-circle {
   background: rgba(0, 0, 0, 0.85);
   color: #f7d972;
-  width: 26px;
-  height: 26px;
+  width: 24px;
+  height: 24px;
   border-radius: 999px;
   display: flex;
   align-items: center;
@@ -75,8 +75,8 @@ const loginButtonStyles = `
 }
 
 .pi-icon {
-  width: 15px;
-  height: 15px;
+  width: 14px;
+  height: 14px;
 }
 
 .pm-login-text {
@@ -90,10 +90,10 @@ const loginButtonStyles = `
 }
 `;
 
-const LOGIN_LABEL_BASE_SIZE = 16;
+const LOGIN_LABEL_BASE_SIZE = 15;
 const LOGIN_LABEL_MIN_SIZE = 9;
-const ICON_CIRCLE_BASE = 26;
-const ICON_GLYPH_BASE = 15;
+const ICON_CIRCLE_BASE = 24;
+const ICON_GLYPH_BASE = 14;
 
 const Header = () => {
   const [menuOpen, setMenuOpen] = useState(false);

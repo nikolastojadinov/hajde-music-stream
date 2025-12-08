@@ -10,7 +10,6 @@ export default function TopSongsSection() {
   const touchCurrentX = useRef<number | null>(null);
   const touchStartY = useRef<number | null>(null);
   const touchCurrentY = useRef<number | null>(null);
-  const carouselRef = useRef<HTMLDivElement | null>(null);
   const lastIndex = VIDEO_IDS.length - 1;
 
   const videoSrc = useMemo(() => {
@@ -39,112 +38,79 @@ export default function TopSongsSection() {
     setActiveIndex(prev => Math.max(prev - 1, 0));
   }, []);
 
-  useEffect(() => {
-    const resetTouches = () => {
-      touchStartX.current = null;
-      touchCurrentX.current = null;
-      touchStartY.current = null;
-      touchCurrentY.current = null;
-    };
+  const resetTouches = useCallback(() => {
+    touchStartX.current = null;
+    touchCurrentX.current = null;
+    touchStartY.current = null;
+    touchCurrentY.current = null;
+  }, []);
 
-    const withinCarousel = (touch?: Touch | null) => {
-      if (!touch) return false;
-      const node = carouselRef.current;
-      if (!node) return false;
-      const rect = node.getBoundingClientRect();
-      return (
-        touch.clientX >= rect.left &&
-        touch.clientX <= rect.right &&
-        touch.clientY >= rect.top &&
-        touch.clientY <= rect.bottom
-      );
-    };
-
-    const handleTouchStart = (event: TouchEvent) => {
-      if (event.touches.length !== 1) {
-        resetTouches();
-        return;
-      }
-      const touch = event.touches[0];
-      if (!withinCarousel(touch)) {
-        resetTouches();
-        return;
-      }
-      touchStartX.current = touch.clientX;
-      touchCurrentX.current = touch.clientX;
-      touchStartY.current = touch.clientY;
-      touchCurrentY.current = touch.clientY;
-    };
-
-    const handleTouchMove = (event: TouchEvent) => {
-      if (touchStartX.current == null || touchStartY.current == null) {
-        return;
-      }
-      const touch = event.touches[0];
-      if (!withinCarousel(touch)) {
-        return;
-      }
-      touchCurrentX.current = touch.clientX;
-      touchCurrentY.current = touch.clientY;
-    };
-
-    const handleTouchEnd = (event: TouchEvent) => {
-      if (
-        touchStartX.current == null ||
-        touchCurrentX.current == null ||
-        touchStartY.current == null ||
-        touchCurrentY.current == null
-      ) {
-        resetTouches();
-        return;
-      }
-
-      const touch = event.changedTouches[0];
-      if (!withinCarousel(touch)) {
-        resetTouches();
-        return;
-      }
-
-      const deltaX = touchStartX.current - touchCurrentX.current;
-      const deltaY = touchStartY.current - touchCurrentY.current;
-      const horizontalDominant = Math.abs(deltaX) > Math.abs(deltaY);
-
-      if (horizontalDominant && Math.abs(deltaX) >= SWIPE_THRESHOLD) {
-        if (deltaX > 0) {
-          goToNext();
-        } else {
-          goToPrev();
-        }
-      }
-
+  const handleTouchStart = useCallback((event: React.TouchEvent<HTMLDivElement>) => {
+    if (event.touches.length !== 1) {
       resetTouches();
-    };
+      return;
+    }
+    const touch = event.touches[0];
+    touchStartX.current = touch.clientX;
+    touchCurrentX.current = touch.clientX;
+    touchStartY.current = touch.clientY;
+    touchCurrentY.current = touch.clientY;
+  }, [resetTouches]);
 
-    const handleTouchCancel = () => resetTouches();
+  const handleTouchMove = useCallback((event: React.TouchEvent<HTMLDivElement>) => {
+    if (touchStartX.current == null || touchStartY.current == null) {
+      return;
+    }
+    const touch = event.touches[0];
+    touchCurrentX.current = touch.clientX;
+    touchCurrentY.current = touch.clientY;
+  }, []);
 
-    window.addEventListener("touchstart", handleTouchStart, { passive: true });
-    window.addEventListener("touchmove", handleTouchMove, { passive: true });
-    window.addEventListener("touchend", handleTouchEnd);
-    window.addEventListener("touchcancel", handleTouchCancel);
+  const handleTouchEnd = useCallback(() => {
+    if (
+      touchStartX.current == null ||
+      touchCurrentX.current == null ||
+      touchStartY.current == null ||
+      touchCurrentY.current == null
+    ) {
+      resetTouches();
+      return;
+    }
 
-    return () => {
-      window.removeEventListener("touchstart", handleTouchStart);
-      window.removeEventListener("touchmove", handleTouchMove);
-      window.removeEventListener("touchend", handleTouchEnd);
-      window.removeEventListener("touchcancel", handleTouchCancel);
-    };
-  }, [goToNext, goToPrev]);
+    const deltaX = touchStartX.current - touchCurrentX.current;
+    const deltaY = touchStartY.current - touchCurrentY.current;
+    const horizontalDominant = Math.abs(deltaX) > Math.abs(deltaY);
+
+    if (horizontalDominant && Math.abs(deltaX) >= SWIPE_THRESHOLD) {
+      if (deltaX > 0) {
+        goToNext();
+      } else {
+        goToPrev();
+      }
+    }
+
+    resetTouches();
+  }, [goToNext, goToPrev, resetTouches]);
+
+  const handleTouchCancel = useCallback(() => {
+    resetTouches();
+  }, [resetTouches]);
 
   return (
     <section className="w-full animate-slide-up mb-8 md:mb-12">
-      <div className="rounded-2xl bg-[#1a1a1a] p-4 md:p-6 shadow-lg">
+      <div
+        className="rounded-2xl bg-[#1a1a1a] p-4 md:p-6 shadow-lg"
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        onTouchCancel={handleTouchCancel}
+        style={{ touchAction: "pan-y" }}
+      >
         <h2 className="text-center text-lg md:text-2xl font-bold text-white mb-4">TOP 5 Songs Today</h2>
         <div
-          ref={carouselRef}
           className="relative w-full overflow-hidden rounded-xl"
           role="group"
           aria-roledescription="carousel"
-          style={{ touchAction: "pan-y" }}
         >
           <iframe
             key={videoSrc}
