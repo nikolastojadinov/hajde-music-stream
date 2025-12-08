@@ -23,32 +23,32 @@ const loginButtonStyles = `
   color: #1a1200;
   border: 1px solid rgba(255, 255, 255, 0.35);
   border-radius: 999px;
-  height: 44px;
-  width: 150px;
-  min-width: 150px;
-  max-width: 150px;
-  padding: 0 14px;
+  height: 36px;
+  width: 120px;
+  min-width: 120px;
+  max-width: 120px;
+  padding: 0 10px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 6px;
   flex-shrink: 0;
   font-weight: 600;
   letter-spacing: 0.02em;
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.25);
   transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
   overflow: hidden;
 }
 
 .pm-login-btn:hover:not(:disabled) {
   transform: translateY(-1px) scale(1.01);
-  box-shadow: 0 16px 32px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.3);
   filter: brightness(1.04);
 }
 
 .pm-login-btn:active:not(:disabled) {
   transform: translateY(0);
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.25);
 }
 
 .pm-login-btn:disabled {
@@ -83,7 +83,7 @@ const loginButtonStyles = `
   flex: 1;
   min-width: 0;
   text-align: center;
-  line-height: 1.15;
+  line-height: 1.1;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
