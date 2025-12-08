@@ -22,6 +22,7 @@ import Playlist from "@/pages/Playlist";
 import Favorites from "@/pages/Favorites";
 import Privacy from "@/pages/Privacy";
 import Terms from "@/pages/Terms";
+import License from "@/pages/License";
 import NotFound from "@/pages/NotFound";
 import ImportCSV from "@/pages/ImportCSV";
 import CreatePlaylist from "@/pages/CreatePlaylist";
@@ -74,6 +75,7 @@ const App = () => {
                               <Route path="/import-csv" element={<ImportCSV />} />
                               <Route path="/privacy" element={<Privacy />} />
                               <Route path="/terms" element={<Terms />} />
+                              <Route path="/license" element={<License />} />
                               <Route path="*" element={<NotFound />} />
                             </Routes>
                           </main>
@@ -95,6 +97,7 @@ const App = () => {
                             <Route path="/import-csv" element={<ImportCSV />} />
                             <Route path="/privacy" element={<Privacy />} />
                             <Route path="/terms" element={<Terms />} />
+                            <Route path="/license" element={<License />} />
                             <Route path="*" element={<NotFound />} />
                           </Routes>
                         </main>

@@ -135,6 +135,12 @@ const Header = () => {
                   <span>{t("terms_of_service")}</span>
                 </DropdownMenuItem>
               </Link>
+              <Link to="/license">
+                <DropdownMenuItem className="cursor-pointer py-3">
+                  <FileText className="w-4 h-4 mr-3" />
+                  <span>{t("license")}</span>
+                </DropdownMenuItem>
+              </Link>
 
               {!isGuest && (
                 <>
