@@ -6,6 +6,7 @@ import { Search as SearchIcon } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { usePi } from "@/contexts/PiContext";
 import { usePlaylists } from "@/hooks/usePlaylists";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useNavigate } from "react-router-dom";
@@ -25,7 +26,9 @@ const BEST_OF_RNB_PLAYLIST_IDS = [
 
 const Home = () => {
   const { t } = useLanguage();
+  const { user } = usePi();
   const navigate = useNavigate();
+  const isAuthenticated = Boolean(user);
   
   // Fetch different categories from Supabase
   const { data: recentPlaylists, isLoading: isLoadingRecent } = usePlaylists("recent");
@@ -76,13 +79,36 @@ const Home = () => {
         {/* Mobile Search Bar */}
         <div className="mb-4 md:hidden animate-fade-in">
           <div className="relative">
-            <SearchIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-            <Input
-              type="text"
-              placeholder={t("search_placeholder")}
-              className="pl-12 h-12 bg-card border-border text-foreground placeholder:text-muted-foreground"
-              onFocus={() => navigate("/search")}
-            />
+            <div
+              className="relative"
+              style={
+                !isAuthenticated
+                  ? {
+                      filter: "blur(3px)",
+                      opacity: 0.65,
+                      pointerEvents: "none",
+                    }
+                  : undefined
+              }
+            >
+              <SearchIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+              <Input
+                type="text"
+                placeholder={t("search_placeholder")}
+                className="pl-12 h-12 bg-card border-border text-foreground placeholder:text-muted-foreground"
+                onFocus={isAuthenticated ? () => navigate("/search") : undefined}
+                disabled={!isAuthenticated}
+                readOnly={!isAuthenticated}
+                aria-disabled={!isAuthenticated}
+              />
+            </div>
+            {!isAuthenticated && (
+              <div className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm font-semibold text-foreground">
+                <span className="rounded-full bg-background/80 px-3 py-1 shadow-md">
+                  {t("login_to_search")}
+                </span>
+              </div>
+            )}
           </div>
         </div>
 

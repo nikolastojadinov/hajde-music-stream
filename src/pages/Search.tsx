@@ -184,13 +184,32 @@ const Search = () => {
 
   return (
     <div className="relative flex-1 overflow-y-auto pb-32">
+      <style>{`
+        .blocked-search-page-msg {
+          position: fixed;
+          top: clamp(56px, 18vh, 200px);
+          left: 50%;
+          transform: translateX(-50%);
+          width: min(90%, 420px);
+          padding: 14px 20px;
+          background: rgba(0, 0, 0, 0.85);
+          border-radius: 16px;
+          color: var(--pm-gold);
+          font-size: 16px;
+          text-align: center;
+          z-index: 10000;
+          pointer-events: none;
+          box-shadow: 0 15px 30px rgba(0, 0, 0, 0.45);
+          backdrop-filter: blur(10px);
+        }
+      `}</style>
       <div
         className="p-4 md:p-8 transition-all duration-200"
         style={
           !isAuthenticated
             ? {
-                filter: "blur(4px)",
-                opacity: 0.6,
+                filter: "blur(6px)",
+                opacity: 0.5,
                 pointerEvents: "none",
               }
             : undefined
@@ -206,7 +225,10 @@ const Search = () => {
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-12 h-12 bg-card border-border text-foreground placeholder:text-muted-foreground"
-              autoFocus
+              autoFocus={isAuthenticated}
+              disabled={!isAuthenticated}
+              readOnly={!isAuthenticated}
+              aria-disabled={!isAuthenticated}
             />
           </div>
         </div>
@@ -581,10 +603,8 @@ const Search = () => {
       </div>
 
       {!isAuthenticated && (
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-4">
-          <div className="rounded-2xl border border-border bg-background/90 px-6 py-4 text-center shadow-lg">
-            <p className="text-base font-semibold text-foreground">{t("login_to_search")}</p>
-          </div>
+        <div className="pointer-events-none fixed inset-0 z-[9998]">
+          <div className="blocked-search-page-msg">{t("login_to_search")}</div>
         </div>
       )}
     </div>
