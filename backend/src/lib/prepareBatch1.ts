@@ -50,12 +50,12 @@ export async function executePrepareJob(job: RefreshJobRow): Promise<void> {
   try {
     await fs.mkdir(BATCH_DIR, { recursive: true });
 
-    // ✔ Uzimamo plejliste po LAST_REFRESHED_ON ASC
-    const playlists = await fetchLeastRefreshedPlaylists();
+    // ✔ Uzimamo NAJPRAZNIJE plejliste (bez ijedne pesme), po LAST_REFRESHED_ON ASC
+    const playlists = await fetchLeastRefreshedEmptyPlaylists();
 
     console.log('[PrepareBatch1] Playlists fetched:', playlists.length);
 
-    const batchPayload = playlists.map(p => ({
+    const batchPayload = playlists.map((p) => ({
       playlistId: p.id,
       title: p.title ?? '',
       externalId: p.external_id,
@@ -72,29 +72,28 @@ export async function executePrepareJob(job: RefreshJobRow): Promise<void> {
 
     await finalizeJob(job.id, {
       file: filePath,
-      entries: batchPayload.length
+      entries: batchPayload.length,
     });
 
     console.log('[PrepareBatch1] Job completed', {
       jobId: job.id,
       count: batchPayload.length,
-      filePath
+      filePath,
     });
-
   } catch (err) {
     console.error('[PrepareBatch1] Error', err);
     await finalizeJob(job.id, { error: (err as Error).message });
   }
 }
 
-
 /**
- * ✔ BIRA NAJMANJE OSVEŽENE PLEJLISTE
- * ✔ Sortira po last_refreshed_on ASC
+ * ✔ BIRA SAMO PRAZNE PLEJLISTE (bez pesama)
+ * ✔ LEFT JOIN na playlist_tracks, where pt.playlist_id is null
+ * ✔ Sortira po last_refreshed_on ASC NULLS FIRST, pa po created_at
  * ✔ Ignoriše RD (mix) plejliste
- * ✔ External_id mora biti validan
+ * ✔ External_id mora biti validan YouTube playlist ID
  */
-async function fetchLeastRefreshedPlaylists(): Promise<Row[]> {
+async function fetchLeastRefreshedEmptyPlaylists(): Promise<Row[]> {
   const sql = `
     select
       p.id,
@@ -103,12 +102,17 @@ async function fetchLeastRefreshedPlaylists(): Promise<Row[]> {
       p.created_at,
       p.last_refreshed_on
     from playlists p
-    where p.external_id is not null
+    left join playlist_tracks pt
+      on pt.playlist_id = p.id
+    where pt.playlist_id is null
+      and p.external_id is not null
       and p.external_id ~ '^[A-Za-z0-9_-]{16,}$'
       and not (p.external_id ilike '${MIX_PREFIX}%')
-    order by p.last_refreshed_on asc nulls first
+    order by
+      p.last_refreshed_on asc nulls first,
+      p.created_at asc
     limit ${PLAYLIST_LIMIT}
-  `;
+  `; // bez tačke-zareza na kraju za run_raw
 
   const { data, error } = await supabase.rpc('run_raw', { sql });
 
