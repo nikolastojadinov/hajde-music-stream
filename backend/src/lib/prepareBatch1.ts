@@ -47,17 +47,16 @@ export async function executePrepareJob(job: RefreshJobRow): Promise<void> {
   try {
     await fs.mkdir(BATCH_DIR, { recursive: true });
 
-    // ⬅️ OVDE SE POZIVA ISPRAVAN SQL
-    const playlists = await fetchEmptyPlaylists();
+    // NEW SQL LOGIC HERE → fetch ALL playlists in chronological order
+    const playlists = await fetchAllPlaylistsChronological();
 
-    console.log('[PrepareBatch1] Valid empty playlists fetched:', playlists.length);
+    console.log('[PrepareBatch1] Playlists fetched:', playlists.length);
 
     const batchPayload = playlists.map(p => ({
       playlistId: p.id,
       title: p.title ?? '',
       externalId: p.external_id,
-      lastRefreshedOn: null,
-      trackCount: 0
+      createdAt: p.created_at,
     }));
 
     const filePath = path.join(
@@ -85,34 +84,23 @@ export async function executePrepareJob(job: RefreshJobRow): Promise<void> {
 }
 
 /**
- * VRAĆA listu praznih YouTube plejlista:
- *  - validan externeal_id (YT playlist ID)
- *  - nije RD (mix)
- *  - nema nijedan red u playlist_tracks
+ * FETCHES all playlists (valid YouTube IDs) in chronological order.
+ * DOES NOT check playlist_tracks → this is what you requested.
  */
-async function fetchEmptyPlaylists(): Promise<Row[]> {
+async function fetchAllPlaylistsChronological(): Promise<Row[]> {
   const sql = `
-    with empty_playlists as (
-      select 
-        p.id,
-        p.title,
-        p.external_id,
-        p.created_at
-      from playlists p
-      where p.external_id is not null
-        and p.external_id ~ '^[A-Za-z0-9_-]{16,}$'
-        and not (p.external_id ilike '${MIX_PREFIX}%')
-        and not exists (
-          select 1 
-          from playlist_tracks pt
-          where pt.playlist_id = p.id
-        )
-    )
-    select id, title, external_id, created_at
-    from empty_playlists
-    order by created_at asc
+    select 
+      p.id,
+      p.title,
+      p.external_id,
+      p.created_at
+    from playlists p
+    where p.external_id is not null
+      and p.external_id ~ '^[A-Za-z0-9_-]{16,}$'
+      and p.external_id not like '${MIX_PREFIX}%'
+    order by p.created_at asc
     limit ${PLAYLIST_LIMIT}
-  `; // ⬅️ NEMA TAČKE-ZAREZA → Supabase RPC to traži!
+  `;
 
   const { data, error } = await supabase.rpc('run_raw', { sql });
 
