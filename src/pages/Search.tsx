@@ -59,7 +59,6 @@ interface YoutubeSearchItem {
 // YouTube ISO 8601 duration (e.g. PT3M20S) → seconds
 const parseYoutubeDuration = (iso: string | undefined | null): number | null => {
   if (!iso) return null;
-  // Simple regex-based parser for PT#H#M#S
   const match = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
   if (!match) return null;
   const hours = parseInt(match[1] || "0", 10);
@@ -194,9 +193,7 @@ const Search = () => {
         ]);
 
         const tracks: Track[] = tracksRes.data || [];
-
-        const playlists: Playlist[] = (playlistsRes.data ||
-          []) as Playlist[];
+        const playlists: Playlist[] = (playlistsRes.data || []) as Playlist[];
 
         const artistMap = new Map<string, Track[]>();
         (artistRes.data || []).forEach((track: Track) => {
@@ -228,11 +225,11 @@ const Search = () => {
 
         saveHistory(debouncedSearch);
 
-        // If no local results → automatically try YouTube search (user-initiated via typing)
+        // Ako nema lokalnih rezultata → automatski YouTube search (user je kucao query, pa je OK)
         if (
-          (tracks.length === 0 &&
-            playlists.length === 0 &&
-            artistGroups.length === 0) &&
+          tracks.length === 0 &&
+          playlists.length === 0 &&
+          artistGroups.length === 0 &&
           ytApiKey
         ) {
           await runYoutubeSearch(debouncedSearch, setYtResults, setYtError);
@@ -248,7 +245,7 @@ const Search = () => {
     runSupabaseSearch();
   }, [debouncedSearch]);
 
-  // ===== YouTube search (on-demand) =====
+  // ===== YouTube search (manual button) =====
 
   const handleManualYoutubeSearch = async () => {
     if (!debouncedSearch || !ytApiKey) return;
@@ -262,7 +259,8 @@ const Search = () => {
     }
   };
 
-  // Shared YouTube search function (videos + playlists, Music category)
+  // ===== YouTube search: C1 verzija (čisto Data API, bez trikova) =====
+
   const runYoutubeSearch = async (
     query: string,
     setItems: (items: YoutubeSearchItem[]) => void,
@@ -274,28 +272,47 @@ const Search = () => {
     }
 
     try {
-      const params = new URLSearchParams({
+      const baseParams: Record<string, string> = {
         key: ytApiKey,
         part: "snippet",
-        maxResults: "12",
+        maxResults: "10",
         q: query,
-        type: "video,playlist",
-        videoCategoryId: "10", // Music
-      });
+        relevanceLanguage: "en", // možeš kasnije da vežeš za language kontekst
+        regionCode: "US",         // ili npr. korisnikov region
+        safeSearch: "none",
+      };
 
-      const res = await fetch(
-        `https://www.googleapis.com/youtube/v3/search?${params.toString()}`
-      );
-      if (!res.ok) {
-        const text = await res.text();
-        console.error("YouTube search error:", text);
-        setError("YouTube search failed.");
-        return;
+      const buildUrl = (extra: Record<string, string>) =>
+        `https://www.googleapis.com/youtube/v3/search?${new URLSearchParams({
+          ...baseParams,
+          ...extra,
+        }).toString()}`;
+
+      // Radimo 2 zvanična poziva: jedan za video, drugi za playliste
+      const [videosRes, playlistsRes] = await Promise.all([
+        fetch(buildUrl({ type: "video" })),
+        fetch(buildUrl({ type: "playlist" })),
+      ]);
+
+      if (!videosRes.ok) {
+        console.error("YouTube video search error:", await videosRes.text());
       }
-      const data = await res.json();
+      if (!playlistsRes.ok) {
+        console.error(
+          "YouTube playlist search error:",
+          await playlistsRes.text()
+        );
+      }
 
-      const items: YoutubeSearchItem[] = (data.items || []).map(
-        (item: any) => {
+      const videosJson = videosRes.ok ? await videosRes.json() : { items: [] };
+      const playlistsJson = playlistsRes.ok
+        ? await playlistsRes.json()
+        : { items: [] };
+
+      const allItems = [...(videosJson.items || []), ...(playlistsJson.items || [])];
+
+      const items: YoutubeSearchItem[] = allItems
+        .map((item: any) => {
           if (item.id.kind === "youtube#video") {
             return {
               id: item.id.videoId as string,
@@ -323,10 +340,11 @@ const Search = () => {
             };
           }
           return null;
-        }
-      ).filter(Boolean) as YoutubeSearchItem[];
+        })
+        .filter(Boolean) as YoutubeSearchItem[];
 
       setItems(items);
+      setError(null);
     } catch (err) {
       console.error("YouTube search error:", err);
       setError("YouTube search failed.");
@@ -375,9 +393,8 @@ const Search = () => {
         key: ytApiKey!,
         part: "snippet,contentDetails",
         id: videoId,
-        // Restrict fields to what's necessary (per YouTube best practices)
         fields:
-          "items(id,snippet(title,channelTitle,thumbnails(high,url,medium,url,default,url)),contentDetails(duration))",
+          "items(id,snippet(title,channelTitle,thumbnails(high(url),medium(url),default(url))),contentDetails(duration))",
       });
 
       const res = await fetch(
@@ -433,7 +450,6 @@ const Search = () => {
   };
 
   // Import YouTube playlist "shell" into Supabase and navigate to it
-  // (backend cron/worker može kasnije popuniti playlistu detaljno)
   const importYoutubePlaylistShell = async (playlistId: string) => {
     try {
       // Check if exists
@@ -453,7 +469,7 @@ const Search = () => {
         part: "snippet,contentDetails",
         id: playlistId,
         fields:
-          "items(id,snippet(title,description,thumbnails(high,url,medium,url,default,url)))",
+          "items(id,snippet(title,description,thumbnails(high(url),medium(url),default(url))))",
       });
 
       const res = await fetch(
@@ -567,7 +583,7 @@ const Search = () => {
                         key={h}
                         type="button"
                         onClick={() => handleSuggestionClick(h)}
-                        className="w-full text-left px-3 py-2 text-sm cursor-pointer hover:bg-white/5"
+                        className="w-full text-left px-3 py-2 text-sm cursor-pointer hover:bg_WHITE/5"
                       >
                         {h}
                       </button>
@@ -713,18 +729,18 @@ const Search = () => {
                   </h2>
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                  {results.tracks.map((t) => (
+                  {results.tracks.map((tTrack) => (
                     <button
-                      key={t.id}
+                      key={tTrack.id}
                       type="button"
-                      onClick={() => handleTrackClick(t)}
+                      onClick={() => handleTrackClick(tTrack)}
                       className="cursor-pointer group text-left"
                     >
                       <div className="aspect-square rounded-lg overflow-hidden bg-card mb-2 transition-transform group-hover:scale-105">
-                        {t.cover_url ? (
+                        {tTrack.cover_url ? (
                           <img
-                            src={t.cover_url}
-                            alt={t.title}
+                            src={tTrack.cover_url}
+                            alt={tTrack.title}
                             className="w-full h-full object-cover"
                             onError={(e) => {
                               (e.target as HTMLImageElement).src =
@@ -738,15 +754,15 @@ const Search = () => {
                         )}
                       </div>
                       <h3 className="text-sm font-medium line-clamp-1 text-foreground">
-                        {t.title}
+                        {tTrack.title}
                       </h3>
                       <p className="text-xs text-muted-foreground line-clamp-1">
-                        {t.artist}
+                        {tTrack.artist}
                       </p>
-                      {t.duration && (
+                      {tTrack.duration && (
                         <p className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
                           <Clock className="w-3 h-3" />
-                          {formatDuration(t.duration)}
+                          {formatDuration(tTrack.duration)}
                         </p>
                       )}
                     </button>
