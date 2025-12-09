@@ -1,14 +1,21 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Search as SearchIcon, Clock, Music, ListMusic, User, History } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useState, useEffect, useMemo } from "react";
+import {
+  Search as SearchIcon,
+  Music,
+  ListMusic,
+  User,
+  History,
+  Youtube,
+  Clock,
+} from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useNavigate } from "react-router-dom";
 import { usePlayer } from "@/contexts/PlayerContext";
 import { usePi } from "@/contexts/PiContext";
 import { externalSupabase } from "@/lib/externalSupabase";
-import { buildFuseEngine, FuseEngine } from "@/lib/fuseEngine";
-import { getCachedDataset, loadSearchDataset } from "@/lib/searchDataset";
-import type { SearchDatasetItem } from "@/lib/searchDataset";
+
+// ===== Types =====
 
 interface Track {
   id: string;
@@ -39,167 +46,157 @@ interface SearchResults {
 
 type FilterTab = "playlists" | "songs" | "artists";
 
+interface YoutubeSearchItem {
+  id: string;
+  type: "video" | "playlist";
+  title: string;
+  channelTitle: string;
+  thumbnailUrl: string | null;
+}
+
+// ===== Helpers =====
+
+// YouTube ISO 8601 duration (e.g. PT3M20S) → seconds
+const parseYoutubeDuration = (iso: string | undefined | null): number | null => {
+  if (!iso) return null;
+  // Simple regex-based parser for PT#H#M#S
+  const match = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+  if (!match) return null;
+  const hours = parseInt(match[1] || "0", 10);
+  const minutes = parseInt(match[2] || "0", 10);
+  const seconds = parseInt(match[3] || "0", 10);
+  return hours * 3600 + minutes * 60 + seconds;
+};
+
+const formatDuration = (seconds: number | null) => {
+  if (!seconds || seconds <= 0) return "";
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${mins}:${secs.toString().padStart(2, "0")}`;
+};
+
+const ytApiKey = import.meta.env.VITE_YOUTUBE_API_KEY as string | undefined;
+
+// ===== Component =====
+
 const MAX_HISTORY = 10;
-const SUGGESTION_LIMIT = 12;
-const DATASET_REFRESH_MS = 24 * 60 * 60 * 1000;
 
 const Search = () => {
   const { t } = useLanguage();
   const navigate = useNavigate();
   const { playTrack } = usePlayer();
   const { user } = usePi();
-
   const isAuthenticated = Boolean(user);
 
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [activeTab, setActiveTab] = useState<FilterTab>("playlists");
-  const [suggestions, setSuggestions] = useState<string[]>([]);
+
+  const [results, setResults] = useState<SearchResults>({
+    tracks: [],
+    playlists: [],
+    artistGroups: [],
+  });
+
   const [history, setHistory] = useState<string[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [results, setResults] = useState<SearchResults>({ tracks: [], playlists: [], artistGroups: [] });
-  const [fuseVersion, setFuseVersion] = useState(0);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
 
-  const fuseRef = useRef<FuseEngine | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
+  const [isLoadingSupabase, setIsLoadingSupabase] = useState(false);
+  const [isLoadingYoutube, setIsLoadingYoutube] = useState(false);
+  const [ytResults, setYtResults] = useState<YoutubeSearchItem[]>([]);
+  const [ytError, setYtError] = useState<string | null>(null);
 
-  const rebuildFuse = (dataset: SearchDatasetItem[]) => {
-    if (!dataset.length) return;
-    fuseRef.current = buildFuseEngine(dataset);
-    setFuseVersion((version) => version + 1);
-  };
+  const hasLocalResults =
+    results.tracks.length > 0 ||
+    results.playlists.length > 0 ||
+    results.artistGroups.length > 0;
+
+  const hasYtResults = ytResults.length > 0;
+
+  // ===== Local search history =====
 
   useEffect(() => {
     const stored = localStorage.getItem("pm_search_history");
-    if (stored) setHistory(JSON.parse(stored));
+    if (stored) {
+      try {
+        setHistory(JSON.parse(stored));
+      } catch {
+        // ignore
+      }
+    }
   }, []);
 
   const saveHistory = (term: string) => {
     if (!term) return;
-    const updated = [term, ...history.filter((x) => x !== term)].slice(0, MAX_HISTORY);
+    const updated = [term, ...history.filter((x) => x !== term)].slice(
+      0,
+      MAX_HISTORY
+    );
     setHistory(updated);
     localStorage.setItem("pm_search_history", JSON.stringify(updated));
   };
 
-  useEffect(() => {
-    const cachedDataset = getCachedDataset();
-    if (cachedDataset.length) {
-      rebuildFuse(cachedDataset);
-    }
-
-    let cancelled = false;
-
-    const hydrateDataset = async (force = false) => {
-      try {
-        const dataset = await loadSearchDataset(force ? { force: true } : {});
-        if (!cancelled && dataset.length) {
-          rebuildFuse(dataset);
-        }
-      } catch (err) {
-        console.error("search dataset load failed", err);
-      }
-    };
-
-    hydrateDataset();
-
-    const interval = setInterval(() => {
-      hydrateDataset(true);
-    }, DATASET_REFRESH_MS);
-
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, []);
+  // ===== Debounce input =====
 
   useEffect(() => {
-    const timer = setTimeout(() => setDebouncedSearch(searchTerm.trim()), 300);
+    const timer = setTimeout(
+      () => setDebouncedSearch(searchTerm.trim()),
+      350
+    );
     return () => clearTimeout(timer);
   }, [searchTerm]);
 
+  // Reset active tab when new search starts
   useEffect(() => {
-    if (searchTerm) setActiveTab("playlists");
+    if (searchTerm.length > 0) {
+      setActiveTab("playlists");
+    }
   }, [searchTerm]);
 
-  useEffect(() => {
-    if (!fuseRef.current || !searchTerm.trim()) {
-      setSuggestions([]);
-      return;
-    }
-
-    const fuzzyResults = fuseRef.current.search(searchTerm).slice(0, SUGGESTION_LIMIT);
-    const seen = new Set<string>();
-    const nextSuggestions: string[] = [];
-
-    fuzzyResults.forEach(({ item }) => {
-      const label = item.artist || (item.type === "track" ? item.title : "");
-      if (!label) return;
-      const key = label.toLowerCase();
-      if (seen.has(key)) return;
-      seen.add(key);
-      nextSuggestions.push(label);
-    });
-
-    setSuggestions(nextSuggestions);
-  }, [searchTerm, fuseVersion]);
-
-  const highlightMatch = (text: string, query: string) => {
-    if (!query) return text;
-    const reg = new RegExp(`(${query})`, "gi");
-    return text.replace(reg, "<mark>$1</mark>");
-  };
+  // ===== Supabase search =====
 
   useEffect(() => {
     if (!debouncedSearch) {
       setResults({ tracks: [], playlists: [], artistGroups: [] });
+      setSuggestions([]);
+      setYtResults([]);
+      setYtError(null);
       return;
     }
 
-    const run = async () => {
-      abortRef.current?.abort();
-      const controller = new AbortController();
-      abortRef.current = controller;
-      setIsLoading(true);
+    const runSupabaseSearch = async () => {
+      setIsLoadingSupabase(true);
+      setYtResults([]);
+      setYtError(null);
 
       try {
         const pattern = `%${debouncedSearch}%`;
 
+        // Parallel local queries
         const [tracksRes, playlistsRes, artistRes] = await Promise.all([
           externalSupabase
             .from("tracks")
             .select("id, external_id, title, artist, cover_url, duration")
             .or(`title.ilike.${pattern},artist.ilike.${pattern}`)
-            .limit(20)
-            .abortSignal(controller.signal),
+            .limit(30),
+
           externalSupabase
             .from("playlists")
             .select("id, title, cover_url, description")
             .ilike("title", pattern)
-            .limit(20)
-            .abortSignal(controller.signal),
+            .limit(30),
+
           externalSupabase
             .from("tracks")
             .select("id, external_id, title, artist, cover_url, duration")
             .ilike("artist", pattern)
-            .limit(20)
-            .abortSignal(controller.signal),
+            .limit(60),
         ]);
 
-        const tracks = tracksRes.data || [];
+        const tracks: Track[] = tracksRes.data || [];
 
-        const playlistsWithCounts = await Promise.all(
-          (playlistsRes.data || []).map(async (playlist) => {
-            const { count } = await externalSupabase
-              .from("playlist_tracks")
-              .select("*", { count: "exact", head: true })
-              .eq("playlist_id", playlist.id);
-            return { playlist, count: count || 0 };
-          })
-        );
-
-        const playlists = playlistsWithCounts
-          .filter(({ count }) => count > 0)
-          .map(({ playlist }) => playlist);
+        const playlists: Playlist[] = (playlistsRes.data ||
+          []) as Playlist[];
 
         const artistMap = new Map<string, Track[]>();
         (artistRes.data || []).forEach((track: Track) => {
@@ -207,35 +204,309 @@ const Search = () => {
           artistMap.set(track.artist, [...existing, track]);
         });
 
-        const artistGroups = Array.from(artistMap.entries())
-          .map(([artist, groupedTracks]) => ({
+        const artistGroups: ArtistGroup[] = Array.from(
+          artistMap.entries()
+        )
+          .map(([artist, tracks]) => ({
             artist,
-            tracks: groupedTracks.sort((a, b) => a.title.localeCompare(b.title)),
+            tracks: tracks.sort((a, b) => a.title.localeCompare(b.title)),
           }))
           .sort((a, b) => a.artist.localeCompare(b.artist));
 
         setResults({ tracks, playlists, artistGroups });
+
+        // Suggestions = combination of titles/artists
+        const suggSet = new Set<string>();
+        tracks.forEach((t) => {
+          suggSet.add(t.title);
+          suggSet.add(t.artist);
+        });
+        playlists.forEach((p) => suggSet.add(p.title));
+        artistGroups.forEach((g) => suggSet.add(g.artist));
+        suggSet.delete("");
+        setSuggestions(Array.from(suggSet).slice(0, 10));
+
         saveHistory(debouncedSearch);
+
+        // If no local results → automatically try YouTube search (user-initiated via typing)
+        if (
+          (tracks.length === 0 &&
+            playlists.length === 0 &&
+            artistGroups.length === 0) &&
+          ytApiKey
+        ) {
+          await runYoutubeSearch(debouncedSearch, setYtResults, setYtError);
+        }
       } catch (err) {
-        if ((err as any).name !== "AbortError") console.error(err);
+        console.error("Supabase search error:", err);
+        setResults({ tracks: [], playlists: [], artistGroups: [] });
       } finally {
-        setIsLoading(false);
+        setIsLoadingSupabase(false);
       }
     };
 
-    run();
+    runSupabaseSearch();
   }, [debouncedSearch]);
 
-  const handleTrackClick = (track: Track) => playTrack(track.external_id, track.title, track.artist, track.id);
-  const handlePlaylistClick = (id: string) => navigate(`/playlist/${id}`);
-  const handleSuggestionClick = (term: string) => setSearchTerm(term);
+  // ===== YouTube search (on-demand) =====
 
-  const formatDuration = (sec: number | null) => {
-    if (!sec) return "";
-    return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
+  const handleManualYoutubeSearch = async () => {
+    if (!debouncedSearch || !ytApiKey) return;
+    setYtResults([]);
+    setYtError(null);
+    setIsLoadingYoutube(true);
+    try {
+      await runYoutubeSearch(debouncedSearch, setYtResults, setYtError);
+    } finally {
+      setIsLoadingYoutube(false);
+    }
   };
 
-  const hasResults = results.tracks.length || results.playlists.length || results.artistGroups.length;
+  // Shared YouTube search function (videos + playlists, Music category)
+  const runYoutubeSearch = async (
+    query: string,
+    setItems: (items: YoutubeSearchItem[]) => void,
+    setError: (err: string | null) => void
+  ) => {
+    if (!ytApiKey) {
+      setError("YouTube API key not configured.");
+      return;
+    }
+
+    try {
+      const params = new URLSearchParams({
+        key: ytApiKey,
+        part: "snippet",
+        maxResults: "12",
+        q: query,
+        type: "video,playlist",
+        videoCategoryId: "10", // Music
+      });
+
+      const res = await fetch(
+        `https://www.googleapis.com/youtube/v3/search?${params.toString()}`
+      );
+      if (!res.ok) {
+        const text = await res.text();
+        console.error("YouTube search error:", text);
+        setError("YouTube search failed.");
+        return;
+      }
+      const data = await res.json();
+
+      const items: YoutubeSearchItem[] = (data.items || []).map(
+        (item: any) => {
+          if (item.id.kind === "youtube#video") {
+            return {
+              id: item.id.videoId as string,
+              type: "video" as const,
+              title: item.snippet.title as string,
+              channelTitle: item.snippet.channelTitle as string,
+              thumbnailUrl:
+                item.snippet.thumbnails?.high?.url ||
+                item.snippet.thumbnails?.medium?.url ||
+                item.snippet.thumbnails?.default?.url ||
+                null,
+            };
+          }
+          if (item.id.kind === "youtube#playlist") {
+            return {
+              id: item.id.playlistId as string,
+              type: "playlist" as const,
+              title: item.snippet.title as string,
+              channelTitle: item.snippet.channelTitle as string,
+              thumbnailUrl:
+                item.snippet.thumbnails?.high?.url ||
+                item.snippet.thumbnails?.medium?.url ||
+                item.snippet.thumbnails?.default?.url ||
+                null,
+            };
+          }
+          return null;
+        }
+      ).filter(Boolean) as YoutubeSearchItem[];
+
+      setItems(items);
+    } catch (err) {
+      console.error("YouTube search error:", err);
+      setError("YouTube search failed.");
+    }
+  };
+
+  // ===== Import from YouTube into Supabase =====
+
+  const handleTrackClick = (t: Track) => {
+    playTrack(t.external_id, t.title, t.artist, t.id);
+  };
+
+  const handlePlaylistClick = (id: string) => {
+    navigate(`/playlist/${id}`);
+  };
+
+  // YouTube item clicked: decide track vs playlist import
+  const handleYoutubeItemClick = async (item: YoutubeSearchItem) => {
+    if (!ytApiKey) return;
+
+    if (item.type === "video") {
+      await importYoutubeVideoAsTrack(item.id);
+    } else {
+      await importYoutubePlaylistShell(item.id);
+    }
+  };
+
+  // Import a single YouTube video as a track in Supabase and play it
+  const importYoutubeVideoAsTrack = async (videoId: string) => {
+    try {
+      // 1) Check if we already have this track
+      const existing = await externalSupabase
+        .from("tracks")
+        .select("id, external_id, title, artist, cover_url, duration")
+        .eq("external_id", videoId)
+        .eq("source", "youtube")
+        .maybeSingle<Track>();
+
+      if (existing.data) {
+        handleTrackClick(existing.data);
+        return;
+      }
+
+      // 2) Fetch metadata from YouTube (official Data API)
+      const params = new URLSearchParams({
+        key: ytApiKey!,
+        part: "snippet,contentDetails",
+        id: videoId,
+        // Restrict fields to what's necessary (per YouTube best practices)
+        fields:
+          "items(id,snippet(title,channelTitle,thumbnails(high,url,medium,url,default,url)),contentDetails(duration))",
+      });
+
+      const res = await fetch(
+        `https://www.googleapis.com/youtube/v3/videos?${params.toString()}`
+      );
+      if (!res.ok) {
+        console.error("YouTube videos.list error", await res.text());
+        return;
+      }
+      const data = await res.json();
+      const video = data.items?.[0];
+      if (!video) return;
+
+      const title: string = video.snippet.title;
+      const artist: string = video.snippet.channelTitle;
+      const thumb =
+        video.snippet.thumbnails?.high?.url ||
+        video.snippet.thumbnails?.medium?.url ||
+        video.snippet.thumbnails?.default?.url ||
+        null;
+      const durationSeconds = parseYoutubeDuration(
+        video.contentDetails?.duration
+      );
+
+      // 3) Insert (or upsert) into Supabase
+      const { data: inserted, error } = await externalSupabase
+        .from("tracks")
+        .upsert(
+          {
+            source: "youtube",
+            external_id: videoId,
+            title,
+            artist,
+            cover_url: thumb,
+            duration: durationSeconds,
+          },
+          { onConflict: "external_id" }
+        )
+        .select("id, external_id, title, artist, cover_url, duration")
+        .maybeSingle<Track>();
+
+      if (error) {
+        console.error("Supabase track upsert error", error);
+        return;
+      }
+      if (!inserted) return;
+
+      // 4) Play the newly imported track
+      handleTrackClick(inserted);
+    } catch (err) {
+      console.error("importYoutubeVideoAsTrack error:", err);
+    }
+  };
+
+  // Import YouTube playlist "shell" into Supabase and navigate to it
+  // (backend cron/worker može kasnije popuniti playlistu detaljno)
+  const importYoutubePlaylistShell = async (playlistId: string) => {
+    try {
+      // Check if exists
+      const existing = await externalSupabase
+        .from("playlists")
+        .select("id, title, cover_url, description, external_id")
+        .eq("external_id", playlistId)
+        .maybeSingle<Playlist & { external_id: string }>();
+
+      if (existing.data) {
+        handlePlaylistClick(existing.data.id);
+        return;
+      }
+
+      const params = new URLSearchParams({
+        key: ytApiKey!,
+        part: "snippet,contentDetails",
+        id: playlistId,
+        fields:
+          "items(id,snippet(title,description,thumbnails(high,url,medium,url,default,url)))",
+      });
+
+      const res = await fetch(
+        `https://www.googleapis.com/youtube/v3/playlists?${params.toString()}`
+      );
+      if (!res.ok) {
+        console.error("YouTube playlists.list error", await res.text());
+        return;
+      }
+      const data = await res.json();
+      const pl = data.items?.[0];
+      if (!pl) return;
+
+      const title: string = pl.snippet.title;
+      const description: string | null = pl.snippet.description || null;
+      const thumb =
+        pl.snippet.thumbnails?.high?.url ||
+        pl.snippet.thumbnails?.medium?.url ||
+        pl.snippet.thumbnails?.default?.url ||
+        null;
+
+      const { data: inserted, error } = await externalSupabase
+        .from("playlists")
+        .upsert(
+          {
+            external_id: playlistId,
+            title,
+            description,
+            cover_url: thumb,
+            is_public: true,
+          },
+          { onConflict: "external_id" }
+        )
+        .select("id, title, cover_url, description")
+        .maybeSingle<Playlist>();
+
+      if (error) {
+        console.error("Supabase playlist upsert error", error);
+        return;
+      }
+      if (!inserted) return;
+
+      handlePlaylistClick(inserted.id);
+    } catch (err) {
+      console.error("importYoutubePlaylistShell error:", err);
+    }
+  };
+
+  // ===== UI helpers =====
+
+  const handleSuggestionClick = (term: string) => {
+    setSearchTerm(term);
+  };
 
   const browseCategories = useMemo(
     () => [
@@ -245,13 +516,27 @@ const Search = () => {
       { id: 4, title: t("genre_electronic"), color: "from-blue-500 to-cyan-500" },
       { id: 5, title: t("genre_jazz"), color: "from-indigo-500 to-purple-500" },
       { id: 6, title: t("genre_classical"), color: "from-gray-500 to-slate-500" },
+      { id: 7, title: t("genre_rnb"), color: "from-rose-500 to-pink-500" },
+      { id: 8, title: t("genre_country"), color: "from-amber-500 to-yellow-500" },
     ],
     [t]
   );
 
+  const highlightMatch = (text: string, query: string) => {
+    if (!query) return text;
+    const reg = new RegExp(`(${query})`, "gi");
+    return text.replace(reg, "<mark>$1</mark>");
+  };
+
+  const showEmptyLocalState =
+    debouncedSearch.length > 0 &&
+    !isLoadingSupabase &&
+    !hasLocalResults;
+
   return (
     <div className="relative flex-1 overflow-y-auto pb-32">
-      <div className="p-4 md:p-8 max-w-3xl mx-auto">
+      <div className="p-4 md:p-8 max-w-4xl mx-auto">
+        {/* SEARCH INPUT */}
         <div className="relative mb-8">
           <SearchIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
 
@@ -261,143 +546,379 @@ const Search = () => {
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="pl-12 h-12 bg-card border-border text-foreground placeholder:text-muted-foreground"
-            disabled={!isAuthenticated}
             autoFocus={isAuthenticated}
+            disabled={!isAuthenticated}
+            readOnly={!isAuthenticated}
+            aria-disabled={!isAuthenticated}
           />
 
-          {searchTerm.length > 0 && (suggestions.length > 0 || history.length > 0) && (
-            <div className="absolute z-50 mt-2 w-full bg-card border border-border rounded-lg shadow-lg max-h-80 overflow-y-auto animate-fade-in">
-              {history.length > 0 && (
-                <>
-                  <h4 className="px-3 pt-3 pb-1 text-xs text-muted-foreground uppercase flex items-center gap-2">
-                    <History className="w-4 h-4" /> {t("recent_searches")}
-                  </h4>
-                  {history.map((term) => (
-                    <div
-                      key={term}
-                      onClick={() => handleSuggestionClick(term)}
-                      className="px-3 py-2 text-sm cursor-pointer hover:bg-white/5"
-                    >
-                      {term}
-                    </div>
-                  ))}
-                </>
-              )}
+          {/* Autocomplete dropdown (history + suggestions) */}
+          {isAuthenticated &&
+            searchTerm.length > 0 &&
+            (history.length > 0 || suggestions.length > 0) && (
+              <div className="absolute z-50 mt-2 w-full bg-card border border-border rounded-lg shadow-lg max-h-80 overflow-y-auto animate-fade-in">
+                {history.length > 0 && (
+                  <>
+                    <h4 className="px-3 pt-3 pb-1 text-xs text-muted-foreground uppercase flex items-center gap-2">
+                      <History className="w-4 h-4" /> {t("recent_searches")}
+                    </h4>
+                    {history.map((h) => (
+                      <button
+                        key={h}
+                        type="button"
+                        onClick={() => handleSuggestionClick(h)}
+                        className="w-full text-left px-3 py-2 text-sm cursor-pointer hover:bg-white/5"
+                      >
+                        {h}
+                      </button>
+                    ))}
+                  </>
+                )}
 
-              {suggestions.length > 0 && (
-                <>
-                  <h4 className="px-3 pt-3 pb-1 text-xs text-muted-foreground uppercase flex items-center gap-2">
-                    <SearchIcon className="w-4 h-4" /> {t("suggestions")}
-                  </h4>
-                  {suggestions.map((suggestion) => (
-                    <div
-                      key={suggestion}
-                      onClick={() => handleSuggestionClick(suggestion)}
-                      className="px-3 py-2 text-sm cursor-pointer hover:bg-white/5"
-                      dangerouslySetInnerHTML={{ __html: highlightMatch(suggestion, searchTerm) }}
-                    />
-                  ))}
-                </>
-              )}
-            </div>
-          )}
+                {suggestions.length > 0 && (
+                  <>
+                    <h4 className="px-3 pt-3 pb-1 text-xs text-muted-foreground uppercase flex items-center gap-2">
+                      <SearchIcon className="w-4 h-4" /> {t("suggestions")}
+                    </h4>
+                    {suggestions.map((s) => (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={() => handleSuggestionClick(s)}
+                        className="w-full text-left px-3 py-2 text-sm cursor-pointer hover:bg-white/5"
+                        dangerouslySetInnerHTML={{
+                          __html: highlightMatch(s, searchTerm),
+                        }}
+                      />
+                    ))}
+                  </>
+                )}
+              </div>
+            )}
         </div>
 
-        {isLoading && <p className="text-muted-foreground">{t("search_loading")}...</p>}
+        {/* Filter tabs for local results */}
+        {debouncedSearch.length > 0 && hasLocalResults && (
+          <div className="mb-6 flex gap-2">
+            <button
+              onClick={() => setActiveTab("playlists")}
+              className={`flex-1 px-3 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${
+                activeTab === "playlists"
+                  ? "border-2 border-yellow-500 text-yellow-500 bg-yellow-500/10"
+                  : "border-2 border-yellow-600/40 text-yellow-600/70 hover:border-yellow-500/60 hover:text-yellow-500/90"
+              }`}
+            >
+              <span className="flex items-center justify-center gap-1.5">
+                <ListMusic className="w-4 h-4" />
+                <span className="hidden xs:inline">Playlists</span>
+                <span className="xs:hidden">Lists</span>
+              </span>
+            </button>
 
-        {!isLoading && debouncedSearch && hasResults && (
-          <div className="animate-fade-in space-y-10">
-            {results.playlists.length > 0 && (
+            <button
+              onClick={() => setActiveTab("songs")}
+              className={`flex-1 px-3 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${
+                activeTab === "songs"
+                  ? "border-2 border-yellow-500 text-yellow-500 bg-yellow-500/10"
+                  : "border-2 border-yellow-600/40 text-yellow-600/70 hover:border-yellow-500/60 hover:text-yellow-500/90"
+              }`}
+            >
+              <span className="flex items-center justify-center gap-1.5">
+                <Music className="w-4 h-4" />
+                Songs
+              </span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab("artists")}
+              className={`flex-1 px-3 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${
+                activeTab === "artists"
+                  ? "border-2 border-yellow-500 text-yellow-500 bg-yellow-500/10"
+                  : "border-2 border-yellow-600/40 text-yellow-600/70 hover:border-yellow-500/60 hover:text-yellow-500/90"
+              }`}
+            >
+              <span className="flex items-center justify-center gap-1.5">
+                <User className="w-4 h-4" />
+                Artists
+              </span>
+            </button>
+          </div>
+        )}
+
+        {/* Loading states */}
+        {isLoadingSupabase && (
+          <p className="text-muted-foreground mb-4">
+            {t("search_loading")}...
+          </p>
+        )}
+
+        {/* LOCAL RESULTS */}
+        {!isLoadingSupabase && debouncedSearch && hasLocalResults && (
+          <div className="space-y-10 animate-fade-in">
+            {/* PLAYLISTS */}
+            {activeTab === "playlists" && results.playlists.length > 0 && (
               <section>
-                <h2 className="text-xl font-bold flex items-center gap-2 mb-3">
-                  <ListMusic className="w-5 h-5" /> {t("search_section_playlists")}
-                </h2>
+                <div className="flex items-center gap-2 mb-3">
+                  <ListMusic className="w-5 h-5 text-primary" />
+                  <h2 className="text-xl font-bold text-foreground">
+                    {`${t("search_section_playlists")} (${results.playlists.length})`}
+                  </h2>
+                </div>
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                  {results.playlists.map((playlist) => (
-                    <div key={playlist.id} className="cursor-pointer group" onClick={() => handlePlaylistClick(playlist.id)}>
-                      <div className="aspect-square rounded-lg overflow-hidden bg-card mb-2 transition-all group-hover:scale-105">
-                        {playlist.cover_url ? (
-                          <img src={playlist.cover_url} className="w-full h-full object-cover" />
+                  {results.playlists.map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => handlePlaylistClick(p.id)}
+                      className="cursor-pointer group text-left"
+                    >
+                      <div className="aspect-square rounded-lg overflow-hidden bg-card mb-2 transition-transform group-hover:scale-105">
+                        {p.cover_url ? (
+                          <img
+                            src={p.cover_url}
+                            alt={p.title}
+                            className="w-full h-full object-cover"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).src =
+                                "/placeholder.svg";
+                            }}
+                          />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center bg-muted">
                             <ListMusic className="w-8 h-8 text-muted-foreground" />
                           </div>
                         )}
                       </div>
-                      <h3 className="text-sm font-medium">{playlist.title}</h3>
-                      {playlist.description && (
-                        <p className="text-xs text-muted-foreground line-clamp-1">{playlist.description}</p>
+                      <h3 className="text-sm font-medium line-clamp-2 text-foreground">
+                        {p.title}
+                      </h3>
+                      {p.description && (
+                        <p className="text-xs text-muted-foreground line-clamp-1">
+                          {p.description}
+                        </p>
                       )}
-                    </div>
+                    </button>
                   ))}
                 </div>
               </section>
             )}
 
-            {results.tracks.length > 0 && (
+            {/* SONGS */}
+            {activeTab === "songs" && results.tracks.length > 0 && (
               <section>
-                <h2 className="text-xl font-bold flex items-center gap-2 mb-3">
-                  <Music className="w-5 h-5" /> {t("search_section_songs")}
-                </h2>
+                <div className="flex items-center gap-2 mb-3">
+                  <Music className="w-5 h-5 text-primary" />
+                  <h2 className="text-xl font-bold text-foreground">
+                    {`${t("search_section_songs")} (${results.tracks.length})`}
+                  </h2>
+                </div>
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                  {results.tracks.map((track) => (
-                    <div key={track.id} className="cursor-pointer group" onClick={() => handleTrackClick(track)}>
-                      <div className="aspect-square rounded-lg overflow-hidden bg-card mb-2 transition-all group-hover:scale-105">
-                        {track.cover_url ? (
-                          <img src={track.cover_url} className="w-full h-full object-cover" />
+                  {results.tracks.map((t) => (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => handleTrackClick(t)}
+                      className="cursor-pointer group text-left"
+                    >
+                      <div className="aspect-square rounded-lg overflow-hidden bg-card mb-2 transition-transform group-hover:scale-105">
+                        {t.cover_url ? (
+                          <img
+                            src={t.cover_url}
+                            alt={t.title}
+                            className="w-full h-full object-cover"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).src =
+                                "/placeholder.svg";
+                            }}
+                          />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center bg-muted">
                             <Music className="w-8 h-8 text-muted-foreground" />
                           </div>
                         )}
                       </div>
-                      <h3 className="text-sm font-medium line-clamp-1">{track.title}</h3>
-                      <p className="text-xs text-muted-foreground">{track.artist}</p>
-                    </div>
+                      <h3 className="text-sm font-medium line-clamp-1 text-foreground">
+                        {t.title}
+                      </h3>
+                      <p className="text-xs text-muted-foreground line-clamp-1">
+                        {t.artist}
+                      </p>
+                      {t.duration && (
+                        <p className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
+                          <Clock className="w-3 h-3" />
+                          {formatDuration(t.duration)}
+                        </p>
+                      )}
+                    </button>
                   ))}
                 </div>
               </section>
             )}
 
-            {results.artistGroups.length > 0 && (
+            {/* ARTISTS */}
+            {activeTab === "artists" && results.artistGroups.length > 0 && (
               <section>
-                <h2 className="text-xl font-bold flex items-center gap-2 mb-3">
-                  <User className="w-5 h-5" /> {t("search_section_artists")}
-                </h2>
-                {results.artistGroups.map((group) => (
-                  <div key={group.artist} className="mb-6">
-                    <h3 className="text-lg font-semibold text-muted-foreground mb-2">{group.artist}</h3>
-                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                      {group.tracks.map((track) => (
-                        <div key={track.id} className="cursor-pointer group" onClick={() => handleTrackClick(track)}>
-                          <div className="aspect-square rounded-lg overflow-hidden bg-card mb-2 transition-all group-hover:scale-105">
-                            {track.cover_url ? (
-                              <img src={track.cover_url} className="w-full h-full object-cover" />
-                            ) : (
-                              <div className="w-full h-full flex items-center justify-center bg-muted">
-                                <Music className="w-8 h-8 text-muted-foreground" />
-                              </div>
+                <div className="flex items-center gap-2 mb-3">
+                  <User className="w-5 h-5 text-primary" />
+                  <h2 className="text-xl font-bold text-foreground">
+                    {`${t("search_section_artists")} (${results.artistGroups.length})`}
+                  </h2>
+                </div>
+
+                <div className="space-y-6">
+                  {results.artistGroups.map((group) => (
+                    <div key={group.artist} className="space-y-2">
+                      <h3 className="text-lg font-semibold text-muted-foreground px-1">
+                        {group.artist}
+                      </h3>
+                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                        {group.tracks.map((track) => (
+                          <button
+                            key={track.id}
+                            type="button"
+                            onClick={() => handleTrackClick(track)}
+                            className="cursor-pointer group text-left"
+                          >
+                            <div className="aspect-square rounded-lg overflow-hidden bg-card mb-2 transition-transform group-hover:scale-105">
+                              {track.cover_url ? (
+                                <img
+                                  src={track.cover_url}
+                                  alt={track.title}
+                                  className="w-full h-full object-cover"
+                                  onError={(e) => {
+                                    (e.target as HTMLImageElement).src =
+                                      "/placeholder.svg";
+                                  }}
+                                />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center bg-muted">
+                                  <Music className="w-8 h-8 text-muted-foreground" />
+                                </div>
+                              )}
+                            </div>
+                            <h4 className="text-sm font-medium line-clamp-1 text-foreground">
+                              {track.title}
+                            </h4>
+                            {track.duration && (
+                              <p className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
+                                <Clock className="w-3 h-3" />
+                                {formatDuration(track.duration)}
+                              </p>
                             )}
-                          </div>
-                          <h4 className="text-sm font-medium line-clamp-1">{track.title}</h4>
-                          {track.duration && (
-                            <p className="text-xs text-muted-foreground flex items-center gap-1">
-                              <Clock className="w-3 h-3" /> {formatDuration(track.duration)}
-                            </p>
-                          )}
-                        </div>
-                      ))}
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </section>
             )}
           </div>
         )}
 
+        {/* NO LOCAL RESULTS → OFFER / SHOW YOUTUBE SEARCH */}
+        {showEmptyLocalState && (
+          <div className="mt-8 space-y-4">
+            <p className="text-muted-foreground">
+              {t("search_no_results").replace("{query}", debouncedSearch)}
+            </p>
+
+            {ytApiKey ? (
+              <button
+                type="button"
+                onClick={handleManualYoutubeSearch}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-red-500 text-red-400 hover:bg-red-500/10 transition-colors"
+              >
+                <Youtube className="w-4 h-4" />
+                {t("search_on_youtube") || "Search on YouTube"}
+              </button>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                YouTube search is not configured (missing VITE_YOUTUBE_API_KEY).
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* YOUTUBE RESULTS */}
+        {(hasYtResults || isLoadingYoutube || ytError) && debouncedSearch && (
+          <section className="mt-10 animate-fade-in">
+            <div className="flex items-center gap-2 mb-3">
+              <Youtube className="w-5 h-5 text-red-500" />
+              <h2 className="text-xl font-bold text-foreground">
+                YouTube
+              </h2>
+            </div>
+
+            {isLoadingYoutube && (
+              <p className="text-muted-foreground">
+                {t("search_loading")} YouTube...
+              </p>
+            )}
+
+            {ytError && (
+              <p className="text-red-400 text-sm">{ytError}</p>
+            )}
+
+            {hasYtResults && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {ytResults.map((item) => (
+                  <button
+                    key={`${item.type}-${item.id}`}
+                    type="button"
+                    onClick={() => handleYoutubeItemClick(item)}
+                    className="group text-left cursor-pointer rounded-lg bg-card/60 hover:bg-card transition-colors overflow-hidden border border-border/60"
+                  >
+                    <div className="aspect-video w-full overflow-hidden">
+                      {item.thumbnailUrl ? (
+                        <img
+                          src={item.thumbnailUrl}
+                          alt={item.title}
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).src =
+                              "/placeholder.svg";
+                          }}
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center bg-muted">
+                          <Youtube className="w-10 h-10 text-red-500/70" />
+                        </div>
+                      )}
+                    </div>
+                    <div className="p-3 space-y-1">
+                      <p className="text-xs uppercase text-red-400 flex items-center gap-1">
+                        <Youtube className="w-3 h-3" />
+                        {item.type === "video" ? "YouTube Video" : "YouTube Playlist"}
+                      </p>
+                      <h3 className="text-sm font-semibold line-clamp-2 text-foreground">
+                        {item.title}
+                      </h3>
+                      <p className="text-xs text-muted-foreground line-clamp-1">
+                        {item.channelTitle}
+                      </p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {hasYtResults && (
+              <p className="mt-3 text-xs text-muted-foreground">
+                Clicking a YouTube result will legally import its metadata into
+                Purple Music (tracks/playlists) and play it through the official
+                YouTube IFrame player.
+              </p>
+            )}
+          </section>
+        )}
+
+        {/* DEFAULT BROWSE (NO SEARCH) */}
         {!debouncedSearch && (
-          <div className="animate-fade-in">
-            <h2 className="text-2xl font-bold mb-4">{t("browse_all")}</h2>
+          <div className="mt-8 animate-fade-in">
+            <h2 className="text-2xl font-bold mb-4 text-foreground">
+              {t("browse_all")}
+            </h2>
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
               {browseCategories.map((cat) => (
                 <div
@@ -411,6 +932,14 @@ const Search = () => {
           </div>
         )}
       </div>
+
+      {!isAuthenticated && (
+        <div className="pointer-events-none fixed inset-0 z-[9998] flex items-start justify-center">
+          <div className="mt-24 px-4 py-3 rounded-xl blocked-search-page-msg bg-black/85 text-[16px] text-[var(--pm-gold)] shadow-2xl backdrop-blur">
+            {t("login_to_search")}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
