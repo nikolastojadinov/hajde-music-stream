@@ -1,3 +1,5 @@
+// backend/src/lib/prepareBatch1.ts
+
 import path from 'path';
 import { promises as fs } from 'fs';
 import { DateTime } from 'luxon';
@@ -47,14 +49,16 @@ export async function executePrepareJob(job: RefreshJobRow): Promise<void> {
   try {
     await fs.mkdir(BATCH_DIR, { recursive: true });
 
+    // ⬅️ UZIMAMO SVE PLAYLISTE REDOM, VALIDNE, BEZ MIXEVA
     const playlists = await fetchAllPlaylistsChronological();
 
     console.log('[PrepareBatch1] Playlists fetched:', playlists.length);
 
+    // ⬅️ VRLO VAŽNO: runBatch očekuje UUID → p.id
     const batchPayload = playlists.map(p => ({
-      playlistId: p.external_id,   // ✔️ MUST USE YOUTUBE ID
-      supabaseId: p.id,            // ✔️ keep internal reference
+      playlistId: p.id,
       title: p.title ?? '',
+      externalId: p.external_id,
       createdAt: p.created_at,
     }));
 
@@ -83,7 +87,9 @@ export async function executePrepareJob(job: RefreshJobRow): Promise<void> {
 }
 
 /**
- * FETCHES all playlists (valid YouTube IDs) in chronological order.
+ * VRAĆA *sve* validne YT plejliste po created_at redosledu.
+ * - NEMA više filtera za "prazne"
+ * - NEMA više playlist_tracks EXISTS check
  */
 async function fetchAllPlaylistsChronological(): Promise<Row[]> {
   const sql = `
@@ -95,10 +101,10 @@ async function fetchAllPlaylistsChronological(): Promise<Row[]> {
     from playlists p
     where p.external_id is not null
       and p.external_id ~ '^[A-Za-z0-9_-]{16,}$'
-      and p.external_id not like '${MIX_PREFIX}%'
+      and not (p.external_id ilike '${MIX_PREFIX}%')
     order by p.created_at asc
     limit ${PLAYLIST_LIMIT}
-  `;
+  `; // ⬅️ BEZ TAČKE-ZAREZA
 
   const { data, error } = await supabase.rpc('run_raw', { sql });
 
