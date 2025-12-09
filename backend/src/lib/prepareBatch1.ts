@@ -49,12 +49,11 @@ export async function executePrepareJob(job: RefreshJobRow): Promise<void> {
   try {
     await fs.mkdir(BATCH_DIR, { recursive: true });
 
-    // ⬅️ UZIMAMO SVE PLAYLISTE REDOM, VALIDNE, BEZ MIXEVA
+    // ✔ Uzimamo SVE plejliste, redom, bez mix-eva
     const playlists = await fetchAllPlaylistsChronological();
 
     console.log('[PrepareBatch1] Playlists fetched:', playlists.length);
 
-    // ⬅️ VRLO VAŽNO: runBatch očekuje UUID → p.id
     const batchPayload = playlists.map(p => ({
       playlistId: p.id,
       title: p.title ?? '',
@@ -86,10 +85,12 @@ export async function executePrepareJob(job: RefreshJobRow): Promise<void> {
   }
 }
 
+
 /**
- * VRAĆA *sve* validne YT plejliste po created_at redosledu.
- * - NEMA više filtera za "prazne"
- * - NEMA više playlist_tracks EXISTS check
+ * ✔ Bira SVE validne plejliste
+ * ✔ Sortirane po CREATED_AT
+ * ✔ Bez RD mix plejliste
+ * ✔ Bez ikakvog EXISTS filtera
  */
 async function fetchAllPlaylistsChronological(): Promise<Row[]> {
   const sql = `
@@ -104,7 +105,7 @@ async function fetchAllPlaylistsChronological(): Promise<Row[]> {
       and not (p.external_id ilike '${MIX_PREFIX}%')
     order by p.created_at asc
     limit ${PLAYLIST_LIMIT}
-  `; // ⬅️ BEZ TAČKE-ZAREZA
+  `; // ← bez tačke-zareza
 
   const { data, error } = await supabase.rpc('run_raw', { sql });
 
