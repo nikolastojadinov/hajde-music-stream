@@ -47,15 +47,14 @@ export async function executePrepareJob(job: RefreshJobRow): Promise<void> {
   try {
     await fs.mkdir(BATCH_DIR, { recursive: true });
 
-    // NEW SQL LOGIC HERE → fetch ALL playlists in chronological order
     const playlists = await fetchAllPlaylistsChronological();
 
     console.log('[PrepareBatch1] Playlists fetched:', playlists.length);
 
     const batchPayload = playlists.map(p => ({
-      playlistId: p.id,
+      playlistId: p.external_id,   // ✔️ MUST USE YOUTUBE ID
+      supabaseId: p.id,            // ✔️ keep internal reference
       title: p.title ?? '',
-      externalId: p.external_id,
       createdAt: p.created_at,
     }));
 
@@ -85,7 +84,6 @@ export async function executePrepareJob(job: RefreshJobRow): Promise<void> {
 
 /**
  * FETCHES all playlists (valid YouTube IDs) in chronological order.
- * DOES NOT check playlist_tracks → this is what you requested.
  */
 async function fetchAllPlaylistsChronological(): Promise<Row[]> {
   const sql = `
