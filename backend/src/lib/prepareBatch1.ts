@@ -29,6 +29,7 @@ type Row = {
   title: string | null;
   external_id: string | null;
   created_at: string | null;
+  last_refreshed_on: string | null;
 };
 
 export async function executePrepareJob(job: RefreshJobRow): Promise<void> {
@@ -49,8 +50,8 @@ export async function executePrepareJob(job: RefreshJobRow): Promise<void> {
   try {
     await fs.mkdir(BATCH_DIR, { recursive: true });
 
-    // ✔ Uzimamo SVE plejliste, redom, bez mix-eva
-    const playlists = await fetchAllPlaylistsChronological();
+    // ✔ Uzimamo plejliste po LAST_REFRESHED_ON ASC
+    const playlists = await fetchLeastRefreshedPlaylists();
 
     console.log('[PrepareBatch1] Playlists fetched:', playlists.length);
 
@@ -59,6 +60,7 @@ export async function executePrepareJob(job: RefreshJobRow): Promise<void> {
       title: p.title ?? '',
       externalId: p.external_id,
       createdAt: p.created_at,
+      lastRefreshedOn: p.last_refreshed_on,
     }));
 
     const filePath = path.join(
@@ -87,25 +89,26 @@ export async function executePrepareJob(job: RefreshJobRow): Promise<void> {
 
 
 /**
- * ✔ Bira SVE validne plejliste
- * ✔ Sortirane po CREATED_AT
- * ✔ Bez RD mix plejliste
- * ✔ Bez ikakvog EXISTS filtera
+ * ✔ BIRA NAJMANJE OSVEŽENE PLEJLISTE
+ * ✔ Sortira po last_refreshed_on ASC
+ * ✔ Ignoriše RD (mix) plejliste
+ * ✔ External_id mora biti validan
  */
-async function fetchAllPlaylistsChronological(): Promise<Row[]> {
+async function fetchLeastRefreshedPlaylists(): Promise<Row[]> {
   const sql = `
-    select 
+    select
       p.id,
       p.title,
       p.external_id,
-      p.created_at
+      p.created_at,
+      p.last_refreshed_on
     from playlists p
     where p.external_id is not null
       and p.external_id ~ '^[A-Za-z0-9_-]{16,}$'
       and not (p.external_id ilike '${MIX_PREFIX}%')
-    order by p.created_at asc
+    order by p.last_refreshed_on asc nulls first
     limit ${PLAYLIST_LIMIT}
-  `; // ← bez tačke-zareza
+  `;
 
   const { data, error } = await supabase.rpc('run_raw', { sql });
 
