@@ -50,7 +50,7 @@ export async function executePrepareJob(job: RefreshJobRow): Promise<void> {
   try {
     await fs.mkdir(BATCH_DIR, { recursive: true });
 
-    // ✔ Uzimamo NAJPRAZNIJE plejliste (bez ijedne pesme), po LAST_REFRESHED_ON ASC
+    // ✔ bira najstarije prazne plejliste
     const playlists = await fetchLeastRefreshedEmptyPlaylists();
 
     console.log('[PrepareBatch1] Playlists fetched:', playlists.length);
@@ -87,13 +87,14 @@ export async function executePrepareJob(job: RefreshJobRow): Promise<void> {
 }
 
 /**
- * ✔ BIRA SAMO PRAZNE PLEJLISTE (bez pesama)
- * ✔ LEFT JOIN na playlist_tracks, where pt.playlist_id is null
- * ✔ Sortira po last_refreshed_on ASC NULLS FIRST, pa po created_at
- * ✔ Ignoriše RD (mix) plejliste
- * ✔ External_id mora biti validan YouTube playlist ID
+ * ✔ BIRA SAMO PRAZNE PLEJLISTE
+ * ✔ SORTIRA po last_refreshed_on ASC NULLS FIRST
+ * ✔ RETRY mehanizam ×3 za timeout greške
  */
 async function fetchLeastRefreshedEmptyPlaylists(): Promise<Row[]> {
+  const MAX_RETRIES = 3;
+  const RETRY_DELAY_MS = 1500;
+
   const sql = `
     select
       p.id,
@@ -112,16 +113,43 @@ async function fetchLeastRefreshedEmptyPlaylists(): Promise<Row[]> {
       p.last_refreshed_on asc nulls first,
       p.created_at asc
     limit ${PLAYLIST_LIMIT}
-  `; // bez tačke-zareza na kraju za run_raw
+  `;
 
-  const { data, error } = await supabase.rpc('run_raw', { sql });
+  let attempt = 0;
 
-  if (error) {
+  while (attempt < MAX_RETRIES) {
+    attempt++;
+
+    console.log(`[PrepareBatch1] SQL attempt ${attempt}/${MAX_RETRIES}`);
+
+    const { data, error } = await supabase.rpc('run_raw', { sql });
+
+    if (!error) {
+      return data as Row[];
+    }
+
+    const message = (error as any).message ?? '';
+
+    // Retry samo na timeout
+    if (
+      message.includes("statement timeout") ||
+      message.includes("canceling statement due to statement timeout")
+    ) {
+      console.warn(
+        `[PrepareBatch1] SQL timeout on attempt ${attempt}, retrying...`
+      );
+
+      if (attempt < MAX_RETRIES) {
+        await new Promise((res) => setTimeout(res, RETRY_DELAY_MS));
+        continue;
+      }
+    }
+
     console.error('[PrepareBatch1] SQL error:', error);
     throw error;
   }
 
-  return data as Row[];
+  throw new Error(`fetchLeastRefreshedEmptyPlaylists failed after ${MAX_RETRIES} attempts`);
 }
 
 async function finalizeJob(jobId: string, payload: Record<string, unknown>) {
