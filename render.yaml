@@ -26,15 +26,14 @@ services:
         value: production
 
   - type: worker
-    name: youtube-channel-importer
-    env: python
-    buildCommand: ""
-    startCommand: python backend/src/python/world_channels_ID.py
-    plan: starter
-    region: frankfurt
+    name: youtube-channel-worker
+    env: docker
+    plan: free
     branch: main
+    dockerfilePath: ./backend/src/python/Dockerfile
+    startCommand: python3 world_channels_ID.py
     envVars:
       - key: SUPABASE_URL
-        value: https://ofkfygqrfenctzitigae.supabase.co
+        sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
