@@ -28,12 +28,13 @@ services:
   - type: worker
     name: youtube-channel-worker
     env: docker
-    plan: free
+    plan: starter
+    region: frankfurt
     branch: main
     dockerfilePath: ./backend/src/python/Dockerfile
-    startCommand: python3 world_channels_ID.py
+    autoDeploy: false
     envVars:
       - key: SUPABASE_URL
-        sync: false
+        value: https://ofkfygqrfenctzitigae.supabase.co
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
