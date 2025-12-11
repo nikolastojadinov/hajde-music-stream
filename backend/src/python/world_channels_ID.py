@@ -10,16 +10,12 @@ import requests
 # CONFIG – PUTANJE I OKRUŽENJE
 # ---------------------------------------------------------------------
 
-# Folder sa CSV fajlovima na Renderu:
-#  backend/src/python/world/*.csv
 BASE_DIR = os.path.dirname(__file__)
 WORLD_FOLDER = os.path.join(BASE_DIR, "world")
 
 ERROR_LOG = os.path.join(BASE_DIR, "world_channels_errors.log")
 
-# Koliko da pauzira između poziva prema MusicBrainz (u sekundama)
-# Ako želiš agresivnije, spusti na 0.1 – samo promeni ovu vrednost.
-RATE_LIMIT_SECONDS = 0.3
+RATE_LIMIT_SECONDS = 0.3  # pauza između poziva prema MusicBrainz
 
 # Supabase okruženje (render.yaml)
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -30,7 +26,6 @@ SUPA_HEADERS = {
     "apikey": SUPABASE_KEY or "",
     "Authorization": f"Bearer {SUPABASE_KEY}" if SUPABASE_KEY else "",
     "Content-Type": "application/json",
-    # za upsert bez duplikata
     "Prefer": "resolution=ignore-duplicates"
 }
 
@@ -40,271 +35,92 @@ MB_HEADERS = {
 }
 
 # ---------------------------------------------------------------------
-# COUNTRY MAP – svi tvoji kodovi (ISO 3166-1 alpha-2 → puno ime)
+# COUNTRY MAP
 # ---------------------------------------------------------------------
 
 COUNTRY_MAP = {
-    "AF": "Afghanistan",
-    "AL": "Albania",
-    "DZ": "Algeria",
-    "AS": "American Samoa",
-    "AD": "Andorra",
-    "AO": "Angola",
-    "AI": "Anguilla",
-    "AQ": "Antarctica",
-    "AG": "Antigua and Barbuda",
-    "AR": "Argentina",
-    "AM": "Armenia",
-    "AW": "Aruba",
-    "AU": "Australia",
-    "AT": "Austria",
-    "AZ": "Azerbaijan",
-    "BS": "Bahamas",
-    "BH": "Bahrain",
-    "BD": "Bangladesh",
-    "BB": "Barbados",
-    "BY": "Belarus",
-    "BE": "Belgium",
-    "BZ": "Belize",
-    "BJ": "Benin",
-    "BM": "Bermuda",
-    "BT": "Bhutan",
-    "BO": "Bolivia",
-    "BA": "Bosnia and Herzegovina",
-    "BW": "Botswana",
-    "BR": "Brazil",
-    "IO": "British Indian Ocean Territory",
-    "BN": "Brunei Darussalam",
-    "BG": "Bulgaria",
-    "BF": "Burkina Faso",
-    "BI": "Burundi",
-    "CV": "Cabo Verde",
-    "KH": "Cambodia",
-    "CM": "Cameroon",
-    "CA": "Canada",
-    "KY": "Cayman Islands",
-    "CF": "Central African Republic",
-    "TD": "Chad",
-    "CL": "Chile",
-    "CN": "China",
-    "CX": "Christmas Island",
-    "CC": "Cocos (Keeling) Islands",
-    "CO": "Colombia",
-    "KM": "Comoros",
-    "CD": "Congo, Democratic Republic of the",
-    "CG": "Congo",
-    "CK": "Cook Islands",
-    "CR": "Costa Rica",
-    "CI": "Côte d'Ivoire",
-    "HR": "Croatia",
-    "CU": "Cuba",
-    "CW": "Curaçao",
-    "CY": "Cyprus",
-    "CZ": "Czechia",
-    "DK": "Denmark",
-    "DJ": "Djibouti",
-    "DM": "Dominica",
-    "DO": "Dominican Republic",
-    "EC": "Ecuador",
-    "EG": "Egypt",
-    "SV": "El Salvador",
-    "GQ": "Equatorial Guinea",
-    "ER": "Eritrea",
-    "EE": "Estonia",
-    "SZ": "Eswatini",
-    "ET": "Ethiopia",
-    "FK": "Falkland Islands",
-    "FO": "Faroe Islands",
-    "FJ": "Fiji",
-    "FI": "Finland",
-    "FR": "France",
-    "GF": "French Guiana",
-    "PF": "French Polynesia",
-    "GA": "Gabon",
-    "GM": "Gambia",
-    "GE": "Georgia",
-    "DE": "Germany",
-    "GH": "Ghana",
-    "GI": "Gibraltar",
-    "GR": "Greece",
-    "GL": "Greenland",
-    "GD": "Grenada",
-    "GP": "Guadeloupe",
-    "GU": "Guam",
-    "GT": "Guatemala",
-    "GG": "Guernsey",
-    "GN": "Guinea",
-    "GW": "Guinea-Bissau",
-    "GY": "Guyana",
-    "HT": "Haiti",
-    "HN": "Honduras",
-    "HK": "Hong Kong",
-    "HU": "Hungary",
-    "IS": "Iceland",
-    "IN": "India",
-    "ID": "Indonesia",
-    "IR": "Iran",
-    "IQ": "Iraq",
-    "IE": "Ireland",
-    "IM": "Isle of Man",
-    "IL": "Israel",
-    "IT": "Italy",
-    "JM": "Jamaica",
-    "JP": "Japan",
-    "JE": "Jersey",
-    "JO": "Jordan",
-    "KZ": "Kazakhstan",
-    "KE": "Kenya",
-    "KI": "Kiribati",
-    "KP": "Korea, Democratic People's Republic of",
-    "KR": "Korea, Republic of",
-    "KW": "Kuwait",
-    "KG": "Kyrgyzstan",
-    "LA": "Lao People's Democratic Republic",
-    "LV": "Latvia",
-    "LB": "Lebanon",
-    "LS": "Lesotho",
-    "LR": "Liberia",
-    "LY": "Libya",
-    "LI": "Liechtenstein",
-    "LT": "Lithuania",
-    "LU": "Luxembourg",
-    "MO": "Macao",
-    "MK": "North Macedonia",
-    "MG": "Madagascar",
-    "MW": "Malawi",
-    "MY": "Malaysia",
-    "MV": "Maldives",
-    "ML": "Mali",
-    "MT": "Malta",
-    "MH": "Marshall Islands",
-    "MQ": "Martinique",
-    "MR": "Mauritania",
-    "MU": "Mauritius",
-    "YT": "Mayotte",
-    "MX": "Mexico",
-    "FM": "Micronesia, Federated States of",
-    "MD": "Moldova",
-    "MC": "Monaco",
-    "MN": "Mongolia",
-    "ME": "Montenegro",
-    "MS": "Montserrat",
-    "MA": "Morocco",
-    "MZ": "Mozambique",
-    "MM": "Myanmar",
-    "NA": "Namibia",
-    "NR": "Nauru",
-    "NP": "Nepal",
-    "NL": "Netherlands",
-    "NC": "New Caledonia",
-    "NZ": "New Zealand",
-    "NI": "Nicaragua",
-    "NE": "Niger",
-    "NG": "Nigeria",
-    "NU": "Niue",
-    "NF": "Norfolk Island",
-    "MP": "Northern Mariana Islands",
-    "NO": "Norway",
-    "OM": "Oman",
-    "PK": "Pakistan",
-    "PW": "Palau",
-    "PS": "Palestine, State of",
-    "PA": "Panama",
-    "PG": "Papua New Guinea",
-    "PY": "Paraguay",
-    "PE": "Peru",
-    "PH": "Philippines",
-    "PN": "Pitcairn",
-    "PL": "Poland",
-    "PT": "Portugal",
-    "PR": "Puerto Rico",
-    "QA": "Qatar",
-    "RE": "Réunion",
-    "RO": "Romania",
-    "RU": "Russian Federation",
-    "RW": "Rwanda",
-    "BL": "Saint Barthélemy",
-    "SH": "Saint Helena, Ascension and Tristan da Cunha",
-    "KN": "Saint Kitts and Nevis",
-    "LC": "Saint Lucia",
-    "MF": "Saint Martin (French part)",
-    "PM": "Saint Pierre and Miquelon",
-    "VC": "Saint Vincent and the Grenadines",
-    "WS": "Samoa",
-    "SM": "San Marino",
-    "ST": "Sao Tome and Principe",
-    "SA": "Saudi Arabia",
-    "SN": "Senegal",
-    "RS": "Serbia",
-    "SC": "Seychelles",
-    "SL": "Sierra Leone",
-    "SG": "Singapore",
-    "SX": "Sint Maarten (Dutch part)",
-    "SK": "Slovakia",
-    "SI": "Slovenia",
-    "SB": "Solomon Islands",
-    "SO": "Somalia",
-    "ZA": "South Africa",
-    "GS": "South Georgia and the South Sandwich Islands",
-    "SS": "South Sudan",
-    "ES": "Spain",
-    "LK": "Sri Lanka",
-    "SD": "Sudan",
-    "SR": "Suriname",
-    "SE": "Sweden",
-    "CH": "Switzerland",
-    "SY": "Syrian Arab Republic",
-    "TW": "Taiwan",
-    "TJ": "Tajikistan",
-    "TZ": "Tanzania, United Republic of",
-    "TH": "Thailand",
-    "TL": "Timor-Leste",
-    "TG": "Togo",
-    "TK": "Tokelau",
-    "TO": "Tonga",
-    "TT": "Trinidad and Tobago",
-    "TN": "Tunisia",
-    "TR": "Türkiye",
-    "TM": "Turkmenistan",
-    "TC": "Turks and Caicos Islands",
-    "TV": "Tuvalu",
-    "UG": "Uganda",
-    "UA": "Ukraine",
-    "AE": "United Arab Emirates",
-    "GB": "United Kingdom",
-    "US": "United States of America",
-    "UY": "Uruguay",
-    "UZ": "Uzbekistan",
-    "VU": "Vanuatu",
-    "VA": "Holy See",
-    "VE": "Venezuela",
-    "VN": "Viet Nam",
-    "VG": "Virgin Islands (British)",
-    "VI": "Virgin Islands (U.S.)",
-    "WF": "Wallis and Futuna",
-    "EH": "Western Sahara",
-    "YE": "Yemen",
-    "ZM": "Zambia",
-    "ZW": "Zimbabwe",
+    "AF": "Afghanistan", "AL": "Albania", "DZ": "Algeria", "AS": "American Samoa",
+    "AD": "Andorra", "AO": "Angola", "AI": "Anguilla", "AQ": "Antarctica",
+    "AG": "Antigua and Barbuda", "AR": "Argentina", "AM": "Armenia", "AW": "Aruba",
+    "AU": "Australia", "AT": "Austria", "AZ": "Azerbaijan", "BS": "Bahamas",
+    "BH": "Bahrain", "BD": "Bangladesh", "BB": "Barbados", "BY": "Belarus",
+    "BE": "Belgium", "BZ": "Belize", "BJ": "Benin", "BM": "Bermuda", "BT": "Bhutan",
+    "BO": "Bolivia", "BA": "Bosnia and Herzegovina", "BW": "Botswana", "BR": "Brazil",
+    "IO": "British Indian Ocean Territory", "BN": "Brunei Darussalam",
+    "BG": "Bulgaria", "BF": "Burkina Faso", "BI": "Burundi", "CV": "Cabo Verde",
+    "KH": "Cambodia", "CM": "Cameroon", "CA": "Canada", "KY": "Cayman Islands",
+    "CF": "Central African Republic", "TD": "Chad", "CL": "Chile", "CN": "China",
+    "CX": "Christmas Island", "CC": "Cocos (Keeling) Islands", "CO": "Colombia",
+    "KM": "Comoros", "CD": "Congo, Democratic Republic of the", "CG": "Congo",
+    "CK": "Cook Islands", "CR": "Costa Rica", "CI": "Côte d'Ivoire", "HR": "Croatia",
+    "CU": "Cuba", "CW": "Curaçao", "CY": "Cyprus", "CZ": "Czechia", "DK": "Denmark",
+    "DJ": "Djibouti", "DM": "Dominica", "DO": "Dominican Republic", "EC": "Ecuador",
+    "EG": "Egypt", "SV": "El Salvador", "GQ": "Equatorial Guinea", "ER": "Eritrea",
+    "EE": "Estonia", "SZ": "Eswatini", "ET": "Ethiopia", "FK": "Falkland Islands",
+    "FO": "Faroe Islands", "FJ": "Fiji", "FI": "Finland", "FR": "France",
+    "GF": "French Guiana", "PF": "French Polynesia", "GA": "Gabon", "GM": "Gambia",
+    "GE": "Georgia", "DE": "Germany", "GH": "Ghana", "GI": "Gibraltar", "GR": "Greece",
+    "GL": "Greenland", "GD": "Grenada", "GP": "Guadeloupe", "GU": "Guam",
+    "GT": "Guatemala", "GG": "Guernsey", "GN": "Guinea", "GW": "Guinea-Bissau",
+    "GY": "Guyana", "HT": "Haiti", "HN": "Honduras", "HK": "Hong Kong", "HU": "Hungary",
+    "IS": "Iceland", "IN": "India", "ID": "Indonesia", "IR": "Iran", "IQ": "Iraq",
+    "IE": "Ireland", "IM": "Isle of Man", "IL": "Israel", "IT": "Italy",
+    "JM": "Jamaica", "JP": "Japan", "JE": "Jersey", "JO": "Jordan", "KZ": "Kazakhstan",
+    "KE": "Kenya", "KI": "Kiribati", "KP": "Korea, Democratic People's Republic of",
+    "KR": "Korea, Republic of", "KW": "Kuwait", "KG": "Kyrgyzstan",
+    "LA": "Lao People's Democratic Republic", "LV": "Latvia", "LB": "Lebanon",
+    "LS": "Lesotho", "LR": "Liberia", "LY": "Libya", "LI": "Liechtenstein",
+    "LT": "Lithuania", "LU": "Luxembourg", "MO": "Macao",
+    "MK": "North Macedonia", "MG": "Madagascar", "MW": "Malawi", "MY": "Malaysia",
+    "MV": "Maldives", "ML": "Mali", "MT": "Malta", "MH": "Marshall Islands",
+    "MQ": "Martinique", "MR": "Mauritania", "MU": "Mauritius", "YT": "Mayotte",
+    "MX": "Mexico", "FM": "Micronesia, Federated States of", "MD": "Moldova",
+    "MC": "Monaco", "MN": "Mongolia", "ME": "Montenegro", "MS": "Montserrat",
+    "MA": "Morocco", "MZ": "Mozambique", "MM": "Myanmar", "NA": "Namibia",
+    "NR": "Nauru", "NP": "Nepal", "NL": "Netherlands", "NC": "New Caledonia",
+    "NZ": "New Zealand", "NI": "Nicaragua", "NE": "Niger", "NG": "Nigeria",
+    "NU": "Niue", "NF": "Norfolk Island", "MP": "Northern Mariana Islands",
+    "NO": "Norway", "OM": "Oman", "PK": "Pakistan", "PW": "Palau",
+    "PS": "Palestine, State of", "PA": "Panama", "PG": "Papua New Guinea",
+    "PY": "Paraguay", "PE": "Peru", "PH": "Philippines", "PN": "Pitcairn",
+    "PL": "Poland", "PT": "Portugal", "PR": "Puerto Rico", "QA": "Qatar",
+    "RE": "Réunion", "RO": "Romania", "RU": "Russian Federation", "RW": "Rwanda",
+    "BL": "Saint Barthélemy", "SH": "Saint Helena, Ascension and Tristan da Cunha",
+    "KN": "Saint Kitts and Nevis", "LC": "Saint Lucia",
+    "MF": "Saint Martin (French part)", "PM": "Saint Pierre and Miquelon",
+    "VC": "Saint Vincent and the Grenadines", "WS": "Samoa", "SM": "San Marino",
+    "ST": "Sao Tome and Principe", "SA": "Saudi Arabia", "SN": "Senegal",
+    "RS": "Serbia", "SC": "Seychelles", "SL": "Sierra Leone", "SG": "Singapore",
+    "SX": "Sint Maarten (Dutch part)", "SK": "Slovakia", "SI": "Slovenia",
+    "SB": "Solomon Islands", "SO": "Somalia", "ZA": "South Africa",
+    "GS": "South Georgia and the South Sandwich Islands", "SS": "South Sudan",
+    "ES": "Spain", "LK": "Sri Lanka", "SD": "Sudan", "SR": "Suriname",
+    "SE": "Sweden", "CH": "Switzerland", "SY": "Syrian Arab Republic",
+    "TW": "Taiwan", "TJ": "Tajikistan", "TZ": "Tanzania, United Republic of",
+    "TH": "Thailand", "TL": "Timor-Leste", "TG": "Togo", "TK": "Tokelau",
+    "TO": "Tonga", "TT": "Trinidad and Tobago", "TN": "Tunisia", "TR": "Türkiye",
+    "TM": "Turkmenistan", "TC": "Turks and Caicos Islands", "TV": "Tuvalu",
+    "UG": "Uganda", "UA": "Ukraine", "AE": "United Arab Emirates",
+    "GB": "United Kingdom", "US": "United States of America", "UY": "Uruguay",
+    "UZ": "Uzbekistan", "VU": "Vanuatu", "VA": "Holy See", "VE": "Venezuela",
+    "VN": "Viet Nam", "VG": "Virgin Islands (British)", "VI": "Virgin Islands (U.S.)",
+    "WF": "Wallis and Futuna", "EH": "Western Sahara", "YE": "Yemen",
+    "ZM": "Zambia", "ZW": "Zimbabwe",
 }
 
 # ---------------------------------------------------------------------
-# POMOĆNE FUNKCIJE
+# HELPERS
 # ---------------------------------------------------------------------
 
-
 def log_error(msg: str) -> None:
-    """Upiši grešku u lokalni log fajl na Renderu."""
     try:
         with open(ERROR_LOG, "a", encoding="utf-8") as f:
             f.write(msg + "\n")
     except Exception:
-        # poslednja linija odbrane – ali ne ruši skriptu
         pass
 
 
 def extract_channel_id(url: str) -> str:
-    """Izvlači YouTube channel ID (UCxxxx...) iz raznih URL formata."""
     if not url:
         return ""
 
@@ -312,15 +128,14 @@ def extract_channel_id(url: str) -> str:
         parsed = urlparse(url)
         parts = parsed.path.split("/")
 
-        # /channel/UCxxxx ili music.youtube.com/channel/UCxxxx
         if "channel" in parts:
             idx = parts.index("channel")
             if idx + 1 < len(parts):
                 return parts[idx + 1]
 
-        # /user/... i /@handle nemaju direktan ID bez YT API → preskoči
         if "user" in parts:
             return ""
+
         if len(parts) > 1 and parts[1].startswith("@"):
             return ""
 
@@ -330,7 +145,6 @@ def extract_channel_id(url: str) -> str:
 
 
 def fetch_youtube_using_mbid(session: requests.Session, mbid: str) -> str:
-    """Uzima YouTube URL preko MusicBrainz artist MBID-a i vraća channel_id."""
     url = f"https://musicbrainz.org/ws/2/artist/{mbid}?fmt=json&inc=url-rels"
 
     try:
@@ -350,7 +164,6 @@ def fetch_youtube_using_mbid(session: requests.Session, mbid: str) -> str:
 
 
 def supabase_insert(row: dict) -> None:
-    """Upisuje red u Supabase (upsert na osnovu mbid)."""
     if not SUPABASE_URL or not SUPABASE_KEY:
         print("⚠ SUPABASE_URL ili SUPABASE_SERVICE_ROLE_KEY nisu podešeni.")
         return
@@ -360,7 +173,6 @@ def supabase_insert(row: dict) -> None:
     try:
         r = requests.post(url, headers=SUPA_HEADERS, data=json.dumps(row), timeout=20)
         if r.status_code not in (200, 201, 204):
-            # 409 i slični – loguj ali ne ruši
             print("❌ Supabase error:", r.status_code, r.text[:200])
             log_error(f"SUPABASE {r.status_code}: {r.text[:500]}")
     except Exception as e:
@@ -371,7 +183,6 @@ def supabase_insert(row: dict) -> None:
 # ---------------------------------------------------------------------
 # MAIN
 # ---------------------------------------------------------------------
-
 
 def main():
     if not os.path.isdir(WORLD_FOLDER):
@@ -417,6 +228,10 @@ def main():
             channel_id = fetch_youtube_using_mbid(mb_session, mbid)
             time.sleep(RATE_LIMIT_SECONDS)
 
+            # 🚫 Ako nema YouTube kanal → PRESKOČI
+            if not channel_id:
+                continue
+
             payload = {
                 "name": name,
                 "mbid": mbid,
@@ -431,7 +246,7 @@ def main():
             print(f"✓ {name} | {mbid} | {channel_id} | {country_name}")
 
     print("\n✅ GOTOVO.")
-    print("Ukupno obrađenih redova (pokušaj upisa u Supabase):", total_processed)
+    print("Ukupno upisanih izvođača sa YouTube kanalima:", total_processed)
 
 
 if __name__ == "__main__":
