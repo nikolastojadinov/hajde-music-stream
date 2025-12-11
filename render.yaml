@@ -24,3 +24,17 @@ services:
         value: https://pmtestnet.netlify.app
       - key: NODE_ENV
         value: production
+
+  - type: worker
+    name: youtube-channel-importer
+    env: python
+    buildCommand: ""
+    startCommand: python backend/src/python/world_channels_ID.py
+    plan: starter
+    region: frankfurt
+    branch: main
+    envVars:
+      - key: SUPABASE_URL
+        value: https://ofkfygqrfenctzitigae.supabase.co
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
