@@ -9,8 +9,8 @@ const TIMEZONE = 'Europe/Budapest';
 const CRON_EXPRESSION = '15 10 * * *'; // 10:15 local time daily
 const TABLE_NAME = 'refresh_jobs';
 
-// 🔥 POVEĆANO SA 10 NA 15
-const SLOT_COUNT = 15;
+// 🔥 POVEĆANO NA 20 TERMINA
+const SLOT_COUNT = 20;
 
 const PREPARE_START_HOUR = 10;
 const PREPARE_START_MINUTE = 30;
@@ -101,7 +101,9 @@ function buildJobRows(dayKey: string): RefreshJobRow[] {
 }
 
 function buildLocalDate(dayKey: string, hour: number, minute: number): DateTime {
-  const iso = `${dayKey}T${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}:00`;
+  const iso = `${dayKey}T${hour.toString().padStart(2, '0')}:${minute
+    .toString()
+    .padStart(2, '0')}:00`;
   const date = DateTime.fromISO(iso, { zone: TIMEZONE });
 
   if (!date.isValid) {
@@ -111,7 +113,12 @@ function buildLocalDate(dayKey: string, hour: number, minute: number): DateTime 
   return date;
 }
 
-function createJobRow(index: number, type: JobType, scheduled: DateTime, dayKey: string): RefreshJobRow {
+function createJobRow(
+  index: number,
+  type: JobType,
+  scheduled: DateTime,
+  dayKey: string
+): RefreshJobRow {
   const scheduledIso = scheduled.toUTC().toISO();
 
   if (!scheduledIso) {
