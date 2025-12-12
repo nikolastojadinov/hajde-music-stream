@@ -14,6 +14,27 @@ import { withBackendOrigin } from "@/lib/backendUrl";
 import { usePlaylistViewTracking } from "@/hooks/usePlaylistViewTracking";
 import AddToPlaylistButton from "@/components/AddToPlaylistButton";
 
+/**
+ * ✅ Normalizuje YouTube / HTML playlist naslove
+ * - dekodira &amp; &nbsp; itd
+ * - seče pre | , – —
+ * - trimuje višak
+ */
+function normalizePlaylistTitle(title: string) {
+  if (!title) return "";
+
+  // Decode HTML entities
+  const textarea = document.createElement("textarea");
+  textarea.innerHTML = title;
+  const decoded = textarea.value;
+
+  // Cut long YouTube-style titles
+  return decoded
+    .split(/[\|–—,]/)[0]
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 const Playlist = () => {
   const { id } = useParams<{ id: string }>();
   const { playPlaylist, isPlaying, togglePlay } = usePlayer();
@@ -25,14 +46,20 @@ const Playlist = () => {
   const lastLoggedViewId = useRef<string | null>(null);
   const { trackView } = usePlaylistViewTracking();
 
-  console.log('🎵 Playlist page mounted, ID:', id);
-  
   const { data: playlist, isLoading, error } = useExternalPlaylist(id || "");
   const isLiked = id ? isPlaylistLiked(id) : false;
-  const statsKey = useMemo(() => (id ? withBackendOrigin(`/api/playlists/${id}/public-stats`) : null), [id]);
-  const viewUrl = useMemo(() => (id ? withBackendOrigin(`/api/playlists/${id}/public-view`) : null), [id]);
 
-  // Track playlist view for personalized homepage
+  const statsKey = useMemo(
+    () => (id ? withBackendOrigin(`/api/playlists/${id}/public-stats`) : null),
+    [id]
+  );
+
+  const viewUrl = useMemo(
+    () => (id ? withBackendOrigin(`/api/playlists/${id}/public-view`) : null),
+    [id]
+  );
+
+  // Track playlist view
   useEffect(() => {
     if (id && user?.uid) {
       trackView(id);
@@ -45,23 +72,21 @@ const Playlist = () => {
     }
 
     lastLoggedViewId.current = id;
-
     const controller = new AbortController();
+
     fetch(viewUrl, {
-      method: 'POST',
-      credentials: 'include',
+      method: "POST",
+      credentials: "include",
       headers: {
-        'X-Pi-User-Id': user.uid,
-        'X-Pi-Username': user.username ?? '',
-        'X-Pi-Premium': user.premium ? 'true' : 'false',
-        'X-Pi-Premium-Until': user.premium_until ?? '',
+        "X-Pi-User-Id": user.uid,
+        "X-Pi-Username": user.username ?? "",
+        "X-Pi-Premium": user.premium ? "true" : "false",
+        "X-Pi-Premium-Until": user.premium_until ?? "",
       },
       signal: controller.signal,
     })
       .then(async (resp) => {
-        if (!resp.ok) {
-          throw new Error(`view_log_failed_${resp.status}`);
-        }
+        if (!resp.ok) throw new Error(`view_log_failed_${resp.status}`);
         const payload = await resp.json().catch(() => null);
         if (statsKey && payload?.stats) {
           mutate(statsKey, payload.stats, false);
@@ -70,16 +95,22 @@ const Playlist = () => {
         }
       })
       .catch((err: any) => {
-      if (err?.name === 'AbortError') return;
-      console.warn('[playlist] Failed to register public view', err);
+        if (err?.name !== "AbortError") {
+          console.warn("[playlist] Failed to register public view", err);
+        }
       });
 
-    return () => {
-      controller.abort();
-    };
-  }, [id, mutate, statsKey, user?.premium, user?.premium_until, user?.uid, user?.username, viewUrl]);
-  
-  console.log('📊 Playlist state:', { isLoading, hasError: !!error, hasPlaylist: !!playlist, trackCount: playlist?.tracks?.length });
+    return () => controller.abort();
+  }, [
+    id,
+    mutate,
+    statsKey,
+    user?.premium,
+    user?.premium_until,
+    user?.uid,
+    user?.username,
+    viewUrl,
+  ]);
 
   const formatDuration = (seconds: number | null) => {
     if (!seconds) return "0:00";
@@ -89,40 +120,39 @@ const Playlist = () => {
   };
 
   const handlePlayPlaylist = () => {
-    if (playlist && playlist.tracks.length > 0) {
-      const trackData = playlist.tracks.map(t => ({
+    if (!playlist || playlist.tracks.length === 0) return;
+    playPlaylist(
+      playlist.tracks.map((t) => ({
         id: t.id,
         external_id: t.external_id,
         title: t.title,
-        artist: t.artist
-      }));
-      playPlaylist(trackData, 0);
-      setCurrentTrackId(playlist.tracks[0].id);
-    }
+        artist: t.artist,
+      })),
+      0
+    );
+    setCurrentTrackId(playlist.tracks[0].id);
   };
 
   const handlePlayTrack = (track: any, index: number) => {
-    if (playlist) {
-      const trackData = playlist.tracks.map(t => ({
+    if (!playlist) return;
+    playPlaylist(
+      playlist.tracks.map((t) => ({
         id: t.id,
         external_id: t.external_id,
         title: t.title,
-        artist: t.artist
-      }));
-      playPlaylist(trackData, index);
-      setCurrentTrackId(track.id);
-    }
+        artist: t.artist,
+      })),
+      index
+    );
+    setCurrentTrackId(track.id);
   };
 
   const handleToggleLike = async () => {
     if (!id) return;
-    console.log('[ui] ❤️ playlist header click', { id });
     try {
       await togglePlaylistLike(id);
     } finally {
-      if (statsKey) {
-        mutate(statsKey);
-      }
+      if (statsKey) mutate(statsKey);
     }
   };
 
@@ -136,30 +166,13 @@ const Playlist = () => {
     );
   }
 
-  if (error) {
-    console.error('❌ Playlist error:', error);
+  if (error || !playlist) {
     return (
       <div className="flex-1 overflow-y-auto pb-32 flex items-center justify-center">
         <div className="text-center p-4">
-          <h2 className="text-2xl font-bold mb-2">{t("playlist_load_error")}</h2>
-          <p className="text-muted-foreground mb-4">
-            {error instanceof Error ? error.message : t("unknown_error")}
-          </p>
-          <Button onClick={() => window.location.reload()}>
-            {t("try_again")}
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
-  if (!playlist) {
-    console.warn('⚠️ Playlist not found');
-    return (
-      <div className="flex-1 overflow-y-auto pb-32 flex items-center justify-center">
-        <div className="text-center p-4">
-          <h2 className="text-2xl font-bold mb-2">{t("playlist_not_found")}</h2>
-          <p className="text-muted-foreground mb-4">ID: {id}</p>
+          <h2 className="text-2xl font-bold mb-2">
+            {t("playlist_not_found")}
+          </h2>
           <Button onClick={() => window.history.back()}>
             {t("back")}
           </Button>
@@ -173,10 +186,16 @@ const Playlist = () => {
       <div className="relative bg-gradient-to-b from-purple-900/40 to-background p-4 md:p-8">
         <div className="flex flex-col md:flex-row md:items-end gap-4">
           <div className="w-40 h-40 md:w-48 md:h-48 rounded-lg overflow-hidden">
-            <img src={playlist.cover_url || "/placeholder.svg"} alt={playlist.title} className="w-full h-full object-cover" />
+            <img
+              src={playlist.cover_url || "/placeholder.svg"}
+              alt={playlist.title}
+              className="w-full h-full object-cover"
+            />
           </div>
           <div>
-            <h1 className="text-3xl md:text-5xl font-black">{playlist.title}</h1>
+            <h1 className="text-3xl md:text-5xl font-black">
+              {normalizePlaylistTitle(playlist.title)}
+            </h1>
             <p className="text-sm text-muted-foreground mt-2">
               {playlist.tracks.length} {t("songs")}
             </p>
@@ -185,23 +204,19 @@ const Playlist = () => {
       </div>
 
       <div className="p-4 md:p-8">
-        <div className="flex flex-wrap items-center gap-4 mb-6">
+        <div className="flex items-center gap-4 mb-6">
           <Button size="lg" className="rounded-full" onClick={handlePlayPlaylist}>
             <Play className="w-5 h-5 mr-2 fill-current" />
             {t("play_all")}
           </Button>
-          
-          {/* Like button */}
+
           <button
             onClick={handleToggleLike}
-            className="w-12 h-12 rounded-full bg-secondary hover:bg-secondary/80 flex items-center justify-center hover:scale-110 transition-all"
-            aria-label={isLiked ? t("unlike_playlist") : t("like_playlist")}
+            className="w-12 h-12 rounded-full bg-secondary hover:bg-secondary/80 flex items-center justify-center"
           >
-            <Heart 
-              className={`w-6 h-6 transition-all ${
-                isLiked 
-                  ? "fill-primary text-primary" 
-                  : "text-muted-foreground"
+            <Heart
+              className={`w-6 h-6 ${
+                isLiked ? "fill-primary text-primary" : "text-muted-foreground"
               }`}
             />
           </button>
@@ -215,47 +230,21 @@ const Playlist = () => {
             return (
               <div
                 key={track.id}
-                className={`group flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 cursor-pointer ${isCurrent ? "bg-white/10" : ""}`}
+                className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer ${
+                  isCurrent ? "bg-white/10" : "hover:bg-white/5"
+                }`}
                 onClick={() => handlePlayTrack(track, index)}
               >
-                <div className="w-12 h-12 rounded overflow-hidden flex-shrink-0 bg-card relative">
-                  {track.cover_url ? (
-                    <img 
-                      src={track.cover_url} 
-                      alt={track.title}
-                      className="w-full h-full object-cover"
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).src = playlist.cover_url || "/placeholder.svg";
-                      }}
-                    />
-                  ) : (
-                    <img 
-                      src={playlist.cover_url || "/placeholder.svg"} 
-                      alt={track.title}
-                      className="w-full h-full object-cover opacity-50"
-                    />
-                  )}
-                  {isCurrent && (
-                    <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-                      <button onClick={(e) => { e.stopPropagation(); togglePlay(); }} className="text-primary">
-                        {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
-                      </button>
-                    </div>
-                  )}
-                </div>
                 <div className="flex-1 min-w-0">
-                  <div className={`font-medium truncate ${isCurrent ? "text-primary" : ""}`}>{track.title}</div>
-                  <div className="text-sm text-muted-foreground truncate">{track.artist}</div>
+                  <div className="font-medium truncate">{track.title}</div>
+                  <div className="text-sm text-muted-foreground truncate">
+                    {track.artist}
+                  </div>
                 </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <div className="text-sm text-muted-foreground hidden sm:block">{formatDuration(track.duration)}</div>
-                  <AddToPlaylistButton
-                    trackId={track.id}
-                    trackTitle={track.title}
-                    variant="ghost"
-                    triggerClassName="text-muted-foreground/80 hover:text-primary"
-                  />
+                <div className="text-sm text-muted-foreground">
+                  {formatDuration(track.duration)}
                 </div>
+                <AddToPlaylistButton trackId={track.id} trackTitle={track.title} />
               </div>
             );
           })}
