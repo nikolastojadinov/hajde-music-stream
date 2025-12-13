@@ -8,6 +8,7 @@ export interface Track {
   external_id: string;
   duration: number | null;
   cover_url: string | null;
+  playlist_id: string | null;
 }
 
 export interface Playlist {
@@ -26,61 +27,98 @@ export const useExternalPlaylist = (playlistId: string) => {
   return useQuery<PlaylistWithTracks>({
     queryKey: ['external-playlist', playlistId],
     queryFn: async () => {
-      if (!playlistId) throw new Error('Playlist ID is required');
+      if (!playlistId) {
+        throw new Error('Playlist ID is required');
+      }
 
-      // 1️⃣ PLAYLIST
-      const { data: playlist } = await externalSupabase
-        .from('playlists')
-        .select('*')
-        .eq('id', playlistId)
-        .single();
+      console.log('🔍 Fetching playlist:', playlistId);
 
-      if (!playlist) throw new Error('Playlist not found');
+      const { data: playlistData, error: playlistError } =
+        await externalSupabase
+          .from('playlists')
+          .select('*')
+          .eq('id', playlistId)
+          .single();
 
-      // 2️⃣ TRACK IDS (junction table)
-      const { data: links } = await externalSupabase
+      if (playlistError || !playlistData) {
+        throw new Error('Playlist not found');
+      }
+
+      let tracks: Track[] = [];
+
+      // ✅ METHOD 1 (ostaje ista)
+      const { data: playlistTracks } = await externalSupabase
         .from('playlist_tracks')
-        .select('track_id, position')
+        .select(`
+          position,
+          tracks (
+            id,
+            title,
+            artist,
+            cover_url,
+            duration,
+            external_id
+          )
+        `)
         .eq('playlist_id', playlistId)
-        .order('position');
+        .order('position', { ascending: true });
 
-      if (!links || links.length === 0) {
-        return { ...playlist, tracks: [] };
+      if (playlistTracks && playlistTracks.length > 0) {
+        tracks = playlistTracks
+          .map((pt: any) => {
+            // 🔴 JEDINA BITNA ZAŠTITA
+            if (!pt.tracks) return null;
+
+            return {
+              id: pt.tracks.id,
+              title: pt.tracks.title,
+              artist: pt.tracks.artist,
+              external_id: pt.tracks.external_id,
+              duration: pt.tracks.duration,
+              cover_url: pt.tracks.cover_url,
+              playlist_id: playlistId,
+            };
+          })
+          .filter((t): t is Track => t !== null);
       }
 
-      const trackIds = links.map(l => l.track_id);
+      // METHOD 2 (ostaje ista)
+      if (tracks.length === 0) {
+        const { data: directTracks } = await externalSupabase
+          .from('tracks')
+          .select('id, title, artist, cover_url, duration, external_id')
+          .eq('playlist_id', playlistId)
+          .order('created_at', { ascending: true });
 
-      // 3️⃣ TRACKS (EXPLICIT FETCH)
-      const { data: tracksData } = await externalSupabase
-        .from('tracks')
-        .select('id, title, artist, cover_url, duration, external_id, broken')
-        .in('id', trackIds);
-
-      if (!tracksData) {
-        return { ...playlist, tracks: [] };
+        if (directTracks && directTracks.length > 0) {
+          tracks = directTracks.map((t: any) => ({
+            id: t.id,
+            title: t.title,
+            artist: t.artist,
+            external_id: t.external_id,
+            duration: t.duration,
+            cover_url: t.cover_url,
+            playlist_id: playlistId,
+          }));
+        }
       }
 
-      // 4️⃣ MAP + FILTER
-      const tracks = links
-        .map(link => tracksData.find(t => t.id === link.track_id))
-        .filter(
-          (t): t is Track =>
-            !!t &&
-            typeof t.external_id === 'string' &&
-            t.external_id.length > 0 &&
-            (t as any).broken !== true
-        );
+      console.log(`🎵 Final track count: ${tracks.length}`);
 
       return {
-        id: playlist.id,
-        title: playlist.title,
-        description: playlist.description,
-        category: playlist.category,
-        cover_url: playlist.cover_url,
+        id: playlistData.id,
+        title: playlistData.title,
+        description: playlistData.description,
+        category: playlistData.category,
+        cover_url: playlistData.cover_url || null,
         tracks,
       };
     },
     enabled: Boolean(playlistId),
-    staleTime: 300_000,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    retry: 1,
   });
 };
