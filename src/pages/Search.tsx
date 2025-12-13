@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import {
   Search as SearchIcon,
   Music,
@@ -14,6 +14,14 @@ import { useNavigate } from "react-router-dom";
 import { usePlayer } from "@/contexts/PlayerContext";
 import { usePi } from "@/contexts/PiContext";
 import { externalSupabase } from "@/lib/externalSupabase";
+import { buildFuseEngine, FuseEngine } from "@/lib/fuseEngine";
+import {
+  getCachedArtistsSearchDataset,
+  getCachedDataset,
+  loadArtistsSearchDataset,
+  loadSearchDataset,
+} from "@/lib/searchDataset";
+import type { SearchDatasetItem } from "@/lib/searchDataset";
 
 // ===== Types =====
 
@@ -79,6 +87,8 @@ const ytApiKey = import.meta.env.VITE_YOUTUBE_API_KEY as string | undefined;
 // ===== Component =====
 
 const MAX_HISTORY = 10;
+const SUGGESTION_LIMIT = 10;
+const DATASET_REFRESH_MS = 24 * 60 * 60 * 1000;
 
 const Search = () => {
   const { t } = useLanguage();
@@ -99,6 +109,17 @@ const Search = () => {
 
   const [history, setHistory] = useState<string[]>([]);
   const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [autocompleteSuggestions, setAutocompleteSuggestions] = useState<string[]>([]);
+  const [fuseVersion, setFuseVersion] = useState(0);
+  const [artistsSearchDataset, setArtistsSearchDataset] = useState<SearchDatasetItem[]>([]);
+
+  const fuseRef = useRef<FuseEngine | null>(null);
+
+  const rebuildFuse = (dataset: SearchDatasetItem[]) => {
+    if (!dataset.length) return;
+    fuseRef.current = buildFuseEngine(dataset);
+    setFuseVersion((version) => version + 1);
+  };
 
   const [isLoadingSupabase, setIsLoadingSupabase] = useState(false);
   const [isLoadingYoutube, setIsLoadingYoutube] = useState(false);
@@ -135,6 +156,56 @@ const Search = () => {
     localStorage.setItem("pm_search_history", JSON.stringify(updated));
   };
 
+  // ===== Fuse + artists_search dataset hydration (for autocomplete) =====
+  useEffect(() => {
+    const cachedDataset = getCachedDataset();
+    if (cachedDataset.length) {
+      rebuildFuse(cachedDataset);
+    }
+
+    const cachedArtistsSearch = getCachedArtistsSearchDataset();
+    if (cachedArtistsSearch.length) {
+      setArtistsSearchDataset(cachedArtistsSearch);
+    }
+
+    let cancelled = false;
+
+    const hydrateDataset = async (force = false) => {
+      try {
+        const dataset = await loadSearchDataset(force ? { force: true } : {});
+        if (!cancelled && dataset.length) {
+          rebuildFuse(dataset);
+        }
+      } catch (err) {
+        console.error("search dataset load failed", err);
+      }
+    };
+
+    const hydrateArtistsSearch = async (force = false) => {
+      try {
+        const dataset = await loadArtistsSearchDataset(force ? { force: true } : {});
+        if (!cancelled && dataset.length) {
+          setArtistsSearchDataset(dataset);
+        }
+      } catch (err) {
+        console.error("artists_search dataset load failed", err);
+      }
+    };
+
+    hydrateDataset();
+    hydrateArtistsSearch();
+
+    const interval = setInterval(() => {
+      hydrateDataset(true);
+      hydrateArtistsSearch(true);
+    }, DATASET_REFRESH_MS);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, []);
+
   // ===== Debounce input =====
 
   useEffect(() => {
@@ -151,6 +222,63 @@ const Search = () => {
       setActiveTab("playlists");
     }
   }, [searchTerm]);
+
+
+  // ===== Autocomplete dropdown suggestions =====
+  // Merge artists_search + existing suggestions + Fuse (artists_search first)
+  useEffect(() => {
+    if (!searchTerm.trim()) {
+      setAutocompleteSuggestions([]);
+      return;
+    }
+
+    const query = searchTerm.trim().toLowerCase();
+    const seen = new Set<string>();
+    const next: string[] = [];
+
+    const artistsSearchMatches = artistsSearchDataset
+      .filter((item) => item.type === "artist" && item.source === "artists_search")
+      .map((item) => {
+        const label = (item.label || item.artist).trim();
+        return { label, isPopular: Boolean(item.isPopular) };
+      })
+      .filter(({ label }) => label && label.toLowerCase().includes(query))
+      .sort((a, b) => {
+        if (a.isPopular !== b.isPopular) return a.isPopular ? -1 : 1;
+        return a.label.localeCompare(b.label);
+      });
+
+    artistsSearchMatches.forEach(({ label }) => {
+      if (next.length >= SUGGESTION_LIMIT) return;
+      const key = label.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      next.push(label);
+    });
+
+    suggestions.forEach((label) => {
+      if (next.length >= SUGGESTION_LIMIT) return;
+      const key = label.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      next.push(label);
+    });
+
+    if (fuseRef.current && next.length < SUGGESTION_LIMIT) {
+      const fuzzyResults = fuseRef.current.search(searchTerm).slice(0, SUGGESTION_LIMIT);
+      fuzzyResults.forEach(({ item }) => {
+        if (next.length >= SUGGESTION_LIMIT) return;
+        const label = item.artist || (item.type === "track" ? item.title : "");
+        if (!label) return;
+        const key = label.toLowerCase();
+        if (seen.has(key)) return;
+        seen.add(key);
+        next.push(label);
+      });
+    }
+
+    setAutocompleteSuggestions(next);
+  }, [searchTerm, suggestions, fuseVersion, artistsSearchDataset]);
 
   // ===== Supabase search =====
 
@@ -571,7 +699,7 @@ const Search = () => {
           {/* Autocomplete dropdown (history + suggestions) */}
           {isAuthenticated &&
             searchTerm.length > 0 &&
-            (history.length > 0 || suggestions.length > 0) && (
+            (history.length > 0 || autocompleteSuggestions.length > 0) && (
               <div className="absolute z-50 mt-2 w-full bg-card border border-border rounded-lg shadow-lg max-h-80 overflow-y-auto animate-fade-in">
                 {history.length > 0 && (
                   <>
@@ -591,12 +719,12 @@ const Search = () => {
                   </>
                 )}
 
-                {suggestions.length > 0 && (
+                {autocompleteSuggestions.length > 0 && (
                   <>
                     <h4 className="px-3 pt-3 pb-1 text-xs text-muted-foreground uppercase flex items-center gap-2">
                       <SearchIcon className="w-4 h-4" /> {t("suggestions")}
                     </h4>
-                    {suggestions.map((s) => (
+                    {autocompleteSuggestions.map((s) => (
                       <button
                         key={s}
                         type="button"
