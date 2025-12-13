@@ -15,10 +15,12 @@ import Footer from "@/components/Footer";
 import Player from "@/components/Player";
 import PremiumPromptManager from "@/components/PremiumPromptManager";
 import { YouTubePlayerContainer } from "@/components/YouTubePlayerContainer";
+
 import Home from "@/pages/Home";
 import Search from "@/pages/Search";
 import Library from "@/pages/Library";
 import Playlist from "@/pages/Playlist";
+import Artist from "@/pages/Artist";
 import Favorites from "@/pages/Favorites";
 import Privacy from "@/pages/Privacy";
 import Terms from "@/pages/Terms";
@@ -50,13 +52,13 @@ const GlobalAuthOverlay = () => {
   const { authenticating } = usePi();
   const { t } = useLanguage();
 
-  if (!authenticating) {
-    return null;
-  }
+  if (!authenticating) return null;
 
   return (
     <div className="fixed inset-0 z-[3000] flex items-center justify-center bg-black text-white">
-      <p className="text-lg font-semibold animate-pulse">{t("pi_authentication")}</p>
+      <p className="text-lg font-semibold animate-pulse">
+        {t("pi_authentication")}
+      </p>
     </div>
   );
 };
@@ -75,6 +77,8 @@ const App = () => {
                   <GlobalAuthOverlay />
                   <BrowserRouter>
                     <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
+
+                      {/* DESKTOP */}
                       <div className="hidden flex-1 overflow-hidden pt-16 md:flex">
                         <Sidebar />
                         <div className="flex flex-1 flex-col overflow-hidden">
@@ -84,9 +88,10 @@ const App = () => {
                               <Route path="/" element={<Home />} />
                               <Route path="/search" element={<Search />} />
                               <Route path="/library" element={<Library />} />
+                              <Route path="/artist/:artistKey" element={<Artist />} />
+                              <Route path="/playlist/:id" element={<Playlist />} />
                               <Route path="/create" element={<CreatePlaylist />} />
                               <Route path="/edit/:id" element={<EditPlaylist />} />
-                              <Route path="/playlist/:id" element={<Playlist />} />
                               <Route path="/favorites" element={<Favorites />} />
                               <Route path="/import-csv" element={<ImportCSV />} />
                               <Route path="/privacy" element={<Privacy />} />
@@ -99,6 +104,7 @@ const App = () => {
                         </div>
                       </div>
 
+                      {/* MOBILE */}
                       <div className="flex flex-1 flex-col overflow-hidden md:hidden">
                         <Header />
                         <main className="flex-1 overflow-y-auto pt-16 pb-32">
@@ -106,9 +112,10 @@ const App = () => {
                             <Route path="/" element={<Home />} />
                             <Route path="/search" element={<Search />} />
                             <Route path="/library" element={<Library />} />
+                            <Route path="/artist/:artistKey" element={<Artist />} />
+                            <Route path="/playlist/:id" element={<Playlist />} />
                             <Route path="/create" element={<CreatePlaylist />} />
                             <Route path="/edit/:id" element={<EditPlaylist />} />
-                            <Route path="/playlist/:id" element={<Playlist />} />
                             <Route path="/favorites" element={<Favorites />} />
                             <Route path="/import-csv" element={<ImportCSV />} />
                             <Route path="/privacy" element={<Privacy />} />
