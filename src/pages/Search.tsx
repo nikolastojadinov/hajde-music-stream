@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import {
   Search as SearchIcon,
   Music,
@@ -14,7 +14,7 @@ import { usePlayer } from "@/contexts/PlayerContext";
 import { usePi } from "@/contexts/PiContext";
 import { externalSupabase } from "@/lib/externalSupabase";
 
-// ===== Types =====
+// ================== Types ==================
 
 interface Track {
   id: string;
@@ -37,330 +37,227 @@ interface ArtistGroup {
   tracks: Track[];
 }
 
-interface SearchResults {
-  tracks: Track[];
-  playlists: Playlist[];
-  artistGroups: ArtistGroup[];
-}
-
-type FilterTab = "playlists" | "songs" | "artists";
-
-interface YoutubeSearchItem {
+interface YoutubeItem {
   id: string;
   type: "video" | "playlist";
   title: string;
   channelTitle: string;
   thumbnailUrl: string | null;
+  alreadyExists: boolean;
 }
 
-// ===== Helpers =====
+type Tab = "local" | "youtube";
 
-const parseYoutubeDuration = (iso: string | undefined | null): number | null => {
-  if (!iso) return null;
-  const match = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
-  if (!match) return null;
-  const hours = parseInt(match[1] || "0", 10);
-  const minutes = parseInt(match[2] || "0", 10);
-  const seconds = parseInt(match[3] || "0", 10);
-  return hours * 3600 + minutes * 60 + seconds;
-};
-
-const formatDuration = (seconds: number | null) => {
-  if (!seconds || seconds <= 0) return "";
-  const mins = Math.floor(seconds / 60);
-  const secs = seconds % 60;
-  return `${mins}:${secs.toString().padStart(2, "0")}`;
-};
+// ================== Helpers ==================
 
 const ytApiKey = import.meta.env.VITE_YOUTUBE_API_KEY as string | undefined;
 
-// ===== Component =====
-
-const Search = () => {
-  const { t } = useLanguage();
-  const navigate = useNavigate();
-  const { playTrack } = usePlayer();
-  const { user } = usePi();
-  const isAuthenticated = Boolean(user);
-
-  const [searchTerm, setSearchTerm] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [activeTab, setActiveTab] = useState<FilterTab>("playlists");
-
-  const [results, setResults] = useState<SearchResults>({
-    tracks: [],
-    playlists: [],
-    artistGroups: [],
-  });
-
-  const [isLoadingSupabase, setIsLoadingSupabase] = useState(false);
-  const [isLoadingYoutube, setIsLoadingYoutube] = useState(false);
-  const [ytResults, setYtResults] = useState<YoutubeSearchItem[]>([]);
-  const [ytError, setYtError] = useState<string | null>(null);
-
-  const hasLocalResults =
-    results.tracks.length > 0 ||
-    results.playlists.length > 0 ||
-    results.artistGroups.length > 0;
-
-  const hasYtResults = ytResults.length > 0;
-
-  // ===== Debounce input =====
-  useEffect(() => {
-    const timer = setTimeout(
-      () => setDebouncedSearch(searchTerm.trim()),
-      350
-    );
-    return () => clearTimeout(timer);
-  }, [searchTerm]);
-
-  useEffect(() => {
-    if (searchTerm.length > 0) {
-      setActiveTab("playlists");
-    }
-  }, [searchTerm]);
-
-  // ===== Supabase search =====
-  useEffect(() => {
-    if (!debouncedSearch) {
-      setResults({ tracks: [], playlists: [], artistGroups: [] });
-      setYtResults([]);
-      setYtError(null);
-      return;
-    }
-
-    const runSupabaseSearch = async () => {
-      setIsLoadingSupabase(true);
-      setYtResults([]);
-      setYtError(null);
-
-      try {
-        const pattern = `%${debouncedSearch}%`;
-
-        const [tracksRes, playlistsRes, artistRes] = await Promise.all([
-          externalSupabase
-            .from("tracks")
-            .select("id, external_id, title, artist, cover_url, duration")
-            .or(`title.ilike.${pattern},artist.ilike.${pattern}`)
-            .limit(30),
-
-          externalSupabase
-            .from("playlists")
-            .select("id, title, cover_url, description")
-            .ilike("title", pattern)
-            .limit(30),
-
-          externalSupabase
-            .from("tracks")
-            .select("id, external_id, title, artist, cover_url, duration")
-            .ilike("artist", pattern)
-            .limit(60),
-        ]);
-
-        const tracks: Track[] = tracksRes.data || [];
-        const playlists: Playlist[] = playlistsRes.data || [];
-
-        const artistMap = new Map<string, Track[]>();
-        (artistRes.data || []).forEach((track: Track) => {
-          const list = artistMap.get(track.artist) || [];
-          artistMap.set(track.artist, [...list, track]);
-        });
-
-        const artistGroups: ArtistGroup[] = Array.from(artistMap.entries())
-          .map(([artist, tracks]) => ({
-            artist,
-            tracks: tracks.sort((a, b) => a.title.localeCompare(b.title)),
-          }))
-          .sort((a, b) => a.artist.localeCompare(b.artist));
-
-        setResults({ tracks, playlists, artistGroups });
-
-        if (
-          tracks.length === 0 &&
-          playlists.length === 0 &&
-          artistGroups.length === 0 &&
-          ytApiKey
-        ) {
-          await runYoutubeSearch(debouncedSearch, setYtResults, setYtError);
-        }
-      } catch (err) {
-        console.error("Supabase search error:", err);
-        setResults({ tracks: [], playlists: [], artistGroups: [] });
-      } finally {
-        setIsLoadingSupabase(false);
-      }
-    };
-
-    runSupabaseSearch();
-  }, [debouncedSearch]);
-
-  // ===== YouTube search =====
-
-  const runYoutubeSearch = async (
-    query: string,
-    setItems: (items: YoutubeSearchItem[]) => void,
-    setError: (err: string | null) => void
-  ) => {
-    if (!ytApiKey) return;
-
-    try {
-      const baseParams = {
-        key: ytApiKey,
-        part: "snippet",
-        maxResults: "10",
-        q: query,
-        safeSearch: "none",
-      };
-
-      const buildUrl = (extra: Record<string, string>) =>
-        `https://www.googleapis.com/youtube/v3/search?${new URLSearchParams({
-          ...baseParams,
-          ...extra,
-        }).toString()}`;
-
-      const [videosRes, playlistsRes] = await Promise.all([
-        fetch(buildUrl({ type: "video" })),
-        fetch(buildUrl({ type: "playlist" })),
-      ]);
-
-      const videosJson = videosRes.ok ? await videosRes.json() : { items: [] };
-      const playlistsJson = playlistsRes.ok ? await playlistsRes.json() : { items: [] };
-
-      const items: YoutubeSearchItem[] = [...videosJson.items, ...playlistsJson.items]
-        .map((item: any) => {
-          if (item.id.kind === "youtube#video") {
-            return {
-              id: item.id.videoId,
-              type: "video",
-              title: item.snippet.title,
-              channelTitle: item.snippet.channelTitle,
-              thumbnailUrl: item.snippet.thumbnails?.high?.url || null,
-            };
-          }
-          if (item.id.kind === "youtube#playlist") {
-            return {
-              id: item.id.playlistId,
-              type: "playlist",
-              title: item.snippet.title,
-              channelTitle: item.snippet.channelTitle,
-              thumbnailUrl: item.snippet.thumbnails?.high?.url || null,
-            };
-          }
-          return null;
-        })
-        .filter(Boolean);
-
-      setItems(items);
-      setError(null);
-    } catch (err) {
-      console.error("YouTube search error:", err);
-      setError("YouTube search failed.");
-    }
-  };
-
-  // ===== UI helpers =====
-
-  const handleTrackClick = (t: Track) => {
-    playTrack(t.external_id, t.title, t.artist, t.id);
-  };
-
-  const handlePlaylistClick = (id: string) => {
-    navigate(`/playlist/${id}`);
-  };
-
-  const browseCategories = useMemo(
-    () => [
-      { id: 1, title: t("genre_pop"), color: "from-pink-500 to-purple-500" },
-      { id: 2, title: t("genre_rock"), color: "from-red-500 to-orange-500" },
-      { id: 3, title: t("genre_hiphop"), color: "from-yellow-500 to-green-500" },
-      { id: 4, title: t("genre_electronic"), color: "from-blue-500 to-cyan-500" },
-    ],
-    [t]
-  );
-
+const parseYoutubeDuration = (iso?: string | null): number | null => {
+  if (!iso) return null;
+  const m = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+  if (!m) return null;
   return (
-    <div className="relative flex-1 overflow-y-auto pb-32">
-      <div className="p-4 md:p-8 max-w-4xl mx-auto">
-        {/* SEARCH INPUT */}
-        <div className="relative mb-8">
-          <SearchIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-          <Input
-            type="text"
-            placeholder={t("search_placeholder")}
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-12 h-12 bg-card border-border"
-            autoFocus={isAuthenticated}
-            disabled={!isAuthenticated}
-            readOnly={!isAuthenticated}
-          />
-        </div>
-
-        {/* RESULTS */}
-        {isLoadingSupabase && (
-          <p className="text-muted-foreground">{t("search_loading")}...</p>
-        )}
-
-        {!isLoadingSupabase && debouncedSearch && hasLocalResults && (
-          <div className="space-y-10">
-            {/* Playlists */}
-            {activeTab === "playlists" && results.playlists.length > 0 && (
-              <section>
-                <h2 className="text-xl font-bold mb-3">Playlists</h2>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                  {results.playlists.map((p) => (
-                    <button key={p.id} onClick={() => handlePlaylistClick(p.id)}>
-                      <p className="text-sm">{p.title}</p>
-                    </button>
-                  ))}
-                </div>
-              </section>
-            )}
-
-            {/* Songs */}
-            {activeTab === "songs" && results.tracks.length > 0 && (
-              <section>
-                <h2 className="text-xl font-bold mb-3">Songs</h2>
-                {results.tracks.map((t) => (
-                  <button key={t.id} onClick={() => handleTrackClick(t)}>
-                    {t.title} – {t.artist}
-                  </button>
-                ))}
-              </section>
-            )}
-
-            {/* Artists */}
-            {activeTab === "artists" && results.artistGroups.length > 0 && (
-              <section>
-                <h2 className="text-xl font-bold mb-3">Artists</h2>
-                {results.artistGroups.map((g) => (
-                  <div key={g.artist}>
-                    <h3 className="font-semibold">{g.artist}</h3>
-                  </div>
-                ))}
-              </section>
-            )}
-          </div>
-        )}
-
-        {!debouncedSearch && (
-          <div className="mt-8">
-            <h2 className="text-2xl font-bold mb-4">{t("browse_all")}</h2>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-              {browseCategories.map((cat) => (
-                <div
-                  key={cat.id}
-                  className={`h-32 rounded-lg bg-gradient-to-br ${cat.color} flex items-center justify-center text-white font-bold`}
-                >
-                  {cat.title}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
+    (parseInt(m[1] || "0") * 3600) +
+    (parseInt(m[2] || "0") * 60) +
+    parseInt(m[3] || "0")
   );
 };
 
-export default Search;
+const formatDuration = (sec: number | null) =>
+  sec ? `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}` : "";
+
+// ================== Component ==================
+
+export default function Search() {
+  const { t } = useLanguage();
+  const { user } = usePi();
+  const { playTrack } = usePlayer();
+  const navigate = useNavigate();
+
+  const [query, setQuery] = useState("");
+  const [tab, setTab] = useState<Tab>("local");
+
+  const [tracks, setTracks] = useState<Track[]>([]);
+  const [playlists, setPlaylists] = useState<Playlist[]>([]);
+  const [artists, setArtists] = useState<ArtistGroup[]>([]);
+
+  const [ytItems, setYtItems] = useState<YoutubeItem[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const hasLocalResults =
+    tracks.length || playlists.length || artists.length;
+
+  // ================== Local Search ==================
+
+  useEffect(() => {
+    if (!query.trim()) {
+      setTracks([]);
+      setPlaylists([]);
+      setArtists([]);
+      return;
+    }
+
+    const run = async () => {
+      setLoading(true);
+
+      const pattern = `%${query}%`;
+
+      const [tRes, pRes, aRes] = await Promise.all([
+        externalSupabase
+          .from("tracks")
+          .select("id,external_id,title,artist,cover_url,duration")
+          .or(`title.ilike.${pattern},artist.ilike.${pattern}`)
+          .limit(30),
+
+        externalSupabase
+          .from("playlists")
+          .select("id,title,cover_url,description")
+          .ilike("title", pattern)
+          .limit(30),
+
+        externalSupabase
+          .from("tracks")
+          .select("id,external_id,title,artist,cover_url,duration")
+          .ilike("artist", pattern)
+          .limit(60),
+      ]);
+
+      setTracks(tRes.data || []);
+      setPlaylists(pRes.data || []);
+
+      const map = new Map<string, Track[]>();
+      (aRes.data || []).forEach((t: Track) => {
+        map.set(t.artist, [...(map.get(t.artist) || []), t]);
+      });
+
+      setArtists(
+        Array.from(map.entries()).map(([artist, tracks]) => ({
+          artist,
+          tracks,
+        }))
+      );
+
+      setTab("local");
+      setLoading(false);
+    };
+
+    run();
+  }, [query]);
+
+  // ================== YouTube Search ==================
+
+  const runYoutubeSearch = async () => {
+    if (!ytApiKey || !query) return;
+    setLoading(true);
+
+    const res = await fetch(
+      `https://www.googleapis.com/youtube/v3/search?` +
+        new URLSearchParams({
+          key: ytApiKey,
+          part: "snippet",
+          q: query,
+          maxResults: "10",
+          type: "video,playlist",
+        })
+    );
+
+    const json = await res.json();
+    const items = json.items || [];
+
+    const mapped: YoutubeItem[] = [];
+
+    for (const item of items) {
+      const id =
+        item.id.videoId || item.id.playlistId;
+
+      const exists = await externalSupabase
+        .from("tracks")
+        .select("id")
+        .eq("external_id", id)
+        .maybeSingle();
+
+      mapped.push({
+        id,
+        type: item.id.videoId ? "video" : "playlist",
+        title: item.snippet.title,
+        channelTitle: item.snippet.channelTitle,
+        thumbnailUrl:
+          item.snippet.thumbnails?.medium?.url || null,
+        alreadyExists: Boolean(exists.data),
+      });
+    }
+
+    setYtItems(mapped);
+    setTab("youtube");
+    setLoading(false);
+  };
+
+  // ================== UI ==================
+
+  return (
+    <div className="p-4 max-w-4xl mx-auto">
+      <div className="relative mb-6">
+        <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2" />
+        <Input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search artists, songs, playlists"
+          className="pl-10"
+          disabled={!user}
+        />
+      </div>
+
+      {hasLocalResults && (
+        <div className="flex gap-2 mb-6">
+          <button onClick={() => setTab("local")}>Purple Music</button>
+          <button onClick={() => runYoutubeSearch()}>
+            YouTube
+          </button>
+        </div>
+      )}
+
+      {loading && <p>Loading…</p>}
+
+      {tab === "local" && (
+        <>
+          {artists.map((a) => (
+            <div key={a.artist}>
+              <h3>{a.artist}</h3>
+              {a.tracks.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() =>
+                    playTrack(
+                      t.external_id,
+                      t.title,
+                      t.artist,
+                      t.id
+                    )
+                  }
+                >
+                  {t.title}
+                </button>
+              ))}
+            </div>
+          ))}
+        </>
+      )}
+
+      {tab === "youtube" && (
+        <>
+          {ytItems.map((y) => (
+            <div key={y.id}>
+              <img src={y.thumbnailUrl || ""} />
+              <p>{y.title}</p>
+              {y.alreadyExists ? (
+                <span>✔ Already in library</span>
+              ) : (
+                <button>Import</button>
+              )}
+            </div>
+          ))}
+        </>
+      )}
+    </div>
+  );
+}
