@@ -85,8 +85,8 @@ export default function Search() {
         .or(`title.ilike.%${q}%,artist.ilike.%${q}%`)
         .limit(SONG_LIMIT);
 
-      const safeLocalTracks = localTracks || [];
-      setSongs(safeLocalTracks);
+      const safeTracks = localTracks || [];
+      setSongs(safeTracks);
 
       // ---------- LOCAL PLAYLISTS ----------
       const { data: localPlaylists } = await externalSupabase
@@ -98,7 +98,7 @@ export default function Search() {
 
       // ---------- YOUTUBE ----------
       if (ytApiKey) {
-        await runYoutubeSearch(q, safeLocalTracks.length);
+        await runYoutubeSearch(q, safeTracks.length);
       }
     } finally {
       setLoading(false);
@@ -113,7 +113,7 @@ export default function Search() {
       part: "snippet",
       q,
       safeSearch: "none",
-      maxResults: "20",
+      maxResults: "25",
     };
 
     // ---------- SONGS (MUSIC VIDEOS ONLY) ----------
@@ -130,9 +130,6 @@ export default function Search() {
 
       setYtSongs(
         (json.items || [])
-          .filter((i: any) =>
-            !/interview|reaction|cover|shorts/i.test(i.snippet.title)
-          )
           .slice(0, SONG_LIMIT)
           .map((i: any) => ({
             id: i.id.videoId,
@@ -180,20 +177,146 @@ export default function Search() {
     playTrack(t.external_id, t.title, t.artist, t.id);
   };
 
-  const handleImportVideo = async (yt: YoutubeItem) => {
+  const openLocalPlaylist = (id: string) => {
+    navigate(`/playlist/${id}`);
+  };
+
+  const openYoutubePlaylist = async (yt: YoutubeItem) => {
+    if (!ytApiKey) return;
+
+    let playlistId: string;
+
+    // 1) get or create playlist
     const { data: existing } = await externalSupabase
-      .from("tracks")
+      .from("playlists")
       .select("id")
       .eq("external_id", yt.id)
       .maybeSingle();
 
-    if (existing) return;
+    if (existing?.id) {
+      playlistId = existing.id;
+    } else {
+      const { data: inserted, error } = await externalSupabase
+        .from("playlists")
+        .insert({
+          external_id: yt.id,
+          title: yt.title,
+          cover_url: yt.thumbnail,
+          is_public: true,
+        })
+        .select("id")
+        .single();
 
-    // import logic already exists elsewhere
+      if (error || !inserted) {
+        console.error("Playlist create failed", error);
+        return;
+      }
+
+      playlistId = inserted.id;
+    }
+
+    // 2) import tracks
+    await importYoutubePlaylistTracks(yt.id, playlistId);
+
+    // 3) open playlist page
+    navigate(`/playlist/${playlistId}`);
   };
 
-  const handlePlaylistOpen = (id: string) => {
-    navigate(`/playlist/${id}`);
+  // ================= IMPORT PLAYLIST TRACKS =================
+
+  const importYoutubePlaylistTracks = async (
+    youtubePlaylistId: string,
+    playlistId: string
+  ) => {
+    if (!ytApiKey) return;
+
+    try {
+      // 1) fetch playlist items
+      const itemsRes = await fetch(
+        `https://www.googleapis.com/youtube/v3/playlistItems?${new URLSearchParams({
+          key: ytApiKey,
+          part: "contentDetails,snippet",
+          playlistId: youtubePlaylistId,
+          maxResults: "50",
+        })}`
+      );
+
+      const itemsJson = await itemsRes.json();
+      const items = itemsJson.items || [];
+      if (!items.length) return;
+
+      const videoIds = items
+        .map((i: any) => i.contentDetails?.videoId)
+        .filter(Boolean);
+
+      // 2) fetch video metadata
+      const videosRes = await fetch(
+        `https://www.googleapis.com/youtube/v3/videos?${new URLSearchParams({
+          key: ytApiKey,
+          part: "snippet,contentDetails",
+          id: videoIds.join(","),
+        })}`
+      );
+
+      const videosJson = await videosRes.json();
+      const videos = videosJson.items || [];
+
+      let position = 0;
+      let importedCount = 0;
+
+      for (const v of videos) {
+        const videoId = v.id;
+
+        // check existing track
+        const { data: existingTrack } = await externalSupabase
+          .from("tracks")
+          .select("id")
+          .eq("external_id", videoId)
+          .maybeSingle();
+
+        let trackId: string;
+
+        if (existingTrack?.id) {
+          trackId = existingTrack.id;
+        } else {
+          const { data: insertedTrack } = await externalSupabase
+            .from("tracks")
+            .insert({
+              source: "youtube",
+              external_id: videoId,
+              title: v.snippet.title,
+              artist: v.snippet.channelTitle,
+              cover_url:
+                v.snippet.thumbnails?.high?.url ||
+                v.snippet.thumbnails?.medium?.url ||
+                null,
+            })
+            .select("id")
+            .single();
+
+          if (!insertedTrack) continue;
+          trackId = insertedTrack.id;
+        }
+
+        // link track to playlist
+        await externalSupabase.from("playlist_tracks").upsert({
+          playlist_id: playlistId,
+          track_id: trackId,
+          position,
+        });
+
+        position++;
+        importedCount++;
+      }
+
+      // update track_count
+      await externalSupabase
+        .from("playlists")
+        .update({ track_count: importedCount })
+        .eq("id", playlistId);
+    } catch (err) {
+      console.error("YouTube playlist import failed", err);
+    }
   };
 
   // ================= RENDER =================
@@ -232,22 +355,11 @@ export default function Search() {
           ))}
 
           {ytSongs.map((y) => (
-            <div
-              key={y.id}
-              className="flex justify-between items-center py-2 border-b border-border"
-            >
-              <div>
-                <div className="font-medium">{y.title}</div>
-                <div className="text-sm text-muted-foreground">
-                  {y.channelTitle}
-                </div>
+            <div key={y.id} className="py-2 border-b border-border">
+              <div className="font-medium">{y.title}</div>
+              <div className="text-sm text-muted-foreground">
+                {y.channelTitle}
               </div>
-              <button
-                onClick={() => handleImportVideo(y)}
-                className="px-3 py-1 border rounded"
-              >
-                Import
-              </button>
             </div>
           ))}
         </section>
@@ -263,7 +375,7 @@ export default function Search() {
           {playlists.map((p) => (
             <button
               key={p.id}
-              onClick={() => handlePlaylistOpen(p.id)}
+              onClick={() => openLocalPlaylist(p.id)}
               className="block w-full text-left py-2 border-b border-border"
             >
               {p.title}
@@ -271,9 +383,10 @@ export default function Search() {
           ))}
 
           {ytPlaylists.map((y) => (
-            <div
+            <button
               key={y.id}
-              className="flex items-center gap-3 py-2 border-b border-border"
+              onClick={() => openYoutubePlaylist(y)}
+              className="flex items-center gap-3 py-2 border-b border-border w-full text-left"
             >
               {y.thumbnail && (
                 <img src={y.thumbnail} className="w-20 rounded" />
@@ -284,7 +397,7 @@ export default function Search() {
                   {y.channelTitle}
                 </div>
               </div>
-            </div>
+            </button>
           ))}
         </section>
       )}
