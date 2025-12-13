@@ -1,263 +1,203 @@
-import { useState, useEffect } from "react";
-import {
-  Search as SearchIcon,
-  Music,
-  ListMusic,
-  User,
-  Youtube,
-  Clock,
-} from "lucide-react";
+import { useEffect, useState } from "react";
+import { Search as SearchIcon, Youtube } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { useLanguage } from "@/contexts/LanguageContext";
-import { useNavigate } from "react-router-dom";
 import { usePlayer } from "@/contexts/PlayerContext";
-import { usePi } from "@/contexts/PiContext";
 import { externalSupabase } from "@/lib/externalSupabase";
 
-// ================== Types ==================
-
-interface Track {
-  id: string;
-  external_id: string;
-  title: string;
-  artist: string;
-  cover_url: string | null;
-  duration: number | null;
-}
-
-interface Playlist {
-  id: string;
-  title: string;
-  cover_url: string | null;
-  description: string | null;
-}
-
-interface ArtistGroup {
-  artist: string;
-  tracks: Track[];
-}
-
-interface YoutubeItem {
-  id: string;
-  type: "video" | "playlist";
+interface YoutubeVideo {
+  videoId: string;
   title: string;
   channelTitle: string;
-  thumbnailUrl: string | null;
+  thumbnail: string | null;
   alreadyExists: boolean;
 }
 
-type Tab = "local" | "youtube";
+const ytApiKey = import.meta.env.VITE_YOUTUBE_API_KEY as string;
 
-// ================== Helpers ==================
-
-const ytApiKey = import.meta.env.VITE_YOUTUBE_API_KEY as string | undefined;
-
-const parseYoutubeDuration = (iso?: string | null): number | null => {
-  if (!iso) return null;
-  const m = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
-  if (!m) return null;
-  return (
-    (parseInt(m[1] || "0") * 3600) +
-    (parseInt(m[2] || "0") * 60) +
-    parseInt(m[3] || "0")
-  );
-};
-
-const formatDuration = (sec: number | null) =>
-  sec ? `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}` : "";
-
-// ================== Component ==================
-
-export default function Search() {
-  const { t } = useLanguage();
-  const { user } = usePi();
+const Search = () => {
   const { playTrack } = usePlayer();
-  const navigate = useNavigate();
 
   const [query, setQuery] = useState("");
-  const [tab, setTab] = useState<Tab>("local");
-
-  const [tracks, setTracks] = useState<Track[]>([]);
-  const [playlists, setPlaylists] = useState<Playlist[]>([]);
-  const [artists, setArtists] = useState<ArtistGroup[]>([]);
-
-  const [ytItems, setYtItems] = useState<YoutubeItem[]>([]);
+  const [debounced, setDebounced] = useState("");
   const [loading, setLoading] = useState(false);
+  const [videos, setVideos] = useState<YoutubeVideo[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
-  const hasLocalResults =
-    tracks.length || playlists.length || artists.length;
-
-  // ================== Local Search ==================
-
+  // debounce
   useEffect(() => {
-    if (!query.trim()) {
-      setTracks([]);
-      setPlaylists([]);
-      setArtists([]);
+    const t = setTimeout(() => setDebounced(query.trim()), 400);
+    return () => clearTimeout(t);
+  }, [query]);
+
+  // MAIN SEARCH
+  useEffect(() => {
+    if (!debounced || !ytApiKey) {
+      setVideos([]);
       return;
     }
 
     const run = async () => {
       setLoading(true);
+      setError(null);
 
-      const pattern = `%${query}%`;
+      try {
+        // 1️⃣ YouTube MUSIC VIDEO SEARCH
+        const searchParams = new URLSearchParams({
+          key: ytApiKey,
+          part: "snippet",
+          q: debounced,
+          type: "video",
+          videoCategoryId: "10", // MUSIC ONLY
+          maxResults: "12",
+          safeSearch: "none",
+        });
 
-      const [tRes, pRes, aRes] = await Promise.all([
-        externalSupabase
-          .from("tracks")
-          .select("id,external_id,title,artist,cover_url,duration")
-          .or(`title.ilike.${pattern},artist.ilike.${pattern}`)
-          .limit(30),
+        const searchRes = await fetch(
+          `https://www.googleapis.com/youtube/v3/search?${searchParams}`
+        );
 
-        externalSupabase
-          .from("playlists")
-          .select("id,title,cover_url,description")
-          .ilike("title", pattern)
-          .limit(30),
+        if (!searchRes.ok) {
+          throw new Error(await searchRes.text());
+        }
 
-        externalSupabase
-          .from("tracks")
-          .select("id,external_id,title,artist,cover_url,duration")
-          .ilike("artist", pattern)
-          .limit(60),
-      ]);
+        const searchJson = await searchRes.json();
+        const items = searchJson.items || [];
 
-      setTracks(tRes.data || []);
-      setPlaylists(pRes.data || []);
+        const mapped = await Promise.all(
+          items.map(async (item: any) => {
+            const videoId = item.id.videoId;
+            const title = item.snippet.title;
+            const channelTitle = item.snippet.channelTitle;
 
-      const map = new Map<string, Track[]>();
-      (aRes.data || []).forEach((t: Track) => {
-        map.set(t.artist, [...(map.get(t.artist) || []), t]);
-      });
+            // 2️⃣ CHECK IF EXISTS IN SUPABASE
+            const { data } = await externalSupabase
+              .from("tracks")
+              .select("id")
+              .eq("external_id", videoId)
+              .eq("source", "youtube")
+              .maybeSingle();
 
-      setArtists(
-        Array.from(map.entries()).map(([artist, tracks]) => ({
-          artist,
-          tracks,
-        }))
-      );
+            return {
+              videoId,
+              title,
+              channelTitle,
+              thumbnail:
+                item.snippet.thumbnails?.high?.url ||
+                item.snippet.thumbnails?.medium?.url ||
+                null,
+              alreadyExists: Boolean(data),
+            };
+          })
+        );
 
-      setTab("local");
-      setLoading(false);
+        setVideos(mapped);
+      } catch (err: any) {
+        console.error(err);
+        setError("YouTube search failed");
+      } finally {
+        setLoading(false);
+      }
     };
 
     run();
-  }, [query]);
+  }, [debounced]);
 
-  // ================== YouTube Search ==================
-
-  const runYoutubeSearch = async () => {
-    if (!ytApiKey || !query) return;
-    setLoading(true);
+  // IMPORT + PLAY
+  const importAndPlay = async (videoId: string) => {
+    const params = new URLSearchParams({
+      key: ytApiKey,
+      part: "snippet,contentDetails",
+      id: videoId,
+      fields:
+        "items(id,snippet(title,channelTitle,thumbnails(high(url))),contentDetails(duration))",
+    });
 
     const res = await fetch(
-      `https://www.googleapis.com/youtube/v3/search?` +
-        new URLSearchParams({
-          key: ytApiKey,
-          part: "snippet",
-          q: query,
-          maxResults: "10",
-          type: "video,playlist",
-        })
+      `https://www.googleapis.com/youtube/v3/videos?${params}`
     );
-
     const json = await res.json();
-    const items = json.items || [];
+    const video = json.items?.[0];
+    if (!video) return;
 
-    const mapped: YoutubeItem[] = [];
+    const title = video.snippet.title;
+    const artist = video.snippet.channelTitle;
+    const cover = video.snippet.thumbnails?.high?.url || null;
 
-    for (const item of items) {
-      const id =
-        item.id.videoId || item.id.playlistId;
+    const { data } = await externalSupabase
+      .from("tracks")
+      .upsert(
+        {
+          source: "youtube",
+          external_id: videoId,
+          title,
+          artist,
+          cover_url: cover,
+        },
+        { onConflict: "external_id" }
+      )
+      .select("id, external_id, title, artist")
+      .maybeSingle();
 
-      const exists = await externalSupabase
-        .from("tracks")
-        .select("id")
-        .eq("external_id", id)
-        .maybeSingle();
-
-      mapped.push({
-        id,
-        type: item.id.videoId ? "video" : "playlist",
-        title: item.snippet.title,
-        channelTitle: item.snippet.channelTitle,
-        thumbnailUrl:
-          item.snippet.thumbnails?.medium?.url || null,
-        alreadyExists: Boolean(exists.data),
-      });
+    if (data) {
+      playTrack(data.external_id, data.title, data.artist, data.id);
     }
-
-    setYtItems(mapped);
-    setTab("youtube");
-    setLoading(false);
   };
 
-  // ================== UI ==================
-
   return (
-    <div className="p-4 max-w-4xl mx-auto">
+    <div className="p-4 pb-32 max-w-3xl mx-auto">
+      {/* SEARCH INPUT */}
       <div className="relative mb-6">
-        <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2" />
+        <SearchIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
         <Input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search artists, songs, playlists"
-          className="pl-10"
-          disabled={!user}
+          placeholder="Search songs or artists"
+          className="pl-12 h-12"
         />
       </div>
 
-      {hasLocalResults && (
-        <div className="flex gap-2 mb-6">
-          <button onClick={() => setTab("local")}>Purple Music</button>
-          <button onClick={() => runYoutubeSearch()}>
-            YouTube
-          </button>
-        </div>
-      )}
+      {/* STATES */}
+      {loading && <p className="text-muted-foreground">Searching YouTube…</p>}
+      {error && <p className="text-red-400">{error}</p>}
 
-      {loading && <p>Loading…</p>}
+      {/* RESULTS */}
+      <div className="space-y-6">
+        {videos.map((v) => (
+          <div
+            key={v.videoId}
+            className="flex gap-4 items-center bg-card rounded-lg p-3"
+          >
+            {v.thumbnail && (
+              <img
+                src={v.thumbnail}
+                className="w-28 aspect-video object-cover rounded"
+              />
+            )}
 
-      {tab === "local" && (
-        <>
-          {artists.map((a) => (
-            <div key={a.artist}>
-              <h3>{a.artist}</h3>
-              {a.tracks.map((t) => (
-                <button
-                  key={t.id}
-                  onClick={() =>
-                    playTrack(
-                      t.external_id,
-                      t.title,
-                      t.artist,
-                      t.id
-                    )
-                  }
-                >
-                  {t.title}
-                </button>
-              ))}
+            <div className="flex-1">
+              <h3 className="font-semibold text-foreground line-clamp-2">
+                {v.title}
+              </h3>
+              <p className="text-xs text-muted-foreground">
+                {v.channelTitle}
+              </p>
             </div>
-          ))}
-        </>
-      )}
 
-      {tab === "youtube" && (
-        <>
-          {ytItems.map((y) => (
-            <div key={y.id}>
-              <img src={y.thumbnailUrl || ""} />
-              <p>{y.title}</p>
-              {y.alreadyExists ? (
-                <span>✔ Already in library</span>
-              ) : (
-                <button>Import</button>
-              )}
-            </div>
-          ))}
-        </>
-      )}
+            {v.alreadyExists ? (
+              <span className="text-xs text-green-400">In library</span>
+            ) : (
+              <button
+                onClick={() => importAndPlay(v.videoId)}
+                className="text-sm px-3 py-1 rounded border border-yellow-500 text-yellow-400 hover:bg-yellow-500/10"
+              >
+                Import
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   );
-}
+};
+
+export default Search;
