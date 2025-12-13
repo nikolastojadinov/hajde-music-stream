@@ -1,235 +1,201 @@
 import { useEffect, useMemo, useState } from "react";
-import { useLocation, useNavigate, useParams, Link } from "react-router-dom";
-import { Music, ListMusic, Youtube, ArrowLeft } from "lucide-react";
+import { useNavigate, useParams } from "react-router-dom";
 import { externalSupabase } from "@/lib/externalSupabase";
 import { usePlayer } from "@/contexts/PlayerContext";
 
-interface Track {
+type ArtistRow = {
+  id: string;
+  artist: string;
+  artist_key: string;
+  youtube_channel_id: string | null;
+  description: string | null;
+  thumbnail_url: string | null;
+  banner_url: string | null;
+  subscribers: number | null;
+  views: number | null;
+  country: string | null;
+  source: string;
+};
+
+type Track = {
   id: string;
   external_id: string;
   title: string;
   artist: string;
   cover_url: string | null;
   duration: number | null;
-}
+};
 
-interface Playlist {
-  id: string;
-  title: string;
-  cover_url: string | null;
-}
-
-interface YoutubeItem {
-  id: string;
-  title: string;
-  channelTitle: string;
-  thumbnail: string | null;
-}
-
-const ytApiKey = import.meta.env.VITE_YOUTUBE_API_KEY as string | undefined;
-
-const safeThumb = (snip: any): string | null =>
-  snip?.thumbnails?.high?.url ||
-  snip?.thumbnails?.medium?.url ||
-  snip?.thumbnails?.default?.url ||
-  null;
+const normalizeKey = (s: string) =>
+  s
+    .toLowerCase()
+    .trim()
+    .replace(/['"]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
 
 export default function Artist() {
-  const { artistKey } = useParams<{ artistKey: string }>();
+  const { artistKey = "" } = useParams<{ artistKey: string }>();
+  const key = useMemo(() => normalizeKey(artistKey), [artistKey]);
   const navigate = useNavigate();
-  const location = useLocation() as any;
   const { playTrack } = usePlayer();
 
-  const artistNameFromState = location?.state?.artistName as string | undefined;
-  const channelIdFromState = (location?.state?.channelId as string | null | undefined) ?? null;
-
-  const artistName = useMemo(() => {
-    if (artistNameFromState) return artistNameFromState;
-    try {
-      return decodeURIComponent(artistKey || "");
-    } catch {
-      return artistKey || "";
-    }
-  }, [artistKey, artistNameFromState]);
-
+  const [loading, setLoading] = useState(true);
+  const [artist, setArtist] = useState<ArtistRow | null>(null);
   const [tracks, setTracks] = useState<Track[]>([]);
-  const [playlists, setPlaylists] = useState<Playlist[]>([]);
-  const [ytVideos, setYtVideos] = useState<YoutubeItem[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!artistName) return;
-    loadArtist(artistName);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [artistName]);
+    if (!key) return;
 
-  const loadArtist = async (name: string) => {
-    setLoading(true);
+    let cancelled = false;
 
-    try {
-      // 1) local tracks for this artist
-      const { data: t } = await externalSupabase
-        .from("tracks")
-        .select("id, external_id, title, artist, cover_url, duration")
-        .ilike("artist", `%${name}%`)
-        .limit(40);
+    const run = async () => {
+      setLoading(true);
+      setError(null);
 
-      const safeTracks = (t || []) as Track[];
-      setTracks(safeTracks);
-
-      // 2) playlists that contain these tracks (via playlist_tracks)
-      const trackIds = safeTracks.map((x) => x.id);
-      if (trackIds.length > 0) {
-        const { data: pt } = await externalSupabase
-          .from("playlist_tracks")
-          .select("playlist_id")
-          .in("track_id", trackIds)
-          .limit(200);
-
-        const playlistIds = Array.from(
-          new Set((pt || []).map((r: any) => r.playlist_id).filter(Boolean))
-        ).slice(0, 40);
-
-        if (playlistIds.length > 0) {
-          const { data: pls } = await externalSupabase
-            .from("playlists")
-            .select("id, title, cover_url")
-            .in("id", playlistIds)
-            .limit(40);
-
-          setPlaylists((pls || []) as Playlist[]);
-        } else {
-          setPlaylists([]);
+      try {
+        // 1) fetch artist from backend (DB-first, else YouTube + store)
+        const base = import.meta.env.VITE_BACKEND_URL as string | undefined;
+        if (!base) {
+          throw new Error("Missing VITE_BACKEND_URL on frontend");
         }
-      } else {
-        setPlaylists([]);
-      }
 
-      // 3) YouTube fallback: top music videos from channel (if available)
-      if (ytApiKey && channelIdFromState) {
-        const res = await fetch(
-          `https://www.googleapis.com/youtube/v3/search?${new URLSearchParams({
-            key: ytApiKey,
-            part: "snippet",
-            channelId: channelIdFromState,
-            type: "video",
-            videoCategoryId: "10",
-            maxResults: "10",
-            safeSearch: "none",
-            order: "relevance",
-            q: name,
-          })}`
-        );
+        const res = await fetch(`${base}/api/artist/${key}`, { method: "GET" });
         const json = await res.json();
-        setYtVideos(
-          (json.items || [])
-            .filter((i: any) => i?.id?.videoId)
-            .map((i: any) => ({
-              id: i.id.videoId,
-              title: i.snippet.title,
-              channelTitle: i.snippet.channelTitle,
-              thumbnail: safeThumb(i.snippet),
-            }))
-        );
-      } else {
-        setYtVideos([]);
+        if (!res.ok) throw new Error(json?.error || "Failed to load artist");
+
+        const a: ArtistRow = json.artist;
+        if (!cancelled) setArtist(a);
+
+        // 2) load local tracks for this artist (from Supabase)
+        // NOTE: your DB uses track.artist as string
+        const { data: localTracks, error: tErr } = await externalSupabase
+          .from("tracks")
+          .select("id, external_id, title, artist, cover_url, duration")
+          .ilike("artist", `%${a.artist}%`)
+          .limit(50);
+
+        if (tErr) console.error("artist tracks error:", tErr);
+        if (!cancelled) setTracks((localTracks as any) || []);
+      } catch (e: any) {
+        if (!cancelled) setError(e?.message || "Artist page failed");
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-    } catch (e) {
-      console.error("Artist load failed", e);
-    } finally {
-      setLoading(false);
-    }
-  };
+    };
+
+    run();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [key]);
 
   const handlePlay = (t: Track) => {
     playTrack(t.external_id, t.title, t.artist, t.id);
   };
 
+  if (loading) {
+    return (
+      <div className="p-4 max-w-4xl mx-auto pb-32">
+        <p className="text-muted-foreground">Loading artist…</p>
+      </div>
+    );
+  }
+
+  if (error || !artist) {
+    return (
+      <div className="p-4 max-w-4xl mx-auto pb-32">
+        <p className="text-red-400">{error || "Artist not found"}</p>
+      </div>
+    );
+  }
+
   return (
     <div className="p-4 max-w-4xl mx-auto pb-32">
-      <div className="flex items-center gap-2 mb-4">
+      {/* header */}
+      <div className="rounded-xl overflow-hidden border border-border bg-card/40">
+        {artist.banner_url ? (
+          <div className="h-40 w-full overflow-hidden">
+            <img src={artist.banner_url} className="w-full h-full object-cover" />
+          </div>
+        ) : (
+          <div className="h-20 w-full bg-muted" />
+        )}
+
+        <div className="p-4 flex gap-4 items-center">
+          <div className="w-20 h-20 rounded-full overflow-hidden bg-muted shrink-0">
+            {artist.thumbnail_url ? (
+              <img
+                src={artist.thumbnail_url}
+                className="w-full h-full object-cover"
+                alt={artist.artist}
+              />
+            ) : null}
+          </div>
+
+          <div className="min-w-0">
+            <div className="text-2xl font-black truncate">{artist.artist}</div>
+            <div className="text-sm text-muted-foreground">
+              {artist.subscribers ? `${artist.subscribers.toLocaleString()} subscribers` : " "}
+            </div>
+
+            {artist.youtube_channel_id && (
+              <div className="mt-2">
+                <a
+                  href={`https://www.youtube.com/channel/${artist.youtube_channel_id}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs underline text-muted-foreground"
+                >
+                  Open YouTube channel
+                </a>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {artist.description ? (
+          <div className="px-4 pb-4 text-sm text-muted-foreground line-clamp-4">
+            {artist.description}
+          </div>
+        ) : null}
+      </div>
+
+      {/* songs */}
+      <div className="mt-6">
+        <div className="text-xl font-bold mb-3">Songs</div>
+        {tracks.length === 0 ? (
+          <p className="text-muted-foreground">No local songs yet.</p>
+        ) : (
+          <div className="space-y-2">
+            {tracks.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => handlePlay(t)}
+                className="w-full text-left p-3 rounded-lg border border-border bg-card/30 hover:bg-card/50 transition-colors"
+              >
+                <div className="font-medium truncate">{t.title}</div>
+                <div className="text-sm text-muted-foreground truncate">{t.artist}</div>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* back */}
+      <div className="mt-8">
         <button
           type="button"
           onClick={() => navigate(-1)}
-          className="inline-flex items-center gap-2 px-3 py-2 rounded border border-border hover:bg-white/5"
+          className="text-sm underline text-muted-foreground"
         >
-          <ArrowLeft className="w-4 h-4" />
           Back
         </button>
-
-        <h1 className="text-xl font-black truncate">{artistName}</h1>
       </div>
-
-      {loading && <p className="text-muted-foreground mb-4">Loading…</p>}
-
-      {/* Local tracks */}
-      {tracks.length > 0 && (
-        <section className="mb-10">
-          <h2 className="flex items-center gap-2 text-xl font-bold mb-4">
-            <Music className="w-5 h-5" /> Songs
-          </h2>
-
-          {tracks.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => handlePlay(t)}
-              className="block w-full text-left py-2 border-b border-border hover:bg-white/5"
-            >
-              <div className="font-medium">{t.title}</div>
-              <div className="text-sm text-muted-foreground">{t.artist}</div>
-            </button>
-          ))}
-        </section>
-      )}
-
-      {/* Local playlists */}
-      {playlists.length > 0 && (
-        <section className="mb-10">
-          <h2 className="flex items-center gap-2 text-xl font-bold mb-4">
-            <ListMusic className="w-5 h-5" /> Playlists
-          </h2>
-
-          {playlists.map((p) => (
-            <Link
-              key={p.id}
-              to={`/playlist/${p.id}`}
-              className="block w-full text-left py-2 border-b border-border hover:bg-white/5"
-            >
-              {p.title}
-            </Link>
-          ))}
-        </section>
-      )}
-
-      {/* YouTube fallback */}
-      {ytVideos.length > 0 && (
-        <section>
-          <h2 className="flex items-center gap-2 text-xl font-bold mb-4">
-            <Youtube className="w-5 h-5 text-red-500" /> YouTube
-          </h2>
-
-          {ytVideos.map((v) => (
-            <div key={v.id} className="flex items-center gap-3 py-2 border-b border-border">
-              {v.thumbnail ? (
-                <img src={v.thumbnail} className="w-20 h-12 rounded object-cover" />
-              ) : (
-                <div className="w-20 h-12 rounded bg-muted" />
-              )}
-              <div className="min-w-0">
-                <div className="font-medium line-clamp-1">{v.title}</div>
-                <div className="text-sm text-muted-foreground line-clamp-1">{v.channelTitle}</div>
-              </div>
-            </div>
-          ))}
-        </section>
-      )}
-
-      {!loading && tracks.length === 0 && playlists.length === 0 && ytVideos.length === 0 && (
-        <div className="text-sm text-muted-foreground">
-          No results for <span className="font-semibold">{artistName}</span>.
-        </div>
-      )}
     </div>
   );
 }
