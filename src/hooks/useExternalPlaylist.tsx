@@ -6,13 +6,10 @@ export interface Track {
   title: string;
   artist: string;
   external_id: string;
-  youtube_id: string | null;
-  sync_status: string | null;
-  broken: boolean | null;
-  unstable: boolean | null;
   duration: number | null;
   cover_url: string | null;
   playlist_id: string | null;
+  broken?: boolean | null;
 }
 
 export interface Playlist {
@@ -62,10 +59,7 @@ export const useExternalPlaylist = (playlistId: string) => {
             cover_url,
             duration,
             external_id,
-            youtube_id,
-            sync_status,
-            broken,
-            unstable
+            broken
           )
         `)
         .eq('playlist_id', playlistId)
@@ -76,7 +70,13 @@ export const useExternalPlaylist = (playlistId: string) => {
           .map((pt: any) => {
             if (!pt.tracks) return null;
             return {
-              ...pt.tracks,
+              id: pt.tracks.id,
+              title: pt.tracks.title,
+              artist: pt.tracks.artist,
+              external_id: pt.tracks.external_id,
+              duration: pt.tracks.duration,
+              cover_url: pt.tracks.cover_url,
+              broken: pt.tracks.broken,
               playlist_id: playlistId,
             };
           })
@@ -94,17 +94,20 @@ export const useExternalPlaylist = (playlistId: string) => {
             cover_url,
             duration,
             external_id,
-            youtube_id,
-            sync_status,
-            broken,
-            unstable
+            broken
           `)
           .eq('playlist_id', playlistId)
           .order('created_at', { ascending: true });
 
         if (directTracks && directTracks.length > 0) {
           tracks = directTracks.map((t: any) => ({
-            ...t,
+            id: t.id,
+            title: t.title,
+            artist: t.artist,
+            external_id: t.external_id,
+            duration: t.duration,
+            cover_url: t.cover_url,
+            broken: t.broken,
             playlist_id: playlistId,
           }));
         }
@@ -121,30 +124,31 @@ export const useExternalPlaylist = (playlistId: string) => {
             cover_url,
             duration,
             external_id,
-            youtube_id,
-            sync_status,
-            broken,
-            unstable
+            broken
           `)
           .eq('playlist_external_id', playlistData.external_id)
           .order('created_at', { ascending: true });
 
         if (externalTracks && externalTracks.length > 0) {
           tracks = externalTracks.map((t: any) => ({
-            ...t,
+            id: t.id,
+            title: t.title,
+            artist: t.artist,
+            external_id: t.external_id,
+            duration: t.duration,
+            cover_url: t.cover_url,
+            broken: t.broken,
             playlist_id: playlistId,
           }));
         }
       }
 
-      // ===== 🔥 CENTRAL PLAYABLE FILTER (KLJUČNO) =====
+      // ===== ✅ SAFE FILTER (NE RUŠI PLAYLISTE) =====
       const playableTracks = tracks.filter(
         (t) =>
-          t.external_id &&
-          t.youtube_id &&
-          t.sync_status === 'fetched' &&
-          t.broken !== true &&
-          t.unstable !== true
+          typeof t.external_id === 'string' &&
+          t.external_id.length > 0 &&
+          t.broken !== true
       );
 
       console.log(
