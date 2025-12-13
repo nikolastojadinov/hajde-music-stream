@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Search as SearchIcon, Music, ListMusic, Youtube } from "lucide-react";
+import { Search as SearchIcon, Music, ListMusic } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { useNavigate } from "react-router-dom";
 import { usePlayer } from "@/contexts/PlayerContext";
@@ -85,7 +85,8 @@ export default function Search() {
         .or(`title.ilike.%${q}%,artist.ilike.%${q}%`)
         .limit(SONG_LIMIT);
 
-      setSongs(localTracks || []);
+      const safeLocalTracks = localTracks || [];
+      setSongs(safeLocalTracks);
 
       // ---------- LOCAL PLAYLISTS ----------
       const { data: localPlaylists } = await externalSupabase
@@ -97,7 +98,7 @@ export default function Search() {
 
       // ---------- YOUTUBE ----------
       if (ytApiKey) {
-        await runYoutubeSearch(q, localTracks?.length || 0);
+        await runYoutubeSearch(q, safeLocalTracks.length);
       }
     } finally {
       setLoading(false);
@@ -107,36 +108,42 @@ export default function Search() {
   // ================= YOUTUBE SEARCH =================
 
   const runYoutubeSearch = async (q: string, localSongCount: number) => {
-    const paramsBase = {
+    const baseParams = {
       key: ytApiKey!,
       part: "snippet",
       q,
-      maxResults: "20",
       safeSearch: "none",
+      maxResults: "20",
     };
 
-    // ---------- SONGS (ONLY MUSIC VIDEOS) ----------
+    // ---------- SONGS (MUSIC VIDEOS ONLY) ----------
     if (localSongCount < SONG_LIMIT) {
       const res = await fetch(
         `https://www.googleapis.com/youtube/v3/search?${new URLSearchParams({
-          ...paramsBase,
+          ...baseParams,
           type: "video",
           videoCategoryId: "10",
         })}`
       );
+
       const json = await res.json();
 
       setYtSongs(
-        (json.items || []).map((i: any) => ({
-          id: i.id.videoId,
-          type: "video",
-          title: i.snippet.title,
-          channelTitle: i.snippet.channelTitle,
-          thumbnail:
-            i.snippet.thumbnails?.medium?.url ||
-            i.snippet.thumbnails?.default?.url ||
-            null,
-        }))
+        (json.items || [])
+          .filter((i: any) =>
+            !/interview|reaction|cover|shorts/i.test(i.snippet.title)
+          )
+          .slice(0, SONG_LIMIT)
+          .map((i: any) => ({
+            id: i.id.videoId,
+            type: "video",
+            title: i.snippet.title,
+            channelTitle: i.snippet.channelTitle,
+            thumbnail:
+              i.snippet.thumbnails?.medium?.url ||
+              i.snippet.thumbnails?.default?.url ||
+              null,
+          }))
       );
     } else {
       setYtSongs([]);
@@ -145,10 +152,12 @@ export default function Search() {
     // ---------- PLAYLISTS ----------
     const plRes = await fetch(
       `https://www.googleapis.com/youtube/v3/search?${new URLSearchParams({
-        ...paramsBase,
+        ...baseParams,
         type: "playlist",
+        maxResults: "50",
       })}`
     );
+
     const plJson = await plRes.json();
 
     setYtPlaylists(
@@ -180,7 +189,7 @@ export default function Search() {
 
     if (existing) return;
 
-    // Import happens elsewhere (already implemented in your project)
+    // import logic already exists elsewhere
   };
 
   const handlePlaylistOpen = (id: string) => {
