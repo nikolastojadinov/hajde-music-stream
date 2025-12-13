@@ -225,7 +225,7 @@ const Search = () => {
 
 
   // ===== Autocomplete dropdown suggestions =====
-  // Merge artists_search + existing suggestions + Fuse (artists_search first)
+  // ONLY artists_search artists (Fuse bypassed)
   useEffect(() => {
     if (!searchTerm.trim()) {
       setAutocompleteSuggestions([]);
@@ -256,29 +256,8 @@ const Search = () => {
       next.push(label);
     });
 
-    suggestions.forEach((label) => {
-      if (next.length >= SUGGESTION_LIMIT) return;
-      const key = label.toLowerCase();
-      if (seen.has(key)) return;
-      seen.add(key);
-      next.push(label);
-    });
-
-    if (fuseRef.current && next.length < SUGGESTION_LIMIT) {
-      const fuzzyResults = fuseRef.current.search(searchTerm).slice(0, SUGGESTION_LIMIT);
-      fuzzyResults.forEach(({ item }) => {
-        if (next.length >= SUGGESTION_LIMIT) return;
-        const label = item.artist || (item.type === "track" ? item.title : "");
-        if (!label) return;
-        const key = label.toLowerCase();
-        if (seen.has(key)) return;
-        seen.add(key);
-        next.push(label);
-      });
-    }
-
     setAutocompleteSuggestions(next);
-  }, [searchTerm, suggestions, fuseVersion, artistsSearchDataset]);
+  }, [searchTerm, artistsSearchDataset]);
 
   // ===== Supabase search =====
 
