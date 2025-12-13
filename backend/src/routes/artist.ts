@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { supabaseAdmin } from "../lib/supabaseAdmin";
+import { supabase } from "../lib/supabase";
 
 const router = Router();
 
@@ -10,7 +10,7 @@ router.get("/:artistKey", async (req, res) => {
 
   try {
     // 1️⃣ Pokušaj iz baze
-    const { data: existing, error } = await supabaseAdmin
+    const { data: existing } = await supabase
       .from("artists")
       .select("*")
       .eq("artist_key", artistKey)
@@ -20,7 +20,7 @@ router.get("/:artistKey", async (req, res) => {
       return res.json(existing);
     }
 
-    // 2️⃣ Ako ne postoji → YouTube search (channel)
+    // 2️⃣ Ako ne postoji → YouTube channel search
     if (!YT_API_KEY) {
       return res.status(500).json({ error: "YouTube API key missing" });
     }
@@ -46,24 +46,25 @@ router.get("/:artistKey", async (req, res) => {
       artist: item.snippet.title,
       artist_key: artistKey,
       youtube_channel_id: item.id.channelId,
-      thumbnail: item.snippet.thumbnails?.high?.url ?? null,
+      cover_url: item.snippet.thumbnails?.high?.url ?? null,
       created_at: new Date().toISOString(),
     };
 
     // 3️⃣ Snimi u bazu
-    const { data: inserted, error: insertError } = await supabaseAdmin
+    const { data: inserted, error } = await supabase
       .from("artists")
       .insert(artist)
       .select()
       .single();
 
-    if (insertError) {
-      return res.status(500).json(insertError);
+    if (error) {
+      console.error(error);
+      return res.status(500).json({ error: "Insert failed" });
     }
 
     return res.json(inserted);
-  } catch (e) {
-    console.error("ARTIST ROUTE ERROR:", e);
+  } catch (err) {
+    console.error("ARTIST ROUTE ERROR:", err);
     return res.status(500).json({ error: "Internal error" });
   }
 });
