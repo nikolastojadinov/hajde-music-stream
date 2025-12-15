@@ -1,4 +1,3 @@
-import { useEffect } from "react";
 import { Pause, Play, SkipBack, SkipForward } from "lucide-react";
 import { usePlayer } from "@/contexts/PlayerContext";
 
@@ -9,18 +8,11 @@ export default function MiniPlayer() {
     currentVideoArtist,
     currentTrackId,
     isPlayerVisible,
-    isFullscreen,
     setIsFullscreen,
     togglePlay,
     skipForward,
     skipBackward,
   } = usePlayer();
-
-  useEffect(() => {
-    if (isFullscreen) {
-      setIsFullscreen(false);
-    }
-  }, [isFullscreen, setIsFullscreen]);
 
   const hasActiveTrack =
     Boolean(isPlayerVisible) &&
@@ -28,8 +20,25 @@ export default function MiniPlayer() {
 
   if (!hasActiveTrack) return null;
 
+  const openFullscreen = () => setIsFullscreen(true);
+
+  const stop: React.MouseEventHandler = (e) => {
+    e.stopPropagation();
+  };
+
   return (
-    <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-card/95 backdrop-blur-md">
+    <div
+      className="fixed inset-x-0 bottom-0 z-40 cursor-pointer border-t border-border bg-card/95 backdrop-blur-md"
+      onClick={openFullscreen}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          openFullscreen();
+        }
+      }}
+    >
       <div className="mx-auto flex max-w-screen-2xl items-center gap-3 px-4 py-3">
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-semibold text-foreground">{currentVideoTitle || ""}</div>
@@ -39,7 +48,10 @@ export default function MiniPlayer() {
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={skipBackward}
+            onClick={(e) => {
+              stop(e);
+              skipBackward();
+            }}
             className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-secondary text-secondary-foreground transition-transform active:scale-95"
             aria-label="Previous"
           >
@@ -48,7 +60,10 @@ export default function MiniPlayer() {
 
           <button
             type="button"
-            onClick={togglePlay}
+            onClick={(e) => {
+              stop(e);
+              togglePlay();
+            }}
             className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-primary text-primary-foreground transition-transform active:scale-95"
             aria-label={isPlaying ? "Pause" : "Play"}
             aria-pressed={isPlaying}
@@ -58,7 +73,10 @@ export default function MiniPlayer() {
 
           <button
             type="button"
-            onClick={skipForward}
+            onClick={(e) => {
+              stop(e);
+              skipForward();
+            }}
             className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-secondary text-secondary-foreground transition-transform active:scale-95"
             aria-label="Next"
           >

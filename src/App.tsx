@@ -2,19 +2,20 @@
 import type { ReactNode } from "react";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { TooltipProvider } from "@/components/ui/tooltip";
-import { Toaster } from "@/components/ui/toaster";
-import { Toaster as Sonner } from "@/components/ui/sonner";
-import { LanguageProvider, useLanguage } from "@/contexts/LanguageContext";
-import { PlayerProvider } from "@/contexts/PlayerContext";
-import { PiProvider, usePi } from "@/contexts/PiContext";
-import { PremiumDialogProvider } from "@/contexts/PremiumDialogContext";
 import Footer from "@/components/Footer";
+import FullscreenPlayer from "@/components/FullscreenPlayer";
 import Header from "@/components/Header";
 import MiniPlayer from "@/components/MiniPlayer";
 import PremiumPromptManager from "@/components/PremiumPromptManager";
 import Sidebar from "@/components/Sidebar";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { Toaster } from "@/components/ui/toaster";
+import { Toaster as Sonner } from "@/components/ui/sonner";
 import { YouTubePlayerContainer } from "@/components/YouTubePlayerContainer";
+import { LanguageProvider, useLanguage } from "@/contexts/LanguageContext";
+import { PiProvider, usePi } from "@/contexts/PiContext";
+import { PlayerProvider } from "@/contexts/PlayerContext";
+import { PremiumDialogProvider } from "@/contexts/PremiumDialogContext";
 
 import Artist from "@/pages/Artist";
 import CreatePlaylist from "@/pages/CreatePlaylist";
@@ -94,7 +95,6 @@ export default function App() {
 
                   <BrowserRouter>
                     <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
-                      {/* DESKTOP */}
                       <div className="hidden flex-1 overflow-hidden pt-16 md:flex">
                         <Sidebar />
                         <div className="flex flex-1 flex-col overflow-hidden">
@@ -105,7 +105,6 @@ export default function App() {
                         </div>
                       </div>
 
-                      {/* MOBILE */}
                       <div className="flex flex-1 flex-col overflow-hidden md:hidden">
                         <Header />
                         <main className="flex-1 overflow-y-auto pt-16 pb-32">
@@ -114,7 +113,10 @@ export default function App() {
                         <Footer />
                       </div>
 
+                      {/* Single canonical playback UI mounts */}
                       <MiniPlayer />
+                      <FullscreenPlayer />
+
                       <PremiumPromptManager />
                       <YouTubePlayerContainer />
                     </div>
