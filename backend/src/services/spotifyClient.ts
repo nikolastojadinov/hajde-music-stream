@@ -1,3 +1,5 @@
+import { logApiUsage } from './apiUsageLogger';
+
 export type SpotifyArtist = {
   id: string;
   name: string;
@@ -86,7 +88,6 @@ async function fetchClientCredentialsToken(): Promise<TokenCache> {
     throw new Error('Spotify token fetch failed');
   }
 
-  // Refresh before expiry (60s safety window handled by getAccessToken).
   return {
     accessToken,
     expiresAtMs: nowMs() + expiresInSec * 1000,
@@ -111,61 +112,88 @@ export async function spotifySearch(q: string): Promise<SpotifySearchResult> {
     return EMPTY_RESULT;
   }
 
-  const token = await getAccessToken();
+  const { clientId } = getClientCredentials();
+  let status: 'ok' | 'error' = 'ok';
+  let errorCode: string | null = null;
+  let errorMessage: string | null = null;
 
-  const url = new URL('https://api.spotify.com/v1/search');
-  url.searchParams.set('q', query);
-  url.searchParams.set('type', 'artist,album,track');
-  url.searchParams.set('limit', '5');
+  try {
+    const token = await getAccessToken();
 
-  const response = await fetch(url.toString(), {
-    method: 'GET',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: 'application/json',
-    },
-  });
+    const url = new URL('https://api.spotify.com/v1/search');
+    url.searchParams.set('q', query);
+    url.searchParams.set('type', 'artist,album,track');
+    url.searchParams.set('limit', '5');
 
-  if (!response.ok) {
+    const response = await fetch(url.toString(), {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      status = 'error';
+      errorCode = String(response.status);
+      errorMessage = 'Spotify search failed';
+      throw new Error('Spotify search failed');
+    }
+
+    const json: any = await response.json().catch(() => null);
+
+    const artists: SpotifyArtist[] = (json?.artists?.items ?? [])
+      .filter((a: any) => a && typeof a === 'object' && typeof a.id === 'string' && typeof a.name === 'string')
+      .slice(0, 5)
+      .map((a: any) => {
+        const imageUrl = firstImageUrl(a.images);
+        const out: SpotifyArtist = { id: a.id, name: a.name };
+        if (imageUrl) out.imageUrl = imageUrl;
+        return out;
+      });
+
+    const albums: SpotifyAlbum[] = (json?.albums?.items ?? [])
+      .filter((a: any) => a && typeof a === 'object' && typeof a.id === 'string' && typeof a.name === 'string')
+      .slice(0, 5)
+      .map((a: any) => {
+        const imageUrl = firstImageUrl(a.images);
+        const artistName = typeof a?.artists?.[0]?.name === 'string' ? a.artists[0].name : undefined;
+        const out: SpotifyAlbum = { id: a.id, name: a.name };
+        if (artistName) out.artistName = artistName;
+        if (imageUrl) out.imageUrl = imageUrl;
+        return out;
+      });
+
+    const tracks: SpotifyTrack[] = (json?.tracks?.items ?? [])
+      .filter((t: any) => t && typeof t === 'object' && typeof t.id === 'string' && typeof t.name === 'string')
+      .slice(0, 5)
+      .map((t: any) => {
+        const durationMs = typeof t.duration_ms === 'number' ? t.duration_ms : 0;
+        const artistName = typeof t?.artists?.[0]?.name === 'string' ? t.artists[0].name : undefined;
+        const imageUrl = firstImageUrl(t?.album?.images);
+        const out: SpotifyTrack = { id: t.id, name: t.name, durationMs };
+        if (artistName) out.artistName = artistName;
+        if (imageUrl) out.imageUrl = imageUrl;
+        return out;
+      });
+
+    return { artists, albums, tracks };
+  } catch (err) {
+    if (err instanceof Error && err.message === 'Spotify search failed') {
+      throw err;
+    }
+
+    status = 'error';
+    errorMessage = errorMessage ?? 'Spotify search failed';
     throw new Error('Spotify search failed');
+  } finally {
+    void logApiUsage({
+      apiKeyOrIdentifier: clientId,
+      endpoint: 'spotify.search',
+      quotaCost: 0,
+      status,
+      errorCode,
+      errorMessage,
+    });
   }
-
-  const json: any = await response.json().catch(() => null);
-
-  const artists: SpotifyArtist[] = (json?.artists?.items ?? [])
-    .filter((a: any) => a && typeof a === 'object' && typeof a.id === 'string' && typeof a.name === 'string')
-    .slice(0, 5)
-    .map((a: any) => {
-      const imageUrl = firstImageUrl(a.images);
-      const out: SpotifyArtist = { id: a.id, name: a.name };
-      if (imageUrl) out.imageUrl = imageUrl;
-      return out;
-    });
-
-  const albums: SpotifyAlbum[] = (json?.albums?.items ?? [])
-    .filter((a: any) => a && typeof a === 'object' && typeof a.id === 'string' && typeof a.name === 'string')
-    .slice(0, 5)
-    .map((a: any) => {
-      const imageUrl = firstImageUrl(a.images);
-      const artistName = typeof a?.artists?.[0]?.name === 'string' ? a.artists[0].name : undefined;
-      const out: SpotifyAlbum = { id: a.id, name: a.name };
-      if (artistName) out.artistName = artistName;
-      if (imageUrl) out.imageUrl = imageUrl;
-      return out;
-    });
-
-  const tracks: SpotifyTrack[] = (json?.tracks?.items ?? [])
-    .filter((t: any) => t && typeof t === 'object' && typeof t.id === 'string' && typeof t.name === 'string')
-    .slice(0, 5)
-    .map((t: any) => {
-      const durationMs = typeof t.duration_ms === 'number' ? t.duration_ms : 0;
-      const artistName = typeof t?.artists?.[0]?.name === 'string' ? t.artists[0].name : undefined;
-      const imageUrl = firstImageUrl(t?.album?.images);
-      const out: SpotifyTrack = { id: t.id, name: t.name, durationMs };
-      if (artistName) out.artistName = artistName;
-      if (imageUrl) out.imageUrl = imageUrl;
-      return out;
-    });
-
-  return { artists, albums, tracks };
 }

@@ -1,6 +1,11 @@
 import { Router } from 'express';
 
-import supabase from '../services/supabaseClient';
+import supabase, {
+  searchPlaylistsForQuery,
+  searchTracksForQuery,
+  type SearchPlaylistRow,
+  type SearchTrackRow,
+} from '../services/supabaseClient';
 import { spotifySearch } from '../services/spotifyClient';
 import { youtubeSearchPlaylists, youtubeSearchVideos } from '../services/youtubeClient';
 
@@ -45,51 +50,24 @@ function shouldPreferPlaylistSearch(query: string): boolean {
   return q.includes('playlist') || q.includes('mix') || q.includes('radio');
 }
 
-async function searchLocal(query: string): Promise<{ tracks: LocalTrack[]; playlists: LocalPlaylist[] }> {
-  if (!supabase) {
-    return { tracks: [], playlists: [] };
-  }
+function mapTrackRow(row: SearchTrackRow): LocalTrack {
+  return {
+    id: String(row.id),
+    title: typeof row.title === 'string' ? row.title : '',
+    artist: typeof row.artist === 'string' ? row.artist : '',
+    externalId: typeof row.external_id === 'string' ? row.external_id : null,
+    coverUrl: typeof row.cover_url === 'string' ? row.cover_url : null,
+    duration: typeof row.duration === 'number' ? row.duration : null,
+  };
+}
 
-  const q = query.trim();
-  if (q.length < 2) {
-    return { tracks: [], playlists: [] };
-  }
-
-  const trackPromise = supabase
-    .from('tracks')
-    .select('id, title, artist, external_id, cover_url, duration')
-    .or(`title.ilike.%${q}%,artist.ilike.%${q}%`)
-    .limit(10);
-
-  const playlistPromise = supabase
-    .from('playlists')
-    .select('id, title, external_id, cover_url')
-    .ilike('title', `%${q}%`)
-    .limit(10);
-
-  const [tracksResult, playlistsResult] = await Promise.all([trackPromise, playlistPromise]);
-
-  const tracks: LocalTrack[] = (tracksResult.data || [])
-    .filter((row: any) => row && typeof row.id === 'string')
-    .map((row: any) => ({
-      id: String(row.id),
-      title: typeof row.title === 'string' ? row.title : '',
-      artist: typeof row.artist === 'string' ? row.artist : '',
-      externalId: typeof row.external_id === 'string' ? row.external_id : null,
-      coverUrl: typeof row.cover_url === 'string' ? row.cover_url : null,
-      duration: typeof row.duration === 'number' ? row.duration : null,
-    }));
-
-  const playlists: LocalPlaylist[] = (playlistsResult.data || [])
-    .filter((row: any) => row && typeof row.id === 'string')
-    .map((row: any) => ({
-      id: String(row.id),
-      title: typeof row.title === 'string' ? row.title : '',
-      externalId: typeof row.external_id === 'string' ? row.external_id : null,
-      coverUrl: typeof row.cover_url === 'string' ? row.cover_url : null,
-    }));
-
-  return { tracks, playlists };
+function mapPlaylistRow(row: SearchPlaylistRow): LocalPlaylist {
+  return {
+    id: String(row.id),
+    title: typeof row.title === 'string' ? row.title : '',
+    externalId: typeof row.external_id === 'string' ? row.external_id : null,
+    coverUrl: typeof row.cover_url === 'string' ? row.cover_url : null,
+  };
 }
 
 router.get('/suggest', async (req, res) => {
@@ -121,7 +99,15 @@ router.post('/resolve', async (req, res) => {
   }
 
   try {
-    const local = await searchLocal(q);
+    const [trackRows, playlistRows] = await Promise.all([
+      searchTracksForQuery(q),
+      searchPlaylistsForQuery(q),
+    ]);
+
+    const local = {
+      tracks: trackRows.map(mapTrackRow),
+      playlists: playlistRows.map(mapPlaylistRow),
+    };
 
     const hasLocal = local.tracks.length > 0 || local.playlists.length > 0;
     if (hasLocal) {
@@ -153,7 +139,6 @@ router.post('/resolve', async (req, res) => {
     }
 
     // Default fallback: videos (music category) for all modes.
-    // Mode is currently informational; fallback remains quota-safe.
     void mode;
 
     const videos = await youtubeSearchVideos(q);
