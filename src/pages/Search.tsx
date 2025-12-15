@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ListMusic, Music, Search as SearchIcon, User } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,18 +26,52 @@ type Suggestion = {
 };
 
 type ResolvedArtistChannel = {
-  artist_name: string;
-  youtube_channel_id: string;
-  is_verified: boolean;
-  thumbnailUrl?: string | null;
+  channelId: string;
+  title: string;
+  thumbnailUrl: string | null;
+};
+
+type ResolvedArtistChannelsEnvelope = {
+  local: ResolvedArtistChannel[];
+  youtube: ResolvedArtistChannel[];
+  decision: "local_only" | "youtube_fallback";
 };
 
 function normalizeQuery(value: string): string {
   return value.trim();
 }
 
+function firstLetter(title: string): string {
+  const trimmed = title.trim();
+  if (!trimmed) return "?";
+  return trimmed[0]?.toUpperCase() ?? "?";
+}
+
+function normalizeResolvedArtistChannels(input: any): ResolvedArtistChannelsEnvelope {
+  const ac = input?.artist_channels;
+
+  const rawLocal = Array.isArray(ac?.local) ? ac.local : [];
+  const rawYoutube = Array.isArray(ac?.youtube) ? ac.youtube : [];
+  const decision: "local_only" | "youtube_fallback" = ac?.decision === "youtube_fallback" ? "youtube_fallback" : "local_only";
+
+  const toChannel = (x: any): ResolvedArtistChannel | null => {
+    const channelId = typeof x?.channelId === "string" ? x.channelId.trim() : "";
+    const title = typeof x?.title === "string" ? x.title.trim() : "";
+    const thumbnailUrl = typeof x?.thumbnailUrl === "string" ? x.thumbnailUrl : null;
+    if (!channelId || !title) return null;
+    return { channelId, title, thumbnailUrl };
+  };
+
+  return {
+    local: rawLocal.map(toChannel).filter((c): c is ResolvedArtistChannel => Boolean(c)),
+    youtube: rawYoutube.map(toChannel).filter((c): c is ResolvedArtistChannel => Boolean(c)),
+    decision,
+  };
+}
+
 export default function Search() {
   const { playTrack } = usePlayer();
+  const navigate = useNavigate();
 
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
@@ -175,17 +209,7 @@ export default function Search() {
     };
   }, [resolved]);
 
-  const resolvedArtistChannels = useMemo(() => {
-    const anyResolved = resolved as any;
-    const ac = anyResolved?.artist_channels;
-    const local = (Array.isArray(ac?.local) ? ac.local : []) as ResolvedArtistChannel[];
-    const youtube = (Array.isArray(ac?.youtube) ? ac.youtube : []) as ResolvedArtistChannel[];
-    const decision = (ac?.decision === "youtube_fallback" ? "youtube_fallback" : "local_only") as
-      | "local_only"
-      | "youtube_fallback";
-
-    return { local, youtube, decision };
-  }, [resolved]);
+  const resolvedArtistChannels = useMemo(() => normalizeResolvedArtistChannels(resolved), [resolved]);
 
   async function runResolve(nextQuery: string, mode: SearchResolveMode, spotify?: SearchResolveSpotifySelection) {
     const q = normalizeQuery(nextQuery);
@@ -228,6 +252,18 @@ export default function Search() {
 
   const showSuggestBox = suggestOpen && normalizeQuery(query).length >= 2;
   const showResults = Boolean(resolved) || resolveLoading;
+  const showArtistChannels = resolvedArtistChannels.local.length > 0 || resolvedArtistChannels.youtube.length > 0;
+
+  const handleArtistChannelClick = (channelId: string) => {
+    const id = channelId.trim();
+    if (!id) return;
+    const internal = `/artist/${encodeURIComponent(id)}`;
+    try {
+      navigate(internal);
+    } catch {
+      window.open(`https://www.youtube.com/channel/${encodeURIComponent(id)}`, "_blank", "noopener,noreferrer");
+    }
+  };
 
   return (
     <div className="p-4 max-w-4xl mx-auto pb-32">
@@ -259,9 +295,7 @@ export default function Search() {
 
           {showSuggestBox && (
             <div className="absolute z-20 mt-2 w-full rounded-lg border border-border bg-card/95 backdrop-blur p-2">
-              {suggestLoading && (
-                <div className="px-2 py-2 text-sm text-muted-foreground">Searching…</div>
-              )}
+              {suggestLoading && <div className="px-2 py-2 text-sm text-muted-foreground">Searching…</div>}
 
               {!suggestLoading && flatSuggestions.length === 0 && (
                 <div className="px-2 py-2 text-sm text-muted-foreground">No suggestions.</div>
@@ -276,16 +310,12 @@ export default function Search() {
                     className="w-full text-left flex items-center gap-3 rounded-md px-2 py-2 hover:bg-accent"
                   >
                     <div className="w-8 h-8 rounded bg-muted overflow-hidden shrink-0">
-                      {s.imageUrl ? (
-                        <img src={s.imageUrl} alt={s.name} className="w-full h-full object-cover" />
-                      ) : null}
+                      {s.imageUrl ? <img src={s.imageUrl} alt={s.name} className="w-full h-full object-cover" /> : null}
                     </div>
 
                     <div className="min-w-0 flex-1">
                       <div className="font-medium truncate">{s.name}</div>
-                      {s.subtitle ? (
-                        <div className="text-xs text-muted-foreground truncate">{s.subtitle}</div>
-                      ) : null}
+                      {s.subtitle ? <div className="text-xs text-muted-foreground truncate">{s.subtitle}</div> : null}
                     </div>
 
                     <div className="text-xs text-muted-foreground inline-flex items-center gap-1">
@@ -302,37 +332,8 @@ export default function Search() {
         </div>
       </form>
 
-      {(resolvedArtistChannels.local.length > 0 || resolvedArtistChannels.youtube.length > 0) && (
-        <section className="mb-4">
-          <div className="mb-2 text-xs text-muted-foreground">
-            artist channels: <span className="font-medium">{resolvedArtistChannels.decision}</span>
-          </div>
-
-          <div className="flex gap-4 overflow-x-auto pb-2">
-            {[...resolvedArtistChannels.local, ...resolvedArtistChannels.youtube].map((c) => (
-              <Link
-                key={`${c.youtube_channel_id}:${c.artist_name}`}
-                to={`/artist/${encodeURIComponent(c.youtube_channel_id)}`}
-                className="shrink-0 w-20 text-center"
-              >
-                <div className="mx-auto w-14 h-14 rounded-full bg-muted overflow-hidden flex items-center justify-center">
-                  {c.thumbnailUrl ? (
-                    <img src={c.thumbnailUrl} alt={c.artist_name} className="w-full h-full object-cover" />
-                  ) : (
-                    <User className="w-6 h-6 text-muted-foreground" />
-                  )}
-                </div>
-                <div className="mt-2 text-xs font-medium truncate">{c.artist_name}</div>
-              </Link>
-            ))}
-          </div>
-        </section>
-      )}
-
       {error && (
-        <div className="mb-4 rounded-lg border border-border bg-card/60 px-3 py-2 text-sm text-red-400">
-          {error}
-        </div>
+        <div className="mb-4 rounded-lg border border-border bg-card/60 px-3 py-2 text-sm text-red-400">{error}</div>
       )}
 
       {showResults && (
@@ -343,6 +344,30 @@ export default function Search() {
             <div className="mb-4 text-xs text-muted-foreground">
               decision: <span className="font-medium">{resolved.decision}</span>
             </div>
+          )}
+
+          {showArtistChannels && (
+            <section className="mb-8">
+              <div className="flex gap-4 overflow-x-auto pb-2">
+                {[...resolvedArtistChannels.local, ...resolvedArtistChannels.youtube].map((c) => (
+                  <button
+                    key={c.channelId}
+                    type="button"
+                    onClick={() => handleArtistChannelClick(c.channelId)}
+                    className="shrink-0 w-20 text-center"
+                  >
+                    <div className="mx-auto w-14 h-14 rounded-full bg-muted overflow-hidden flex items-center justify-center">
+                      {c.thumbnailUrl ? (
+                        <img src={c.thumbnailUrl} alt={c.title} className="w-full h-full object-cover" />
+                      ) : (
+                        <span className="text-sm font-semibold text-muted-foreground">{firstLetter(c.title)}</span>
+                      )}
+                    </div>
+                    <div className="mt-2 text-xs font-medium truncate">{c.title}</div>
+                  </button>
+                ))}
+              </div>
+            </section>
           )}
 
           {/* SONGS (local tracks + youtube videos) */}
@@ -398,11 +423,15 @@ export default function Search() {
             </section>
           )}
 
-          {!resolveLoading && resolved && resultsSongs.length === 0 && resultsPlaylists.local.length === 0 && resultsPlaylists.youtube.length === 0 && (
-            <div className="text-sm text-muted-foreground mt-6">
-              No results for <span className="font-semibold">{resolved.q}</span>.
-            </div>
-          )}
+          {!resolveLoading &&
+            resolved &&
+            resultsSongs.length === 0 &&
+            resultsPlaylists.local.length === 0 &&
+            resultsPlaylists.youtube.length === 0 && (
+              <div className="text-sm text-muted-foreground mt-6">
+                No results for <span className="font-semibold">{resolved.q}</span>.
+              </div>
+            )}
         </div>
       )}
     </div>

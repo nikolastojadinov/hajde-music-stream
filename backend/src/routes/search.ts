@@ -1,8 +1,8 @@
 import { Router } from 'express';
 
 import supabase, {
-  searchPlaylistsDualForQuery,
   searchArtistChannelsForQuery,
+  searchPlaylistsDualForQuery,
   searchTracksForQuery,
   type SearchArtistChannelRow,
   type SearchPlaylistRow,
@@ -12,6 +12,14 @@ import { spotifySearch } from '../services/spotifyClient';
 import { youtubeSearchVideos } from '../services/youtubeClient';
 
 const router = Router();
+
+type ResolveMode = 'track' | 'artist' | 'album' | 'generic';
+
+type ResolveRequestBody = {
+  q?: unknown;
+  mode?: unknown;
+  spotify?: unknown;
+};
 
 type LocalTrack = {
   id: string;
@@ -29,25 +37,16 @@ type LocalPlaylist = {
   coverUrl: string | null;
 };
 
-type LocalArtistChannel = {
-  artist_name: string;
-  youtube_channel_id: string;
-  is_verified: boolean;
-};
-
-type YouTubeArtistChannel = {
-  artist_name: string;
-  youtube_channel_id: string;
-  is_verified: boolean;
+type ResolvedArtistChannel = {
+  channelId: string;
+  title: string;
   thumbnailUrl: string | null;
 };
 
-type ResolveMode = 'track' | 'artist' | 'album' | 'generic';
-
-type ResolveRequestBody = {
-  q?: unknown;
-  mode?: unknown;
-  spotify?: unknown;
+type ArtistChannelsEnvelope = {
+  local: ResolvedArtistChannel[];
+  youtube: ResolvedArtistChannel[];
+  decision: 'local_only' | 'youtube_fallback';
 };
 
 function normalizeQuery(input: unknown): string {
@@ -80,14 +79,14 @@ function mapPlaylistRow(row: SearchPlaylistRow): LocalPlaylist {
   };
 }
 
-function mapArtistChannelRow(row: SearchArtistChannelRow): LocalArtistChannel | null {
-  const artist_name = typeof row.artist_name === 'string' ? row.artist_name : '';
-  const youtube_channel_id = typeof row.youtube_channel_id === 'string' ? row.youtube_channel_id : '';
-  const is_verified = typeof row.is_verified === 'boolean' ? row.is_verified : false;
+function mapLocalArtistChannelRow(row: SearchArtistChannelRow): ResolvedArtistChannel | null {
+  const title = typeof row.name === 'string' ? row.name.trim() : '';
+  const channelId = typeof row.youtube_channel_id === 'string' ? row.youtube_channel_id.trim() : '';
+  const thumbnailUrl = typeof row.thumbnail_url === 'string' ? row.thumbnail_url : null;
 
-  if (!artist_name || !youtube_channel_id) return null;
+  if (!title || !channelId) return null;
 
-  return { artist_name, youtube_channel_id, is_verified };
+  return { channelId, title, thumbnailUrl };
 }
 
 function mergeLegacyPlaylists(byTitle: LocalPlaylist[], byArtist: LocalPlaylist[]): LocalPlaylist[] {
@@ -111,9 +110,31 @@ function mergeLegacyPlaylists(byTitle: LocalPlaylist[], byArtist: LocalPlaylist[
   return merged;
 }
 
+function deriveYouTubeArtistChannelsFromVideos(videos: Array<{ channelId: string; channelTitle: string; thumbUrl?: string | null }>): ResolvedArtistChannel[] {
+  const seen = new Set<string>();
+  const out: ResolvedArtistChannel[] = [];
+
+  for (const v of videos) {
+    const channelId = typeof v.channelId === 'string' ? v.channelId : '';
+    const title = typeof v.channelTitle === 'string' ? v.channelTitle : '';
+    if (!channelId || !title) continue;
+    if (seen.has(channelId)) continue;
+
+    seen.add(channelId);
+    out.push({
+      channelId,
+      title,
+      thumbnailUrl: v.thumbUrl ?? null,
+    });
+
+    if (out.length >= 2) break;
+  }
+
+  return out;
+}
+
 router.get('/suggest', async (req, res) => {
   const q = normalizeQuery(req.query.q);
-
   try {
     const result = await spotifySearch(q);
     return res.json({ q, source: 'spotify', ...result });
@@ -132,16 +153,14 @@ router.post('/resolve', async (req, res) => {
   }
 
   if (q.length < 2) {
+    const artist_channels: ArtistChannelsEnvelope = { local: [], youtube: [], decision: 'local_only' };
+
     return res.json({
       q,
       tracks: [],
       playlists_by_title: [],
       playlists_by_artist: [],
-      artist_channels: {
-        local: [],
-        youtube: [],
-        decision: 'local_only',
-      },
+      artist_channels,
       local: { tracks: [], playlists: [] },
       decision: 'local_only',
     });
@@ -157,17 +176,20 @@ router.post('/resolve', async (req, res) => {
     const tracks = trackRows.map(mapTrackRow);
     const playlists_by_title = playlistsDual.playlists_by_title.map(mapPlaylistRow);
     const playlists_by_artist = playlistsDual.playlists_by_artist.map(mapPlaylistRow);
-    const artist_channels_local = artistChannelRows.map(mapArtistChannelRow).filter((x): x is LocalArtistChannel => Boolean(x));
+
+    const artistChannelsLocal = artistChannelRows
+      .map(mapLocalArtistChannelRow)
+      .filter((x): x is ResolvedArtistChannel => Boolean(x));
 
     const local = {
       tracks,
       playlists: mergeLegacyPlaylists(playlists_by_title, playlists_by_artist),
     };
 
-    const artist_channels = {
-      local: artist_channels_local,
-      youtube: [] as YouTubeArtistChannel[],
-      decision: 'local_only' as 'local_only' | 'youtube_fallback',
+    const artist_channels: ArtistChannelsEnvelope = {
+      local: artistChannelsLocal,
+      youtube: [],
+      decision: artistChannelsLocal.length >= 1 ? 'local_only' : 'local_only',
     };
 
     const hasLocal = tracks.length > 0 || playlists_by_title.length > 0 || playlists_by_artist.length > 0;
@@ -183,29 +205,12 @@ router.post('/resolve', async (req, res) => {
       });
     }
 
-    // Default fallback: videos (music category) for all modes.
-    // Note: playlist search is Supabase-only; no YouTube playlist search here.
+    // Existing behavior: only YouTube fallback in the no-local-results branch.
     void mode;
-
     const videos = await youtubeSearchVideos(q);
 
-    if (artist_channels_local.length === 0) {
-      const seen = new Set<string>();
-      const youtubeChannels: YouTubeArtistChannel[] = [];
-
-      for (const v of videos) {
-        if (!v.channelId || seen.has(v.channelId)) continue;
-        seen.add(v.channelId);
-        youtubeChannels.push({
-          artist_name: v.channelTitle,
-          youtube_channel_id: v.channelId,
-          is_verified: false,
-          thumbnailUrl: v.thumbUrl ?? null,
-        });
-        if (youtubeChannels.length >= 2) break;
-      }
-
-      artist_channels.youtube = youtubeChannels;
+    if (artist_channels.local.length === 0) {
+      artist_channels.youtube = deriveYouTubeArtistChannelsFromVideos(videos);
       artist_channels.decision = 'youtube_fallback';
     }
 

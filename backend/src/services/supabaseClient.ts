@@ -1,4 +1,5 @@
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+
 import env from '../environments';
 import { logApiUsage } from './apiUsageLogger';
 
@@ -24,9 +25,9 @@ export type DualPlaylistSearchResult = {
 };
 
 export type SearchArtistChannelRow = {
-  artist_name: string;
-  youtube_channel_id: string | null;
-  is_verified: boolean | null;
+  name: string;
+  youtube_channel_id: string;
+  thumbnail_url?: string | null;
 };
 
 let supabase: SupabaseClient;
@@ -48,7 +49,6 @@ if (env.supabase_url && env.supabase_service_role_key) {
 }
 
 function supabaseIdentifier(): string {
-  // Hash a stable identifier (URL) rather than the service role key.
   return env.supabase_url || 'unknown-supabase';
 }
 
@@ -57,14 +57,10 @@ function normalizeQuery(input: unknown): string {
 }
 
 function escapeSqlStringLiteral(value: string): string {
-  // Minimal escaping for SQL string literals.
-  // - single quotes doubled
   return value.replace(/'/g, "''");
 }
 
 function escapeLikePatternLiteral(value: string): string {
-  // Escape LIKE wildcards and escape char itself. We'll use: ... ILIKE '<pattern>' ESCAPE '\\'
-  // Note: This returns the inner pattern content, not wrapped in quotes.
   return value
     .replace(/\\/g, '\\\\')
     .replace(/%/g, '\\%')
@@ -122,8 +118,6 @@ export async function searchPlaylistsDualForQuery(q: string): Promise<DualPlayli
   let errorMessage: string | null = null;
 
   try {
-    // Use one Supabase call (rpc: run_raw) to fetch both result sets without N+1 loops.
-    // Escape input to prevent SQL injection and LIKE wildcard injection.
     const queryLiteral = `'${escapeSqlStringLiteral(query)}'`;
     const likePatternLiteral = `'%${escapeLikePatternLiteral(query)}%'`;
 
@@ -197,9 +191,9 @@ export async function searchArtistChannelsForQuery(q: string): Promise<SearchArt
 
   try {
     const result = await supabase
-      .from('artist_channels')
-      .select('artist_name, youtube_channel_id, is_verified')
-      .ilike('artist_name', `%${query}%`)
+      .from('youtube_channels')
+      .select('name, youtube_channel_id, thumbnail_url')
+      .ilike('name', `%${query}%`)
       .limit(3);
 
     if (result.error) {
@@ -209,7 +203,25 @@ export async function searchArtistChannelsForQuery(q: string): Promise<SearchArt
       return [];
     }
 
-    return (result.data || []) as SearchArtistChannelRow[];
+    const rows = (result.data || []) as Array<{
+      name?: unknown;
+      youtube_channel_id?: unknown;
+      thumbnail_url?: unknown;
+    }>;
+
+    const normalized: SearchArtistChannelRow[] = [];
+    for (const r of rows) {
+      const name = typeof r.name === 'string' ? r.name.trim() : '';
+      const youtube_channel_id = typeof r.youtube_channel_id === 'string' ? r.youtube_channel_id.trim() : '';
+      const thumbnail_url = typeof r.thumbnail_url === 'string' ? r.thumbnail_url : null;
+
+      if (!name) continue;
+      if (!youtube_channel_id) continue;
+
+      normalized.push({ name, youtube_channel_id, thumbnail_url });
+    }
+
+    return normalized;
   } catch (err: any) {
     status = 'error';
     errorMessage = err?.message ? String(err.message) : 'Supabase artist channel search failed';
@@ -217,7 +229,7 @@ export async function searchArtistChannelsForQuery(q: string): Promise<SearchArt
   } finally {
     void logApiUsage({
       apiKeyOrIdentifier: supabaseIdentifier(),
-      endpoint: 'supabase.search.artist_channels',
+      endpoint: 'supabase.search.youtube_channels',
       quotaCost: 0,
       status,
       errorCode,
