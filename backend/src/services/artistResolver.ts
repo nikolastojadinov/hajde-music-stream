@@ -22,6 +22,10 @@ function normalizeArtistKey(artistName: string): string {
   return cleaned.replace(/\s/g, "-");
 }
 
+export function deriveArtistKey(artistName: string): string {
+  return normalizeArtistKey(artistName);
+}
+
 function normalizeQuery(artistName: string): string {
   return typeof artistName === "string" ? artistName.trim() : "";
 }
@@ -78,6 +82,59 @@ export async function resolveArtistSeed(artistName: string): Promise<any | Artis
     artist: name || q,
     artist_key,
     youtube_channel_id,
+    cover_url: thumbnail_url,
+  } satisfies ArtistSeed;
+}
+
+/**
+ * Deterministic seed resolver when the caller already has a youtube_channel_id.
+ * - Never calls YouTube APIs.
+ * - Prefers `artists` row if present.
+ * - Otherwise uses the exact `youtube_channels` mapping row (no ILIKE guessing).
+ */
+export async function resolveArtistSeedByChannelId(youtube_channel_id: string): Promise<any | ArtistSeed | null> {
+  const channelId = typeof youtube_channel_id === "string" ? youtube_channel_id.trim() : "";
+  if (!supabase) return null;
+  if (!channelId) return null;
+
+  const { data: existing, error: existingError } = await supabase
+    .from("artists")
+    .select("*")
+    .eq("youtube_channel_id", channelId)
+    .maybeSingle();
+
+  if (existingError) {
+    return null;
+  }
+
+  if (existing) {
+    return existing;
+  }
+
+  const { data: channel, error: channelError } = await supabase
+    .from("youtube_channels")
+    .select("name, youtube_channel_id, thumbnail_url")
+    .eq("youtube_channel_id", channelId)
+    .maybeSingle();
+
+  if (channelError) {
+    return null;
+  }
+
+  const name = typeof channel?.name === "string" ? channel.name.trim() : "";
+  const mappedId = typeof channel?.youtube_channel_id === "string" ? channel.youtube_channel_id.trim() : "";
+  const thumbnail_url = typeof channel?.thumbnail_url === "string" ? channel.thumbnail_url : null;
+
+  if (!mappedId) return null;
+
+  const artist = name || mappedId;
+  const artist_key = normalizeArtistKey(artist);
+  if (!artist_key) return null;
+
+  return {
+    artist,
+    artist_key,
+    youtube_channel_id: mappedId,
     cover_url: thumbnail_url,
   } satisfies ArtistSeed;
 }

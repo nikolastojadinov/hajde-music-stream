@@ -113,9 +113,17 @@ async function fetchPlaylistsOnce(youtube_channel_id: string): Promise<any | nul
   let status: "ok" | "error" = "ok";
   let errorCode: string | null = null;
   let errorMessage: string | null = null;
+  let quotaCost = QUOTA_COST_PLAYLISTS_LIST;
 
   try {
     const response = await fetch(url.toString(), { method: "GET" });
+
+    const quotaHeader = response.headers.get("x-goog-quota-used");
+    if (quotaHeader) {
+      const parsed = Number.parseFloat(quotaHeader);
+      if (Number.isFinite(parsed) && parsed >= 0) quotaCost = parsed;
+    }
+
     if (!response.ok) {
       status = "error";
       errorCode = String(response.status);
@@ -139,7 +147,7 @@ async function fetchPlaylistsOnce(youtube_channel_id: string): Promise<any | nul
     void logApiUsage({
       apiKeyOrIdentifier: apiKey,
       endpoint: "youtube.playlists.list",
-      quotaCost: QUOTA_COST_PLAYLISTS_LIST,
+      quotaCost,
       status,
       errorCode,
       errorMessage,
@@ -207,11 +215,14 @@ export async function youtubeFetchArtistPlaylists(input: YoutubeFetchArtistPlayl
     const rows = normalizeToInsertRows(json, youtube_channel_id);
     if (rows.length === 0) return [];
 
-    // NOTE: Insert-only is intentional here to avoid guessing the unique constraint.
-    // If the schema enforces uniqueness and conflicts occur, this will fail and return null.
-    const { data, error } = await supabase.from("playlists").insert(rows).select("*");
+    // Upsert is required for repeat-safe hydration.
+    // Existing codebase assumes playlists are unique by external_id (see batch refresh logic).
+    const { data, error } = await supabase
+      .from("playlists")
+      .upsert(rows, { onConflict: "external_id" })
+      .select("*");
     if (error) {
-      console.error("[youtubeFetchArtistPlaylists] insert failed:", error);
+      console.error("[youtubeFetchArtistPlaylists] upsert failed:", error);
       return null;
     }
 

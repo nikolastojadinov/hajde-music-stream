@@ -12,6 +12,7 @@ const INSERT_CHUNK_SIZE = 200;
 export type YoutubeFetchPlaylistTracksInput = {
   playlist_id: string;
   external_playlist_id: string;
+  if_none_match?: string | null;
 };
 
 type PlaylistItem = {
@@ -20,6 +21,7 @@ type PlaylistItem = {
 };
 
 type VideoRow = {
+  external_id: string;
   youtube_id: string;
   title: string;
   artist: string;
@@ -73,7 +75,10 @@ function parseIso8601DurationSeconds(value: unknown): number | null {
   return Math.max(0, hours * 3600 + minutes * 60 + seconds);
 }
 
-async function fetchPlaylistItemsAll(external_playlist_id: string): Promise<PlaylistItem[] | null> {
+async function fetchPlaylistItemsAll(
+  external_playlist_id: string,
+  ifNoneMatch?: string | null
+): Promise<{ state: 'unchanged'; etag: string | null } | { state: 'fetched'; etag: string | null; items: PlaylistItem[] } | null> {
   const apiKey = getApiKey();
   if (!apiKey) return null;
 
@@ -82,6 +87,9 @@ async function fetchPlaylistItemsAll(external_playlist_id: string): Promise<Play
 
   const out: PlaylistItem[] = [];
   let pageToken: string | null = null;
+  let currentPage = 1;
+  let etagToSend: string | null = normalizeNullableString(ifNoneMatch);
+  let finalEtag: string | null = etagToSend;
 
   while (true) {
     const url = new URL(`${YOUTUBE_API_BASE}/playlistItems`);
@@ -95,12 +103,36 @@ async function fetchPlaylistItemsAll(external_playlist_id: string): Promise<Play
     );
     if (pageToken) url.searchParams.set("pageToken", pageToken);
 
+    const headers: Record<string, string> = {
+      'Accept-Encoding': 'gzip',
+    };
+    if (etagToSend) headers['If-None-Match'] = etagToSend;
+
     let status: "ok" | "error" = "ok";
     let errorCode: string | null = null;
     let errorMessage: string | null = null;
+    let quotaCost = QUOTA_COST_PLAYLIST_ITEMS_LIST;
 
     try {
-      const response = await fetch(url.toString(), { method: "GET" });
+      const response = await fetch(url.toString(), { method: "GET", headers });
+
+      const quotaHeader = response.headers.get('x-goog-quota-used');
+      if (quotaHeader) {
+        const parsed = Number.parseFloat(quotaHeader);
+        if (Number.isFinite(parsed) && parsed >= 0) quotaCost = parsed;
+      }
+
+      const headerEtag = normalizeNullableString(response.headers.get('etag'));
+      if (headerEtag) finalEtag = headerEtag;
+
+      if (response.status === 304) {
+        // If the first page is unchanged, treat the whole playlist as unchanged.
+        if (currentPage === 1) {
+          return { state: 'unchanged', etag: finalEtag };
+        }
+        break;
+      }
+
       if (!response.ok) {
         status = "error";
         errorCode = String(response.status);
@@ -114,6 +146,9 @@ async function fetchPlaylistItemsAll(external_playlist_id: string): Promise<Play
         errorMessage = "YouTube playlistItems.list failed";
         return null;
       }
+
+      const bodyEtag = normalizeNullableString((json as any)?.etag);
+      if (bodyEtag) finalEtag = bodyEtag;
 
       const items = Array.isArray((json as any).items) ? (json as any).items : [];
       for (const item of items) {
@@ -129,6 +164,9 @@ async function fetchPlaylistItemsAll(external_playlist_id: string): Promise<Play
 
       pageToken = normalizeNullableString((json as any)?.nextPageToken);
       if (!pageToken) break;
+
+      etagToSend = finalEtag;
+      currentPage += 1;
     } catch (err: any) {
       status = "error";
       errorMessage = err?.message ? String(err.message) : "YouTube playlistItems.list failed";
@@ -137,7 +175,7 @@ async function fetchPlaylistItemsAll(external_playlist_id: string): Promise<Play
       void logApiUsage({
         apiKeyOrIdentifier: apiKey,
         endpoint: "youtube.playlistItems.list",
-        quotaCost: QUOTA_COST_PLAYLIST_ITEMS_LIST,
+        quotaCost,
         status,
         errorCode,
         errorMessage,
@@ -146,7 +184,7 @@ async function fetchPlaylistItemsAll(external_playlist_id: string): Promise<Play
   }
 
   out.sort((a, b) => a.position - b.position);
-  return out;
+  return { state: 'fetched', etag: finalEtag, items: out };
 }
 
 async function fetchVideosDetails(videoIds: string[]): Promise<Map<string, VideoRow> | null> {
@@ -169,9 +207,17 @@ async function fetchVideosDetails(videoIds: string[]): Promise<Map<string, Video
     let status: "ok" | "error" = "ok";
     let errorCode: string | null = null;
     let errorMessage: string | null = null;
+    let quotaCost = QUOTA_COST_VIDEOS_LIST;
 
     try {
       const response = await fetch(url.toString(), { method: "GET" });
+
+      const quotaHeader = response.headers.get('x-goog-quota-used');
+      if (quotaHeader) {
+        const parsed = Number.parseFloat(quotaHeader);
+        if (Number.isFinite(parsed) && parsed >= 0) quotaCost = parsed;
+      }
+
       if (!response.ok) {
         status = "error";
         errorCode = String(response.status);
@@ -193,6 +239,7 @@ async function fetchVideosDetails(videoIds: string[]): Promise<Map<string, Video
         if (!youtube_id || !snippet) continue;
 
         out.set(youtube_id, {
+          external_id: youtube_id,
           youtube_id,
           title: normalizeString(snippet?.title) || "Untitled",
           artist: normalizeString(snippet?.channelTitle) || "Unknown Artist",
@@ -209,7 +256,7 @@ async function fetchVideosDetails(videoIds: string[]): Promise<Map<string, Video
       void logApiUsage({
         apiKeyOrIdentifier: apiKey,
         endpoint: "youtube.videos.list",
-        quotaCost: QUOTA_COST_VIDEOS_LIST,
+        quotaCost,
         status,
         errorCode,
         errorMessage,
@@ -220,17 +267,17 @@ async function fetchVideosDetails(videoIds: string[]): Promise<Map<string, Video
   return out;
 }
 
-async function loadExistingTracksByYoutubeId(youtubeIds: string[]): Promise<Map<string, string> | null> {
+async function loadExistingTracksByExternalId(externalIds: string[]): Promise<Map<string, string> | null> {
   if (!supabase) return null;
 
   const out = new Map<string, string>();
-  for (const chunk of chunkArray(youtubeIds, 200)) {
-    const { data, error } = await supabase.from("tracks").select("id, youtube_id").in("youtube_id", chunk);
+  for (const chunk of chunkArray(externalIds, 200)) {
+    const { data, error } = await supabase.from("tracks").select("id, external_id").in("external_id", chunk);
     if (error) return null;
     for (const row of (data as any[]) || []) {
       const id = normalizeString(row?.id);
-      const youtube_id = normalizeString(row?.youtube_id);
-      if (id && youtube_id) out.set(youtube_id, id);
+      const external_id = normalizeString(row?.external_id);
+      if (id && external_id) out.set(external_id, id);
     }
   }
   return out;
@@ -259,7 +306,7 @@ async function loadExistingPlaylistTrackIds(playlist_id: string, trackIds: strin
  * Canonical playlist track ingestion.
  *
  * - Calls playlistItems.list (paginated) and videos.list (batched)
- * - Inserts new tracks (after checking existing tracks.youtube_id)
+ * - Upserts tracks (unique by external_id)
  * - Inserts missing playlist_tracks (after checking existing (playlist_id, track_id))
  * - Never throws: returns null on any failure
  */
@@ -271,8 +318,27 @@ export async function youtubeFetchPlaylistTracks(input: YoutubeFetchPlaylistTrac
     const external_playlist_id = normalizeString(input.external_playlist_id);
     if (!playlist_id || !external_playlist_id) return null;
 
-    const playlistItems = await fetchPlaylistItemsAll(external_playlist_id);
-    if (!playlistItems) return null;
+    const playlistItemsResult = await fetchPlaylistItemsAll(external_playlist_id, input.if_none_match ?? null);
+    if (!playlistItemsResult) return null;
+
+    // Best-effort: persist ETag/refresh timestamp on the playlist row when available.
+    if (playlistItemsResult.etag) {
+      const now = new Date().toISOString();
+      const { error: updateError } = await supabase
+        .from('playlists')
+        .update({ last_etag: playlistItemsResult.etag, last_refreshed_on: now })
+        .eq('id', playlist_id);
+      if (updateError) {
+        // Non-fatal; some environments may not expose these columns.
+        void updateError;
+      }
+    }
+
+    if (playlistItemsResult.state === 'unchanged') {
+      return 0;
+    }
+
+    const playlistItems = playlistItemsResult.items;
     if (playlistItems.length === 0) return 0;
 
     const videoIds = playlistItems.map((i) => i.videoId);
@@ -283,29 +349,29 @@ export async function youtubeFetchPlaylistTracks(input: YoutubeFetchPlaylistTrac
     for (const item of playlistItems) {
       const row = videoDetailsMap.get(item.videoId);
       if (!row) continue;
-      if (!desiredTrackRowsMap.has(row.youtube_id)) desiredTrackRowsMap.set(row.youtube_id, row);
+      if (!desiredTrackRowsMap.has(row.external_id)) desiredTrackRowsMap.set(row.external_id, row);
     }
     const desiredTrackRows = Array.from(desiredTrackRowsMap.values());
     if (desiredTrackRows.length === 0) return 0;
 
-    const existingTrackIdMap = await loadExistingTracksByYoutubeId(desiredTrackRows.map((r) => r.youtube_id));
+    const existingTrackIdMap = await loadExistingTracksByExternalId(desiredTrackRows.map((r) => r.external_id));
     if (!existingTrackIdMap) return null;
 
-    const newTrackRows = desiredTrackRows.filter((r) => !existingTrackIdMap.has(r.youtube_id));
+    const newTrackRows = desiredTrackRows.filter((r) => !existingTrackIdMap.has(r.external_id));
     let insertedTracksCount = 0;
 
     if (newTrackRows.length > 0) {
       for (const chunk of chunkArray(newTrackRows, INSERT_CHUNK_SIZE)) {
-        const { error } = await supabase.from("tracks").insert(chunk);
+        const { error } = await supabase.from("tracks").upsert(chunk, { onConflict: "external_id" });
         if (error) {
-          console.error("[youtubeFetchPlaylistTracks] insert tracks failed:", error);
+          console.error("[youtubeFetchPlaylistTracks] upsert tracks failed:", error);
           return null;
         }
         insertedTracksCount += chunk.length;
       }
     }
 
-    const trackIdMap = await loadExistingTracksByYoutubeId(desiredTrackRows.map((r) => r.youtube_id));
+    const trackIdMap = await loadExistingTracksByExternalId(desiredTrackRows.map((r) => r.external_id));
     if (!trackIdMap) return null;
 
     const desiredLinksRaw: Array<{ playlist_id: string; track_id: string; position: number }> = [];

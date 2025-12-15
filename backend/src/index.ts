@@ -28,6 +28,7 @@ import { getUserLibrary } from './handlers/library/getLibrary';
 import { piAuth } from './middleware/piAuth';
 
 import searchRouter from './routes/search';
+import artistRouter from './routes/artist';
 
 declare global {
   namespace Express {
@@ -176,6 +177,9 @@ app.use('/api/users', usersRouter);
 
 // Intent-based search endpoints
 app.use('/api/search', searchRouter);
+
+// On-demand artist hydration + local bundle
+app.use('/api/artist', artistRouter);
 
 // Pi Network routes under /pi:
 app.use('/pi', piAuthRouter);
