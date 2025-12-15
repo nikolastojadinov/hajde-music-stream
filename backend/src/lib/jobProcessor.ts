@@ -2,11 +2,12 @@ import cron from 'node-cron';
 import { DateTime } from 'luxon';
 import supabase from '../services/supabaseClient';
 
-// ***** OVDE JE IZMJENA — KORISTI NOVI PREPARE BATCH *****
 import { executePrepareJob } from './prepareBatch1';
-
 import { executeRunJob } from '../jobs/runBatch';
 import env from '../environments';
+
+const SCHEDULER_DISABLED = process.env.SCHEDULER_DISABLED === 'true';
+let loggedDisabled = false;
 
 const TIMEZONE = 'Europe/Budapest';
 const CRON_EXPRESSION = '* * * * *';
@@ -25,7 +26,19 @@ type RefreshJobRow = {
   payload: Record<string, unknown> | null;
 };
 
+function logDisabledOnce(): void {
+  if (loggedDisabled) return;
+  console.log('Job processor disabled by env flag');
+  loggedDisabled = true;
+}
+
 export function initJobProcessor(): void {
+  // Freeze switch: do not poll, execute, or schedule background loops.
+  if (SCHEDULER_DISABLED) {
+    logDisabledOnce();
+    return;
+  }
+
   if (!supabase) {
     console.warn('[jobProcessor] Supabase client unavailable; processor disabled');
     return;
@@ -34,8 +47,6 @@ export function initJobProcessor(): void {
   cron.schedule(
     CRON_EXPRESSION,
     () => {
-      const budapestNow = DateTime.now().setZone(TIMEZONE).toISO();
-      console.log(`[jobProcessor] Tick at ${budapestNow}`);
       void processPendingJobs();
     },
     { timezone: TIMEZONE }
@@ -45,10 +56,11 @@ export function initJobProcessor(): void {
 }
 
 async function processPendingJobs(): Promise<void> {
-  if (!supabase) {
-    console.error('[jobProcessor] Supabase client missing during tick');
-    return;
-  }
+  if (SCHEDULER_DISABLED) return;
+  if (!supabase) return;
+
+  const budapestNow = DateTime.now().setZone(TIMEZONE).toISO();
+  console.log(`[jobProcessor] Tick at ${budapestNow}`);
 
   const nowUtc = new Date().toISOString();
 
@@ -70,6 +82,7 @@ async function processPendingJobs(): Promise<void> {
     }
 
     for (const job of data as RefreshJobRow[]) {
+      if (SCHEDULER_DISABLED) return;
       await handleJob(job);
     }
   } catch (error) {
@@ -78,11 +91,14 @@ async function processPendingJobs(): Promise<void> {
 }
 
 async function handleJob(job: RefreshJobRow): Promise<void> {
+  if (SCHEDULER_DISABLED) return;
+  if (!supabase) return;
+
   console.log(
     `[jobProcessor] Executing job ${job.id} type=${job.type} slot=${job.slot_index} scheduled_at=${job.scheduled_at}`
   );
 
-  const { data: lockedRows, error: lockError } = await supabase!
+  const { data: lockedRows, error: lockError } = await supabase
     .from(JOB_TABLE)
     .update({ status: 'running' })
     .eq('id', job.id)
@@ -101,7 +117,6 @@ async function handleJob(job: RefreshJobRow): Promise<void> {
   try {
     if (job.type === 'prepare') {
       await executePrepareJob(job);
-
     } else if (job.type === 'run') {
       if (!env.enable_run_jobs) {
         console.warn(
@@ -125,7 +140,10 @@ async function handleJob(job: RefreshJobRow): Promise<void> {
 }
 
 async function markJobDone(jobId: string): Promise<void> {
-  const { error } = await supabase!.from(JOB_TABLE).update({ status: 'done' }).eq('id', jobId);
+  if (SCHEDULER_DISABLED) return;
+  if (!supabase) return;
+
+  const { error } = await supabase.from(JOB_TABLE).update({ status: 'done' }).eq('id', jobId);
 
   if (error) {
     console.error('[jobProcessor] Failed to mark job done', { jobId, error });
@@ -133,8 +151,11 @@ async function markJobDone(jobId: string): Promise<void> {
 }
 
 async function markJobError(jobId: string, reason: string): Promise<void> {
+  if (SCHEDULER_DISABLED) return;
+  if (!supabase) return;
+
   const payload = { error: reason };
-  const { error } = await supabase!
+  const { error } = await supabase
     .from(JOB_TABLE)
     .update({ status: 'error', payload })
     .eq('id', jobId);
@@ -145,8 +166,11 @@ async function markJobError(jobId: string, reason: string): Promise<void> {
 }
 
 async function markJobSkipped(jobId: string, reason: string): Promise<void> {
+  if (SCHEDULER_DISABLED) return;
+  if (!supabase) return;
+
   const payload = { skipped: true, reason };
-  const { error } = await supabase!
+  const { error } = await supabase
     .from(JOB_TABLE)
     .update({ status: 'done', payload })
     .eq('id', jobId);

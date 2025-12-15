@@ -5,13 +5,14 @@ import { DateTime } from 'luxon';
 import { randomUUID } from 'crypto';
 import supabase from '../services/supabaseClient';
 
+const SCHEDULER_DISABLED = process.env.SCHEDULER_DISABLED === 'true';
+let loggedDisabled = false;
+
 const TIMEZONE = 'Europe/Budapest';
 const CRON_EXPRESSION = '15 10 * * *'; // 10:15 local time daily
 const TABLE_NAME = 'refresh_jobs';
 
-// 🔥 POVEĆANO NA 20 TERMINA
 const SLOT_COUNT = 20;
-
 const PREPARE_START_HOUR = 10;
 const PREPARE_START_MINUTE = 30;
 const SLOT_INTERVAL_MINUTES = 60;
@@ -29,7 +30,19 @@ type RefreshJobRow = {
   payload: Record<string, unknown>;
 };
 
-export function initDailyRefreshScheduler() {
+function logDisabledOnce(): void {
+  if (loggedDisabled) return;
+  console.log('Scheduler disabled by env flag');
+  loggedDisabled = true;
+}
+
+export function initDailyRefreshScheduler(): void {
+  // Freeze switch: do not register any cron jobs when disabled.
+  if (SCHEDULER_DISABLED) {
+    logDisabledOnce();
+    return;
+  }
+
   if (!supabase) {
     console.warn('[DailyRefreshScheduler] Supabase client unavailable; scheduler disabled');
     return;
@@ -38,7 +51,6 @@ export function initDailyRefreshScheduler() {
   cron.schedule(
     CRON_EXPRESSION,
     () => {
-      console.log('[DailyRefreshScheduler] Cron fired at 10:15, generating deterministic slots');
       void generateDailySlots();
     },
     { timezone: TIMEZONE }
@@ -48,6 +60,10 @@ export function initDailyRefreshScheduler() {
 }
 
 async function generateDailySlots(): Promise<void> {
+  // Safety: even if called directly, do nothing while disabled.
+  if (SCHEDULER_DISABLED) return;
+  if (!supabase) return;
+
   const localNow = DateTime.now().setZone(TIMEZONE);
   const dayKey = localNow.toISODate();
 
@@ -57,11 +73,7 @@ async function generateDailySlots(): Promise<void> {
   }
 
   try {
-    const existing = await supabase
-      .from(TABLE_NAME)
-      .select('id')
-      .eq('day_key', dayKey)
-      .limit(1);
+    const existing = await supabase.from(TABLE_NAME).select('id').eq('day_key', dayKey).limit(1);
 
     if (existing.error) {
       throw existing.error;
@@ -113,12 +125,7 @@ function buildLocalDate(dayKey: string, hour: number, minute: number): DateTime 
   return date;
 }
 
-function createJobRow(
-  index: number,
-  type: JobType,
-  scheduled: DateTime,
-  dayKey: string
-): RefreshJobRow {
+function createJobRow(index: number, type: JobType, scheduled: DateTime, dayKey: string): RefreshJobRow {
   const scheduledIso = scheduled.toUTC().toISO();
 
   if (!scheduledIso) {
