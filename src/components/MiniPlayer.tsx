@@ -1,89 +1,126 @@
-import { Pause, Play, SkipBack, SkipForward } from "lucide-react";
+import { Play, Pause, SkipBack, SkipForward, Volume2, Heart, X, ChevronUp } from "lucide-react";
+import { Slider } from "@/components/ui/slider";
 import { usePlayer } from "@/contexts/PlayerContext";
+import { useIsMobile } from "@/hooks/use-mobile";
+import useLikes from "@/hooks/useLikes";
+import AddToPlaylistButton from "@/components/AddToPlaylistButton";
 
-export default function MiniPlayer() {
+const MiniPlayer = () => {
+  const isMobile = useIsMobile();
   const {
     isPlaying,
+    volume,
     currentVideoTitle,
     currentVideoArtist,
     currentTrackId,
+    isFullscreen,
     isPlayerVisible,
-    setIsFullscreen,
     togglePlay,
     skipForward,
     skipBackward,
+    setVolume: updateVolume,
+    setIsFullscreen,
+    setIsPlayerVisible,
   } = usePlayer();
 
-  const hasActiveTrack =
-    Boolean(isPlayerVisible) &&
-    (Boolean(currentTrackId) || Boolean(currentVideoTitle) || Boolean(currentVideoArtist));
+  const { isTrackLiked, toggleTrackLike } = useLikes();
+  const isCurrentTrackLiked = currentTrackId ? isTrackLiked(currentTrackId) : false;
+  const likeDisabled = !currentTrackId;
 
-  if (!hasActiveTrack) return null;
-
-  const openFullscreen = () => setIsFullscreen(true);
-
-  const stop: React.MouseEventHandler = (e) => {
-    e.stopPropagation();
+  const handleClose = () => {
+    if (isPlaying) {
+      togglePlay();
+    }
+    setIsPlayerVisible(false);
   };
 
+  const handleVolumeChange = (values: number[]) => {
+    updateVolume(values[0]);
+  };
+
+  const handleToggleLike = () => {
+    if (!currentTrackId) return;
+    void toggleTrackLike(currentTrackId);
+  };
+
+  if (!isPlayerVisible || isFullscreen) return null;
+
   return (
-    <div
-      className="fixed inset-x-0 bottom-0 z-40 cursor-pointer border-t border-border bg-card/95 backdrop-blur-md"
-      onClick={openFullscreen}
-      role="button"
-      tabIndex={0}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          openFullscreen();
-        }
-      }}
-    >
-      <div className="mx-auto flex max-w-screen-2xl items-center gap-3 px-4 py-3">
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-semibold text-foreground">{currentVideoTitle || ""}</div>
-          <div className="truncate text-xs text-muted-foreground">{currentVideoArtist || ""}</div>
+    <div className="fixed bottom-20 md:bottom-0 left-0 right-0 bg-card/95 backdrop-blur-md border-t border-border z-30">
+      <div className="relative">
+        <div className="absolute bottom-2 right-3 z-20 md:hidden">
+          <AddToPlaylistButton
+            trackId={currentTrackId ?? undefined}
+            trackTitle={currentVideoTitle}
+            triggerClassName="bg-primary text-primary-foreground shadow-lg hover:bg-primary/90"
+          />
         </div>
+        {/* Expand button */}
+        <button
+          onClick={() => setIsFullscreen(true)}
+          className="absolute top-2 left-1/2 -translate-x-1/2 text-muted-foreground hover:text-foreground transition-colors z-10"
+        >
+          <ChevronUp className="w-5 h-5" />
+        </button>
 
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={(e) => {
-              stop(e);
-              skipBackward();
-            }}
-            className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-secondary text-secondary-foreground transition-transform active:scale-95"
-            aria-label="Previous"
-          >
-            <SkipBack className="h-5 w-5" />
-          </button>
+        {/* Close button */}
+        <button onClick={handleClose} className="absolute top-2 right-2 text-muted-foreground hover:text-foreground transition-colors z-10">
+          <X className="w-5 h-5" />
+        </button>
 
-          <button
-            type="button"
-            onClick={(e) => {
-              stop(e);
-              togglePlay();
-            }}
-            className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-primary text-primary-foreground transition-transform active:scale-95"
-            aria-label={isPlaying ? "Pause" : "Play"}
-            aria-pressed={isPlaying}
-          >
-            {isPlaying ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5 fill-current" />}
-          </button>
+        <div className="flex items-center justify-between gap-2 max-w-screen-2xl mx-auto px-4 pt-3 py-1.5">
+          {/* YouTube Player Placeholder - matches wrapper visual size */}
+          <div className="flex items-center gap-2 flex-1 min-w-0">
+            {/* Placeholder matches wrapper: 110px on mobile, 200px on desktop */}
+            <div className={`${isMobile ? "w-[110px] h-[110px]" : "w-[200px] h-[200px]"} flex-shrink-0 bg-secondary/20 rounded-lg`} />
+            <div className="min-w-0 flex-1 hidden md:block">
+              <p className="font-semibold text-foreground truncate">{currentVideoTitle || "Purple Dreams"}</p>
+              <p className="text-sm text-muted-foreground truncate">{currentVideoArtist || "Electronic Beats"}</p>
+            </div>
+          </div>
 
-          <button
-            type="button"
-            onClick={(e) => {
-              stop(e);
-              skipForward();
-            }}
-            className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-secondary text-secondary-foreground transition-transform active:scale-95"
-            aria-label="Next"
-          >
-            <SkipForward className="h-5 w-5" />
-          </button>
+          {/* Controls - horizontal layout: Previous | Play | Next | Like */}
+          <div className="flex items-center gap-4 flex-1 justify-center">
+            <button onClick={skipBackward} className="text-foreground hover:text-primary transition-colors">
+              <SkipBack className="w-6 h-6" />
+            </button>
+
+            <button
+              onClick={togglePlay}
+              className="w-12 h-12 bg-primary rounded-full flex items-center justify-center text-background hover:scale-105 transition-transform"
+            >
+              {isPlaying ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6 fill-current ml-0.5" />}
+            </button>
+
+            <button onClick={skipForward} className="text-foreground hover:text-primary transition-colors">
+              <SkipForward className="w-6 h-6" />
+            </button>
+
+            <button
+              onClick={handleToggleLike}
+              disabled={likeDisabled}
+              className={`transition-colors ${isCurrentTrackLiked ? "text-primary" : "text-muted-foreground hover:text-primary"} ${likeDisabled ? "opacity-50 cursor-not-allowed" : ""}`}
+              aria-label={isCurrentTrackLiked ? "Unlike song" : "Like song"}
+            >
+              <Heart className={`w-6 h-6 ${isCurrentTrackLiked ? "fill-current" : ""}`} />
+            </button>
+          </div>
+
+          {/* Volume */}
+          <div className="hidden md:flex items-center gap-2 flex-1 justify-end">
+            <AddToPlaylistButton
+              trackId={currentTrackId ?? undefined}
+              trackTitle={currentVideoTitle}
+              variant="ghost"
+              triggerClassName="text-muted-foreground hover:text-primary"
+            />
+            <Volume2 className="w-5 h-5 text-muted-foreground" />
+            <Slider value={[volume]} max={100} step={1} className="w-24" onValueChange={handleVolumeChange} />
+          </div>
         </div>
       </div>
     </div>
   );
-}
+};
+
+export default MiniPlayer;

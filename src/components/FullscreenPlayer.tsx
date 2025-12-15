@@ -1,151 +1,140 @@
-import { useMemo, useState } from "react";
-import { X, Pause, Play, SkipBack, SkipForward } from "lucide-react";
+import { Play, Pause, SkipBack, SkipForward, Volume2, Heart, X, ChevronDown } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { usePlayer } from "@/contexts/PlayerContext";
-import { useIsMobile } from "@/hooks/use-mobile";
+import useLikes from "@/hooks/useLikes";
+import AddToPlaylistButton from "@/components/AddToPlaylistButton";
 
-export default function FullscreenPlayer() {
-  const isMobile = useIsMobile();
+const FullscreenPlayer = () => {
   const {
-    isFullscreen,
-    setIsFullscreen,
     isPlaying,
+    volume,
     currentTime,
     duration,
+    isFullscreen,
     currentVideoTitle,
     currentVideoArtist,
+    currentTrackId,
     isPlayerVisible,
     togglePlay,
     skipForward,
     skipBackward,
+    setVolume: updateVolume,
     seekTo,
     formatTime,
+    setIsFullscreen,
+    setIsPlayerVisible,
   } = usePlayer();
 
-  const [isScrubbing, setIsScrubbing] = useState(false);
-  const [scrubPercentage, setScrubPercentage] = useState(0);
+  const { isTrackLiked, toggleTrackLike } = useLikes();
+  const isCurrentTrackLiked = currentTrackId ? isTrackLiked(currentTrackId) : false;
+  const likeDisabled = !currentTrackId;
 
-  const hasActiveTrack = Boolean(isPlayerVisible) && (Boolean(currentVideoTitle) || Boolean(currentVideoArtist));
-  const open = Boolean(isFullscreen) && hasActiveTrack;
-
-  const safeDuration = Number.isFinite(duration) && duration > 0 ? duration : 0;
-  const progressPercentage = useMemo(() => {
-    if (!safeDuration) return 0;
-    const pct = (currentTime / safeDuration) * 100;
-    if (!Number.isFinite(pct)) return 0;
-    return Math.max(0, Math.min(100, pct));
-  }, [currentTime, safeDuration]);
-
-  const displayPercentage = isScrubbing ? scrubPercentage : progressPercentage;
-  const previewSeconds = useMemo(() => {
-    if (!safeDuration) return 0;
-    return (displayPercentage / 100) * safeDuration;
-  }, [displayPercentage, safeDuration]);
-
-  const close = () => setIsFullscreen(false);
-
-  const handleBackdropClick = () => {
-    if (!isMobile) close();
+  const handleClose = () => {
+    if (isPlaying) {
+      togglePlay();
+    }
+    setIsPlayerVisible(false);
   };
 
-  const handleSliderChange = (values: number[]) => {
-    setIsScrubbing(true);
-    setScrubPercentage(values[0] ?? 0);
+  const handleVolumeChange = (values: number[]) => {
+    updateVolume(values[0]);
   };
 
-  const handleSliderCommit = (values: number[]) => {
-    const pct = values[0] ?? 0;
-    setIsScrubbing(false);
-    setScrubPercentage(pct);
-
-    if (!safeDuration) return;
-    const seconds = (pct / 100) * safeDuration;
-    seekTo(seconds);
+  const handleProgressChange = (values: number[]) => {
+    const newTime = (values[0] / 100) * duration;
+    seekTo(newTime);
   };
 
+  const handleToggleLike = () => {
+    if (!currentTrackId) return;
+    void toggleTrackLike(currentTrackId);
+  };
+
+  const progressPercentage = duration > 0 ? (currentTime / duration) * 100 : 0;
+  if (!isPlayerVisible || !isFullscreen) return null;
+
+  // Fullscreen Player UI (bez player iframe-a - on je u YouTubePlayerContainer)
   return (
-    <div
-      className={`fixed inset-0 z-50 transition-opacity duration-200 ${open ? "opacity-100" : "pointer-events-none opacity-0"}`}
-      aria-hidden={!open}
-    >
-      <div
-        className={`absolute inset-0 bg-black/70 transition-opacity duration-200 ${open ? "opacity-100" : "opacity-0"}`}
-        onClick={handleBackdropClick}
-      />
+    <div className="fixed inset-0 bg-background z-50 flex flex-col">
+      {/* Header */}
+      <div className="flex items-center justify-between p-4 border-b border-border">
+        <button onClick={() => setIsFullscreen(false)} className="text-foreground hover:text-primary transition-colors">
+          <ChevronDown className="w-6 h-6" />
+        </button>
+        <button onClick={handleClose} className="text-muted-foreground hover:text-foreground transition-colors">
+          <X className="w-6 h-6" />
+        </button>
+      </div>
 
-      <div className="relative mx-auto flex h-full w-full max-w-screen-md flex-col bg-background text-foreground">
-        <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
-          <div className="min-w-0">
-            <div className="truncate text-sm font-semibold">{currentVideoTitle || ""}</div>
-            <div className="truncate text-xs text-muted-foreground">{currentVideoArtist || ""}</div>
+      {/* Content - stacked vertically, not centered */}
+      <div className="flex-1 flex flex-col items-center overflow-y-auto p-4 pt-8">
+        {/* YouTube Player space - YouTubePlayerContainer renders here as fixed element */}
+        {/* Reserve space for the video player at top */}
+        <div
+          className="w-full max-w-4xl mb-8"
+          style={{
+            aspectRatio: "16/9",
+            minHeight: "300px",
+            maxHeight: "70vh",
+          }}
+        />
+
+        <div className="w-full max-w-md text-center mb-6">
+          <h2 className="text-2xl font-bold mb-1 text-foreground">{currentVideoTitle}</h2>
+          <p className="text-muted-foreground">{currentVideoArtist}</p>
+        </div>
+
+        {/* Progress Bar */}
+        <div className="w-full max-w-md mb-6">
+          <Slider value={[progressPercentage]} max={100} step={0.1} className="mb-2" onValueChange={handleProgressChange} />
+          <div className="flex justify-between text-sm text-muted-foreground">
+            <span>{formatTime(currentTime)}</span>
+            <span>{formatTime(duration)}</span>
           </div>
+        </div>
+
+        {/* Controls */}
+        <div className="flex items-center gap-6 mb-6">
+          <button onClick={skipBackward} className="text-foreground hover:text-primary transition-colors">
+            <SkipBack className="w-7 h-7" />
+          </button>
           <button
-            type="button"
-            onClick={close}
-            className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-secondary text-secondary-foreground transition-transform active:scale-95"
-            aria-label="Close"
+            onClick={togglePlay}
+            className="w-14 h-14 bg-primary rounded-full flex items-center justify-center text-background hover:scale-105 transition-transform"
           >
-            <X className="h-5 w-5" />
+            {isPlaying ? <Pause className="w-7 h-7" /> : <Play className="w-7 h-7 fill-current ml-1" />}
+          </button>
+          <button onClick={skipForward} className="text-foreground hover:text-primary transition-colors">
+            <SkipForward className="w-7 h-7" />
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-4 pb-28 pt-4">
-          {/* YouTube player area: YouTubePlayerContainer renders the real iframe above this overlay (z-index 55).
-              This placeholder reserves space so our controls never obscure the player.
-              The real iframe must remain visible (>=200x200). */}
-          <div className="mx-auto w-full max-w-screen-md">
-            <div className="mx-auto w-full max-w-[896px] rounded-lg bg-black" style={{ minHeight: 220 }} />
-          </div>
-
-          <div className="mt-6">
-            <div className="mx-auto aspect-square w-full max-w-[360px] overflow-hidden rounded-2xl bg-secondary" />
-          </div>
-
-          <div className="mt-6">
-            <Slider
-              value={[displayPercentage]}
-              max={100}
-              step={0.1}
-              onValueChange={handleSliderChange}
-              onValueCommit={handleSliderCommit}
+        {/* Volume & Actions */}
+        <div className="w-full max-w-md flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <AddToPlaylistButton
+              trackId={currentTrackId ?? undefined}
+              trackTitle={currentVideoTitle}
+              variant="ghost"
+              triggerClassName="text-muted-foreground hover:text-primary"
             />
-            <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
-              <span>{formatTime(isScrubbing ? previewSeconds : currentTime)}</span>
-              <span>{formatTime(safeDuration)}</span>
-            </div>
+            <button
+              onClick={handleToggleLike}
+              disabled={likeDisabled}
+              className={`transition-colors ${isCurrentTrackLiked ? "text-primary" : "text-muted-foreground hover:text-primary"} ${likeDisabled ? "opacity-50 cursor-not-allowed" : ""}`}
+              aria-label={isCurrentTrackLiked ? "Unlike song" : "Like song"}
+            >
+              <Heart className={`w-6 h-6 ${isCurrentTrackLiked ? "fill-current" : ""}`} />
+            </button>
           </div>
-
-          <div className="mt-6 flex items-center justify-center gap-4">
-            <button
-              type="button"
-              onClick={skipBackward}
-              className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-secondary text-secondary-foreground transition-transform active:scale-95"
-              aria-label="Previous"
-            >
-              <SkipBack className="h-6 w-6" />
-            </button>
-
-            <button
-              type="button"
-              onClick={togglePlay}
-              className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground transition-transform active:scale-95"
-              aria-label={isPlaying ? "Pause" : "Play"}
-              aria-pressed={isPlaying}
-            >
-              {isPlaying ? <Pause className="h-7 w-7" /> : <Play className="h-7 w-7 fill-current" />}
-            </button>
-
-            <button
-              type="button"
-              onClick={skipForward}
-              className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-secondary text-secondary-foreground transition-transform active:scale-95"
-              aria-label="Next"
-            >
-              <SkipForward className="h-6 w-6" />
-            </button>
+          <div className="flex items-center gap-3">
+            <Volume2 className="w-5 h-5 text-muted-foreground" />
+            <Slider value={[volume]} max={100} step={1} className="w-32" onValueChange={handleVolumeChange} />
           </div>
         </div>
       </div>
     </div>
   );
-}
+};
+
+export default FullscreenPlayer;
