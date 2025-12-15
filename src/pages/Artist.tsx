@@ -1,237 +1,212 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { Play } from "lucide-react";
-import { withBackendOrigin } from "@/lib/backendUrl";
+
 import { Button } from "@/components/ui/button";
+import LoadingSkeleton from "@/components/ui/LoadingSkeleton";
+import EmptyState from "@/components/ui/EmptyState";
+import ErrorState from "@/components/ui/ErrorState";
 import { usePlayer } from "@/contexts/PlayerContext";
 
-type ArtistRow = {
-  id?: string;
-  artist?: string;
-  banner_url?: string | null;
-  thumbnail_url?: string | null;
+type ApiArtist = {
+  id: string;
+  name: string;
+  youtube_channel_id: string;
+  spotify_artist_id?: string | null;
+  avatar_url?: string | null;
 };
 
-type PlaylistRow = {
-  id?: string;
-  title?: string;
-  cover_url?: string | null;
+type ApiPlaylist = {
+  id: string;
+  title: string;
+  youtube_playlist_id: string;
+  youtube_channel_id: string;
+  source: string;
+  created_at: string;
 };
 
-type TrackRow = {
-  id?: string;
-  title?: string;
-  artist?: string;
-  youtube_id?: string;
+type ApiTrack = {
+  id: string;
+  title: string;
+  youtube_video_id: string;
+  youtube_channel_id: string;
+  artist_name?: string | null;
+  created_at: string;
 };
 
-type ArtistApiResponse = {
-  artist: ArtistRow | null;
-  playlists: PlaylistRow[];
-  tracks: TrackRow[];
+type ArtistBundle = {
+  artist: ApiArtist | null;
+  playlists: ApiPlaylist[];
+  tracks: ApiTrack[];
 };
 
-function normalizeString(value: unknown): string {
-  return typeof value === "string" ? value.trim() : "";
+function formatCount(n: number): string {
+  return new Intl.NumberFormat().format(n);
 }
 
 export default function Artist() {
-  const { channelId = "" } = useParams<{ channelId: string }>();
+  const { channelId } = useParams();
   const { playPlaylist } = usePlayer();
 
+  const [bundle, setBundle] = useState<ArtistBundle | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [artist, setArtist] = useState<ArtistRow | null>(null);
-  const [playlists, setPlaylists] = useState<PlaylistRow[]>([]);
-  const [tracks, setTracks] = useState<TrackRow[]>([]);
-  const [playAllStarting, setPlayAllStarting] = useState(false);
+  const [reloadNonce, setReloadNonce] = useState(0);
+
+  const safeChannelId = (channelId || "").trim();
+
+  const artist = bundle?.artist ?? null;
+  const playlists = bundle?.playlists ?? [];
+  const tracks = bundle?.tracks ?? [];
+
+  const playlistTracks = useMemo(() => {
+    return tracks
+      .filter((t) => t.youtube_video_id)
+      .map((t) => ({
+        youtubeId: t.youtube_video_id,
+        title: t.title,
+        artist: t.artist_name || artist?.name || "Unknown artist",
+        id: t.id,
+      }));
+  }, [tracks, artist?.name]);
+
+  const retry = () => {
+    if (!safeChannelId) return;
+    setBundle(null);
+    setError(null);
+    setLoading(true);
+    setReloadNonce((x) => x + 1);
+  };
 
   useEffect(() => {
-    const id = normalizeString(channelId);
-    if (!id) {
-      setLoading(false);
-      setError("Missing artist channel id");
-      return;
-    }
+    let active = true;
 
-    const controller = new AbortController();
-    let mounted = true;
-
-    const run = async () => {
-      setLoading(true);
-      setError(null);
+    async function load() {
+      if (!safeChannelId) {
+        setBundle(null);
+        setLoading(false);
+        setError("Missing artist id");
+        return;
+      }
 
       try {
-        const url = withBackendOrigin(`/api/artist/${encodeURIComponent(id)}`);
-        const res = await fetch(url, { method: "GET", signal: controller.signal });
-        const json = (await res.json().catch(() => null)) as ArtistApiResponse | null;
+        setLoading(true);
+        setError(null);
 
+        const res = await fetch(`/api/artist/${encodeURIComponent(safeChannelId)}`);
         if (!res.ok) {
-          const msg = (json as any)?.error || "Failed to load artist";
-          throw new Error(String(msg));
+          throw new Error(`Failed to load artist (${res.status})`);
         }
 
-        if (!mounted) return;
-
-        setArtist(json?.artist ?? null);
-        setPlaylists(Array.isArray(json?.playlists) ? json!.playlists : []);
-        setTracks(Array.isArray(json?.tracks) ? json!.tracks : []);
+        const data = (await res.json()) as ArtistBundle;
+        if (!active) return;
+        setBundle(data);
       } catch (e: any) {
-        if (!mounted) return;
+        if (!active) return;
+        setBundle(null);
         setError(e?.message || "Failed to load artist");
-        setArtist(null);
-        setPlaylists([]);
-        setTracks([]);
       } finally {
-        if (mounted) setLoading(false);
+        if (!active) return;
+        setLoading(false);
       }
-    };
-
-    void run();
-
-    return () => {
-      mounted = false;
-      controller.abort();
-    };
-  }, [channelId]);
-
-  const playlistTrackData = useMemo(() => {
-    return tracks
-      .map((t) => {
-        const external_id = normalizeString((t as any)?.external_id) || normalizeString(t.youtube_id);
-        const title = normalizeString(t.title);
-        const artistName = normalizeString(t.artist);
-        const id = normalizeString(t.id);
-
-        if (!external_id || !title) return null;
-        return {
-          id: id || undefined,
-          external_id,
-          title,
-          artist: artistName || "Unknown artist",
-        };
-      })
-      .filter(Boolean) as Array<{ id?: string; external_id: string; title: string; artist: string }>;
-  }, [tracks]);
-
-  const canPlayAll = playlistTrackData.length > 0 && !playAllStarting;
-
-  const handlePlayAll = () => {
-    if (!canPlayAll) return;
-
-    setPlayAllStarting(true);
-    try {
-      playPlaylist(playlistTrackData, 0);
-    } finally {
-      // Provide brief pressed/loading feedback without adding new playback logic.
-      window.setTimeout(() => setPlayAllStarting(false), 250);
     }
-  };
+
+    void load();
+    return () => {
+      active = false;
+    };
+  }, [safeChannelId, reloadNonce]);
 
   if (loading) {
     return (
-      <div className="p-4 max-w-5xl mx-auto pb-32">
-        <div className="flex items-center gap-3 text-muted-foreground">
-          <div className="h-5 w-5 animate-spin rounded-full border-2 border-muted-foreground/40 border-t-transparent" />
-          <span>Loading artist…</span>
-        </div>
+      <div className="p-4 max-w-4xl mx-auto pb-32">
+        <LoadingSkeleton type="artist" />
       </div>
     );
   }
 
   if (error || !artist) {
     return (
-      <div className="p-4 max-w-5xl mx-auto pb-32">
-        <div className="rounded-xl border border-border bg-card/40 p-4">
-          <div className="text-lg font-semibold">Artist unavailable</div>
-          <div className="mt-1 text-sm text-muted-foreground">{error || "Artist not found"}</div>
-        </div>
+      <div className="p-4 max-w-4xl mx-auto pb-32">
+        <ErrorState title="Artist not available" subtitle={error || "This artist could not be loaded"} onRetry={safeChannelId ? retry : undefined} />
       </div>
     );
   }
 
   return (
-    <div className="p-4 max-w-5xl mx-auto pb-32">
-      {/* Artist header */}
-      <div className="rounded-xl overflow-hidden border border-border bg-card/40">
-        {artist.banner_url ? (
-          <div className="h-44 w-full overflow-hidden">
-            <img src={artist.banner_url} alt="" className="h-full w-full object-cover" />
-          </div>
-        ) : (
-          <div className="h-24 w-full bg-muted" />
-        )}
+    <div className="p-4 max-w-4xl mx-auto pb-32">
+      <div className="flex items-center gap-4 mb-6">
+        <div className="w-16 h-16 rounded-full bg-muted overflow-hidden shrink-0">
+          {artist.avatar_url ? <img src={artist.avatar_url} alt={artist.name} className="w-full h-full object-cover" /> : null}
+        </div>
 
-        <div className="p-4 flex items-center gap-4">
-          <div className="h-16 w-16 shrink-0 overflow-hidden rounded-full bg-muted">
-            {artist.thumbnail_url ? <img src={artist.thumbnail_url} alt="" className="h-full w-full object-cover" /> : null}
-          </div>
-
-          <div className="min-w-0 flex-1">
-            <div className="text-2xl font-bold truncate">{artist.artist || "Unknown artist"}</div>
-            <div className="mt-3">
-              <Button
-                type="button"
-                onClick={handlePlayAll}
-                disabled={!canPlayAll}
-                aria-pressed={playAllStarting}
-                className="rounded-full"
-              >
-                {playAllStarting ? (
-                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary-foreground/60 border-t-transparent" />
-                ) : (
-                  <Play className="w-5 h-5 fill-current" />
-                )}
-                Play All
-              </Button>
-            </div>
+        <div className="flex-1 min-w-0">
+          <h1 className="text-2xl font-bold truncate">{artist.name}</h1>
+          <div className="text-sm text-muted-foreground">
+            {formatCount(playlists.length)} playlists • {formatCount(tracks.length)} tracks
           </div>
         </div>
+
+        <Button
+          onClick={() => {
+            if (playlistTracks.length === 0) return;
+            playPlaylist(playlistTracks, 0);
+          }}
+          disabled={playlistTracks.length === 0}
+          className="shrink-0"
+        >
+          <Play className="w-4 h-4 mr-2" /> Play All
+        </Button>
       </div>
 
-      {/* Playlists grid */}
-      <div className="mt-6">
-        <div className="text-xl font-bold mb-3">Playlists</div>
+      <section className="mb-10">
+        <h2 className="text-xl font-bold mb-4">Playlists</h2>
         {playlists.length === 0 ? (
-          <div className="rounded-xl border border-border bg-card/40 p-4 text-sm text-muted-foreground">No playlists yet.</div>
+          <EmptyState title="No playlists yet" subtitle="This artist doesn’t have any playlists available" />
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-            {playlists.map((p, idx) => (
-              <div key={p.id || `${idx}`} className="rounded-xl border border-border bg-card/30 overflow-hidden">
-                <div className="aspect-square bg-muted">
-                  {p.cover_url ? <img src={p.cover_url} alt="" className="h-full w-full object-cover" /> : null}
-                </div>
-                <div className="p-3">
-                  <div className="text-sm font-semibold truncate">{p.title || "Untitled playlist"}</div>
-                </div>
-              </div>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            {playlists.map((p) => (
+              <a
+                key={p.id}
+                href={`https://www.youtube.com/playlist?list=${encodeURIComponent(p.youtube_playlist_id)}`}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-lg border border-border bg-card/30 px-3 py-3 hover:bg-card/50 transition-colors"
+              >
+                <div className="font-medium line-clamp-2">{p.title}</div>
+                <div className="text-xs text-muted-foreground mt-1">{p.source}</div>
+              </a>
             ))}
           </div>
         )}
-      </div>
+      </section>
 
-      {/* Tracks list */}
-      <div className="mt-6">
-        <div className="flex items-center justify-between gap-3 mb-3">
-          <div className="text-xl font-bold">Tracks</div>
-          <div className="text-sm text-muted-foreground">{playlistTrackData.length} total</div>
-        </div>
-
+      <section>
+        <h2 className="text-xl font-bold mb-4">Tracks</h2>
         {tracks.length === 0 ? (
-          <div className="rounded-xl border border-border bg-card/40 p-4 text-sm text-muted-foreground">No tracks yet.</div>
+          <EmptyState title="No tracks yet" subtitle="This artist doesn’t have any tracks available" />
         ) : (
-          <div className="rounded-xl border border-border bg-card/40 overflow-hidden">
-            <div className="divide-y divide-border">
-              {tracks.map((t, idx) => (
-                <div key={t.id || `${idx}`} className="p-3">
-                  <div className="font-medium truncate">{t.title || "Untitled"}</div>
-                  <div className="text-sm text-muted-foreground truncate">{t.artist || "Unknown artist"}</div>
-                </div>
-              ))}
-            </div>
+          <div className="space-y-2">
+            {tracks.map((t) => {
+              const idx = playlistTracks.findIndex((x) => x.id === t.id);
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => {
+                    if (idx < 0) return;
+                    playPlaylist(playlistTracks, idx);
+                  }}
+                  className="w-full text-left rounded-lg border border-border bg-card/30 px-3 py-3 hover:bg-card/50 transition-colors"
+                >
+                  <div className="font-medium truncate">{t.title}</div>
+                  <div className="text-sm text-muted-foreground truncate">{t.artist_name || artist.name}</div>
+                </button>
+              );
+            })}
           </div>
         )}
-      </div>
+      </section>
     </div>
   );
 }

@@ -1,14 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ListMusic, Music, Search as SearchIcon, User } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
+import { ListMusic, Music, Search as SearchIcon, User } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import LoadingSkeleton from "@/components/ui/LoadingSkeleton";
+import EmptyState from "@/components/ui/EmptyState";
+import ErrorState from "@/components/ui/ErrorState";
 import { usePlayer } from "@/contexts/PlayerContext";
 import {
   type SearchResolveMode,
-  type SearchResolveSpotifySelection,
   type SearchResolveResponse,
+  type SearchResolveSpotifySelection,
   type SearchSuggestResponse,
   searchResolve,
   searchSuggest,
@@ -49,7 +52,6 @@ function firstLetter(title: string): string {
 
 function normalizeResolvedArtistChannels(input: any): ResolvedArtistChannelsEnvelope {
   const ac = input?.artist_channels;
-
   const rawLocal = Array.isArray(ac?.local) ? ac.local : [];
   const rawYoutube = Array.isArray(ac?.youtube) ? ac.youtube : [];
   const decision: "local_only" | "youtube_fallback" = ac?.decision === "youtube_fallback" ? "youtube_fallback" : "local_only";
@@ -89,8 +91,8 @@ export default function Search() {
   const resolveAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    const t = setTimeout(() => setDebouncedQuery(normalizeQuery(query)), 250);
-    return () => clearTimeout(t);
+    const t = window.setTimeout(() => setDebouncedQuery(normalizeQuery(query)), 250);
+    return () => window.clearTimeout(t);
   }, [query]);
 
   useEffect(() => {
@@ -108,6 +110,7 @@ export default function Search() {
 
     setSuggestLoading(true);
     setError(null);
+
     void (async () => {
       try {
         const next = await searchSuggest(q, { signal: controller.signal });
@@ -117,9 +120,7 @@ export default function Search() {
         setSuggestions(null);
         setError(e?.message || "Search suggest failed");
       } finally {
-        if (!controller.signal.aborted) {
-          setSuggestLoading(false);
-        }
+        if (!controller.signal.aborted) setSuggestLoading(false);
       }
     })();
   }, [debouncedQuery]);
@@ -174,6 +175,9 @@ export default function Search() {
     return out;
   }, [suggestions]);
 
+  const resolvedArtistChannels = useMemo(() => normalizeResolvedArtistChannels(resolved), [resolved]);
+  const showArtistChannels = resolvedArtistChannels.local.length > 0 || resolvedArtistChannels.youtube.length > 0;
+
   const resultsSongs = useMemo(() => {
     const localTracks = resolved?.local?.tracks || [];
     const ytVideos = resolved?.youtube?.videos || [];
@@ -202,14 +206,8 @@ export default function Search() {
   const resultsPlaylists = useMemo(() => {
     const localPlaylists = resolved?.local?.playlists || [];
     const ytPlaylists = resolved?.youtube?.playlists || [];
-
-    return {
-      local: localPlaylists,
-      youtube: ytPlaylists,
-    };
+    return { local: localPlaylists, youtube: ytPlaylists };
   }, [resolved]);
-
-  const resolvedArtistChannels = useMemo(() => normalizeResolvedArtistChannels(resolved), [resolved]);
 
   async function runResolve(nextQuery: string, mode: SearchResolveMode, spotify?: SearchResolveSpotifySelection) {
     const q = normalizeQuery(nextQuery);
@@ -231,9 +229,7 @@ export default function Search() {
       setResolved(null);
       setError(e?.message || "Search resolve failed");
     } finally {
-      if (!controller.signal.aborted) {
-        setResolveLoading(false);
-      }
+      if (!controller.signal.aborted) setResolveLoading(false);
     }
   }
 
@@ -252,7 +248,6 @@ export default function Search() {
 
   const showSuggestBox = suggestOpen && normalizeQuery(query).length >= 2;
   const showResults = Boolean(resolved) || resolveLoading;
-  const showArtistChannels = resolvedArtistChannels.local.length > 0 || resolvedArtistChannels.youtube.length > 0;
 
   const handleArtistChannelClick = (channelId: string) => {
     const id = channelId.trim();
@@ -265,6 +260,17 @@ export default function Search() {
     }
   };
 
+  const isEmptyResults =
+    !resolveLoading &&
+    Boolean(resolved) &&
+    normalizeQuery(query).length > 0 &&
+    resultsSongs.length === 0 &&
+    resultsPlaylists.local.length === 0 &&
+    resultsPlaylists.youtube.length === 0 &&
+    !showArtistChannels;
+
+  const showResolveError = Boolean(error) && showResults && !resolveLoading;
+
   return (
     <div className="p-4 max-w-4xl mx-auto pb-32">
       <form
@@ -272,11 +278,10 @@ export default function Search() {
           e.preventDefault();
           void handleSubmit();
         }}
-        className="mb-4"
+        className="mb-6"
       >
         <div className="relative">
           <SearchIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-
           <div className="flex gap-2">
             <Input
               value={query}
@@ -293,13 +298,17 @@ export default function Search() {
             </Button>
           </div>
 
-          {showSuggestBox && (
+          {showSuggestBox ? (
             <div className="absolute z-20 mt-2 w-full rounded-lg border border-border bg-card/95 backdrop-blur p-2">
-              {suggestLoading && <div className="px-2 py-2 text-sm text-muted-foreground">Searching…</div>}
+              {suggestLoading ? <div className="px-2 py-2 text-sm text-muted-foreground">Searching…</div> : null}
 
-              {!suggestLoading && flatSuggestions.length === 0 && (
+              {!suggestLoading && error && !showResults ? (
+                <div className="px-2 py-2 text-sm text-muted-foreground">{error}</div>
+              ) : null}
+
+              {!suggestLoading && !error && flatSuggestions.length === 0 ? (
                 <div className="px-2 py-2 text-sm text-muted-foreground">No suggestions.</div>
-              )}
+              ) : null}
 
               <div className="max-h-72 overflow-auto">
                 {flatSuggestions.map((s) => (
@@ -328,112 +337,107 @@ export default function Search() {
                 ))}
               </div>
             </div>
-          )}
+          ) : null}
         </div>
       </form>
 
-      {error && (
-        <div className="mb-4 rounded-lg border border-border bg-card/60 px-3 py-2 text-sm text-red-400">{error}</div>
-      )}
-
-      {showResults && (
+      {showResults ? (
         <div>
-          {resolveLoading && <p className="text-muted-foreground mb-2">Searching…</p>}
+          {resolveLoading ? (
+            <LoadingSkeleton type="search" />
+          ) : showResolveError ? (
+            <ErrorState title="Search failed" subtitle="Please try again" onRetry={() => void handleSubmit()} />
+          ) : isEmptyResults ? (
+            <EmptyState title="No results found" subtitle="Try a different artist, song, or playlist" />
+          ) : resolved ? (
+            <div>
+              <div className="mb-4 text-xs text-muted-foreground">
+                decision: <span className="font-medium">{resolved.decision}</span>
+              </div>
 
-          {!resolveLoading && resolved && (
-            <div className="mb-4 text-xs text-muted-foreground">
-              decision: <span className="font-medium">{resolved.decision}</span>
+              {/* Artist channels row (reserved space to avoid layout jump) */}
+              <section className="mb-8 min-h-[104px]">
+                {showArtistChannels ? (
+                  <div className="flex gap-4 overflow-x-auto pb-2">
+                    {[...resolvedArtistChannels.local, ...resolvedArtistChannels.youtube].map((c) => (
+                      <button
+                        key={c.channelId}
+                        type="button"
+                        onClick={() => handleArtistChannelClick(c.channelId)}
+                        className="shrink-0 w-20 text-center"
+                      >
+                        <div className="mx-auto w-14 h-14 rounded-full bg-muted overflow-hidden flex items-center justify-center">
+                          {c.thumbnailUrl ? (
+                            <img src={c.thumbnailUrl} alt={c.title} className="w-full h-full object-cover" />
+                          ) : (
+                            <span className="text-sm font-semibold text-muted-foreground">{firstLetter(c.title)}</span>
+                          )}
+                        </div>
+                        <div className="mt-2 text-xs font-medium truncate">{c.title}</div>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </section>
+
+              {resultsSongs.length > 0 ? (
+                <section className="mb-10">
+                  <h2 className="flex items-center gap-2 text-xl font-bold mb-4">
+                    <Music className="w-5 h-5" /> Songs
+                  </h2>
+
+                  <div className="space-y-2">
+                    {resultsSongs.map((s) => (
+                      <button
+                        key={s.key}
+                        type="button"
+                        onClick={() => playTrack(s.youtubeId, s.title, s.artist, s.trackId)}
+                        className="block w-full text-left rounded-lg border border-border bg-card/30 px-3 py-3 hover:bg-card/50 transition-colors"
+                      >
+                        <div className="font-medium truncate">{s.title}</div>
+                        <div className="text-sm text-muted-foreground truncate">{s.artist}</div>
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              ) : null}
+
+              {resultsPlaylists.local.length > 0 || resultsPlaylists.youtube.length > 0 ? (
+                <section>
+                  <h2 className="flex items-center gap-2 text-xl font-bold mb-4">
+                    <ListMusic className="w-5 h-5" /> Playlists
+                  </h2>
+
+                  <div className="space-y-2">
+                    {resultsPlaylists.local.map((p) => (
+                      <Link
+                        key={p.id}
+                        to={`/playlist/${p.id}`}
+                        className="block w-full rounded-lg border border-border bg-card/30 px-3 py-3 hover:bg-card/50 transition-colors"
+                      >
+                        <div className="font-medium truncate">{p.title}</div>
+                      </Link>
+                    ))}
+
+                    {resultsPlaylists.youtube.map((p) => (
+                      <a
+                        key={p.id}
+                        href={`https://www.youtube.com/playlist?list=${encodeURIComponent(p.id)}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="block w-full rounded-lg border border-border bg-card/30 px-3 py-3 hover:bg-card/50 transition-colors"
+                      >
+                        <div className="font-medium truncate">{p.title}</div>
+                        <div className="text-sm text-muted-foreground truncate">{p.channelTitle}</div>
+                      </a>
+                    ))}
+                  </div>
+                </section>
+              ) : null}
             </div>
-          )}
-
-          {showArtistChannels && (
-            <section className="mb-8">
-              <div className="flex gap-4 overflow-x-auto pb-2">
-                {[...resolvedArtistChannels.local, ...resolvedArtistChannels.youtube].map((c) => (
-                  <button
-                    key={c.channelId}
-                    type="button"
-                    onClick={() => handleArtistChannelClick(c.channelId)}
-                    className="shrink-0 w-20 text-center"
-                  >
-                    <div className="mx-auto w-14 h-14 rounded-full bg-muted overflow-hidden flex items-center justify-center">
-                      {c.thumbnailUrl ? (
-                        <img src={c.thumbnailUrl} alt={c.title} className="w-full h-full object-cover" />
-                      ) : (
-                        <span className="text-sm font-semibold text-muted-foreground">{firstLetter(c.title)}</span>
-                      )}
-                    </div>
-                    <div className="mt-2 text-xs font-medium truncate">{c.title}</div>
-                  </button>
-                ))}
-              </div>
-            </section>
-          )}
-
-          {/* SONGS (local tracks + youtube videos) */}
-          {resultsSongs.length > 0 && (
-            <section className="mb-10">
-              <h2 className="flex items-center gap-2 text-xl font-bold mb-4">
-                <Music className="w-5 h-5" /> Songs
-              </h2>
-
-              {resultsSongs.map((s) => (
-                <button
-                  key={s.key}
-                  type="button"
-                  onClick={() => playTrack(s.youtubeId, s.title, s.artist, s.trackId)}
-                  className="block w-full text-left py-2 border-b border-border hover:bg-white/5"
-                >
-                  <div className="font-medium truncate">{s.title}</div>
-                  <div className="text-sm text-muted-foreground truncate">{s.artist}</div>
-                </button>
-              ))}
-            </section>
-          )}
-
-          {/* PLAYLISTS */}
-          {(resultsPlaylists.local.length > 0 || resultsPlaylists.youtube.length > 0) && (
-            <section>
-              <h2 className="flex items-center gap-2 text-xl font-bold mb-4">
-                <ListMusic className="w-5 h-5" /> Playlists
-              </h2>
-
-              {resultsPlaylists.local.map((p) => (
-                <Link
-                  key={p.id}
-                  to={`/playlist/${p.id}`}
-                  className="block w-full text-left py-2 border-b border-border hover:bg-white/5"
-                >
-                  <div className="font-medium truncate">{p.title}</div>
-                </Link>
-              ))}
-
-              {resultsPlaylists.youtube.map((p) => (
-                <a
-                  key={p.id}
-                  href={`https://www.youtube.com/playlist?list=${encodeURIComponent(p.id)}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="block w-full text-left py-2 border-b border-border hover:bg-white/5"
-                >
-                  <div className="font-medium truncate">{p.title}</div>
-                  <div className="text-sm text-muted-foreground truncate">{p.channelTitle}</div>
-                </a>
-              ))}
-            </section>
-          )}
-
-          {!resolveLoading &&
-            resolved &&
-            resultsSongs.length === 0 &&
-            resultsPlaylists.local.length === 0 &&
-            resultsPlaylists.youtube.length === 0 && (
-              <div className="text-sm text-muted-foreground mt-6">
-                No results for <span className="font-semibold">{resolved.q}</span>.
-              </div>
-            )}
+          ) : null}
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
