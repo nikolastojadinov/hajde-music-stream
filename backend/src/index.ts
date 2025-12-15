@@ -27,6 +27,8 @@ import { getLikedPlaylists, likePlaylist, unlikePlaylist } from './handlers/like
 import { getUserLibrary } from './handlers/library/getLibrary';
 import { piAuth } from './middleware/piAuth';
 
+import searchRouter from './routes/search';
+
 declare global {
   namespace Express {
     interface Request {
@@ -171,6 +173,9 @@ app.use('/api/studio/playlists', studioPlaylistsRouter);
 
 // Authenticated user profile helpers
 app.use('/api/users', usersRouter);
+
+// Intent-based search endpoints
+app.use('/api/search', searchRouter);
 
 // Pi Network routes under /pi:
 app.use('/pi', piAuthRouter);
