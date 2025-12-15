@@ -1,12 +1,25 @@
 import { Router } from "express";
+
 import supabase from "../services/supabaseClient";
-import { ingestArtistFromYouTubeByChannelId } from "../services/ingestArtistFromYouTube";
+import { youtubeSearchArtistChannel } from "../services/youtubeClient";
 import { youtubeFetchPlaylistTracks } from "../services/youtubeFetchPlaylistTracks";
+import {
+  deleteYoutubeChannelMappingByChannelId,
+  findYoutubeChannelMappingByArtistName,
+  upsertYoutubeChannelMapping,
+  validateYouTubeChannelId,
+} from "../services/artistResolver";
+import { ingestArtistFromYouTubeByChannelId } from "../services/ingestArtistFromYouTube";
 
 const router = Router();
 
 function normalizeString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function isLikelyYouTubeChannelId(value: string): boolean {
+  // Most YouTube channel IDs are 24 chars and start with UC.
+  return /^UC[\w-]{22}$/.test(value);
 }
 
 type LocalBundle = { artist: any; playlists: any[]; tracks: any[] };
@@ -23,23 +36,18 @@ async function loadLocalArtistBundle(youtube_channel_id: string): Promise<LocalB
   if (artistError) return null;
   if (!artist) return null;
 
-  // Linkage pre-check must rely on fields we actually persist today.
-  // Primary link: playlists.channel_id == youtube_channel_id (written by youtubeFetchArtistPlaylists)
-  // Fallback link: playlists.channel_title == artist.artist (legacy/partial data)
   const artistName = normalizeString((artist as any)?.artist);
 
   const playlistsArr: any[] = [];
-  const [{ data: byChannelId, error: byChannelIdError }, { data: byChannelTitle, error: byChannelTitleError }] =
-    await Promise.all([
-      supabase.from("playlists").select("*").eq("channel_id", youtube_channel_id),
-      artistName ? supabase.from("playlists").select("*").eq("channel_title", artistName) : Promise.resolve({ data: [], error: null }),
-    ]);
+  const [{ data: byChannelId, error: byChannelIdError }, { data: byChannelTitle, error: byChannelTitleError }] = await Promise.all([
+    supabase.from("playlists").select("*").eq("channel_id", youtube_channel_id),
+    artistName ? supabase.from("playlists").select("*").eq("channel_title", artistName) : Promise.resolve({ data: [], error: null }),
+  ]);
 
   if (byChannelIdError || byChannelTitleError) return null;
   for (const row of Array.isArray(byChannelId) ? byChannelId : []) playlistsArr.push(row);
   for (const row of Array.isArray(byChannelTitle) ? byChannelTitle : []) playlistsArr.push(row);
 
-  // De-dupe playlists by internal id
   const playlistById = new Map<string, any>();
   for (const p of playlistsArr) {
     const id = normalizeString((p as any)?.id);
@@ -48,15 +56,10 @@ async function loadLocalArtistBundle(youtube_channel_id: string): Promise<LocalB
   }
   const playlistsDeduped = Array.from(playlistById.values());
 
-  // Minimum hydration requirement: we need at least one artist-owned playlist.
-  if (playlistsDeduped.length === 0) {
-    return null;
-  }
+  if (playlistsDeduped.length === 0) return null;
 
   const playlistIds = playlistsDeduped.map((p: any) => normalizeString(p?.id)).filter(Boolean);
-  if (playlistIds.length === 0) {
-    return null;
-  }
+  if (playlistIds.length === 0) return null;
 
   const { data: playlistTracks, error: playlistTracksError } = await supabase
     .from("playlist_tracks")
@@ -65,14 +68,13 @@ async function loadLocalArtistBundle(youtube_channel_id: string): Promise<LocalB
 
   if (playlistTracksError) return null;
 
-  // Preserve a stable ordering: (playlist_id asc, position asc) then first-seen track_id.
   const pts = (Array.isArray(playlistTracks) ? playlistTracks : []).slice();
   pts.sort((a: any, b: any) => {
     const pa = normalizeString(a?.playlist_id);
     const pb = normalizeString(b?.playlist_id);
     if (pa !== pb) return pa.localeCompare(pb);
-    const posa = typeof a?.position === 'number' ? a.position : 0;
-    const posb = typeof b?.position === 'number' ? b.position : 0;
+    const posa = typeof a?.position === "number" ? a.position : 0;
+    const posb = typeof b?.position === "number" ? b.position : 0;
     return posa - posb;
   });
 
@@ -85,9 +87,7 @@ async function loadLocalArtistBundle(youtube_channel_id: string): Promise<LocalB
     trackIdsOrdered.push(tid);
   }
 
-  if (trackIdsOrdered.length === 0) {
-    return null;
-  }
+  if (trackIdsOrdered.length === 0) return null;
 
   const { data: tracks, error: tracksError } = await supabase.from("tracks").select("*").in("id", trackIdsOrdered);
   if (tracksError) return null;
@@ -104,11 +104,7 @@ async function loadLocalArtistBundle(youtube_channel_id: string): Promise<LocalB
     if (row) orderedTracks.push(row);
   }
 
-  return {
-    artist,
-    playlists: playlistsDeduped,
-    tracks: orderedTracks,
-  };
+  return { artist, playlists: playlistsDeduped, tracks: orderedTracks };
 }
 
 function mapBundleForFrontend(youtube_channel_id: string, bundle: LocalBundle): any {
@@ -118,7 +114,7 @@ function mapBundleForFrontend(youtube_channel_id: string, bundle: LocalBundle): 
 
   const artist = a
     ? {
-        id: String((a as any)?.id ?? ''),
+        id: String((a as any)?.id ?? ""),
         name: normalizeString((a as any)?.artist) || normalizeString((a as any)?.name) || youtube_channel_id,
         youtube_channel_id: normalizeString((a as any)?.youtube_channel_id) || youtube_channel_id,
         spotify_artist_id: (a as any)?.spotify_artist_id ?? null,
@@ -127,17 +123,17 @@ function mapBundleForFrontend(youtube_channel_id: string, bundle: LocalBundle): 
     : null;
 
   const mappedPlaylists = playlists.map((p: any) => ({
-    id: String(p?.id ?? ''),
-    title: normalizeString(p?.title) || 'Untitled',
+    id: String(p?.id ?? ""),
+    title: normalizeString(p?.title) || "Untitled",
     youtube_playlist_id: normalizeString(p?.external_id),
     youtube_channel_id: normalizeString(p?.channel_id) || youtube_channel_id,
-    source: normalizeString(p?.source) || 'youtube',
+    source: normalizeString(p?.source) || "youtube",
     created_at: (p as any)?.created_at ?? (p as any)?.fetched_on ?? null,
   }));
 
   const mappedTracks = tracks.map((t: any) => ({
-    id: String(t?.id ?? ''),
-    title: normalizeString(t?.title) || 'Untitled',
+    id: String(t?.id ?? ""),
+    title: normalizeString(t?.title) || "Untitled",
     youtube_video_id: normalizeString(t?.external_id) || normalizeString(t?.youtube_id),
     youtube_channel_id: normalizeString(t?.artist_channel_id) || youtube_channel_id,
     artist_name: normalizeString(t?.artist) || artist?.name || null,
@@ -147,62 +143,170 @@ function mapBundleForFrontend(youtube_channel_id: string, bundle: LocalBundle): 
   return { artist, playlists: mappedPlaylists, tracks: mappedTracks };
 }
 
+async function loadAndMaybeRevalidateLocalBundle(youtube_channel_id: string, revalidate: boolean): Promise<LocalBundle | null> {
+  let local = await loadLocalArtistBundle(youtube_channel_id);
+  if (!local) return null;
+
+  if (!revalidate) return local;
+
+  const playlists = Array.isArray(local.playlists) ? local.playlists : [];
+  for (const p of playlists) {
+    const playlist_id = normalizeString((p as any)?.id);
+    const external_playlist_id = normalizeString((p as any)?.external_id);
+    const last_etag = normalizeString((p as any)?.last_etag) || null;
+    if (!playlist_id || !external_playlist_id) continue;
+    await youtubeFetchPlaylistTracks({ playlist_id, external_playlist_id, if_none_match: last_etag });
+  }
+
+  return await loadLocalArtistBundle(youtube_channel_id);
+}
+
 /**
- * GET /api/artist/:channelId
+ * GET /api/artist/:id
  *
- * Local-first:
- * - If artist exists in `artists` by youtube_channel_id, returns local data only.
- * - If not, triggers a single ingest via ingestArtistFromYouTube (no YouTube calls directly here).
+ * Deterministic flow (strict order):
+ * 1) Always validate the channelId before use.
+ * 2) If invalid: delete stored mapping and return { status: "invalid_channel", requiresChannelSelection: true }.
+ * 3) If no valid channelId exists (id is an artist name/slug): do YouTube search.list (quota=100) and return candidates.
+ * 4) If valid: return local data immediately; otherwise ingest then return local bundle.
  */
-router.get("/:channelId", async (req, res) => {
+router.get("/:id", async (req, res) => {
   try {
     if (!supabase) return res.status(500).json({ error: "Supabase not configured" });
 
-    const youtube_channel_id = normalizeString(req.params.channelId);
-    if (!youtube_channel_id) return res.status(400).json({ error: "Missing channelId" });
+    const raw = normalizeString(req.params.id);
+    if (!raw) return res.status(400).json({ error: "Missing id" });
 
-    const revalidate = String((req.query as any)?.revalidate ?? '0') === '1';
+    const revalidate = String((req.query as any)?.revalidate ?? "0") === "1";
 
-    let localBefore = await loadLocalArtistBundle(youtube_channel_id);
+    // Path A: caller provided a concrete channelId.
+    if (isLikelyYouTubeChannelId(raw)) {
+      const youtube_channel_id = raw;
 
-    // Optional revalidation on repeat clicks: for each known playlist, try a conditional refresh using last_etag.
-    if (localBefore && revalidate) {
-      const playlists = Array.isArray(localBefore.playlists) ? localBefore.playlists : [];
-      for (const p of playlists) {
-        const playlist_id = normalizeString((p as any)?.id);
-        const external_playlist_id = normalizeString((p as any)?.external_id);
-        const last_etag = normalizeString((p as any)?.last_etag) || null;
-        if (!playlist_id || !external_playlist_id) continue;
-        await youtubeFetchPlaylistTracks({
-          playlist_id,
-          external_playlist_id,
-          if_none_match: last_etag,
-        });
+      const validation = await validateYouTubeChannelId(youtube_channel_id);
+      if (validation.status === "invalid") {
+        await deleteYoutubeChannelMappingByChannelId(youtube_channel_id);
+        return res.status(200).json({ status: "invalid_channel", requiresChannelSelection: true });
+      }
+      if (validation.status === "error") {
+        return res.status(502).json({ error: "YouTube validation failed" });
       }
 
-      // Reload after potential refresh.
-      localBefore = await loadLocalArtistBundle(youtube_channel_id);
+      const localBefore = await loadAndMaybeRevalidateLocalBundle(youtube_channel_id, revalidate);
+      if (localBefore) {
+        return res.json(mapBundleForFrontend(youtube_channel_id, localBefore));
+      }
+
+      const ingest = await ingestArtistFromYouTubeByChannelId({
+        youtube_channel_id,
+        artistName: validation.channelTitle ?? youtube_channel_id,
+      });
+
+      if (!ingest) {
+        return res.status(404).json({ error: "Artist not found" });
+      }
+
+      const localAfter = await loadLocalArtistBundle(youtube_channel_id);
+      if (!localAfter) {
+        return res.status(404).json({ error: "Artist not found" });
+      }
+
+      return res.json(mapBundleForFrontend(youtube_channel_id, localAfter));
     }
 
-    if (localBefore) {
-      console.info("[artistRoute] local bundle returned", { youtube_channel_id, revalidate });
-      return res.json(mapBundleForFrontend(youtube_channel_id, localBefore));
+    // Path B: caller provided an artist name/slug (no channelId).
+    const artistName = raw;
+
+    // First: attempt stored mapping by name, but still validate before use.
+    const stored = await findYoutubeChannelMappingByArtistName(artistName);
+    if (stored?.youtube_channel_id) {
+      const mappedId = normalizeString(stored.youtube_channel_id);
+      const validation = await validateYouTubeChannelId(mappedId);
+
+      if (validation.status === "invalid") {
+        await deleteYoutubeChannelMappingByChannelId(mappedId);
+        return res.status(200).json({ status: "invalid_channel", requiresChannelSelection: true });
+      }
+
+      if (validation.status === "valid") {
+        // Best-effort: keep mapping fresh.
+        await upsertYoutubeChannelMapping({
+          name: validation.channelTitle ?? stored.name ?? artistName,
+          youtube_channel_id: mappedId,
+          thumbnail_url: validation.thumbnailUrl ?? stored.thumbnail_url ?? null,
+        });
+
+        const localBefore = await loadAndMaybeRevalidateLocalBundle(mappedId, revalidate);
+        if (localBefore) {
+          return res.json(mapBundleForFrontend(mappedId, localBefore));
+        }
+
+        const ingest = await ingestArtistFromYouTubeByChannelId({ youtube_channel_id: mappedId, artistName: artistName });
+        if (!ingest) return res.status(404).json({ error: "Artist not found" });
+
+        const localAfter = await loadLocalArtistBundle(mappedId);
+        if (!localAfter) return res.status(404).json({ error: "Artist not found" });
+        return res.json(mapBundleForFrontend(mappedId, localAfter));
+      }
+
+      return res.status(502).json({ error: "YouTube validation failed" });
     }
 
-    console.info("[artistRoute] ingest triggered", { youtube_channel_id });
+    // Only here (no valid channelId exists): YouTube search.list (quota=100).
+    const candidates = await youtubeSearchArtistChannel(artistName);
+    return res.status(200).json({
+      status: "requires_channel_selection",
+      requiresChannelSelection: true,
+      candidates,
+    });
+  } catch (err) {
+    console.error("[artistRoute] unexpected error", err);
+    return res.status(500).json({ error: "Internal error" });
+  }
+});
 
-    const ingest = await ingestArtistFromYouTubeByChannelId({ youtube_channel_id });
+/**
+ * POST /api/artist/selected
+ *
+ * Frontend sends a selected channelId for an artist name.
+ * Strict order:
+ * 1) Validate via channels.list
+ * 2) Persist youtube_channel_id mapping
+ * 3) Hydrate playlists/tracks (valid channel only)
+ */
+router.post("/selected", async (req, res) => {
+  try {
+    if (!supabase) return res.status(500).json({ error: "Supabase not configured" });
+
+    const artistName = normalizeString((req.body as any)?.artistName);
+    const youtube_channel_id = normalizeString((req.body as any)?.youtube_channel_id);
+
+    if (!artistName) return res.status(400).json({ error: "Missing artistName" });
+    if (!youtube_channel_id) return res.status(400).json({ error: "Missing youtube_channel_id" });
+
+    const validation = await validateYouTubeChannelId(youtube_channel_id);
+    if (validation.status === "invalid") {
+      await deleteYoutubeChannelMappingByChannelId(youtube_channel_id);
+      return res.status(200).json({ status: "invalid_channel", requiresChannelSelection: true });
+    }
+    if (validation.status === "error") {
+      return res.status(502).json({ error: "YouTube validation failed" });
+    }
+
+    await upsertYoutubeChannelMapping({
+      name: validation.channelTitle ?? artistName,
+      youtube_channel_id,
+      thumbnail_url: validation.thumbnailUrl ?? null,
+    });
+
+    const ingest = await ingestArtistFromYouTubeByChannelId({ youtube_channel_id, artistName });
     if (!ingest) {
-      console.info("[artistRoute] ingest failed", { youtube_channel_id });
       return res.status(404).json({ error: "Artist not found" });
     }
 
-    const localAfter = await loadLocalArtistBundle(youtube_channel_id);
-    if (!localAfter) {
-      return res.status(404).json({ error: "Artist not found" });
-    }
-
-    return res.json(mapBundleForFrontend(youtube_channel_id, localAfter));
+    const local = await loadLocalArtistBundle(youtube_channel_id);
+    if (!local) return res.status(404).json({ error: "Artist not found" });
+    return res.json(mapBundleForFrontend(youtube_channel_id, local));
   } catch (err) {
     console.error("[artistRoute] unexpected error", err);
     return res.status(500).json({ error: "Internal error" });

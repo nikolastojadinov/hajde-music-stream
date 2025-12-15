@@ -1,5 +1,10 @@
-import { resolveArtistSeed, resolveArtistSeedByChannelId } from "./artistResolver";
-import { youtubeHydrateArtist } from "./youtubeHydrateArtist";
+import supabase from "./supabaseClient";
+import {
+  deleteYoutubeChannelMappingByChannelId,
+  deriveArtistKey,
+  findYoutubeChannelMappingByArtistName,
+  validateYouTubeChannelId,
+} from "./artistResolver";
 import { youtubeFetchArtistPlaylists } from "./youtubeFetchArtistPlaylists";
 import { youtubeFetchPlaylistTracks } from "./youtubeFetchPlaylistTracks";
 
@@ -9,6 +14,7 @@ export type IngestArtistFromYouTubeInput = {
 
 export type IngestArtistFromYouTubeByChannelIdInput = {
   youtube_channel_id: string;
+  artistName?: string;
 };
 
 export type IngestArtistFromYouTubeResult = {
@@ -19,6 +25,78 @@ export type IngestArtistFromYouTubeResult = {
 
 function normalizeString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function normalizeNullableString(value: unknown): string | null {
+  const s = normalizeString(value);
+  return s ? s : null;
+}
+
+function parseNullableInt(value: unknown): number | null {
+  const raw = typeof value === "string" ? value.trim() : value;
+
+  if (typeof raw === "number" && Number.isFinite(raw)) return Math.trunc(raw);
+  if (typeof raw === "string" && raw) {
+    const n = Number.parseInt(raw, 10);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  return null;
+}
+
+function pickBestThumbnailUrl(thumbnails: any): string | null {
+  return (
+    normalizeNullableString(thumbnails?.high?.url) ||
+    normalizeNullableString(thumbnails?.medium?.url) ||
+    normalizeNullableString(thumbnails?.default?.url)
+  );
+}
+
+type ArtistsUpsertRow = {
+  artist: string;
+  artist_key: string;
+  youtube_channel_id: string;
+  thumbnail_url: string | null;
+  banner_url: string | null;
+  subscribers: number | null;
+  views: number | null;
+  country: string | null;
+  source: "youtube";
+};
+
+function normalizeToArtistsUpsertRow(opts: {
+  artistName: string;
+  youtube_channel_id: string;
+  channel: any;
+}): ArtistsUpsertRow | null {
+  const youtube_channel_id = normalizeString(opts.youtube_channel_id);
+  const artist = normalizeString(opts.artistName);
+  const artist_key = deriveArtistKey(artist);
+  if (!youtube_channel_id || !artist || !artist_key) return null;
+
+  const snippet = opts.channel?.snippet;
+  const brandingSettings = opts.channel?.brandingSettings;
+  const statistics = opts.channel?.statistics;
+
+  const thumbnail_url = pickBestThumbnailUrl(snippet?.thumbnails);
+  const banner_url =
+    normalizeNullableString(brandingSettings?.channel?.unsubscribedTrailer) ||
+    normalizeNullableString(brandingSettings?.image?.bannerExternalUrl);
+  const subscribers = parseNullableInt(statistics?.subscriberCount);
+  const views = parseNullableInt(statistics?.viewCount);
+  const country = normalizeNullableString(snippet?.country);
+
+  return {
+    artist,
+    artist_key,
+    youtube_channel_id,
+    thumbnail_url,
+    banner_url,
+    subscribers,
+    views,
+    country,
+    source: "youtube",
+  };
 }
 
 /**
@@ -38,82 +116,20 @@ function normalizeString(value: unknown): string {
  */
 export async function ingestArtistFromYouTube(input: IngestArtistFromYouTubeInput): Promise<IngestArtistFromYouTubeResult | null> {
   try {
+    if (!supabase) return null;
+
     const artistName = normalizeString(input.artistName);
     if (!artistName) return null;
 
-    console.info("[ingestArtistFromYouTube] resolveArtistSeed:start", { artistName });
-    const seedOrArtist = await resolveArtistSeed(artistName);
-    if (!seedOrArtist) {
-      console.info("[ingestArtistFromYouTube] resolveArtistSeed:missing", { artistName });
-      return null;
-    }
+    // No YouTube search fallback here (quota=100 is only allowed in the route).
+    // We may only use existing Supabase mapping, but must validate before use.
+    const mapping = await findYoutubeChannelMappingByArtistName(artistName);
+    if (!mapping?.youtube_channel_id) return null;
 
-    const youtube_channel_id = normalizeString((seedOrArtist as any)?.youtube_channel_id);
-    const artist_key = normalizeString((seedOrArtist as any)?.artist_key);
-
-    if (!youtube_channel_id) {
-      console.info("[ingestArtistFromYouTube] resolveArtistSeed:no_youtube_channel_id", { artistName });
-      return null;
-    }
-
-    console.info("[ingestArtistFromYouTube] youtubeHydrateArtist:start", { youtube_channel_id });
-    const hydratedArtist = await youtubeHydrateArtist({
-      youtube_channel_id,
+    return await ingestArtistFromYouTubeByChannelId({
+      youtube_channel_id: mapping.youtube_channel_id,
       artistName,
-      artist_key,
     });
-
-    if (!hydratedArtist) {
-      console.error("[ingestArtistFromYouTube] youtubeHydrateArtist:failed", { youtube_channel_id });
-      return null;
-    }
-
-    const artist_id = normalizeString((hydratedArtist as any)?.id) || normalizeString((hydratedArtist as any)?.artist_id);
-    if (!artist_id) {
-      console.error("[ingestArtistFromYouTube] hydrate:missing_artist_id", { youtube_channel_id });
-      return null;
-    }
-
-    console.info("[ingestArtistFromYouTube] youtubeFetchArtistPlaylists:start", { youtube_channel_id, artist_id });
-    const playlists = await youtubeFetchArtistPlaylists({ youtube_channel_id, artist_id });
-    if (playlists === null) {
-      console.error("[ingestArtistFromYouTube] youtubeFetchArtistPlaylists:failed", { youtube_channel_id });
-      return null;
-    }
-
-    const playlists_ingested = Array.isArray(playlists) ? playlists.length : 0;
-    let tracks_ingested = 0;
-
-    for (const p of Array.isArray(playlists) ? playlists : []) {
-      const playlist_id = normalizeString((p as any)?.id) || normalizeString((p as any)?.playlist_id);
-      const external_playlist_id = normalizeString((p as any)?.external_id);
-
-      if (!playlist_id || !external_playlist_id) {
-        console.error("[ingestArtistFromYouTube] playlist:missing_ids", {
-          playlist_id,
-          external_playlist_id,
-          youtube_channel_id,
-        });
-        return null;
-      }
-
-      console.info("[ingestArtistFromYouTube] youtubeFetchPlaylistTracks:start", { playlist_id, external_playlist_id });
-      const inserted = await youtubeFetchPlaylistTracks({ playlist_id, external_playlist_id });
-      if (inserted === null) {
-        console.error("[ingestArtistFromYouTube] youtubeFetchPlaylistTracks:failed", { playlist_id, external_playlist_id });
-        return null;
-      }
-
-      tracks_ingested += inserted;
-      console.info("[ingestArtistFromYouTube] youtubeFetchPlaylistTracks:done", {
-        playlist_id,
-        external_playlist_id,
-        inserted_tracks: inserted,
-      });
-    }
-
-    console.info("[ingestArtistFromYouTube] done", { artist_id, playlists_ingested, tracks_ingested });
-    return { artist_id, playlists_ingested, tracks_ingested };
   } catch (err) {
     console.error("[ingestArtistFromYouTube] unexpected error:", err);
     return null;
@@ -131,48 +147,47 @@ export async function ingestArtistFromYouTubeByChannelId(
   input: IngestArtistFromYouTubeByChannelIdInput
 ): Promise<IngestArtistFromYouTubeResult | null> {
   try {
+    if (!supabase) return null;
+
     const youtube_channel_id = normalizeString(input.youtube_channel_id);
     if (!youtube_channel_id) return null;
 
-    console.info("[ingestArtistFromYouTubeByChannelId] resolveArtistSeedByChannelId:start", { youtube_channel_id });
-    const seedOrArtist = await resolveArtistSeedByChannelId(youtube_channel_id);
-    if (!seedOrArtist) {
-      console.info("[ingestArtistFromYouTubeByChannelId] resolveArtistSeedByChannelId:missing", { youtube_channel_id });
+    // STEP 1: Always validate BEFORE any playlist fetch.
+    const validation = await validateYouTubeChannelId(youtube_channel_id);
+    if (validation.status === "invalid") {
+      await deleteYoutubeChannelMappingByChannelId(youtube_channel_id);
+      return null;
+    }
+    if (validation.status === "error") {
       return null;
     }
 
-    const artistName = normalizeString((seedOrArtist as any)?.artist) || youtube_channel_id;
-    const artist_key = normalizeString((seedOrArtist as any)?.artist_key);
+    const artistName = normalizeString(input.artistName) || normalizeString(validation.channelTitle) || youtube_channel_id;
 
-    if (!artist_key) {
-      console.info("[ingestArtistFromYouTubeByChannelId] missing artist_key", { youtube_channel_id });
-      return null;
-    }
-
-    console.info("[ingestArtistFromYouTubeByChannelId] youtubeHydrateArtist:start", { youtube_channel_id });
-    const hydratedArtist = await youtubeHydrateArtist({
-      youtube_channel_id,
+    const artistRow = normalizeToArtistsUpsertRow({
       artistName,
-      artist_key,
+      youtube_channel_id,
+      channel: validation.channel,
     });
+    if (!artistRow) return null;
 
-    if (!hydratedArtist) {
-      console.error("[ingestArtistFromYouTubeByChannelId] youtubeHydrateArtist:failed", { youtube_channel_id });
+    const { data: hydratedArtist, error: artistUpsertError } = await supabase
+      .from("artists")
+      .upsert(artistRow, { onConflict: "youtube_channel_id" })
+      .select("*")
+      .maybeSingle();
+
+    if (artistUpsertError) {
+      console.error("[ingestArtistFromYouTubeByChannelId] artists upsert failed:", artistUpsertError);
       return null;
     }
 
     const artist_id = normalizeString((hydratedArtist as any)?.id) || normalizeString((hydratedArtist as any)?.artist_id);
-    if (!artist_id) {
-      console.error("[ingestArtistFromYouTubeByChannelId] hydrate:missing_artist_id", { youtube_channel_id });
-      return null;
-    }
+    if (!artist_id) return null;
 
-    console.info("[ingestArtistFromYouTubeByChannelId] youtubeFetchArtistPlaylists:start", { youtube_channel_id, artist_id });
+    // STEP 5: Hydration (valid channel only)
     const playlists = await youtubeFetchArtistPlaylists({ youtube_channel_id, artist_id });
-    if (playlists === null) {
-      console.error("[ingestArtistFromYouTubeByChannelId] youtubeFetchArtistPlaylists:failed", { youtube_channel_id });
-      return null;
-    }
+    if (playlists === null) return null;
 
     const playlists_ingested = Array.isArray(playlists) ? playlists.length : 0;
     let tracks_ingested = 0;
@@ -180,27 +195,13 @@ export async function ingestArtistFromYouTubeByChannelId(
     for (const p of Array.isArray(playlists) ? playlists : []) {
       const playlist_id = normalizeString((p as any)?.id) || normalizeString((p as any)?.playlist_id);
       const external_playlist_id = normalizeString((p as any)?.external_id);
+      if (!playlist_id || !external_playlist_id) return null;
 
-      if (!playlist_id || !external_playlist_id) {
-        console.error("[ingestArtistFromYouTubeByChannelId] playlist:missing_ids", {
-          playlist_id,
-          external_playlist_id,
-          youtube_channel_id,
-        });
-        return null;
-      }
-
-      console.info("[ingestArtistFromYouTubeByChannelId] youtubeFetchPlaylistTracks:start", { playlist_id, external_playlist_id });
       const inserted = await youtubeFetchPlaylistTracks({ playlist_id, external_playlist_id });
-      if (inserted === null) {
-        console.error("[ingestArtistFromYouTubeByChannelId] youtubeFetchPlaylistTracks:failed", { playlist_id, external_playlist_id });
-        return null;
-      }
-
+      if (inserted === null) return null;
       tracks_ingested += inserted;
     }
 
-    console.info("[ingestArtistFromYouTubeByChannelId] done", { artist_id, playlists_ingested, tracks_ingested });
     return { artist_id, playlists_ingested, tracks_ingested };
   } catch (err) {
     console.error("[ingestArtistFromYouTubeByChannelId] unexpected error:", err);
