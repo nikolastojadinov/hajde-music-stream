@@ -34,6 +34,11 @@ type ResolvedArtistChannel = {
   thumbnailUrl: string | null;
 };
 
+type ArtistNavItem = {
+  key: string;
+  name: string;
+};
+
 type ResolvedArtistChannelsEnvelope = {
   local: ResolvedArtistChannel[];
   youtube: ResolvedArtistChannel[];
@@ -249,16 +254,48 @@ export default function Search() {
   const showSuggestBox = suggestOpen && normalizeQuery(query).length >= 2;
   const showResults = Boolean(resolved) || resolveLoading;
 
-  const handleArtistChannelClick = (channelId: string) => {
-    const id = channelId.trim();
+  const handleArtistClick = (artistIdentifier: string) => {
+    const id = artistIdentifier.trim();
     if (!id) return;
     const internal = `/artist/${encodeURIComponent(id)}`;
     try {
       navigate(internal);
     } catch {
-      window.open(`https://www.youtube.com/channel/${encodeURIComponent(id)}`, "_blank", "noopener,noreferrer");
+      window.open(internal, "_blank", "noopener,noreferrer");
     }
   };
+
+  const artistNavItems: ArtistNavItem[] = useMemo(() => {
+    const seen = new Set<string>();
+    const out: ArtistNavItem[] = [];
+
+    // 1) Prefer artists that appear in the current song results.
+    for (const s of resultsSongs) {
+      const name = (s.artist || "").trim();
+      if (!name) continue;
+      const k = name.toLowerCase();
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push({ key: `song:${k}`, name });
+      if (out.length >= 6) break;
+    }
+
+    // 2) Also include resolved channel titles (mapping + youtube fallback) if not already present.
+    if (out.length < 6) {
+      const channels = [...resolvedArtistChannels.local, ...resolvedArtistChannels.youtube];
+      for (const c of channels) {
+        const name = (c.title || "").trim();
+        if (!name) continue;
+        const k = name.toLowerCase();
+        if (seen.has(k)) continue;
+        seen.add(k);
+        out.push({ key: `ch:${k}`, name });
+        if (out.length >= 6) break;
+      }
+    }
+
+    return out;
+  }, [resultsSongs, resolvedArtistChannels.local, resolvedArtistChannels.youtube]);
 
   const isEmptyResults =
     !resolveLoading &&
@@ -357,13 +394,29 @@ export default function Search() {
 
               {/* Artist channels row (reserved space to avoid layout jump) */}
               <section className="mb-8 min-h-[104px]">
-                {showArtistChannels ? (
+                {artistNavItems.length > 0 ? (
+                  <div className="flex gap-4 overflow-x-auto pb-2">
+                    {artistNavItems.map((a) => (
+                      <button
+                        key={a.key}
+                        type="button"
+                        onClick={() => handleArtistClick(a.name)}
+                        className="shrink-0 w-20 text-center"
+                      >
+                        <div className="mx-auto w-14 h-14 rounded-full bg-muted overflow-hidden flex items-center justify-center">
+                          <span className="text-sm font-semibold text-muted-foreground">{firstLetter(a.name)}</span>
+                        </div>
+                        <div className="mt-2 text-xs font-medium truncate">{a.name}</div>
+                      </button>
+                    ))}
+                  </div>
+                ) : showArtistChannels ? (
                   <div className="flex gap-4 overflow-x-auto pb-2">
                     {[...resolvedArtistChannels.local, ...resolvedArtistChannels.youtube].map((c) => (
                       <button
                         key={c.channelId}
                         type="button"
-                        onClick={() => handleArtistChannelClick(c.channelId)}
+                        onClick={() => handleArtistClick(c.title)}
                         className="shrink-0 w-20 text-center"
                       >
                         <div className="mx-auto w-14 h-14 rounded-full bg-muted overflow-hidden flex items-center justify-center">
