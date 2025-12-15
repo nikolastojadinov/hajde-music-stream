@@ -2,7 +2,9 @@ import { Router } from 'express';
 
 import supabase, {
   searchPlaylistsDualForQuery,
+  searchArtistChannelsForQuery,
   searchTracksForQuery,
+  type SearchArtistChannelRow,
   type SearchPlaylistRow,
   type SearchTrackRow,
 } from '../services/supabaseClient';
@@ -25,6 +27,19 @@ type LocalPlaylist = {
   title: string;
   externalId: string | null;
   coverUrl: string | null;
+};
+
+type LocalArtistChannel = {
+  artist_name: string;
+  youtube_channel_id: string;
+  is_verified: boolean;
+};
+
+type YouTubeArtistChannel = {
+  artist_name: string;
+  youtube_channel_id: string;
+  is_verified: boolean;
+  thumbnailUrl: string | null;
 };
 
 type ResolveMode = 'track' | 'artist' | 'album' | 'generic';
@@ -63,6 +78,16 @@ function mapPlaylistRow(row: SearchPlaylistRow): LocalPlaylist {
     externalId: typeof row.external_id === 'string' ? row.external_id : null,
     coverUrl: typeof row.cover_url === 'string' ? row.cover_url : null,
   };
+}
+
+function mapArtistChannelRow(row: SearchArtistChannelRow): LocalArtistChannel | null {
+  const artist_name = typeof row.artist_name === 'string' ? row.artist_name : '';
+  const youtube_channel_id = typeof row.youtube_channel_id === 'string' ? row.youtube_channel_id : '';
+  const is_verified = typeof row.is_verified === 'boolean' ? row.is_verified : false;
+
+  if (!artist_name || !youtube_channel_id) return null;
+
+  return { artist_name, youtube_channel_id, is_verified };
 }
 
 function mergeLegacyPlaylists(byTitle: LocalPlaylist[], byArtist: LocalPlaylist[]): LocalPlaylist[] {
@@ -112,21 +137,37 @@ router.post('/resolve', async (req, res) => {
       tracks: [],
       playlists_by_title: [],
       playlists_by_artist: [],
+      artist_channels: {
+        local: [],
+        youtube: [],
+        decision: 'local_only',
+      },
       local: { tracks: [], playlists: [] },
       decision: 'local_only',
     });
   }
 
   try {
-    const [trackRows, playlistsDual] = await Promise.all([searchTracksForQuery(q), searchPlaylistsDualForQuery(q)]);
+    const [trackRows, playlistsDual, artistChannelRows] = await Promise.all([
+      searchTracksForQuery(q),
+      searchPlaylistsDualForQuery(q),
+      searchArtistChannelsForQuery(q),
+    ]);
 
     const tracks = trackRows.map(mapTrackRow);
     const playlists_by_title = playlistsDual.playlists_by_title.map(mapPlaylistRow);
     const playlists_by_artist = playlistsDual.playlists_by_artist.map(mapPlaylistRow);
+    const artist_channels_local = artistChannelRows.map(mapArtistChannelRow).filter((x): x is LocalArtistChannel => Boolean(x));
 
     const local = {
       tracks,
       playlists: mergeLegacyPlaylists(playlists_by_title, playlists_by_artist),
+    };
+
+    const artist_channels = {
+      local: artist_channels_local,
+      youtube: [] as YouTubeArtistChannel[],
+      decision: 'local_only' as 'local_only' | 'youtube_fallback',
     };
 
     const hasLocal = tracks.length > 0 || playlists_by_title.length > 0 || playlists_by_artist.length > 0;
@@ -136,6 +177,7 @@ router.post('/resolve', async (req, res) => {
         tracks,
         playlists_by_title,
         playlists_by_artist,
+        artist_channels,
         local,
         decision: 'local_only',
       });
@@ -147,11 +189,32 @@ router.post('/resolve', async (req, res) => {
 
     const videos = await youtubeSearchVideos(q);
 
+    if (artist_channels_local.length === 0) {
+      const seen = new Set<string>();
+      const youtubeChannels: YouTubeArtistChannel[] = [];
+
+      for (const v of videos) {
+        if (!v.channelId || seen.has(v.channelId)) continue;
+        seen.add(v.channelId);
+        youtubeChannels.push({
+          artist_name: v.channelTitle,
+          youtube_channel_id: v.channelId,
+          is_verified: false,
+          thumbnailUrl: v.thumbUrl ?? null,
+        });
+        if (youtubeChannels.length >= 2) break;
+      }
+
+      artist_channels.youtube = youtubeChannels;
+      artist_channels.decision = 'youtube_fallback';
+    }
+
     return res.json({
       q,
       tracks,
       playlists_by_title,
       playlists_by_artist,
+      artist_channels,
       local,
       youtube: {
         videos: videos.map((v) => ({

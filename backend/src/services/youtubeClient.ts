@@ -3,14 +3,14 @@ import { logApiUsage } from './apiUsageLogger';
 export type YouTubeVideoSearchResult = {
   videoId: string;
   title: string;
+  channelId: string;
   channelTitle: string;
   thumbUrl?: string;
 };
 
-export type YouTubePlaylistSearchResult = {
-  playlistId: string;
+export type YouTubeChannelSearchResult = {
+  channelId: string;
   title: string;
-  channelTitle: string;
   thumbUrl?: string;
 };
 
@@ -98,7 +98,7 @@ export async function youtubeSearchVideos(q: string): Promise<YouTubeVideoSearch
       type: 'video',
       videoCategoryId: '10',
       maxResults: String(MAX_RESULTS),
-      fields: 'items(id/videoId,snippet/title,snippet/channelTitle,snippet/thumbnails/default/url)',
+      fields: 'items(id/videoId,snippet/title,snippet/channelId,snippet/channelTitle,snippet/thumbnails/default/url)',
       q: query,
     },
     apiKey
@@ -107,11 +107,12 @@ export async function youtubeSearchVideos(q: string): Promise<YouTubeVideoSearch
   const items = Array.isArray((json as any).items) ? (json as any).items : [];
 
   return items
-    .filter((item: any) => item?.id?.videoId && item?.snippet?.title)
+    .filter((item: any) => item?.id?.videoId && item?.snippet?.title && item?.snippet?.channelId)
     .map((item: any) => {
       const out: YouTubeVideoSearchResult = {
         videoId: String(item.id.videoId),
         title: String(item.snippet.title),
+        channelId: String(item.snippet.channelId),
         channelTitle: item?.snippet?.channelTitle ? String(item.snippet.channelTitle) : '',
       };
       const thumbUrl = pickDefaultThumbUrl(item?.snippet?.thumbnails);
@@ -120,7 +121,7 @@ export async function youtubeSearchVideos(q: string): Promise<YouTubeVideoSearch
     });
 }
 
-export async function youtubeSearchPlaylists(q: string): Promise<YouTubePlaylistSearchResult[]> {
+export async function youtubeSearchArtistChannel(q: string): Promise<YouTubeChannelSearchResult[]> {
   const query = normalizeQuery(q);
   if (query.length < MIN_QUERY_CHARS) {
     return [];
@@ -132,9 +133,9 @@ export async function youtubeSearchPlaylists(q: string): Promise<YouTubePlaylist
     {
       key: apiKey,
       part: 'snippet',
-      type: 'playlist',
-      maxResults: String(MAX_RESULTS),
-      fields: 'items(id/playlistId,snippet/title,snippet/channelTitle,snippet/thumbnails/default/url)',
+      type: 'channel',
+      maxResults: '2',
+      fields: 'items(id/channelId,snippet/title,snippet/thumbnails/default/url)',
       q: query,
     },
     apiKey
@@ -143,12 +144,11 @@ export async function youtubeSearchPlaylists(q: string): Promise<YouTubePlaylist
   const items = Array.isArray((json as any).items) ? (json as any).items : [];
 
   return items
-    .filter((item: any) => item?.id?.playlistId && item?.snippet?.title)
+    .filter((item: any) => item?.id?.channelId && item?.snippet?.title)
     .map((item: any) => {
-      const out: YouTubePlaylistSearchResult = {
-        playlistId: String(item.id.playlistId),
+      const out: YouTubeChannelSearchResult = {
+        channelId: String(item.id.channelId),
         title: String(item.snippet.title),
-        channelTitle: item?.snippet?.channelTitle ? String(item.snippet.channelTitle) : '',
       };
       const thumbUrl = pickDefaultThumbUrl(item?.snippet?.thumbnails);
       if (thumbUrl) out.thumbUrl = thumbUrl;

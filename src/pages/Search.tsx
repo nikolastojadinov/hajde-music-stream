@@ -25,6 +25,13 @@ type Suggestion = {
   spotify?: SearchResolveSpotifySelection;
 };
 
+type ResolvedArtistChannel = {
+  artist_name: string;
+  youtube_channel_id: string;
+  is_verified: boolean;
+  thumbnailUrl?: string | null;
+};
+
 function normalizeQuery(value: string): string {
   return value.trim();
 }
@@ -168,6 +175,18 @@ export default function Search() {
     };
   }, [resolved]);
 
+  const resolvedArtistChannels = useMemo(() => {
+    const anyResolved = resolved as any;
+    const ac = anyResolved?.artist_channels;
+    const local = (Array.isArray(ac?.local) ? ac.local : []) as ResolvedArtistChannel[];
+    const youtube = (Array.isArray(ac?.youtube) ? ac.youtube : []) as ResolvedArtistChannel[];
+    const decision = (ac?.decision === "youtube_fallback" ? "youtube_fallback" : "local_only") as
+      | "local_only"
+      | "youtube_fallback";
+
+    return { local, youtube, decision };
+  }, [resolved]);
+
   async function runResolve(nextQuery: string, mode: SearchResolveMode, spotify?: SearchResolveSpotifySelection) {
     const q = normalizeQuery(nextQuery);
     if (!q) return;
@@ -282,6 +301,33 @@ export default function Search() {
           )}
         </div>
       </form>
+
+      {(resolvedArtistChannels.local.length > 0 || resolvedArtistChannels.youtube.length > 0) && (
+        <section className="mb-4">
+          <div className="mb-2 text-xs text-muted-foreground">
+            artist channels: <span className="font-medium">{resolvedArtistChannels.decision}</span>
+          </div>
+
+          <div className="flex gap-4 overflow-x-auto pb-2">
+            {[...resolvedArtistChannels.local, ...resolvedArtistChannels.youtube].map((c) => (
+              <Link
+                key={`${c.youtube_channel_id}:${c.artist_name}`}
+                to={`/artist/${encodeURIComponent(c.youtube_channel_id)}`}
+                className="shrink-0 w-20 text-center"
+              >
+                <div className="mx-auto w-14 h-14 rounded-full bg-muted overflow-hidden flex items-center justify-center">
+                  {c.thumbnailUrl ? (
+                    <img src={c.thumbnailUrl} alt={c.artist_name} className="w-full h-full object-cover" />
+                  ) : (
+                    <User className="w-6 h-6 text-muted-foreground" />
+                  )}
+                </div>
+                <div className="mt-2 text-xs font-medium truncate">{c.artist_name}</div>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
 
       {error && (
         <div className="mb-4 rounded-lg border border-border bg-card/60 px-3 py-2 text-sm text-red-400">

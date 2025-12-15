@@ -23,6 +23,12 @@ export type DualPlaylistSearchResult = {
   playlists_by_artist: SearchPlaylistRow[];
 };
 
+export type SearchArtistChannelRow = {
+  artist_name: string;
+  youtube_channel_id: string | null;
+  is_verified: boolean | null;
+};
+
 let supabase: SupabaseClient;
 
 if (env.supabase_url && env.supabase_service_role_key) {
@@ -173,6 +179,45 @@ export async function searchPlaylistsDualForQuery(q: string): Promise<DualPlayli
     void logApiUsage({
       apiKeyOrIdentifier: supabaseIdentifier(),
       endpoint: 'supabase.search.playlists.dual',
+      quotaCost: 0,
+      status,
+      errorCode,
+      errorMessage,
+    });
+  }
+}
+
+export async function searchArtistChannelsForQuery(q: string): Promise<SearchArtistChannelRow[]> {
+  const query = normalizeQuery(q);
+  if (!supabase || query.length < 2) return [];
+
+  let status: 'ok' | 'error' = 'ok';
+  let errorCode: string | null = null;
+  let errorMessage: string | null = null;
+
+  try {
+    const result = await supabase
+      .from('artist_channels')
+      .select('artist_name, youtube_channel_id, is_verified')
+      .ilike('artist_name', `%${query}%`)
+      .limit(3);
+
+    if (result.error) {
+      status = 'error';
+      errorCode = result.error.code ? String(result.error.code) : null;
+      errorMessage = result.error.message ? String(result.error.message) : 'Supabase artist channel search failed';
+      return [];
+    }
+
+    return (result.data || []) as SearchArtistChannelRow[];
+  } catch (err: any) {
+    status = 'error';
+    errorMessage = err?.message ? String(err.message) : 'Supabase artist channel search failed';
+    return [];
+  } finally {
+    void logApiUsage({
+      apiKeyOrIdentifier: supabaseIdentifier(),
+      endpoint: 'supabase.search.artist_channels',
       quotaCost: 0,
       status,
       errorCode,
