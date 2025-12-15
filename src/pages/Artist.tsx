@@ -1,200 +1,187 @@
-import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
-import { externalSupabase } from "@/lib/externalSupabase";
-import { usePlayer } from "@/contexts/PlayerContext";
+import { useEffect, useState } from "react";
+import { useParams } from "react-router-dom";
+import { withBackendOrigin } from "@/lib/backendUrl";
 
 type ArtistRow = {
-  id: string;
-  artist: string;
-  artist_key: string;
-  youtube_channel_id: string | null;
-  description: string | null;
-  thumbnail_url: string | null;
-  banner_url: string | null;
-  subscribers: number | null;
-  views: number | null;
-  country: string | null;
-  source: string;
+  id?: string;
+  artist?: string;
+  banner_url?: string | null;
+  thumbnail_url?: string | null;
 };
 
-type Track = {
-  id: string;
-  external_id: string;
-  title: string;
-  artist: string;
-  cover_url: string | null;
-  duration: number | null;
+type PlaylistRow = {
+  id?: string;
+  title?: string;
+  cover_url?: string | null;
 };
 
-const normalizeKey = (s: string) =>
-  s
-    .toLowerCase()
-    .trim()
-    .replace(/['"]/g, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "");
+type TrackRow = {
+  id?: string;
+  title?: string;
+  artist?: string;
+};
+
+type ArtistApiResponse = {
+  artist: ArtistRow | null;
+  playlists: PlaylistRow[];
+  tracks: TrackRow[];
+};
+
+function normalizeString(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
 
 export default function Artist() {
-  const { artistKey = "" } = useParams<{ artistKey: string }>();
-  const key = useMemo(() => normalizeKey(artistKey), [artistKey]);
-  const navigate = useNavigate();
-  const { playTrack } = usePlayer();
+  const { channelId = "" } = useParams<{ channelId: string }>();
 
   const [loading, setLoading] = useState(true);
-  const [artist, setArtist] = useState<ArtistRow | null>(null);
-  const [tracks, setTracks] = useState<Track[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [artist, setArtist] = useState<ArtistRow | null>(null);
+  const [playlists, setPlaylists] = useState<PlaylistRow[]>([]);
+  const [tracks, setTracks] = useState<TrackRow[]>([]);
 
   useEffect(() => {
-    if (!key) return;
+    const id = normalizeString(channelId);
+    if (!id) {
+      setLoading(false);
+      setError("Missing artist channel id");
+      return;
+    }
 
-    let cancelled = false;
+    const controller = new AbortController();
+    let mounted = true;
 
     const run = async () => {
       setLoading(true);
       setError(null);
 
       try {
-        // 1) fetch artist from backend (DB-first, else YouTube + store)
-        const base = import.meta.env.VITE_BACKEND_URL as string | undefined;
-        if (!base) {
-          throw new Error("Missing VITE_BACKEND_URL on frontend");
+        const url = withBackendOrigin(`/api/artist/${encodeURIComponent(id)}`);
+        const res = await fetch(url, { method: "GET", signal: controller.signal });
+        const json = (await res.json().catch(() => null)) as ArtistApiResponse | null;
+
+        if (!res.ok) {
+          const msg = (json as any)?.error || "Failed to load artist";
+          throw new Error(String(msg));
         }
 
-        const res = await fetch(`${base}/api/artist/${key}`, { method: "GET" });
-        const json = await res.json();
-        if (!res.ok) throw new Error(json?.error || "Failed to load artist");
+        if (!mounted) return;
 
-        const a: ArtistRow = json.artist;
-        if (!cancelled) setArtist(a);
-
-        // 2) load local tracks for this artist (from Supabase)
-        // NOTE: your DB uses track.artist as string
-        const { data: localTracks, error: tErr } = await externalSupabase
-          .from("tracks")
-          .select("id, external_id, title, artist, cover_url, duration")
-          .ilike("artist", `%${a.artist}%`)
-          .limit(50);
-
-        if (tErr) console.error("artist tracks error:", tErr);
-        if (!cancelled) setTracks((localTracks as any) || []);
+        setArtist(json?.artist ?? null);
+        setPlaylists(Array.isArray(json?.playlists) ? json!.playlists : []);
+        setTracks(Array.isArray(json?.tracks) ? json!.tracks : []);
       } catch (e: any) {
-        if (!cancelled) setError(e?.message || "Artist page failed");
+        if (!mounted) return;
+        setError(e?.message || "Failed to load artist");
+        setArtist(null);
+        setPlaylists([]);
+        setTracks([]);
       } finally {
-        if (!cancelled) setLoading(false);
+        if (mounted) setLoading(false);
       }
     };
 
-    run();
+    void run();
 
     return () => {
-      cancelled = true;
+      mounted = false;
+      controller.abort();
     };
-  }, [key]);
-
-  const handlePlay = (t: Track) => {
-    playTrack(t.external_id, t.title, t.artist, t.id);
-  };
+  }, [channelId]);
 
   if (loading) {
     return (
-      <div className="p-4 max-w-4xl mx-auto pb-32">
-        <p className="text-muted-foreground">Loading artist…</p>
+      <div className="p-4 max-w-5xl mx-auto pb-32">
+        <div className="flex items-center gap-3 text-muted-foreground">
+          <div className="h-5 w-5 animate-spin rounded-full border-2 border-muted-foreground/40 border-t-transparent" />
+          <span>Loading artist…</span>
+        </div>
       </div>
     );
   }
 
   if (error || !artist) {
     return (
-      <div className="p-4 max-w-4xl mx-auto pb-32">
-        <p className="text-red-400">{error || "Artist not found"}</p>
+      <div className="p-4 max-w-5xl mx-auto pb-32">
+        <div className="rounded-xl border border-border bg-card/40 p-4">
+          <div className="text-lg font-semibold">Artist unavailable</div>
+          <div className="mt-1 text-sm text-muted-foreground">{error || "Artist not found"}</div>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="p-4 max-w-4xl mx-auto pb-32">
-      {/* header */}
+    <div className="p-4 max-w-5xl mx-auto pb-32">
+      {/* Artist header */}
       <div className="rounded-xl overflow-hidden border border-border bg-card/40">
         {artist.banner_url ? (
-          <div className="h-40 w-full overflow-hidden">
-            <img src={artist.banner_url} className="w-full h-full object-cover" />
+          <div className="h-44 w-full overflow-hidden">
+            <img src={artist.banner_url} alt="" className="h-full w-full object-cover" />
           </div>
         ) : (
-          <div className="h-20 w-full bg-muted" />
+          <div className="h-24 w-full bg-muted" />
         )}
 
-        <div className="p-4 flex gap-4 items-center">
-          <div className="w-20 h-20 rounded-full overflow-hidden bg-muted shrink-0">
+        <div className="p-4 flex items-center gap-4">
+          <div className="h-16 w-16 shrink-0 overflow-hidden rounded-full bg-muted">
             {artist.thumbnail_url ? (
-              <img
-                src={artist.thumbnail_url}
-                className="w-full h-full object-cover"
-                alt={artist.artist}
-              />
+              <img src={artist.thumbnail_url} alt="" className="h-full w-full object-cover" />
             ) : null}
           </div>
-
           <div className="min-w-0">
-            <div className="text-2xl font-black truncate">{artist.artist}</div>
-            <div className="text-sm text-muted-foreground">
-              {artist.subscribers ? `${artist.subscribers.toLocaleString()} subscribers` : " "}
-            </div>
-
-            {artist.youtube_channel_id && (
-              <div className="mt-2">
-                <a
-                  href={`https://www.youtube.com/channel/${artist.youtube_channel_id}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-xs underline text-muted-foreground"
-                >
-                  Open YouTube channel
-                </a>
-              </div>
-            )}
+            <div className="text-2xl font-bold truncate">{artist.artist || "Unknown artist"}</div>
           </div>
         </div>
-
-        {artist.description ? (
-          <div className="px-4 pb-4 text-sm text-muted-foreground line-clamp-4">
-            {artist.description}
-          </div>
-        ) : null}
       </div>
 
-      {/* songs */}
+      {/* Playlists grid */}
       <div className="mt-6">
-        <div className="text-xl font-bold mb-3">Songs</div>
-        {tracks.length === 0 ? (
-          <p className="text-muted-foreground">No local songs yet.</p>
+        <div className="text-xl font-bold mb-3">Playlists</div>
+        {playlists.length === 0 ? (
+          <div className="rounded-xl border border-border bg-card/40 p-4 text-sm text-muted-foreground">
+            No playlists yet.
+          </div>
         ) : (
-          <div className="space-y-2">
-            {tracks.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => handlePlay(t)}
-                className="w-full text-left p-3 rounded-lg border border-border bg-card/30 hover:bg-card/50 transition-colors"
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+            {playlists.map((p, idx) => (
+              <div
+                key={p.id || `${idx}`}
+                className="rounded-xl border border-border bg-card/30 overflow-hidden"
               >
-                <div className="font-medium truncate">{t.title}</div>
-                <div className="text-sm text-muted-foreground truncate">{t.artist}</div>
-              </button>
+                <div className="aspect-square bg-muted">
+                  {p.cover_url ? (
+                    <img src={p.cover_url} alt="" className="h-full w-full object-cover" />
+                  ) : null}
+                </div>
+                <div className="p-3">
+                  <div className="text-sm font-semibold truncate">{p.title || "Untitled playlist"}</div>
+                </div>
+              </div>
             ))}
           </div>
         )}
       </div>
 
-      {/* back */}
-      <div className="mt-8">
-        <button
-          type="button"
-          onClick={() => navigate(-1)}
-          className="text-sm underline text-muted-foreground"
-        >
-          Back
-        </button>
+      {/* Tracks list */}
+      <div className="mt-6">
+        <div className="text-xl font-bold mb-3">Tracks</div>
+        {tracks.length === 0 ? (
+          <div className="rounded-xl border border-border bg-card/40 p-4 text-sm text-muted-foreground">
+            No tracks yet.
+          </div>
+        ) : (
+          <div className="rounded-xl border border-border bg-card/40 overflow-hidden">
+            <div className="divide-y divide-border">
+              {tracks.map((t, idx) => (
+                <div key={t.id || `${idx}`} className="p-3">
+                  <div className="font-medium truncate">{t.title || "Untitled"}</div>
+                  <div className="text-sm text-muted-foreground truncate">{t.artist || "Unknown artist"}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
