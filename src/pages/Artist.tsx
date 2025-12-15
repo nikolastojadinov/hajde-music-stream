@@ -1,6 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
+import { Play } from "lucide-react";
 import { withBackendOrigin } from "@/lib/backendUrl";
+import { Button } from "@/components/ui/button";
+import { usePlayer } from "@/contexts/PlayerContext";
 
 type ArtistRow = {
   id?: string;
@@ -19,6 +22,7 @@ type TrackRow = {
   id?: string;
   title?: string;
   artist?: string;
+  youtube_id?: string;
 };
 
 type ArtistApiResponse = {
@@ -33,12 +37,14 @@ function normalizeString(value: unknown): string {
 
 export default function Artist() {
   const { channelId = "" } = useParams<{ channelId: string }>();
+  const { playPlaylist } = usePlayer();
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [artist, setArtist] = useState<ArtistRow | null>(null);
   const [playlists, setPlaylists] = useState<PlaylistRow[]>([]);
   const [tracks, setTracks] = useState<TrackRow[]>([]);
+  const [playAllStarting, setPlayAllStarting] = useState(false);
 
   useEffect(() => {
     const id = normalizeString(channelId);
@@ -89,6 +95,39 @@ export default function Artist() {
     };
   }, [channelId]);
 
+  const playlistTrackData = useMemo(() => {
+    return tracks
+      .map((t) => {
+        const external_id = normalizeString((t as any)?.external_id) || normalizeString(t.youtube_id);
+        const title = normalizeString(t.title);
+        const artistName = normalizeString(t.artist);
+        const id = normalizeString(t.id);
+
+        if (!external_id || !title) return null;
+        return {
+          id: id || undefined,
+          external_id,
+          title,
+          artist: artistName || "Unknown artist",
+        };
+      })
+      .filter(Boolean) as Array<{ id?: string; external_id: string; title: string; artist: string }>;
+  }, [tracks]);
+
+  const canPlayAll = playlistTrackData.length > 0 && !playAllStarting;
+
+  const handlePlayAll = () => {
+    if (!canPlayAll) return;
+
+    setPlayAllStarting(true);
+    try {
+      playPlaylist(playlistTrackData, 0);
+    } finally {
+      // Provide brief pressed/loading feedback without adding new playback logic.
+      window.setTimeout(() => setPlayAllStarting(false), 250);
+    }
+  };
+
   if (loading) {
     return (
       <div className="p-4 max-w-5xl mx-auto pb-32">
@@ -125,12 +164,27 @@ export default function Artist() {
 
         <div className="p-4 flex items-center gap-4">
           <div className="h-16 w-16 shrink-0 overflow-hidden rounded-full bg-muted">
-            {artist.thumbnail_url ? (
-              <img src={artist.thumbnail_url} alt="" className="h-full w-full object-cover" />
-            ) : null}
+            {artist.thumbnail_url ? <img src={artist.thumbnail_url} alt="" className="h-full w-full object-cover" /> : null}
           </div>
-          <div className="min-w-0">
+
+          <div className="min-w-0 flex-1">
             <div className="text-2xl font-bold truncate">{artist.artist || "Unknown artist"}</div>
+            <div className="mt-3">
+              <Button
+                type="button"
+                onClick={handlePlayAll}
+                disabled={!canPlayAll}
+                aria-pressed={playAllStarting}
+                className="rounded-full"
+              >
+                {playAllStarting ? (
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary-foreground/60 border-t-transparent" />
+                ) : (
+                  <Play className="w-5 h-5 fill-current" />
+                )}
+                Play All
+              </Button>
+            </div>
           </div>
         </div>
       </div>
@@ -139,20 +193,13 @@ export default function Artist() {
       <div className="mt-6">
         <div className="text-xl font-bold mb-3">Playlists</div>
         {playlists.length === 0 ? (
-          <div className="rounded-xl border border-border bg-card/40 p-4 text-sm text-muted-foreground">
-            No playlists yet.
-          </div>
+          <div className="rounded-xl border border-border bg-card/40 p-4 text-sm text-muted-foreground">No playlists yet.</div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
             {playlists.map((p, idx) => (
-              <div
-                key={p.id || `${idx}`}
-                className="rounded-xl border border-border bg-card/30 overflow-hidden"
-              >
+              <div key={p.id || `${idx}`} className="rounded-xl border border-border bg-card/30 overflow-hidden">
                 <div className="aspect-square bg-muted">
-                  {p.cover_url ? (
-                    <img src={p.cover_url} alt="" className="h-full w-full object-cover" />
-                  ) : null}
+                  {p.cover_url ? <img src={p.cover_url} alt="" className="h-full w-full object-cover" /> : null}
                 </div>
                 <div className="p-3">
                   <div className="text-sm font-semibold truncate">{p.title || "Untitled playlist"}</div>
@@ -165,11 +212,13 @@ export default function Artist() {
 
       {/* Tracks list */}
       <div className="mt-6">
-        <div className="text-xl font-bold mb-3">Tracks</div>
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <div className="text-xl font-bold">Tracks</div>
+          <div className="text-sm text-muted-foreground">{playlistTrackData.length} total</div>
+        </div>
+
         {tracks.length === 0 ? (
-          <div className="rounded-xl border border-border bg-card/40 p-4 text-sm text-muted-foreground">
-            No tracks yet.
-          </div>
+          <div className="rounded-xl border border-border bg-card/40 p-4 text-sm text-muted-foreground">No tracks yet.</div>
         ) : (
           <div className="rounded-xl border border-border bg-card/40 overflow-hidden">
             <div className="divide-y divide-border">
