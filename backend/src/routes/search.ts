@@ -1,13 +1,13 @@
 import { Router } from 'express';
 
 import supabase, {
-  searchPlaylistsForQuery,
+  searchPlaylistsDualForQuery,
   searchTracksForQuery,
   type SearchPlaylistRow,
   type SearchTrackRow,
 } from '../services/supabaseClient';
 import { spotifySearch } from '../services/spotifyClient';
-import { youtubeSearchPlaylists, youtubeSearchVideos } from '../services/youtubeClient';
+import { youtubeSearchVideos } from '../services/youtubeClient';
 
 const router = Router();
 
@@ -45,11 +45,6 @@ function normalizeMode(input: unknown): ResolveMode {
   return 'generic';
 }
 
-function shouldPreferPlaylistSearch(query: string): boolean {
-  const q = query.toLowerCase();
-  return q.includes('playlist') || q.includes('mix') || q.includes('radio');
-}
-
 function mapTrackRow(row: SearchTrackRow): LocalTrack {
   return {
     id: String(row.id),
@@ -68,6 +63,27 @@ function mapPlaylistRow(row: SearchPlaylistRow): LocalPlaylist {
     externalId: typeof row.external_id === 'string' ? row.external_id : null,
     coverUrl: typeof row.cover_url === 'string' ? row.cover_url : null,
   };
+}
+
+function mergeLegacyPlaylists(byTitle: LocalPlaylist[], byArtist: LocalPlaylist[]): LocalPlaylist[] {
+  const seen = new Set<string>();
+  const merged: LocalPlaylist[] = [];
+
+  for (const p of byTitle) {
+    if (!seen.has(p.id)) {
+      seen.add(p.id);
+      merged.push(p);
+    }
+  }
+
+  for (const p of byArtist) {
+    if (!seen.has(p.id)) {
+      seen.add(p.id);
+      merged.push(p);
+    }
+  }
+
+  return merged;
 }
 
 router.get('/suggest', async (req, res) => {
@@ -93,58 +109,49 @@ router.post('/resolve', async (req, res) => {
   if (q.length < 2) {
     return res.json({
       q,
+      tracks: [],
+      playlists_by_title: [],
+      playlists_by_artist: [],
       local: { tracks: [], playlists: [] },
       decision: 'local_only',
     });
   }
 
   try {
-    const [trackRows, playlistRows] = await Promise.all([
-      searchTracksForQuery(q),
-      searchPlaylistsForQuery(q),
-    ]);
+    const [trackRows, playlistsDual] = await Promise.all([searchTracksForQuery(q), searchPlaylistsDualForQuery(q)]);
+
+    const tracks = trackRows.map(mapTrackRow);
+    const playlists_by_title = playlistsDual.playlists_by_title.map(mapPlaylistRow);
+    const playlists_by_artist = playlistsDual.playlists_by_artist.map(mapPlaylistRow);
 
     const local = {
-      tracks: trackRows.map(mapTrackRow),
-      playlists: playlistRows.map(mapPlaylistRow),
+      tracks,
+      playlists: mergeLegacyPlaylists(playlists_by_title, playlists_by_artist),
     };
 
-    const hasLocal = local.tracks.length > 0 || local.playlists.length > 0;
+    const hasLocal = tracks.length > 0 || playlists_by_title.length > 0 || playlists_by_artist.length > 0;
     if (hasLocal) {
       return res.json({
         q,
+        tracks,
+        playlists_by_title,
+        playlists_by_artist,
         local,
         decision: 'local_only',
       });
     }
 
-    // Fallback to YouTube (confirmed intent only). Enforce at most ONE YouTube call.
-    const preferPlaylists = shouldPreferPlaylistSearch(q);
-
-    if (preferPlaylists) {
-      const playlists = await youtubeSearchPlaylists(q);
-      return res.json({
-        q,
-        local,
-        youtube: {
-          playlists: playlists.map((p) => ({
-            id: p.playlistId,
-            title: p.title,
-            channelTitle: p.channelTitle,
-            thumbnailUrl: p.thumbUrl ?? null,
-          })),
-        },
-        decision: 'youtube_fallback',
-      });
-    }
-
     // Default fallback: videos (music category) for all modes.
+    // Note: playlist search is Supabase-only; no YouTube playlist search here.
     void mode;
 
     const videos = await youtubeSearchVideos(q);
 
     return res.json({
       q,
+      tracks,
+      playlists_by_title,
+      playlists_by_artist,
       local,
       youtube: {
         videos: videos.map((v) => ({
