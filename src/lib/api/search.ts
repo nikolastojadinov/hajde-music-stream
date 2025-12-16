@@ -75,27 +75,9 @@ export type SearchResolveLocal = {
   playlists: SearchSuggestLocalPlaylist[];
 };
 
-export type SearchResolveYouTubeVideo = {
-  id: string;
-  title: string;
-  channelTitle: string;
-  thumbnailUrl: string | null;
-};
-
-export type SearchResolveYouTubePlaylist = {
-  id: string;
-  title: string;
-  channelTitle: string;
-  thumbnailUrl: string | null;
-};
-
 export type SearchResolveResponse = {
   q: string;
   local: SearchResolveLocal;
-  youtube?: {
-    videos?: SearchResolveYouTubeVideo[];
-    playlists?: SearchResolveYouTubePlaylist[];
-  };
   decision: "local_only" | "youtube_fallback";
 
   // Wiring fields for "Search triggers artist ingestion" pipeline.

@@ -164,7 +164,6 @@ export default function Search() {
 
   const resultsSongs = useMemo(() => {
     const localTracks = resolved?.local?.tracks || [];
-    const ytVideos = resolved?.youtube?.videos || [];
 
     const local = localTracks
       .filter((t) => t.externalId)
@@ -176,21 +175,12 @@ export default function Search() {
         trackId: t.id,
       }));
 
-    const yt = ytVideos.map((v) => ({
-      key: `yt:${v.id}`,
-      title: v.title,
-      artist: v.channelTitle,
-      youtubeId: v.id,
-      trackId: null as string | null,
-    }));
-
-    return [...local, ...yt];
+    return local;
   }, [resolved]);
 
   const resultsPlaylists = useMemo(() => {
     const localPlaylists = resolved?.local?.playlists || [];
-    const ytPlaylists = resolved?.youtube?.playlists || [];
-    return { local: localPlaylists, youtube: ytPlaylists };
+    return { local: localPlaylists };
   }, [resolved]);
 
   const ingestedArtistName = useMemo(() => {
@@ -255,8 +245,7 @@ export default function Search() {
     Boolean(resolved) &&
     normalizeQuery(query).length > 0 &&
     resultsSongs.length === 0 &&
-    resultsPlaylists.local.length === 0 &&
-    resultsPlaylists.youtube.length === 0;
+    resultsPlaylists.local.length === 0;
 
   const showResolveError = Boolean(error) && showResults && !resolveLoading;
 
@@ -383,7 +372,7 @@ export default function Search() {
                 </section>
               ) : null}
 
-              {resultsPlaylists.local.length > 0 || resultsPlaylists.youtube.length > 0 ? (
+              {resultsPlaylists.local.length > 0 ? (
                 <section>
                   <h2 className="flex items-center gap-2 text-xl font-bold mb-4">
                     <ListMusic className="w-5 h-5" /> Playlists
@@ -398,19 +387,6 @@ export default function Search() {
                       >
                         <div className="font-medium truncate">{p.title}</div>
                       </Link>
-                    ))}
-
-                    {resultsPlaylists.youtube.map((p) => (
-                      <a
-                        key={p.id}
-                        href={`https://www.youtube.com/playlist?list=${encodeURIComponent(p.id)}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="block w-full rounded-lg border border-border bg-card/30 px-3 py-3 hover:bg-card/50 transition-colors"
-                      >
-                        <div className="font-medium truncate">{p.title}</div>
-                        <div className="text-sm text-muted-foreground truncate">{p.channelTitle}</div>
-                      </a>
                     ))}
                   </div>
                 </section>

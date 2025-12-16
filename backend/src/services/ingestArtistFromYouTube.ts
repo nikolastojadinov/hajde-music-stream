@@ -15,6 +15,9 @@ export type IngestArtistFromYouTubeInput = {
 export type IngestArtistFromYouTubeByChannelIdInput = {
   youtube_channel_id: string;
   artistName?: string;
+  // Optional ingestion limits (delta ingestion).
+  max_playlists?: number;
+  max_tracks?: number;
 };
 
 export type IngestArtistFromYouTubeResult = {
@@ -186,18 +189,31 @@ export async function ingestArtistFromYouTubeByChannelId(
     if (!artist_id) return null;
 
     // STEP 5: Hydration (valid channel only)
-    const playlists = await youtubeFetchArtistPlaylists({ youtube_channel_id, artist_id });
+    const maxPlaylistsRaw = input.max_playlists;
+    const maxPlaylists = typeof maxPlaylistsRaw === "number" && Number.isFinite(maxPlaylistsRaw) ? Math.max(0, Math.trunc(maxPlaylistsRaw)) : null;
+
+    const maxTracksRaw = input.max_tracks;
+    const maxTracks = typeof maxTracksRaw === "number" && Number.isFinite(maxTracksRaw) ? Math.max(0, Math.trunc(maxTracksRaw)) : null;
+
+    const playlists = await youtubeFetchArtistPlaylists({ youtube_channel_id, artist_id, max_playlists: maxPlaylists ?? undefined });
     if (playlists === null) return null;
 
     const playlists_ingested = Array.isArray(playlists) ? playlists.length : 0;
     let tracks_ingested = 0;
 
     for (const p of Array.isArray(playlists) ? playlists : []) {
+      if (maxTracks !== null && tracks_ingested >= maxTracks) break;
+
       const playlist_id = normalizeString((p as any)?.id) || normalizeString((p as any)?.playlist_id);
       const external_playlist_id = normalizeString((p as any)?.external_id);
       if (!playlist_id || !external_playlist_id) return null;
 
-      const inserted = await youtubeFetchPlaylistTracks({ playlist_id, external_playlist_id });
+      const remainingTracks = maxTracks !== null ? Math.max(0, maxTracks - tracks_ingested) : null;
+      const inserted = await youtubeFetchPlaylistTracks({
+        playlist_id,
+        external_playlist_id,
+        max_tracks: remainingTracks ?? undefined,
+      });
       if (inserted === null) return null;
       tracks_ingested += inserted;
     }

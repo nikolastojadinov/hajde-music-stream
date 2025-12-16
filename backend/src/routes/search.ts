@@ -9,7 +9,7 @@ import supabase, {
   type SearchTrackRow,
 } from "../services/supabaseClient";
 import { spotifySearch } from "../services/spotifyClient";
-import { youtubeSearchArtistChannel, youtubeSearchVideos } from "../services/youtubeClient";
+import { youtubeSearchArtistChannel } from "../services/youtubeClient";
 import {
   deleteYoutubeChannelMappingByChannelId,
   upsertYoutubeChannelMapping,
@@ -21,6 +21,7 @@ const router = Router();
 
 const MIN_QUERY_CHARS = 2;
 const LOG_PREFIX = "[ArtistIngest]";
+const RESOLVE_LOG_PREFIX = "[SearchResolve]";
 
 type ResolveMode = "track" | "artist" | "album" | "generic";
 
@@ -29,6 +30,26 @@ type ResolveRequestBody = {
   mode?: unknown;
   spotify?: unknown;
 };
+
+type SpotifySelection =
+  | { type: "artist"; id: string; name: string }
+  | { type: "track"; id: string; name: string; artistName?: string }
+  | { type: "album"; id: string; name: string; artistName?: string }
+  | { type: "playlist"; id: string; name: string; ownerName?: string };
+
+function normalizeSpotifySelection(value: unknown): SpotifySelection | null {
+  if (!value || typeof value !== "object") return null;
+  const type = (value as any).type;
+  const id = normalizeQuery((value as any).id);
+  const name = normalizeQuery((value as any).name);
+  if (!id || !name) return null;
+
+  if (type === "artist") return { type: "artist", id, name };
+  if (type === "track") return { type: "track", id, name, artistName: normalizeQuery((value as any).artistName) || undefined };
+  if (type === "album") return { type: "album", id, name, artistName: normalizeQuery((value as any).artistName) || undefined };
+  if (type === "playlist") return { type: "playlist", id, name, ownerName: normalizeQuery((value as any).ownerName) || undefined };
+  return null;
+}
 
 type LocalTrack = {
   id: string;
@@ -139,26 +160,6 @@ function mergeLegacyPlaylists(byTitle: LocalPlaylist[], byArtist: LocalPlaylist[
   }
 
   return merged;
-}
-
-function deriveYouTubeArtistChannelsFromVideos(
-  videos: Array<{ channelId: string; channelTitle: string; thumbUrl?: string | null }>
-): ResolvedArtistChannel[] {
-  const seen = new Set<string>();
-  const out: ResolvedArtistChannel[] = [];
-
-  for (const v of videos) {
-    const channelId = typeof v.channelId === "string" ? v.channelId : "";
-    const title = typeof v.channelTitle === "string" ? v.channelTitle : "";
-    if (!channelId || !title) continue;
-    if (seen.has(channelId)) continue;
-
-    seen.add(channelId);
-    out.push({ channelId, title, thumbnailUrl: v.thumbUrl ?? null });
-    if (out.length >= 2) break;
-  }
-
-  return out;
 }
 
 async function findYoutubeChannelByArtistName(artistName: string): Promise<YoutubeChannelsRow | null> {
@@ -285,6 +286,34 @@ async function runArtistIngestFlow(artistNameRaw: string): Promise<void> {
   }
 }
 
+function computeMinimums(opts: {
+  mode: ResolveMode;
+  spotify: SpotifySelection | null;
+}): { minTracks: number; minPlaylists: number } {
+  // User-confirmed rule:
+  // - playlist queries: 10 tracks / 5 playlists
+  // - track/album queries: 10 tracks / 5 playlists
+  // - artist: "do 3" (interpreted here as min 3 tracks, 0 playlists)
+  const kind = opts.spotify?.type ?? opts.mode;
+  if (kind === "artist") return { minTracks: 3, minPlaylists: 0 };
+  if (kind === "track" || kind === "album" || kind === "playlist") return { minTracks: 10, minPlaylists: 5 };
+  return { minTracks: 0, minPlaylists: 0 };
+}
+
+function resolveArtistNameForIngest(opts: {
+  q: string;
+  mode: ResolveMode;
+  spotify: SpotifySelection | null;
+}): string | null {
+  if (opts.spotify?.type === "artist") return normalizeQuery(opts.spotify.name) || null;
+  if (opts.spotify?.type === "track" || opts.spotify?.type === "album") {
+    return normalizeQuery(opts.spotify.artistName) || null;
+  }
+  if (opts.mode === "artist") return normalizeQuery(opts.q) || null;
+  if (isArtistQuery(opts.q)) return normalizeQuery(opts.q) || null;
+  return null;
+}
+
 router.get("/suggest", async (req, res) => {
   const q = normalizeQuery(req.query.q);
   try {
@@ -300,6 +329,7 @@ router.post("/resolve", async (req, res) => {
   const body = (req.body || {}) as ResolveRequestBody;
   const q = normalizeQuery(body.q);
   const mode = normalizeMode(body.mode);
+  const spotify = normalizeSpotifySelection(body.spotify);
 
   if (!supabase) {
     console.info(LOG_PREFIX, "SKIP", { reason: "supabase_missing", q, mode });
@@ -322,82 +352,161 @@ router.post("/resolve", async (req, res) => {
     });
   }
 
-  const artistCandidate = isArtistQuery(q);
-  const artist_name = artistCandidate ? q : null;
-  const artist_ingested = artistCandidate;
-
-  if (artistCandidate) {
-    console.info(LOG_PREFIX, "TRIGGER", { artistName: q, q, mode });
-    // Fire-and-forget: do NOT block the search response.
-    void runArtistIngestFlow(q);
-  } else {
-    console.info(LOG_PREFIX, "SKIP", { reason: "not_artist_query", q, mode });
-  }
-
   try {
-    const [trackRows, playlistsDual, artistChannelRows] = await Promise.all([
-      searchTracksForQuery(q),
-      searchPlaylistsDualForQuery(q),
-      searchArtistChannelsForQuery(q),
-    ]);
+    const minimums = computeMinimums({ mode, spotify });
+    const ingestArtistName = resolveArtistNameForIngest({ q, mode, spotify });
 
-    const tracks = trackRows.map(mapTrackRow);
-    const playlists_by_title = playlistsDual.playlists_by_title.map(mapPlaylistRow);
-    const playlists_by_artist = playlistsDual.playlists_by_artist.map(mapPlaylistRow);
+    const fetchLocal = async () => {
+      const [trackRows, playlistsDual, artistChannelRows] = await Promise.all([
+        searchTracksForQuery(q),
+        searchPlaylistsDualForQuery(q),
+        searchArtistChannelsForQuery(q),
+      ]);
 
-    const artistChannelsLocal = artistChannelRows
-      .map(mapLocalArtistChannelRow)
-      .filter((x): x is ResolvedArtistChannel => Boolean(x));
+      const tracks = trackRows.map(mapTrackRow);
+      const playlists_by_title = playlistsDual.playlists_by_title.map(mapPlaylistRow);
+      const playlists_by_artist = playlistsDual.playlists_by_artist.map(mapPlaylistRow);
+      const mergedPlaylists = mergeLegacyPlaylists(playlists_by_title, playlists_by_artist);
 
-    const local = {
-      tracks,
-      playlists: mergeLegacyPlaylists(playlists_by_title, playlists_by_artist),
-    };
+      const artistChannelsLocal = artistChannelRows
+        .map(mapLocalArtistChannelRow)
+        .filter((x): x is ResolvedArtistChannel => Boolean(x));
 
-    const artist_channels: ArtistChannelsEnvelope = {
-      local: artistChannelsLocal,
-      youtube: [],
-      decision: "local_only",
-    };
+      const artist_channels: ArtistChannelsEnvelope = {
+        local: artistChannelsLocal,
+        youtube: [],
+        decision: "local_only",
+      };
 
-    const hasLocal = tracks.length > 0 || playlists_by_title.length > 0 || playlists_by_artist.length > 0;
-    if (hasLocal) {
-      return res.json({
-        q,
+      return {
         tracks,
         playlists_by_title,
         playlists_by_artist,
+        local: { tracks, playlists: mergedPlaylists },
         artist_channels,
-        local,
-        decision: "local_only",
-        artist_ingested,
-        artist_name,
-      });
+      };
+    };
+
+    const before = await fetchLocal();
+
+    const missingTracks = Math.max(0, minimums.minTracks - before.local.tracks.length);
+    const missingPlaylists = Math.max(0, minimums.minPlaylists - before.local.playlists.length);
+
+    console.info(RESOLVE_LOG_PREFIX, "LOCAL_COUNTS", {
+      q,
+      mode,
+      spotifyType: spotify?.type ?? null,
+      minTracks: minimums.minTracks,
+      minPlaylists: minimums.minPlaylists,
+      tracks: before.local.tracks.length,
+      playlists: before.local.playlists.length,
+      missingTracks,
+      missingPlaylists,
+      ingestArtistName,
+    });
+
+    let artist_ingested = false;
+    const artist_name = ingestArtistName;
+
+    if ((missingTracks > 0 || missingPlaylists > 0) && ingestArtistName) {
+      console.info(RESOLVE_LOG_PREFIX, "INGEST_NEEDED", { q, mode, ingestArtistName, missingTracks, missingPlaylists });
+
+      // Resolve channelId via the existing strict flow (cache -> validate -> search.list).
+      let channelId: string | null = null;
+
+      const cached = await findYoutubeChannelByArtistName(ingestArtistName);
+      if (cached?.youtube_channel_id) {
+        channelId = cached.youtube_channel_id;
+        console.info(LOG_PREFIX, "CACHE_HIT", { artistName: ingestArtistName, channelId });
+
+        const validation = await validateYouTubeChannelId(channelId);
+        console.info(LOG_PREFIX, "CHANNELS_LIST", { artistName: ingestArtistName, channelId, result: validation.status });
+
+        if (validation.status === "invalid") {
+          await deleteYoutubeChannelMappingByChannelId(channelId);
+          console.info(LOG_PREFIX, "CACHE_DELETE_INVALID", { artistName: ingestArtistName, channelId });
+          channelId = null;
+        } else if (validation.status === "error") {
+          console.warn(LOG_PREFIX, "CHANNELS_LIST_ERROR", { artistName: ingestArtistName, channelId, error: validation.error });
+          channelId = null;
+        }
+      }
+
+      if (!channelId) {
+        console.info(LOG_PREFIX, "SEARCH_LIST_CALL", { artistName: ingestArtistName });
+        const candidates = await youtubeSearchArtistChannel(ingestArtistName);
+        const first = Array.isArray(candidates) ? candidates[0] : null;
+        const candidateId = first?.channelId ? String(first.channelId).trim() : "";
+        const candidateTitle = first?.title ? String(first.title).trim() : "";
+        const candidateThumbUrl = first?.thumbUrl ? String(first.thumbUrl) : null;
+
+        if (candidateId) {
+          const validation = await validateYouTubeChannelId(candidateId);
+          console.info(LOG_PREFIX, "CHANNELS_LIST", { artistName: ingestArtistName, channelId: candidateId, result: validation.status, source: "search" });
+
+          if (validation.status === "valid") {
+            channelId = candidateId;
+            await upsertYoutubeChannelMapping({
+              name: ingestArtistName,
+              youtube_channel_id: channelId,
+              thumbnail_url: validation.thumbnailUrl ?? candidateThumbUrl ?? null,
+            });
+
+            console.info(LOG_PREFIX, "CACHE_UPSERT", {
+              artistName: ingestArtistName,
+              channelId,
+              channelTitle: (validation.channelTitle ?? candidateTitle) || null,
+            });
+          }
+        }
+      }
+
+      if (channelId) {
+        const ingest = await ingestArtistFromYouTubeByChannelId({
+          youtube_channel_id: channelId,
+          artistName: ingestArtistName,
+          max_playlists: missingPlaylists > 0 ? missingPlaylists : 0,
+          max_tracks: missingTracks > 0 ? missingTracks : 0,
+        });
+        if (ingest) {
+          artist_ingested = true;
+          console.info(RESOLVE_LOG_PREFIX, "INGEST_COMPLETE", {
+            q,
+            mode,
+            ingestArtistName,
+            channelId,
+            playlistsIngested: ingest.playlists_ingested,
+            tracksIngested: ingest.tracks_ingested,
+          });
+        } else {
+          console.warn(RESOLVE_LOG_PREFIX, "INGEST_FAILED", { q, mode, ingestArtistName, channelId });
+        }
+      } else {
+        console.warn(RESOLVE_LOG_PREFIX, "INGEST_SKIPPED", { q, mode, ingestArtistName, reason: "no_channelId" });
+      }
+    } else {
+      if (missingTracks > 0 || missingPlaylists > 0) {
+        console.info(RESOLVE_LOG_PREFIX, "INGEST_SKIPPED", { q, mode, reason: "no_artist_for_ingest", missingTracks, missingPlaylists });
+      }
     }
 
-    // Existing behavior: only YouTube fallback in the no-local-results branch.
-    const videos = await youtubeSearchVideos(q);
-    if (artist_channels.local.length === 0) {
-      artist_channels.youtube = deriveYouTubeArtistChannelsFromVideos(videos);
-      artist_channels.decision = "youtube_fallback";
-    }
+    const after = (missingTracks > 0 || missingPlaylists > 0) ? await fetchLocal() : before;
+
+    console.info(RESOLVE_LOG_PREFIX, "FINAL_COUNTS", {
+      q,
+      mode,
+      tracks: after.local.tracks.length,
+      playlists: after.local.playlists.length,
+    });
 
     return res.json({
       q,
-      tracks,
-      playlists_by_title,
-      playlists_by_artist,
-      artist_channels,
-      local,
-      youtube: {
-        videos: videos.map((v) => ({
-          id: v.videoId,
-          title: v.title,
-          channelTitle: v.channelTitle,
-          thumbnailUrl: v.thumbUrl ?? null,
-        })),
-      },
-      decision: "youtube_fallback",
+      tracks: after.tracks,
+      playlists_by_title: after.playlists_by_title,
+      playlists_by_artist: after.playlists_by_artist,
+      artist_channels: after.artist_channels,
+      local: after.local,
+      decision: "local_only",
       artist_ingested,
       artist_name,
     });

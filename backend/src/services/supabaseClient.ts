@@ -132,7 +132,7 @@ export async function searchPlaylistsDualForQuery(q: string): Promise<DualPlayli
           position(lower(${queryLiteral}) in lower(p.title)) asc,
           length(p.title) asc,
           p.title asc
-        limit 3
+        limit 8
       ),
       artist_matches as (
         select distinct p.id, p.title, p.external_id, p.cover_url
@@ -141,7 +141,7 @@ export async function searchPlaylistsDualForQuery(q: string): Promise<DualPlayli
         join playlists p on p.id = pt.playlist_id
         where t.artist ilike ${likePatternLiteral} escape '\\'
         order by p.title asc
-        limit 3
+        limit 8
       )
       select
         (select coalesce(jsonb_agg(to_jsonb(title_matches)), '[]'::jsonb) from title_matches) as playlists_by_title,

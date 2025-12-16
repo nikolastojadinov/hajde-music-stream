@@ -7,6 +7,9 @@ const QUOTA_COST_PLAYLISTS_LIST = 1;
 export type YoutubeFetchArtistPlaylistsInput = {
   youtube_channel_id: string;
   artist_id: string;
+  // Optional: limit number of playlists persisted.
+  // Used by the Search resolve "delta ingestion" flow.
+  max_playlists?: number;
 };
 
 type PlaylistInsertRow = {
@@ -155,10 +158,18 @@ async function fetchPlaylistsOnce(youtube_channel_id: string): Promise<any | nul
   }
 }
 
-function normalizeToInsertRows(json: any, youtube_channel_id: string): PlaylistInsertRow[] {
+function normalizeToInsertRows(
+  json: any,
+  youtube_channel_id: string,
+  opts?: { max_playlists?: number | null }
+): PlaylistInsertRow[] {
   const items = Array.isArray(json?.items) ? json.items : [];
-  const out: PlaylistInsertRow[] = [];
+  const preferred: PlaylistInsertRow[] = [];
+  const fallback: PlaylistInsertRow[] = [];
   const seen = new Set<string>();
+
+  const maxRaw = opts?.max_playlists;
+  const maxPlaylists = typeof maxRaw === "number" && Number.isFinite(maxRaw) ? Math.max(0, Math.trunc(maxRaw)) : null;
 
   for (const item of items) {
     const external_id = normalizeString(item?.id);
@@ -174,10 +185,8 @@ function normalizeToInsertRows(json: any, youtube_channel_id: string): PlaylistI
     if (!external_id || !title || !channel_title) continue;
     if (seen.has(external_id)) continue;
 
-    if (!isOfficialAlbumLike(title, description)) continue;
-
     seen.add(external_id);
-    out.push({
+    const row: PlaylistInsertRow = {
       external_id,
       title,
       description,
@@ -186,7 +195,23 @@ function normalizeToInsertRows(json: any, youtube_channel_id: string): PlaylistI
       channel_title,
       item_count,
       sync_status: "fetched",
-    });
+    };
+
+    if (isOfficialAlbumLike(title, description)) {
+      preferred.push(row);
+    } else {
+      fallback.push(row);
+    }
+  }
+
+  const out: PlaylistInsertRow[] = [];
+  for (const row of preferred) {
+    out.push(row);
+    if (maxPlaylists !== null && out.length >= maxPlaylists) return out;
+  }
+  for (const row of fallback) {
+    out.push(row);
+    if (maxPlaylists !== null && out.length >= maxPlaylists) return out;
   }
 
   return out;
@@ -212,7 +237,7 @@ export async function youtubeFetchArtistPlaylists(input: YoutubeFetchArtistPlayl
     const json = await fetchPlaylistsOnce(youtube_channel_id);
     if (!json) return null;
 
-    const rows = normalizeToInsertRows(json, youtube_channel_id);
+    const rows = normalizeToInsertRows(json, youtube_channel_id, { max_playlists: input.max_playlists ?? null });
     if (rows.length === 0) return [];
 
     // Upsert is required for repeat-safe hydration.

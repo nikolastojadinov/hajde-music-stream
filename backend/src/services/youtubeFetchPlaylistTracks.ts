@@ -13,6 +13,9 @@ export type YoutubeFetchPlaylistTracksInput = {
   playlist_id: string;
   external_playlist_id: string;
   if_none_match?: string | null;
+  // Optional: limit how many tracks we ingest from this playlist.
+  // Used by the Search resolve "delta ingestion" flow.
+  max_tracks?: number;
 };
 
 type PlaylistItem = {
@@ -338,7 +341,13 @@ export async function youtubeFetchPlaylistTracks(input: YoutubeFetchPlaylistTrac
       return 0;
     }
 
-    const playlistItems = playlistItemsResult.items;
+    let playlistItems = playlistItemsResult.items;
+    const maxTracksRaw = input.max_tracks;
+    const maxTracks = typeof maxTracksRaw === "number" && Number.isFinite(maxTracksRaw) ? Math.max(0, Math.trunc(maxTracksRaw)) : null;
+    if (maxTracks !== null) {
+      if (maxTracks === 0) return 0;
+      playlistItems = playlistItems.slice(0, maxTracks);
+    }
     if (playlistItems.length === 0) return 0;
 
     const videoIds = playlistItems.map((i) => i.videoId);
