@@ -17,7 +17,7 @@ import {
   type SearchSuggestResponse,
 } from "@/lib/api/search";
 
-type SuggestionKind = "artist" | "album" | "track";
+  type SuggestionKind = "artist" | "album" | "track" | "playlist";
 
 type Suggestion = {
   kind: SuggestionKind;
@@ -96,48 +96,67 @@ export default function Search() {
   const flatSuggestions: Suggestion[] = useMemo(() => {
     if (!suggestions) return [];
 
-    const out: Suggestion[] = [];
+    const artists: Suggestion[] = (suggestions.artists || []).map((a) => ({
+      kind: "artist" as const,
+      id: a.id,
+      name: a.name,
+      imageUrl: a.imageUrl,
+      spotify: { type: "artist" as const, id: a.id, name: a.name },
+    }));
 
-    for (const a of suggestions.artists || []) {
-      out.push({
-        kind: "artist",
-        id: a.id,
-        name: a.name,
-        imageUrl: a.imageUrl,
-        spotify: { type: "artist", id: a.id, name: a.name },
-      });
-    }
-
-    for (const al of suggestions.albums || []) {
-      out.push({
-        kind: "album",
+    const albums: Suggestion[] = (suggestions.albums || []).map((al) => ({
+      kind: "album" as const,
+      id: al.id,
+      name: al.name,
+      subtitle: al.artistName,
+      imageUrl: al.imageUrl,
+      spotify: {
+        type: "album" as const,
         id: al.id,
         name: al.name,
-        subtitle: al.artistName,
-        imageUrl: al.imageUrl,
-        spotify: {
-          type: "album",
-          id: al.id,
-          name: al.name,
-          artistName: al.artistName,
-        },
-      });
-    }
+        artistName: al.artistName,
+      },
+    }));
 
-    for (const t of suggestions.tracks || []) {
-      out.push({
-        kind: "track",
+    const tracks: Suggestion[] = (suggestions.tracks || []).map((t) => ({
+      kind: "track" as const,
+      id: t.id,
+      name: t.name,
+      subtitle: t.artistName,
+      imageUrl: t.imageUrl,
+      spotify: {
+        type: "track" as const,
         id: t.id,
         name: t.name,
-        subtitle: t.artistName,
-        imageUrl: t.imageUrl,
-        spotify: {
-          type: "track",
-          id: t.id,
-          name: t.name,
-          artistName: t.artistName,
-        },
-      });
+        artistName: t.artistName,
+      },
+    }));
+
+    const playlists: Suggestion[] = ((suggestions as any).playlists || []).map((p: any) => ({
+      kind: "playlist" as const,
+      id: p.id,
+      name: p.name,
+      subtitle: p.ownerName,
+      imageUrl: p.imageUrl,
+      spotify: {
+        type: "playlist" as const,
+        id: p.id,
+        name: p.name,
+        ownerName: p.ownerName,
+      },
+    }));
+
+    // Interleave kinds so the dropdown feels mixed (artist + songs + playlists).
+    const buckets = [artists, tracks, playlists, albums];
+    const out: Suggestion[] = [];
+    const maxItems = 14;
+    while (out.length < maxItems && buckets.some((b) => b.length > 0)) {
+      for (const b of buckets) {
+        const next = b.shift();
+        if (!next) continue;
+        out.push(next);
+        if (out.length >= maxItems) break;
+      }
     }
 
     return out;
@@ -210,8 +229,8 @@ export default function Search() {
   };
 
   const handleSuggestionClick = async (s: Suggestion) => {
-    const nextMode: SearchResolveMode = s.kind;
-    const nextQuery = s.subtitle ? `${s.name} ${s.subtitle}` : s.name;
+    const nextMode: SearchResolveMode = s.kind === "playlist" ? "generic" : s.kind;
+    const nextQuery = s.kind === "playlist" ? s.name : s.subtitle ? `${s.name} ${s.subtitle}` : s.name;
     setQuery(nextQuery);
     setSuggestOpen(false);
     await runResolve(nextQuery, nextMode, s.spotify);
@@ -301,6 +320,7 @@ export default function Search() {
                       {s.kind === "artist" ? <User className="w-3 h-3" /> : null}
                       {s.kind === "album" ? <ListMusic className="w-3 h-3" /> : null}
                       {s.kind === "track" ? <Music className="w-3 h-3" /> : null}
+                      {s.kind === "playlist" ? <ListMusic className="w-3 h-3" /> : null}
                       <span className="capitalize">{s.kind}</span>
                     </div>
                   </button>

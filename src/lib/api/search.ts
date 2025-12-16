@@ -17,6 +17,13 @@ export type SearchSuggestTrack = {
   imageUrl?: string;
 };
 
+export type SearchSuggestPlaylist = {
+  id: string;
+  name: string;
+  ownerName?: string;
+  imageUrl?: string;
+};
+
 export type SearchSuggestLocalTrack = {
   id: string;
   title: string;
@@ -39,6 +46,7 @@ export type SearchSuggestResponse = {
   artists: SearchSuggestArtist[];
   albums: SearchSuggestAlbum[];
   tracks: SearchSuggestTrack[];
+  playlists?: SearchSuggestPlaylist[];
   // Some deployments may also include local suggestions.
   local?: {
     tracks?: SearchSuggestLocalTrack[];
@@ -49,10 +57,11 @@ export type SearchSuggestResponse = {
 export type SearchResolveMode = "track" | "artist" | "album" | "generic";
 
 export type SearchResolveSpotifySelection = {
-  type: "track" | "artist" | "album";
+  type: "track" | "artist" | "album" | "playlist";
   id: string;
   name: string;
   artistName?: string;
+  ownerName?: string;
 };
 
 export type SearchResolveRequest = {

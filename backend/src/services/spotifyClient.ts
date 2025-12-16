@@ -21,13 +21,21 @@ export type SpotifyTrack = {
   imageUrl?: string;
 };
 
+export type SpotifyPlaylist = {
+  id: string;
+  name: string;
+  ownerName?: string;
+  imageUrl?: string;
+};
+
 export type SpotifySearchResult = {
   artists: SpotifyArtist[];
   albums: SpotifyAlbum[];
   tracks: SpotifyTrack[];
+  playlists: SpotifyPlaylist[];
 };
 
-const EMPTY_RESULT: SpotifySearchResult = { artists: [], albums: [], tracks: [] };
+const EMPTY_RESULT: SpotifySearchResult = { artists: [], albums: [], tracks: [], playlists: [] };
 
 type TokenCache = {
   accessToken: string;
@@ -122,7 +130,7 @@ export async function spotifySearch(q: string): Promise<SpotifySearchResult> {
 
     const url = new URL('https://api.spotify.com/v1/search');
     url.searchParams.set('q', query);
-    url.searchParams.set('type', 'artist,album,track');
+    url.searchParams.set('type', 'artist,album,track,playlist');
     url.searchParams.set('limit', '5');
 
     const response = await fetch(url.toString(), {
@@ -177,7 +185,19 @@ export async function spotifySearch(q: string): Promise<SpotifySearchResult> {
         return out;
       });
 
-    return { artists, albums, tracks };
+    const playlists: SpotifyPlaylist[] = (json?.playlists?.items ?? [])
+      .filter((p: any) => p && typeof p === 'object' && typeof p.id === 'string' && typeof p.name === 'string')
+      .slice(0, 5)
+      .map((p: any) => {
+        const imageUrl = firstImageUrl(p.images);
+        const ownerName = typeof p?.owner?.display_name === 'string' ? p.owner.display_name : undefined;
+        const out: SpotifyPlaylist = { id: p.id, name: p.name };
+        if (ownerName) out.ownerName = ownerName;
+        if (imageUrl) out.imageUrl = imageUrl;
+        return out;
+      });
+
+    return { artists, albums, tracks, playlists };
   } catch (err) {
     if (err instanceof Error && err.message === 'Spotify search failed') {
       throw err;
