@@ -28,21 +28,9 @@ type Suggestion = {
   spotify?: SearchResolveSpotifySelection;
 };
 
-type ResolvedArtistChannel = {
-  channelId: string;
-  title: string;
-  thumbnailUrl: string | null;
-};
-
 type ArtistNavItem = {
   key: string;
   name: string;
-};
-
-type ResolvedArtistChannelsEnvelope = {
-  local: ResolvedArtistChannel[];
-  youtube: ResolvedArtistChannel[];
-  decision: "local_only" | "youtube_fallback";
 };
 
 function normalizeQuery(value: string): string {
@@ -53,27 +41,6 @@ function firstLetter(title: string): string {
   const trimmed = title.trim();
   if (!trimmed) return "?";
   return trimmed[0]?.toUpperCase() ?? "?";
-}
-
-function normalizeResolvedArtistChannels(input: any): ResolvedArtistChannelsEnvelope {
-  const ac = input?.artist_channels;
-  const rawLocal = Array.isArray(ac?.local) ? ac.local : [];
-  const rawYoutube = Array.isArray(ac?.youtube) ? ac.youtube : [];
-  const decision: "local_only" | "youtube_fallback" = ac?.decision === "youtube_fallback" ? "youtube_fallback" : "local_only";
-
-  const toChannel = (x: any): ResolvedArtistChannel | null => {
-    const channelId = typeof x?.channelId === "string" ? x.channelId.trim() : "";
-    const title = typeof x?.title === "string" ? x.title.trim() : "";
-    const thumbnailUrl = typeof x?.thumbnailUrl === "string" ? x.thumbnailUrl : null;
-    if (!channelId || !title) return null;
-    return { channelId, title, thumbnailUrl };
-  };
-
-  return {
-    local: rawLocal.map(toChannel).filter((c): c is ResolvedArtistChannel => Boolean(c)),
-    youtube: rawYoutube.map(toChannel).filter((c): c is ResolvedArtistChannel => Boolean(c)),
-    decision,
-  };
 }
 
 export default function Search() {
@@ -180,9 +147,6 @@ export default function Search() {
     return out;
   }, [suggestions]);
 
-  const resolvedArtistChannels = useMemo(() => normalizeResolvedArtistChannels(resolved), [resolved]);
-  const showArtistChannels = resolvedArtistChannels.local.length > 0 || resolvedArtistChannels.youtube.length > 0;
-
   const resultsSongs = useMemo(() => {
     const localTracks = resolved?.local?.tracks || [];
     const ytVideos = resolved?.youtube?.videos || [];
@@ -254,10 +218,10 @@ export default function Search() {
   const showSuggestBox = suggestOpen && normalizeQuery(query).length >= 2;
   const showResults = Boolean(resolved) || resolveLoading;
 
-  const handleArtistClick = (artistIdentifier: string) => {
-    const id = artistIdentifier.trim();
-    if (!id) return;
-    const internal = `/artist/${encodeURIComponent(id)}`;
+  const handleArtistClick = (artistName: string) => {
+    const name = artistName.trim();
+    if (!name) return;
+    const internal = `/artist/${encodeURIComponent(name)}`;
     try {
       navigate(internal);
     } catch {
@@ -269,7 +233,8 @@ export default function Search() {
     const seen = new Set<string>();
     const out: ArtistNavItem[] = [];
 
-    // 1) Prefer artists that appear in the current song results.
+    // Search page must never decide artist availability.
+    // Only derive artist navigation from the *visible* song results.
     for (const s of resultsSongs) {
       const name = (s.artist || "").trim();
       if (!name) continue;
@@ -280,22 +245,8 @@ export default function Search() {
       if (out.length >= 6) break;
     }
 
-    // 2) Also include resolved channel titles (mapping + youtube fallback) if not already present.
-    if (out.length < 6) {
-      const channels = [...resolvedArtistChannels.local, ...resolvedArtistChannels.youtube];
-      for (const c of channels) {
-        const name = (c.title || "").trim();
-        if (!name) continue;
-        const k = name.toLowerCase();
-        if (seen.has(k)) continue;
-        seen.add(k);
-        out.push({ key: `ch:${k}`, name });
-        if (out.length >= 6) break;
-      }
-    }
-
     return out;
-  }, [resultsSongs, resolvedArtistChannels.local, resolvedArtistChannels.youtube]);
+  }, [resultsSongs]);
 
   const isEmptyResults =
     !resolveLoading &&
@@ -303,8 +254,7 @@ export default function Search() {
     normalizeQuery(query).length > 0 &&
     resultsSongs.length === 0 &&
     resultsPlaylists.local.length === 0 &&
-    resultsPlaylists.youtube.length === 0 &&
-    !showArtistChannels;
+    resultsPlaylists.youtube.length === 0;
 
   const showResolveError = Boolean(error) && showResults && !resolveLoading;
 
@@ -388,11 +338,7 @@ export default function Search() {
             <EmptyState title="No results found" subtitle="Try a different artist, song, or playlist" />
           ) : resolved ? (
             <div>
-              <div className="mb-4 text-xs text-muted-foreground">
-                decision: <span className="font-medium">{resolved.decision}</span>
-              </div>
-
-              {/* Artist channels row (reserved space to avoid layout jump) */}
+              {/* Artist navigation row: derived only from visible songs */}
               <section className="mb-8 min-h-[104px]">
                 {artistNavItems.length > 0 ? (
                   <div className="flex gap-4 overflow-x-auto pb-2">
@@ -407,26 +353,6 @@ export default function Search() {
                           <span className="text-sm font-semibold text-muted-foreground">{firstLetter(a.name)}</span>
                         </div>
                         <div className="mt-2 text-xs font-medium truncate">{a.name}</div>
-                      </button>
-                    ))}
-                  </div>
-                ) : showArtistChannels ? (
-                  <div className="flex gap-4 overflow-x-auto pb-2">
-                    {[...resolvedArtistChannels.local, ...resolvedArtistChannels.youtube].map((c) => (
-                      <button
-                        key={c.channelId}
-                        type="button"
-                        onClick={() => handleArtistClick(c.title)}
-                        className="shrink-0 w-20 text-center"
-                      >
-                        <div className="mx-auto w-14 h-14 rounded-full bg-muted overflow-hidden flex items-center justify-center">
-                          {c.thumbnailUrl ? (
-                            <img src={c.thumbnailUrl} alt={c.title} className="w-full h-full object-cover" />
-                          ) : (
-                            <span className="text-sm font-semibold text-muted-foreground">{firstLetter(c.title)}</span>
-                          )}
-                        </div>
-                        <div className="mt-2 text-xs font-medium truncate">{c.title}</div>
                       </button>
                     ))}
                   </div>

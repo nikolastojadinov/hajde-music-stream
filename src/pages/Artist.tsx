@@ -3,7 +3,6 @@ import { useParams } from "react-router-dom";
 import { Play } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import LoadingSkeleton from "@/components/ui/LoadingSkeleton";
 import EmptyState from "@/components/ui/EmptyState";
 import ErrorState from "@/components/ui/ErrorState";
 import { usePlayer } from "@/contexts/PlayerContext";
@@ -40,6 +39,16 @@ type ArtistBundle = {
   tracks: ApiTrack[];
 };
 
+type ArtistDebug = {
+  input_artist_identifier: string;
+  stored_channel_id: string | null;
+  channel_validation_result: "valid" | "invalid" | "none";
+  search_fallback_used: boolean;
+  hydration_started: boolean;
+  playlists_fetched_count: number;
+  tracks_fetched_count: number;
+};
+
 type CandidateChannel = {
   channelId: string;
   title: string;
@@ -48,31 +57,59 @@ type CandidateChannel = {
 
 type ArtistApiResponse =
   | ArtistBundle
-  | { status: "invalid_channel"; requiresChannelSelection: true }
+  | { status: "ok"; artist: ApiArtist | null; playlists: ApiPlaylist[]; tracks: ApiTrack[]; debug: ArtistDebug }
+  | { status: "invalid_channel"; requiresChannelSelection: true; debug: ArtistDebug }
   | {
       status: "requires_channel_selection";
-      requiresChannelSelection: true;
       candidates: CandidateChannel[];
+      debug: ArtistDebug;
+      requiresChannelSelection?: true;
     };
+
+type ArtistApiError = { error: string; debug?: ArtistDebug };
 
 function isArtistBundle(x: any): x is ArtistBundle {
   return x && typeof x === "object" && "artist" in x && "playlists" in x && "tracks" in x;
 }
 
-function isInvalidChannelResponse(x: any): x is { status: "invalid_channel"; requiresChannelSelection: true } {
-  return x && typeof x === "object" && x.status === "invalid_channel" && x.requiresChannelSelection === true;
+function isOkResponse(
+  x: any
+): x is { status: "ok"; artist: ApiArtist | null; playlists: ApiPlaylist[]; tracks: ApiTrack[]; debug: ArtistDebug } {
+  return x && typeof x === "object" && x.status === "ok" && x.debug && typeof x.debug === "object";
+}
+
+function isErrorResponse(x: any): x is ArtistApiError {
+  return x && typeof x === "object" && typeof x.error === "string";
+}
+
+function isInvalidChannelResponse(x: any): x is { status: "invalid_channel"; requiresChannelSelection: true; debug: ArtistDebug } {
+  return (
+    x &&
+    typeof x === "object" &&
+    x.status === "invalid_channel" &&
+    x.requiresChannelSelection === true &&
+    x.debug &&
+    typeof x.debug === "object"
+  );
 }
 
 function isCandidatesResponse(
   x: any
-): x is { status: "requires_channel_selection"; requiresChannelSelection: true; candidates: CandidateChannel[] } {
+): x is { status: "requires_channel_selection"; candidates: CandidateChannel[]; debug: ArtistDebug } {
   return (
     x &&
     typeof x === "object" &&
     x.status === "requires_channel_selection" &&
-    x.requiresChannelSelection === true &&
-    Array.isArray(x.candidates)
+    Array.isArray(x.candidates) &&
+    x.debug &&
+    typeof x.debug === "object"
   );
+}
+
+function logArtistApi(x: any) {
+  const status = x && typeof x === "object" ? (x.status ?? "error") : "error";
+  const debug = x && typeof x === "object" ? x.debug : undefined;
+  console.info("[Artist API]", status, debug);
 }
 
 function formatCount(n: number): string {
@@ -85,8 +122,10 @@ export default function Artist() {
 
   const [bundle, setBundle] = useState<ArtistBundle | null>(null);
   const [loading, setLoading] = useState(true);
+  const [processText, setProcessText] = useState("Validating artist channel…");
   const [error, setError] = useState<string | null>(null);
   const [reloadNonce, setReloadNonce] = useState(0);
+  const [debug, setDebug] = useState<ArtistDebug | null>(null);
 
   const [requiresChannelSelection, setRequiresChannelSelection] = useState(false);
   const [candidates, setCandidates] = useState<CandidateChannel[]>([]);
@@ -116,24 +155,15 @@ export default function Artist() {
     setRequiresChannelSelection(false);
     setCandidates([]);
     setLoading(true);
+    setDebug(null);
+    setProcessText("Validating artist channel…");
     setReloadNonce((x) => x + 1);
   };
 
   async function fetchArtist(identifier: string): Promise<ArtistApiResponse> {
     const res = await fetch(`/api/artist/${encodeURIComponent(identifier)}`);
-    if (!res.ok) {
-      throw new Error(`Failed to load artist (${res.status})`);
-    }
-    return (await res.json()) as ArtistApiResponse;
-  }
-
-  async function fetchCandidatesAfterInvalid(identifier: string): Promise<CandidateChannel[]> {
-    // After backend deletes an invalid stored mapping, calling the same endpoint again is allowed
-    // to trigger search.list fallback (quota=100) because no valid channelId exists anymore.
-    const res = await fetchArtist(identifier);
-    if (isCandidatesResponse(res)) return res.candidates;
-    if (isInvalidChannelResponse(res)) return [];
-    return [];
+    const json = await res.json().catch(() => ({}));
+    return json as ArtistApiResponse;
   }
 
   async function postSelectedChannel(artistName: string, youtube_channel_id: string): Promise<ArtistApiResponse> {
@@ -145,10 +175,8 @@ export default function Artist() {
       },
       body: JSON.stringify({ artistName, youtube_channel_id }),
     });
-    if (!res.ok) {
-      throw new Error(`Failed to hydrate artist (${res.status})`);
-    }
-    return (await res.json()) as ArtistApiResponse;
+    const json = await res.json().catch(() => ({}));
+    return json as ArtistApiResponse;
   }
 
   useEffect(() => {
@@ -164,12 +192,24 @@ export default function Artist() {
 
       try {
         setLoading(true);
+        setProcessText("Validating artist channel…");
         setError(null);
         setRequiresChannelSelection(false);
         setCandidates([]);
+        setDebug(null);
 
         const data = await fetchArtist(safeChannelId);
         if (!active) return;
+
+        logArtistApi(data);
+        if (data && typeof data === "object" && "debug" in data) {
+          setDebug(((data as any).debug as ArtistDebug) ?? null);
+        }
+
+        if (isOkResponse(data)) {
+          setBundle({ artist: data.artist, playlists: data.playlists, tracks: data.tracks });
+          return;
+        }
 
         if (isArtistBundle(data)) {
           setBundle(data);
@@ -180,10 +220,34 @@ export default function Artist() {
           setBundle(null);
           setRequiresChannelSelection(true);
 
-          // If identifier is an artist name (recommended), we can immediately fetch candidates.
-          const nextCandidates = await fetchCandidatesAfterInvalid(safeChannelId);
+          setProcessText("Searching YouTube channels…");
+
+          // Call the same endpoint again to trigger search.list fallback (no valid mapping exists anymore).
+          const next = await fetchArtist(safeChannelId);
           if (!active) return;
-          setCandidates(nextCandidates);
+
+          logArtistApi(next);
+          if (next && typeof next === "object" && "debug" in next) {
+            setDebug(((next as any).debug as ArtistDebug) ?? null);
+          }
+
+          if (isCandidatesResponse(next)) {
+            setCandidates(next.candidates);
+            return;
+          }
+
+          if (isOkResponse(next)) {
+            setBundle({ artist: next.artist, playlists: next.playlists, tracks: next.tracks });
+            setRequiresChannelSelection(false);
+            setCandidates([]);
+            return;
+          }
+
+          if (isErrorResponse(next)) {
+            setError(next.error || "Artist request failed");
+            return;
+          }
+
           return;
         }
 
@@ -194,12 +258,18 @@ export default function Artist() {
           return;
         }
 
+        if (isErrorResponse(data)) {
+          setBundle(null);
+          setError(data.error || "Artist request failed");
+          return;
+        }
+
         setBundle(null);
-        setError("Artist could not be loaded");
+        setError("Artist request failed");
       } catch (e: any) {
         if (!active) return;
         setBundle(null);
-        setError(e?.message || "Failed to load artist");
+        setError(e?.message || "Artist request failed");
       } finally {
         if (!active) return;
         setLoading(false);
@@ -215,7 +285,9 @@ export default function Artist() {
   if (loading) {
     return (
       <div className="p-4 max-w-4xl mx-auto pb-32">
-        <LoadingSkeleton type="artist" />
+        <div className="min-h-[60vh] flex items-center justify-center">
+          <div className="text-muted-foreground">{processText}</div>
+        </div>
       </div>
     );
   }
@@ -229,6 +301,7 @@ export default function Artist() {
             <div className="text-sm text-muted-foreground mt-1">
               This artist needs a valid YouTube channel before albums and tracks can be hydrated.
             </div>
+            {selecting ? <div className="text-sm text-muted-foreground mt-2">{processText}</div> : null}
           </div>
 
           {candidates.length === 0 ? (
@@ -248,16 +321,31 @@ export default function Artist() {
                     if (!safeChannelId) return;
                     setSelecting(true);
                     setError(null);
+                    setProcessText("Fetching playlists and tracks…");
                     try {
                       const resp = await postSelectedChannel(safeChannelId, c.channelId);
+                      logArtistApi(resp);
+                      if (resp && typeof resp === "object" && "debug" in resp) {
+                        setDebug(((resp as any).debug as ArtistDebug) ?? null);
+                      }
+
+                      if (isOkResponse(resp)) {
+                        setBundle({ artist: resp.artist, playlists: resp.playlists, tracks: resp.tracks });
+                        setRequiresChannelSelection(false);
+                        setCandidates([]);
+                        return;
+                      }
+
                       if (isArtistBundle(resp)) {
                         setBundle(resp);
                         setRequiresChannelSelection(false);
                         setCandidates([]);
-                      } else {
-                        // Backend may still say invalid/needs selection; keep UI in selection mode.
-                        if (isCandidatesResponse(resp)) setCandidates(resp.candidates);
+                        return;
                       }
+
+                      // Backend may still say invalid/needs selection; keep UI in selection mode.
+                      if (isCandidatesResponse(resp)) setCandidates(resp.candidates);
+                      if (isErrorResponse(resp)) setError(resp.error || "Hydration failed");
                     } catch (e: any) {
                       setError(e?.message || "Failed to hydrate artist");
                     } finally {
@@ -294,7 +382,11 @@ export default function Artist() {
 
     return (
       <div className="p-4 max-w-4xl mx-auto pb-32">
-        <ErrorState title="Artist not available" subtitle={error || "This artist could not be loaded"} onRetry={safeChannelId ? retry : undefined} />
+        <ErrorState
+          title="Artist request failed"
+          subtitle={error || "This artist could not be loaded"}
+          onRetry={safeChannelId ? retry : undefined}
+        />
       </div>
     );
   }
