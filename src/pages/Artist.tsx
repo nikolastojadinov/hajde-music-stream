@@ -122,7 +122,7 @@ export default function Artist() {
 
   const [bundle, setBundle] = useState<ArtistBundle | null>(null);
   const [loading, setLoading] = useState(true);
-  const [processText, setProcessText] = useState("Validating artist channel…");
+  const [processText, setProcessText] = useState("Validating cached channel…");
   const [error, setError] = useState<string | null>(null);
   const [reloadNonce, setReloadNonce] = useState(0);
   const [debug, setDebug] = useState<ArtistDebug | null>(null);
@@ -148,6 +148,35 @@ export default function Artist() {
       }));
   }, [tracks, artist?.name]);
 
+  const debugView = useMemo(() => {
+    if (!debug) return null;
+
+    const youtube_calls_made: string[] = [];
+    if (debug.channel_validation_result !== "none") youtube_calls_made.push("channels.list");
+    if (debug.search_fallback_used) youtube_calls_made.push("search.list");
+    if (debug.hydration_started) youtube_calls_made.push("hydrate");
+
+    return {
+      decision_source: debug.search_fallback_used ? "search" : "cache",
+      channel_validated: debug.channel_validation_result === "valid",
+      youtube_calls_made,
+    };
+  }, [debug]);
+
+  const showDebug = Boolean(import.meta.env.DEV);
+
+  const DebugPanel = showDebug && (debug || debugView) ? (
+    <div className="mt-4 rounded-lg border border-border bg-card/30 p-3">
+      <div className="text-xs font-semibold mb-2">Debug (dev only)</div>
+      {debugView ? (
+        <pre className="text-xs text-muted-foreground whitespace-pre-wrap">{JSON.stringify(debugView, null, 2)}</pre>
+      ) : null}
+      {debug ? (
+        <pre className="mt-2 text-xs text-muted-foreground whitespace-pre-wrap">{JSON.stringify(debug, null, 2)}</pre>
+      ) : null}
+    </div>
+  ) : null;
+
   const retry = () => {
     if (!safeChannelId) return;
     setBundle(null);
@@ -156,7 +185,7 @@ export default function Artist() {
     setCandidates([]);
     setLoading(true);
     setDebug(null);
-    setProcessText("Validating artist channel…");
+    setProcessText("Validating cached channel…");
     setReloadNonce((x) => x + 1);
   };
 
@@ -192,7 +221,7 @@ export default function Artist() {
 
       try {
         setLoading(true);
-        setProcessText("Validating artist channel…");
+        setProcessText("Validating cached channel…");
         setError(null);
         setRequiresChannelSelection(false);
         setCandidates([]);
@@ -220,7 +249,7 @@ export default function Artist() {
           setBundle(null);
           setRequiresChannelSelection(true);
 
-          setProcessText("Searching YouTube channels…");
+          setProcessText("Searching YouTube for official channels…");
 
           // Call the same endpoint again to trigger search.list fallback (no valid mapping exists anymore).
           const next = await fetchArtist(safeChannelId);
@@ -255,6 +284,7 @@ export default function Artist() {
           setBundle(null);
           setRequiresChannelSelection(true);
           setCandidates(data.candidates);
+          setProcessText("Searching YouTube for official channels…");
           return;
         }
 
@@ -288,6 +318,7 @@ export default function Artist() {
         <div className="min-h-[60vh] flex items-center justify-center">
           <div className="text-muted-foreground">{processText}</div>
         </div>
+        {DebugPanel}
       </div>
     );
   }
@@ -297,11 +328,13 @@ export default function Artist() {
       return (
         <div className="p-4 max-w-4xl mx-auto pb-32">
           <div className="mb-6">
-            <h1 className="text-2xl font-bold">Select a YouTube channel</h1>
-            <div className="text-sm text-muted-foreground mt-1">
-              This artist needs a valid YouTube channel before albums and tracks can be hydrated.
-            </div>
-            {selecting ? <div className="text-sm text-muted-foreground mt-2">{processText}</div> : null}
+            <h1 className="text-2xl font-bold">Select official artist channel</h1>
+            <div className="text-sm text-muted-foreground mt-1">Select the official YouTube channel for this artist.</div>
+            {debug?.search_fallback_used ? (
+              <div className="text-sm text-muted-foreground mt-2">Searching YouTube for official channels…</div>
+            ) : null}
+            {selecting ? <div className="text-sm text-muted-foreground mt-2">Fetching playlists and tracks…</div> : null}
+            {DebugPanel}
           </div>
 
           {candidates.length === 0 ? (
@@ -387,6 +420,7 @@ export default function Artist() {
           subtitle={error || "This artist could not be loaded"}
           onRetry={safeChannelId ? retry : undefined}
         />
+        {DebugPanel}
       </div>
     );
   }
@@ -416,6 +450,8 @@ export default function Artist() {
           <Play className="w-4 h-4 mr-2" /> Play All
         </Button>
       </div>
+
+      {DebugPanel}
 
       <section className="mb-10">
         <h2 className="text-xl font-bold mb-4">Playlists</h2>

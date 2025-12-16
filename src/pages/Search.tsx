@@ -341,20 +341,23 @@ export default function Search() {
               {/* Artist navigation row: derived only from visible songs */}
               <section className="mb-8 min-h-[104px]">
                 {artistNavItems.length > 0 ? (
-                  <div className="flex gap-4 overflow-x-auto pb-2">
-                    {artistNavItems.map((a) => (
-                      <button
-                        key={a.key}
-                        type="button"
-                        onClick={() => handleArtistClick(a.name)}
-                        className="shrink-0 w-20 text-center"
-                      >
-                        <div className="mx-auto w-14 h-14 rounded-full bg-muted overflow-hidden flex items-center justify-center">
-                          <span className="text-sm font-semibold text-muted-foreground">{firstLetter(a.name)}</span>
-                        </div>
-                        <div className="mt-2 text-xs font-medium truncate">{a.name}</div>
-                      </button>
-                    ))}
+                  <div>
+                    <div className="mb-2 text-xs text-muted-foreground">Possible artists (not verified)</div>
+                    <div className="flex gap-4 overflow-x-auto pb-2">
+                      {artistNavItems.map((a) => (
+                        <button
+                          key={a.key}
+                          type="button"
+                          onClick={() => handleArtistClick(a.name)}
+                          className="shrink-0 w-20 text-center"
+                        >
+                          <div className="mx-auto w-14 h-14 rounded-full bg-muted overflow-hidden flex items-center justify-center">
+                            <span className="text-sm font-semibold text-muted-foreground">{firstLetter(a.name)}</span>
+                          </div>
+                          <div className="mt-2 text-xs font-medium truncate">{a.name}</div>
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 ) : null}
               </section>
