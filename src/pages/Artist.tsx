@@ -7,14 +7,6 @@ import EmptyState from "@/components/ui/EmptyState";
 import ErrorState from "@/components/ui/ErrorState";
 import { usePlayer } from "@/contexts/PlayerContext";
 
-type ApiArtist = {
-  id?: string;
-  name: string;
-  youtube_channel_id?: string;
-  spotify_artist_id?: string | null;
-  avatar_url?: string | null;
-};
-
 type ApiPlaylist = {
   id: string;
   title: string;
@@ -34,18 +26,13 @@ type ApiTrack = {
 };
 
 type ArtistOkResponse = {
-  status?: "ok";
-  artist: ApiArtist;
+  status: "ok";
   playlists: ApiPlaylist[];
   tracks: ApiTrack[];
 };
 
 type ArtistNotReadyResponse = {
   status: "not_ready";
-  artistName: string;
-  message?: string;
-  playlists?: ApiPlaylist[];
-  tracks?: ApiTrack[];
 };
 
 type ArtistErrorResponse = {
@@ -60,12 +47,12 @@ function formatCount(n: number): string {
   return new Intl.NumberFormat().format(n);
 }
 
-function isOkLike(x: any): x is ArtistOkResponse {
-  return x && typeof x === "object" && x.artist && typeof x.artist === "object" && Array.isArray(x.playlists) && Array.isArray(x.tracks);
+function isOk(x: any): x is ArtistOkResponse {
+  return x && typeof x === "object" && x.status === "ok" && Array.isArray(x.playlists) && Array.isArray(x.tracks);
 }
 
 function isNotReady(x: any): x is ArtistNotReadyResponse {
-  return x && typeof x === "object" && x.status === "not_ready" && typeof x.artistName === "string";
+  return x && typeof x === "object" && x.status === "not_ready";
 }
 
 function isError(x: any): x is ArtistErrorResponse {
@@ -80,10 +67,9 @@ export default function Artist() {
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [notReady, setNotReady] = useState(false);
+  const [status, setStatus] = useState<"ok" | "not_ready" | "unknown">("unknown");
   const [reloadNonce, setReloadNonce] = useState(0);
 
-  const [artist, setArtist] = useState<ApiArtist | null>(null);
   const [playlists, setPlaylists] = useState<ApiPlaylist[]>([]);
   const [tracks, setTracks] = useState<ApiTrack[]>([]);
 
@@ -91,12 +77,12 @@ export default function Artist() {
     return tracks
       .filter((t) => t && typeof t === "object" && t.youtube_video_id)
       .map((t) => ({
+        id: t.id,
         external_id: t.youtube_video_id,
         title: t.title,
-        artist: t.artist_name || artist?.name || artistName || "Unknown artist",
-        id: t.id,
+        artist: t.artist_name || artistName || "Unknown artist",
       }));
-  }, [tracks, artist?.name, artistName]);
+  }, [tracks, artistName]);
 
   const retry = () => {
     if (!artistName) return;
@@ -110,8 +96,7 @@ export default function Artist() {
       if (!artistName) {
         setLoading(false);
         setError("Missing artist name");
-        setNotReady(false);
-        setArtist(null);
+        setStatus("unknown");
         setPlaylists([]);
         setTracks([]);
         return;
@@ -120,7 +105,6 @@ export default function Artist() {
       try {
         setLoading(true);
         setError(null);
-        setNotReady(false);
 
         const res = await fetch(`/api/artist/${encodeURIComponent(artistName)}`, {
           method: "GET",
@@ -130,57 +114,45 @@ export default function Artist() {
         if (!active) return;
 
         if (isNotReady(json)) {
-          setNotReady(true);
-          setArtist({ name: artistName });
-          setPlaylists(Array.isArray(json.playlists) ? (json.playlists as ApiPlaylist[]) : []);
-          setTracks(Array.isArray(json.tracks) ? (json.tracks as ApiTrack[]) : []);
+          setStatus("not_ready");
+          setPlaylists([]);
+          setTracks([]);
           return;
         }
 
-        if (isOkLike(json)) {
-          setArtist({
-            id: json.artist?.id,
-            name: normalizeString(json.artist?.name) || artistName,
-            youtube_channel_id: json.artist?.youtube_channel_id,
-            spotify_artist_id: json.artist?.spotify_artist_id ?? null,
-            avatar_url: json.artist?.avatar_url ?? null,
-          });
+        if (isOk(json)) {
+          setStatus("ok");
           setPlaylists(Array.isArray(json.playlists) ? json.playlists : []);
           setTracks(Array.isArray(json.tracks) ? json.tracks : []);
-          setNotReady(false);
           return;
         }
 
         if (isError(json)) {
           setError(json.error || "Artist request failed");
-          setArtist(null);
+          setStatus("unknown");
           setPlaylists([]);
           setTracks([]);
-          setNotReady(false);
           return;
         }
 
         if (!res.ok) {
           setError("Artist request failed");
-          setArtist(null);
+          setStatus("unknown");
           setPlaylists([]);
           setTracks([]);
-          setNotReady(false);
           return;
         }
 
         setError("Artist request failed");
-        setArtist(null);
+        setStatus("unknown");
         setPlaylists([]);
         setTracks([]);
-        setNotReady(false);
       } catch (e: any) {
         if (!active) return;
         setError(e?.message || "Artist request failed");
-        setArtist(null);
+        setStatus("unknown");
         setPlaylists([]);
         setTracks([]);
-        setNotReady(false);
       } finally {
         if (!active) return;
         setLoading(false);
@@ -211,39 +183,28 @@ export default function Artist() {
     );
   }
 
-  if (notReady) {
+  if (status === "not_ready") {
     return (
       <div className="p-4 max-w-4xl mx-auto pb-32">
         <div className="mb-6">
-          <h1 className="text-2xl font-bold truncate">{artistName}</h1>
-          <div className="text-sm text-muted-foreground mt-1">
-            Podaci za izvođača se još učitavaju. Pokušaj ponovo za nekoliko sekundi.
-          </div>
+          <h1 className="text-2xl font-bold truncate">{artistName || "Artist"}</h1>
+          <div className="text-sm text-muted-foreground mt-1">Artist is being prepared. Please retry.</div>
           <div className="mt-4">
             <Button type="button" onClick={retry}>
-              Pokušaj ponovo
+              Retry
             </Button>
           </div>
         </div>
 
-        {/* Ne rušimo UI kada je prazno */}
         <section className="mb-10">
           <h2 className="text-xl font-bold mb-4">Playlists</h2>
-          <EmptyState title="No playlists yet" subtitle="Još nema lokalnih plejlista" />
+          <EmptyState title="No playlists yet" subtitle="This artist doesn’t have any playlists available" />
         </section>
 
         <section>
           <h2 className="text-xl font-bold mb-4">Tracks</h2>
-          <EmptyState title="No tracks yet" subtitle="Još nema lokalnih pesama" />
+          <EmptyState title="No tracks yet" subtitle="This artist doesn’t have any tracks available" />
         </section>
-      </div>
-    );
-  }
-
-  if (!artist) {
-    return (
-      <div className="p-4 max-w-4xl mx-auto pb-32">
-        <ErrorState title="Artist request failed" subtitle="This artist could not be loaded" onRetry={artistName ? retry : undefined} />
       </div>
     );
   }
@@ -251,12 +212,8 @@ export default function Artist() {
   return (
     <div className="p-4 max-w-4xl mx-auto pb-32">
       <div className="flex items-center gap-4 mb-6">
-        <div className="w-16 h-16 rounded-full bg-muted overflow-hidden shrink-0">
-          {artist.avatar_url ? <img src={artist.avatar_url} alt={artist.name} className="w-full h-full object-cover" /> : null}
-        </div>
-
         <div className="flex-1 min-w-0">
-          <h1 className="text-2xl font-bold truncate">{artist.name}</h1>
+          <h1 className="text-2xl font-bold truncate">{artistName || "Artist"}</h1>
           <div className="text-sm text-muted-foreground">
             {formatCount(playlists.length)} playlists • {formatCount(tracks.length)} tracks
           </div>
@@ -315,7 +272,7 @@ export default function Artist() {
                   className="w-full text-left rounded-lg border border-border bg-card/30 px-3 py-3 hover:bg-card/50 transition-colors"
                 >
                   <div className="font-medium truncate">{t.title}</div>
-                  <div className="text-sm text-muted-foreground truncate">{t.artist_name || artist.name}</div>
+                  <div className="text-sm text-muted-foreground truncate">{t.artist_name || artistName || "Unknown artist"}</div>
                 </button>
               );
             })}

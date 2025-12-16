@@ -28,11 +28,6 @@ type Suggestion = {
   spotify?: SearchResolveSpotifySelection;
 };
 
-type ArtistNavItem = {
-  key: string;
-  name: string;
-};
-
 function normalizeQuery(value: string): string {
   return value.trim();
 }
@@ -44,8 +39,7 @@ function firstLetter(title: string): string {
 }
 
 export default function Search() {
-  // Nema login gate-a: Search mora da radi i za goste.
-  // User-specifične stvari (likes/premium/playlist-views) se ne rade na ovoj stranici.
+  // Search mora raditi i za goste (bez login gate-a).
   const { playTrack } = usePlayer();
   const navigate = useNavigate();
 
@@ -180,6 +174,12 @@ export default function Search() {
     return { local: localPlaylists, youtube: ytPlaylists };
   }, [resolved]);
 
+  const ingestedArtistName = useMemo(() => {
+    const name = resolved?.artist_name ? resolved.artist_name.trim() : "";
+    if (!resolved?.artist_ingested) return null;
+    return name || null;
+  }, [resolved]);
+
   async function runResolve(nextQuery: string, mode: SearchResolveMode, spotify?: SearchResolveSpotifySelection) {
     const q = normalizeQuery(nextQuery);
     if (!q) return;
@@ -230,25 +230,6 @@ export default function Search() {
       window.open(internal, "_blank", "noopener,noreferrer");
     }
   };
-
-  const artistNavItems: ArtistNavItem[] = useMemo(() => {
-    const seen = new Set<string>();
-    const out: ArtistNavItem[] = [];
-
-    // Search stranica ne odlučuje o dostupnosti artista.
-    // Navigaciju deriviramo samo iz trenutno vidljivih rezultata pesama.
-    for (const s of resultsSongs) {
-      const name = (s.artist || "").trim();
-      if (!name) continue;
-      const k = name.toLowerCase();
-      if (seen.has(k)) continue;
-      seen.add(k);
-      out.push({ key: `song:${k}`, name });
-      if (out.length >= 6) break;
-    }
-
-    return out;
-  }, [resultsSongs]);
 
   const isEmptyResults =
     !resolveLoading &&
@@ -340,25 +321,21 @@ export default function Search() {
             <EmptyState title="No results found" subtitle="Try a different artist, song, or playlist" />
           ) : resolved ? (
             <div>
-              {/* Artist navigation row: derived only from visible songs */}
+              {/* Artist chip: ONLY when backend confirms ingestion trigger */}
               <section className="mb-8 min-h-[104px]">
-                {artistNavItems.length > 0 ? (
+                {ingestedArtistName ? (
                   <div>
-                    <div className="mb-2 text-xs text-muted-foreground">Possible artists (not verified)</div>
+                    <div className="mb-2 text-xs text-muted-foreground">Artist</div>
                     <div className="flex gap-4 overflow-x-auto pb-2">
-                      {artistNavItems.map((a) => (
-                        <button
-                          key={a.key}
-                          type="button"
-                          onClick={() => handleArtistClick(a.name)}
-                          className="shrink-0 w-20 text-center"
-                        >
-                          <div className="mx-auto w-14 h-14 rounded-full bg-muted overflow-hidden flex items-center justify-center">
-                            <span className="text-sm font-semibold text-muted-foreground">{firstLetter(a.name)}</span>
-                          </div>
-                          <div className="mt-2 text-xs font-medium truncate">{a.name}</div>
-                        </button>
-                      ))}
+                      <button type="button" onClick={() => handleArtistClick(ingestedArtistName)} className="shrink-0 w-20 text-center">
+                        <div className="mx-auto w-14 h-14 rounded-full bg-muted overflow-hidden flex items-center justify-center">
+                          <span className="text-sm font-semibold text-muted-foreground">{firstLetter(ingestedArtistName)}</span>
+                        </div>
+                        <div className="mt-2 text-xs font-medium truncate">{ingestedArtistName}</div>
+                        <div className="mt-1 text-[10px] text-muted-foreground inline-flex items-center justify-center gap-1">
+                          <User className="w-3 h-3" /> <span>Artist</span>
+                        </div>
+                      </button>
                     </div>
                   </div>
                 ) : null}

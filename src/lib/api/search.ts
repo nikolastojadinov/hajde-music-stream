@@ -1,12 +1,14 @@
 import { withBackendOrigin } from "@/lib/backendUrl";
 
 export type SearchSuggestArtist = { id: string; name: string; imageUrl?: string };
+
 export type SearchSuggestAlbum = {
   id: string;
   name: string;
   artistName?: string;
   imageUrl?: string;
 };
+
 export type SearchSuggestTrack = {
   id: string;
   name: string;
@@ -86,6 +88,10 @@ export type SearchResolveResponse = {
     playlists?: SearchResolveYouTubePlaylist[];
   };
   decision: "local_only" | "youtube_fallback";
+
+  // Wiring fields for "Search triggers artist ingestion" pipeline.
+  artist_ingested: boolean;
+  artist_name: string | null;
 };
 
 async function readJsonOrThrow(response: Response): Promise<any> {
@@ -118,7 +124,10 @@ export async function searchSuggest(q: string, options?: { signal?: AbortSignal 
   return json as SearchSuggestResponse;
 }
 
-export async function searchResolve(payload: SearchResolveRequest, options?: { signal?: AbortSignal }): Promise<SearchResolveResponse> {
+export async function searchResolve(
+  payload: SearchResolveRequest,
+  options?: { signal?: AbortSignal }
+): Promise<SearchResolveResponse> {
   const response = await fetch(withBackendOrigin("/api/search/resolve"), {
     method: "POST",
     credentials: "include",
