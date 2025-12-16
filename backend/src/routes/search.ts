@@ -88,7 +88,6 @@ type ArtistChannelsEnvelope = {
 type YoutubeChannelsRow = {
   name: string;
   youtube_channel_id: string;
-  thumbnail_url: string | null;
 };
 
 function normalizeQuery(input: unknown): string {
@@ -144,9 +143,8 @@ function mapPlaylistRow(row: SearchPlaylistRow): LocalPlaylist {
 function mapLocalArtistChannelRow(row: SearchArtistChannelRow): ResolvedArtistChannel | null {
   const title = typeof row.name === "string" ? row.name.trim() : "";
   const channelId = typeof row.youtube_channel_id === "string" ? row.youtube_channel_id.trim() : "";
-  const thumbnailUrl = typeof row.thumbnail_url === "string" ? row.thumbnail_url : null;
   if (!title || !channelId) return null;
-  return { channelId, title, thumbnailUrl };
+  return { channelId, title, thumbnailUrl: null };
 }
 
 function mergeLegacyPlaylists(byTitle: LocalPlaylist[], byArtist: LocalPlaylist[]): LocalPlaylist[] {
@@ -176,7 +174,7 @@ async function findYoutubeChannelByArtistName(artistName: string): Promise<Youtu
 
   const { data, error } = await supabase
     .from("youtube_channels")
-    .select("name, youtube_channel_id, thumbnail_url")
+    .select("name, youtube_channel_id")
     // ilike without wildcards behaves like case-insensitive equality.
     .ilike("name", name)
     .limit(1)
@@ -189,10 +187,9 @@ async function findYoutubeChannelByArtistName(artistName: string): Promise<Youtu
 
   const outId = typeof (data as any)?.youtube_channel_id === "string" ? String((data as any).youtube_channel_id).trim() : "";
   const outName = typeof (data as any)?.name === "string" ? String((data as any).name).trim() : "";
-  const outThumb = typeof (data as any)?.thumbnail_url === "string" ? String((data as any).thumbnail_url) : null;
   if (!outId) return null;
 
-  return { name: outName || name, youtube_channel_id: outId, thumbnail_url: outThumb };
+  return { name: outName || name, youtube_channel_id: outId };
 }
 
 async function runArtistIngestFlow(artistNameRaw: string): Promise<void> {
@@ -260,7 +257,6 @@ async function runArtistIngestFlow(artistNameRaw: string): Promise<void> {
       await upsertYoutubeChannelMapping({
         name: artistName,
         youtube_channel_id: channelId,
-        thumbnail_url: validation.thumbnailUrl ?? candidateThumbUrl ?? null,
       });
 
       console.info(LOG_PREFIX, "CACHE_UPSERT", {
@@ -457,7 +453,6 @@ router.post("/resolve", async (req, res) => {
             await upsertYoutubeChannelMapping({
               name: ingestArtistName,
               youtube_channel_id: channelId,
-              thumbnail_url: validation.thumbnailUrl ?? candidateThumbUrl ?? null,
             });
 
             console.info(LOG_PREFIX, "CACHE_UPSERT", {

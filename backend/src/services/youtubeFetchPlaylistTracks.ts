@@ -16,6 +16,9 @@ export type YoutubeFetchPlaylistTracksInput = {
   // Optional: limit how many tracks we ingest from this playlist.
   // Used by the Search resolve "delta ingestion" flow.
   max_tracks?: number;
+  // Optional: force the stored track artist to a specific name.
+  // Used to ensure tracks are saved under the search artistName.
+  artist_override?: string;
 };
 
 type PlaylistItem = {
@@ -358,7 +361,14 @@ export async function youtubeFetchPlaylistTracks(input: YoutubeFetchPlaylistTrac
     for (const item of playlistItems) {
       const row = videoDetailsMap.get(item.videoId);
       if (!row) continue;
-      if (!desiredTrackRowsMap.has(row.external_id)) desiredTrackRowsMap.set(row.external_id, row);
+      if (desiredTrackRowsMap.has(row.external_id)) continue;
+
+      const override = typeof input.artist_override === "string" ? input.artist_override.trim() : "";
+      if (override) {
+        desiredTrackRowsMap.set(row.external_id, { ...row, artist: override });
+      } else {
+        desiredTrackRowsMap.set(row.external_id, row);
+      }
     }
     const desiredTrackRows = Array.from(desiredTrackRowsMap.values());
     if (desiredTrackRows.length === 0) return 0;

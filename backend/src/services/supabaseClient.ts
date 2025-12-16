@@ -27,7 +27,6 @@ export type DualPlaylistSearchResult = {
 export type SearchArtistChannelRow = {
   name: string;
   youtube_channel_id: string;
-  thumbnail_url?: string | null;
 };
 
 let supabase: SupabaseClient;
@@ -192,7 +191,7 @@ export async function searchArtistChannelsForQuery(q: string): Promise<SearchArt
   try {
     const result = await supabase
       .from('youtube_channels')
-      .select('name, youtube_channel_id, thumbnail_url')
+      .select('name, youtube_channel_id')
       .ilike('name', `%${query}%`)
       .limit(3);
 
@@ -206,19 +205,17 @@ export async function searchArtistChannelsForQuery(q: string): Promise<SearchArt
     const rows = (result.data || []) as Array<{
       name?: unknown;
       youtube_channel_id?: unknown;
-      thumbnail_url?: unknown;
     }>;
 
     const normalized: SearchArtistChannelRow[] = [];
     for (const r of rows) {
       const name = typeof r.name === 'string' ? r.name.trim() : '';
       const youtube_channel_id = typeof r.youtube_channel_id === 'string' ? r.youtube_channel_id.trim() : '';
-      const thumbnail_url = typeof r.thumbnail_url === 'string' ? r.thumbnail_url : null;
 
       if (!name) continue;
       if (!youtube_channel_id) continue;
 
-      normalized.push({ name, youtube_channel_id, thumbnail_url });
+      normalized.push({ name, youtube_channel_id });
     }
 
     return normalized;

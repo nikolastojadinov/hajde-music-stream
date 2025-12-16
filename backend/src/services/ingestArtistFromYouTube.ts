@@ -174,19 +174,29 @@ export async function ingestArtistFromYouTubeByChannelId(
     });
     if (!artistRow) return null;
 
-    const { data: hydratedArtist, error: artistUpsertError } = await supabase
-      .from("artists")
-      .upsert(artistRow, { onConflict: "youtube_channel_id" })
-      .select("*")
-      .maybeSingle();
+    let artist_id = "local-only";
+    try {
+      const { data: hydratedArtist, error: artistUpsertError } = await supabase
+        .from("artists")
+        .upsert(artistRow, { onConflict: "youtube_channel_id" })
+        .select("*")
+        .maybeSingle();
 
-    if (artistUpsertError) {
-      console.error("[ingestArtistFromYouTubeByChannelId] artists upsert failed:", artistUpsertError);
-      return null;
+      if (artistUpsertError) {
+        // Some environments restrict the artists table; continue ingestion without it.
+        console.warn("[ingestArtistFromYouTubeByChannelId] artists upsert failed (continuing):", {
+          code: (artistUpsertError as any)?.code ?? null,
+          message: (artistUpsertError as any)?.message ?? "unknown",
+        });
+      } else {
+        const id = normalizeString((hydratedArtist as any)?.id) || normalizeString((hydratedArtist as any)?.artist_id);
+        if (id) artist_id = id;
+      }
+    } catch (e: any) {
+      console.warn("[ingestArtistFromYouTubeByChannelId] artists upsert unexpected error (continuing):", {
+        message: e?.message ? String(e.message) : "unknown",
+      });
     }
-
-    const artist_id = normalizeString((hydratedArtist as any)?.id) || normalizeString((hydratedArtist as any)?.artist_id);
-    if (!artist_id) return null;
 
     // STEP 5: Hydration (valid channel only)
     const maxPlaylistsRaw = input.max_playlists;
@@ -213,6 +223,7 @@ export async function ingestArtistFromYouTubeByChannelId(
         playlist_id,
         external_playlist_id,
         max_tracks: remainingTracks ?? undefined,
+        artist_override: artistName,
       });
       if (inserted === null) return null;
       tracks_ingested += inserted;

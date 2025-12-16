@@ -149,7 +149,8 @@ export default function Search() {
     // Interleave kinds so the dropdown feels mixed (artist + songs + playlists).
     const buckets = [artists, tracks, playlists, albums];
     const out: Suggestion[] = [];
-    const maxItems = 14;
+    // Keep dropdown fully visible (no scrolling): cap item count.
+    const maxItems = 8;
     while (out.length < maxItems && buckets.some((b) => b.length > 0)) {
       for (const b of buckets) {
         const next = b.shift();
@@ -185,7 +186,6 @@ export default function Search() {
 
   const ingestedArtistName = useMemo(() => {
     const name = resolved?.artist_name ? resolved.artist_name.trim() : "";
-    if (!resolved?.artist_ingested) return null;
     return name || null;
   }, [resolved]);
 
@@ -288,7 +288,7 @@ export default function Search() {
                 <div className="px-2 py-2 text-sm text-muted-foreground">No suggestions.</div>
               ) : null}
 
-              <div className="max-h-72 overflow-auto">
+              <div>
                 {flatSuggestions.map((s) => (
                   <button
                     key={`${s.kind}:${s.id}`}

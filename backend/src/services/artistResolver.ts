@@ -48,7 +48,6 @@ export function deriveArtistKey(artistName: string): string {
 export type YoutubeChannelMapping = {
   name: string | null;
   youtube_channel_id: string;
-  thumbnail_url: string | null;
 };
 
 export type YouTubeChannelValidationResult =
@@ -152,7 +151,7 @@ export async function findYoutubeChannelMappingByArtistName(artistName: string):
 
   const { data, error } = await supabase
     .from("youtube_channels")
-    .select("name, youtube_channel_id, thumbnail_url")
+    .select("name, youtube_channel_id")
     .ilike("name", `%${q}%`)
     .limit(1)
     .maybeSingle();
@@ -160,42 +159,37 @@ export async function findYoutubeChannelMappingByArtistName(artistName: string):
   if (error) return null;
   const name = typeof (data as any)?.name === "string" ? String((data as any).name).trim() : "";
   const youtube_channel_id = typeof (data as any)?.youtube_channel_id === "string" ? String((data as any).youtube_channel_id).trim() : "";
-  const thumbnail_url = typeof (data as any)?.thumbnail_url === "string" ? String((data as any).thumbnail_url) : null;
 
   if (!youtube_channel_id) return null;
-  return { name: name || null, youtube_channel_id, thumbnail_url };
+  return { name: name || null, youtube_channel_id };
 }
 
 export async function upsertYoutubeChannelMapping(input: {
   name: string;
   youtube_channel_id: string;
-  thumbnail_url: string | null;
 }): Promise<YoutubeChannelMapping | null> {
   if (!supabase) return null;
 
   const youtube_channel_id = normalizeString(input.youtube_channel_id);
   const name = normalizeString(input.name);
-  const thumbnail_url = normalizeNullableString(input.thumbnail_url);
   if (!youtube_channel_id || !name) return null;
 
   const row = {
     name,
     youtube_channel_id,
-    thumbnail_url,
   };
 
   const { data, error } = await supabase
     .from("youtube_channels")
     .upsert(row, { onConflict: "youtube_channel_id" })
-    .select("name, youtube_channel_id, thumbnail_url")
+    .select("name, youtube_channel_id")
     .maybeSingle();
 
   if (error) return null;
   const outName = typeof (data as any)?.name === "string" ? String((data as any).name).trim() : "";
   const outId = typeof (data as any)?.youtube_channel_id === "string" ? String((data as any).youtube_channel_id).trim() : "";
-  const outThumb = typeof (data as any)?.thumbnail_url === "string" ? String((data as any).thumbnail_url) : null;
   if (!outId) return null;
-  return { name: outName || null, youtube_channel_id: outId, thumbnail_url: outThumb };
+  return { name: outName || null, youtube_channel_id: outId };
 }
 
 export async function deleteYoutubeChannelMappingByChannelId(youtube_channel_id: string): Promise<boolean> {
