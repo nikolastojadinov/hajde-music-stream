@@ -4,17 +4,17 @@ import { ListMusic, Music, Search as SearchIcon, User } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import LoadingSkeleton from "@/components/ui/LoadingSkeleton";
 import EmptyState from "@/components/ui/EmptyState";
 import ErrorState from "@/components/ui/ErrorState";
+import LoadingSkeleton from "@/components/ui/LoadingSkeleton";
 import { usePlayer } from "@/contexts/PlayerContext";
 import {
+  searchResolve,
+  searchSuggest,
   type SearchResolveMode,
   type SearchResolveResponse,
   type SearchResolveSpotifySelection,
   type SearchSuggestResponse,
-  searchResolve,
-  searchSuggest,
 } from "@/lib/api/search";
 
 type SuggestionKind = "artist" | "album" | "track";
@@ -44,6 +44,8 @@ function firstLetter(title: string): string {
 }
 
 export default function Search() {
+  // Nema login gate-a: Search mora da radi i za goste.
+  // User-specifične stvari (likes/premium/playlist-views) se ne rade na ovoj stranici.
   const { playTrack } = usePlayer();
   const navigate = useNavigate();
 
@@ -52,12 +54,12 @@ export default function Search() {
 
   const [suggestions, setSuggestions] = useState<SearchSuggestResponse | null>(null);
   const [suggestLoading, setSuggestLoading] = useState(false);
+  const [suggestOpen, setSuggestOpen] = useState(false);
 
   const [resolved, setResolved] = useState<SearchResolveResponse | null>(null);
   const [resolveLoading, setResolveLoading] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
-  const [suggestOpen, setSuggestOpen] = useState(false);
 
   const suggestAbortRef = useRef<AbortController | null>(null);
   const resolveAbortRef = useRef<AbortController | null>(null);
@@ -86,7 +88,7 @@ export default function Search() {
     void (async () => {
       try {
         const next = await searchSuggest(q, { signal: controller.signal });
-        setSuggestions(next);
+        if (!controller.signal.aborted) setSuggestions(next);
       } catch (e: any) {
         if (controller.signal.aborted) return;
         setSuggestions(null);
@@ -192,7 +194,7 @@ export default function Search() {
     try {
       const payload = { q, mode, spotify };
       const next = await searchResolve(payload, { signal: controller.signal });
-      setResolved(next);
+      if (!controller.signal.aborted) setResolved(next);
     } catch (e: any) {
       if (controller.signal.aborted) return;
       setResolved(null);
@@ -233,8 +235,8 @@ export default function Search() {
     const seen = new Set<string>();
     const out: ArtistNavItem[] = [];
 
-    // Search page must never decide artist availability.
-    // Only derive artist navigation from the *visible* song results.
+    // Search stranica ne odlučuje o dostupnosti artista.
+    // Navigaciju deriviramo samo iz trenutno vidljivih rezultata pesama.
     for (const s of resultsSongs) {
       const name = (s.artist || "").trim();
       if (!name) continue;

@@ -1,411 +1,336 @@
 import { Router } from "express";
 
 import supabase from "../services/supabaseClient";
-import { youtubeSearchArtistChannel } from "../services/youtubeClient";
-import { youtubeFetchPlaylistTracks } from "../services/youtubeFetchPlaylistTracks";
-import {
-  deleteYoutubeChannelMappingByChannelId,
-  findYoutubeChannelMappingByArtistName,
-  upsertYoutubeChannelMapping,
-  validateYouTubeChannelId,
-} from "../services/artistResolver";
-import { ingestArtistFromYouTubeByChannelId } from "../services/ingestArtistFromYouTube";
 
 const router = Router();
+
+const LOG_PREFIX = "[ArtistLocal]";
+const MIN_QUERY_CHARS = 2;
+const IN_CHUNK = 200;
+
+type ApiArtist = {
+  id: string;
+  name: string;
+  youtube_channel_id: string;
+  spotify_artist_id?: string | null;
+  avatar_url?: string | null;
+};
+
+type ApiPlaylist = {
+  id: string;
+  title: string;
+  youtube_playlist_id: string;
+  youtube_channel_id: string;
+  source: string;
+  created_at: string | null;
+};
+
+type ApiTrack = {
+  id: string;
+  title: string;
+  youtube_video_id: string;
+  youtube_channel_id: string;
+  artist_name: string | null;
+  created_at: string | null;
+};
+
+type OkResponse = {
+  status: "ok";
+  artist: ApiArtist;
+  playlists: ApiPlaylist[];
+  tracks: ApiTrack[];
+};
+
+type NotReadyResponse = {
+  status: "not_ready";
+  artistName: string;
+  message: string;
+  playlists: ApiPlaylist[];
+  tracks: ApiTrack[];
+};
+
+type DeprecatedResponse = {
+  status: "deprecated";
+  message: string;
+};
 
 function normalizeString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function isLikelyYouTubeChannelId(value: string): boolean {
-  // Most YouTube channel IDs are 24 chars and start with UC.
-  return /^UC[\w-]{22}$/.test(value);
+function normalizeNullableString(value: unknown): string | null {
+  const s = normalizeString(value);
+  return s ? s : null;
 }
 
-type LocalBundle = { artist: any; playlists: any[]; tracks: any[] };
+function chunkArray<T>(items: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
 
-type ArtistDebug = {
-  input_artist_identifier: string;
-  stored_channel_id: string | null;
-  channel_validation_result: "valid" | "invalid" | "none";
-  search_fallback_used: boolean;
-  hydration_started: boolean;
-  playlists_fetched_count: number;
-  tracks_fetched_count: number;
-};
+function safeArtistId(artistName: string): string {
+  const raw = normalizeString(artistName);
+  const cleaned = raw
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 
-function makeDebug(input: {
-  input_artist_identifier: string;
-  stored_channel_id: string | null;
-  channel_validation_result: "valid" | "invalid" | "none";
-  search_fallback_used: boolean;
-  hydration_started: boolean;
-  playlists_fetched_count: number;
-  tracks_fetched_count: number;
-}): ArtistDebug {
+  const slug = cleaned ? cleaned.replace(/\s/g, "-") : "artist";
+  return `artist:${slug || "artist"}`;
+}
+
+async function loadArtistRowByName(artistName: string): Promise<any | null> {
+  if (!supabase) return null;
+  const name = normalizeString(artistName);
+  if (!name) return null;
+
+  // Keep this defensive: some deployments may not have all columns.
+  const { data, error } = await supabase
+    .from("artists")
+    .select("id, artist, youtube_channel_id, thumbnail_url, avatar_url, spotify_artist_id")
+    .eq("artist", name)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) return null;
+  return data ?? null;
+}
+
+async function loadTracksByArtistName(artistName: string): Promise<any[]> {
+  if (!supabase) return [];
+  const name = normalizeString(artistName);
+  if (!name) return [];
+
+  const { data, error } = await supabase
+    .from("tracks")
+    .select("id, title, external_id, youtube_id, artist, artist_channel_id, created_at")
+    .eq("artist", name)
+    .order("created_at", { ascending: false })
+    .limit(500);
+
+  if (error) return [];
+  return Array.isArray(data) ? data : [];
+}
+
+async function loadPlaylistsByChannelId(youtube_channel_id: string): Promise<any[]> {
+  if (!supabase) return [];
+  const cid = normalizeString(youtube_channel_id);
+  if (!cid) return [];
+
+  const { data, error } = await supabase
+    .from("playlists")
+    .select("id, title, external_id, channel_id, channel_title, created_at, sync_status, source")
+    .eq("channel_id", cid)
+    .order("title", { ascending: true })
+    .limit(200);
+
+  if (error) return [];
+  return Array.isArray(data) ? data : [];
+}
+
+async function loadPlaylistsViaPlaylistTracks(trackIds: string[]): Promise<any[]> {
+  if (!supabase) return [];
+  const ids = trackIds.map((x) => normalizeString(x)).filter(Boolean);
+  if (ids.length === 0) return [];
+
+  const playlistIds = new Set<string>();
+
+  for (const chunk of chunkArray(ids, IN_CHUNK)) {
+    const { data, error } = await supabase
+      .from("playlist_tracks")
+      .select("playlist_id")
+      .in("track_id", chunk);
+    if (error) return [];
+    for (const row of Array.isArray(data) ? data : []) {
+      const pid = normalizeString((row as any)?.playlist_id);
+      if (pid) playlistIds.add(pid);
+    }
+  }
+
+  const playlistIdList = Array.from(playlistIds);
+  if (playlistIdList.length === 0) return [];
+
+  const playlists: any[] = [];
+  for (const chunk of chunkArray(playlistIdList, IN_CHUNK)) {
+    const { data, error } = await supabase
+      .from("playlists")
+      .select("id, title, external_id, channel_id, channel_title, created_at, sync_status, source")
+      .in("id", chunk);
+    if (error) return [];
+    for (const row of Array.isArray(data) ? data : []) playlists.push(row);
+  }
+
+  // Determinističan redosled.
+  playlists.sort((a, b) => {
+    const ta = normalizeString((a as any)?.title).toLowerCase();
+    const tb = normalizeString((b as any)?.title).toLowerCase();
+    return ta.localeCompare(tb);
+  });
+
+  return playlists;
+}
+
+function mapArtistForFrontend(artistName: string, artistRow: any | null, fallbackChannelId: string | null): ApiArtist {
+  const id = normalizeString(artistRow?.id) || safeArtistId(artistName);
+  const youtube_channel_id = normalizeString(artistRow?.youtube_channel_id) || normalizeString(fallbackChannelId) || "";
+  const avatar_url =
+    normalizeNullableString(artistRow?.thumbnail_url) ||
+    normalizeNullableString(artistRow?.avatar_url) ||
+    null;
+
   return {
-    input_artist_identifier: input.input_artist_identifier,
-    stored_channel_id: input.stored_channel_id,
-    channel_validation_result: input.channel_validation_result,
-    search_fallback_used: input.search_fallback_used,
-    hydration_started: input.hydration_started,
-    playlists_fetched_count: input.playlists_fetched_count,
-    tracks_fetched_count: input.tracks_fetched_count,
+    id,
+    name: normalizeString(artistRow?.artist) || artistName,
+    youtube_channel_id,
+    spotify_artist_id: artistRow?.spotify_artist_id ?? null,
+    avatar_url,
   };
 }
 
-async function loadLocalArtistBundle(youtube_channel_id: string): Promise<LocalBundle | null> {
-  if (!supabase) return null;
+function mapPlaylistsForFrontend(rows: any[], fallbackChannelId: string | null): ApiPlaylist[] {
+  const out: ApiPlaylist[] = [];
+  for (const p of Array.isArray(rows) ? rows : []) {
+    const id = normalizeString(p?.id);
+    const title = normalizeString(p?.title) || "Untitled";
+    const youtube_playlist_id = normalizeString(p?.external_id);
+    if (!id || !youtube_playlist_id) continue;
 
-  const { data: artist, error: artistError } = await supabase
-    .from("artists")
-    .select("*")
-    .eq("youtube_channel_id", youtube_channel_id)
-    .maybeSingle();
+    const youtube_channel_id = normalizeString(p?.channel_id) || normalizeString(fallbackChannelId) || "";
+    const source = normalizeString(p?.source) || normalizeString(p?.sync_status) || "youtube";
+    const created_at = normalizeNullableString(p?.created_at);
 
-  if (artistError) return null;
-  if (!artist) return null;
-
-  const artistName = normalizeString((artist as any)?.artist);
-
-  const playlistsArr: any[] = [];
-  const [{ data: byChannelId, error: byChannelIdError }, { data: byChannelTitle, error: byChannelTitleError }] = await Promise.all([
-    supabase.from("playlists").select("*").eq("channel_id", youtube_channel_id),
-    artistName
-      ? supabase.from("playlists").select("*").eq("channel_title", artistName)
-      : Promise.resolve({ data: [], error: null }),
-  ]);
-
-  if (byChannelIdError || byChannelTitleError) return null;
-  for (const row of Array.isArray(byChannelId) ? byChannelId : []) playlistsArr.push(row);
-  for (const row of Array.isArray(byChannelTitle) ? byChannelTitle : []) playlistsArr.push(row);
-
-  const playlistById = new Map<string, any>();
-  for (const p of playlistsArr) {
-    const id = normalizeString((p as any)?.id);
-    if (!id) continue;
-    if (!playlistById.has(id)) playlistById.set(id, p);
+    out.push({ id, title, youtube_playlist_id, youtube_channel_id, source, created_at });
   }
-  const playlistsDeduped = Array.from(playlistById.values());
-
-  if (playlistsDeduped.length === 0) return null;
-
-  const playlistIds = playlistsDeduped.map((p: any) => normalizeString(p?.id)).filter(Boolean);
-  if (playlistIds.length === 0) return null;
-
-  const { data: playlistTracks, error: playlistTracksError } = await supabase
-    .from("playlist_tracks")
-    .select("playlist_id, track_id, position")
-    .in("playlist_id", playlistIds);
-
-  if (playlistTracksError) return null;
-
-  const pts = (Array.isArray(playlistTracks) ? playlistTracks : []).slice();
-  pts.sort((a: any, b: any) => {
-    const pa = normalizeString(a?.playlist_id);
-    const pb = normalizeString(b?.playlist_id);
-    if (pa !== pb) return pa.localeCompare(pb);
-    const posa = typeof a?.position === "number" ? a.position : 0;
-    const posb = typeof b?.position === "number" ? b.position : 0;
-    return posa - posb;
-  });
-
-  const trackIdsOrdered: string[] = [];
-  const seenTrackIds = new Set<string>();
-  for (const pt of pts) {
-    const tid = normalizeString(pt?.track_id);
-    if (!tid || seenTrackIds.has(tid)) continue;
-    seenTrackIds.add(tid);
-    trackIdsOrdered.push(tid);
-  }
-
-  if (trackIdsOrdered.length === 0) return null;
-
-  const { data: tracks, error: tracksError } = await supabase.from("tracks").select("*").in("id", trackIdsOrdered);
-  if (tracksError) return null;
-
-  const trackById = new Map<string, any>();
-  for (const t of Array.isArray(tracks) ? tracks : []) {
-    const id = normalizeString((t as any)?.id);
-    if (id) trackById.set(id, t);
-  }
-
-  const orderedTracks: any[] = [];
-  for (const id of trackIdsOrdered) {
-    const row = trackById.get(id);
-    if (row) orderedTracks.push(row);
-  }
-
-  return { artist, playlists: playlistsDeduped, tracks: orderedTracks };
+  return out;
 }
 
-function mapBundleForFrontend(youtube_channel_id: string, bundle: LocalBundle): any {
-  const a = bundle.artist || null;
-  const playlists = Array.isArray(bundle.playlists) ? bundle.playlists : [];
-  const tracks = Array.isArray(bundle.tracks) ? bundle.tracks : [];
+function mapTracksForFrontend(rows: any[], artistName: string, fallbackChannelId: string | null): ApiTrack[] {
+  const out: ApiTrack[] = [];
+  for (const t of Array.isArray(rows) ? rows : []) {
+    const id = normalizeString(t?.id);
+    const title = normalizeString(t?.title) || "Untitled";
+    const youtube_video_id = normalizeString(t?.external_id) || normalizeString(t?.youtube_id);
+    if (!id || !youtube_video_id) continue;
 
-  const artist = a
-    ? {
-        id: String((a as any)?.id ?? ""),
-        name: normalizeString((a as any)?.artist) || normalizeString((a as any)?.name) || youtube_channel_id,
-        youtube_channel_id: normalizeString((a as any)?.youtube_channel_id) || youtube_channel_id,
-        spotify_artist_id: (a as any)?.spotify_artist_id ?? null,
-        avatar_url: (a as any)?.thumbnail_url ?? (a as any)?.avatar_url ?? null,
-      }
-    : null;
+    const youtube_channel_id = normalizeString(t?.artist_channel_id) || normalizeString(fallbackChannelId) || "";
+    const created_at = normalizeNullableString(t?.created_at);
 
-  const mappedPlaylists = playlists.map((p: any) => ({
-    id: String(p?.id ?? ""),
-    title: normalizeString(p?.title) || "Untitled",
-    youtube_playlist_id: normalizeString(p?.external_id),
-    youtube_channel_id: normalizeString(p?.channel_id) || youtube_channel_id,
-    source: normalizeString(p?.source) || "youtube",
-    created_at: (p as any)?.created_at ?? (p as any)?.fetched_on ?? null,
-  }));
-
-  const mappedTracks = tracks.map((t: any) => ({
-    id: String(t?.id ?? ""),
-    title: normalizeString(t?.title) || "Untitled",
-    youtube_video_id: normalizeString(t?.external_id) || normalizeString(t?.youtube_id),
-    youtube_channel_id: normalizeString(t?.artist_channel_id) || youtube_channel_id,
-    artist_name: normalizeString(t?.artist) || artist?.name || null,
-    created_at: (t as any)?.created_at ?? (t as any)?.last_synced_at ?? null,
-  }));
-
-  return { artist, playlists: mappedPlaylists, tracks: mappedTracks };
-}
-
-function mapOkForFrontend(youtube_channel_id: string, bundle: LocalBundle, debug: ArtistDebug): any {
-  return { status: "ok", ...mapBundleForFrontend(youtube_channel_id, bundle), debug };
-}
-
-async function loadAndMaybeRevalidateLocalBundle(youtube_channel_id: string, revalidate: boolean): Promise<LocalBundle | null> {
-  let local = await loadLocalArtistBundle(youtube_channel_id);
-  if (!local) return null;
-
-  if (!revalidate) return local;
-
-  const playlists = Array.isArray(local.playlists) ? local.playlists : [];
-  for (const p of playlists) {
-    const playlist_id = normalizeString((p as any)?.id);
-    const external_playlist_id = normalizeString((p as any)?.external_id);
-    const last_etag = normalizeString((p as any)?.last_etag) || null;
-    if (!playlist_id || !external_playlist_id) continue;
-    await youtubeFetchPlaylistTracks({ playlist_id, external_playlist_id, if_none_match: last_etag });
+    // Lokalni contract: artist_name je stabilan artistName koji je tražen u URL-u.
+    out.push({ id, title, youtube_video_id, youtube_channel_id, artist_name: artistName, created_at });
   }
-
-  return await loadLocalArtistBundle(youtube_channel_id);
+  return out;
 }
 
 /**
- * GET /api/artist/:id
+ * GET /api/artist/:artistName
  *
- * Deterministic flow (strict order):
- * 1) Always validate the channelId before use.
- * 2) If invalid: delete stored mapping and return { status: "invalid_channel", requiresChannelSelection: true }.
- * 3) If no valid channelId exists (id is an artist name/slug): do YouTube search.list (quota=100) and return candidates.
- * 4) If valid: return local data immediately; otherwise ingest then return local bundle.
+ * APSOLUTNO PRAVILO: NULA YouTube API poziva.
+ * Samo lokalni Supabase (artists/playlists/tracks/playlist_tracks).
  */
-router.get("/:id", async (req, res) => {
-  const raw = normalizeString(req.params.id);
-
-  let stored_channel_id: string | null = null;
-  let channel_validation_result: "valid" | "invalid" | "none" = "none";
-  let search_fallback_used = false;
-  let hydration_started = false;
-  let playlists_fetched_count = 0;
-  let tracks_fetched_count = 0;
-
-  const finalizeDebug = () =>
-    makeDebug({
-      input_artist_identifier: raw,
-      stored_channel_id,
-      channel_validation_result,
-      search_fallback_used,
-      hydration_started,
-      playlists_fetched_count,
-      tracks_fetched_count,
-    });
+router.get("/:artistName", async (req, res) => {
+  const artistName = normalizeString(req.params.artistName);
 
   try {
-    if (!supabase) return res.status(500).json({ error: "Supabase not configured", debug: finalizeDebug() });
-    if (!raw) return res.status(400).json({ error: "Missing id", debug: finalizeDebug() });
-
-    const revalidate = String((req.query as any)?.revalidate ?? "0") === "1";
-
-    // Path A: caller provided a concrete channelId.
-    if (isLikelyYouTubeChannelId(raw)) {
-      const youtube_channel_id = raw;
-      stored_channel_id = youtube_channel_id;
-
-      const validation = await validateYouTubeChannelId(youtube_channel_id);
-      if (validation.status === "invalid") {
-        channel_validation_result = "invalid";
-        await deleteYoutubeChannelMappingByChannelId(youtube_channel_id);
-        return res.status(200).json({ status: "invalid_channel", requiresChannelSelection: true, debug: finalizeDebug() });
-      }
-      if (validation.status === "error") {
-        channel_validation_result = "none";
-        return res.status(502).json({ error: "YouTube validation failed", debug: finalizeDebug() });
-      }
-      channel_validation_result = "valid";
-
-      const localBefore = await loadAndMaybeRevalidateLocalBundle(youtube_channel_id, revalidate);
-      if (localBefore) {
-        playlists_fetched_count = Array.isArray(localBefore.playlists) ? localBefore.playlists.length : 0;
-        tracks_fetched_count = Array.isArray(localBefore.tracks) ? localBefore.tracks.length : 0;
-        return res.status(200).json(mapOkForFrontend(youtube_channel_id, localBefore, finalizeDebug()));
-      }
-
-      hydration_started = true;
-      const ingest = await ingestArtistFromYouTubeByChannelId({
-        youtube_channel_id,
-        artistName: validation.channelTitle ?? youtube_channel_id,
-      });
-
-      if (!ingest) {
-        return res.status(404).json({ error: "Artist not found", debug: finalizeDebug() });
-      }
-
-      const localAfter = await loadLocalArtistBundle(youtube_channel_id);
-      if (!localAfter) {
-        return res.status(404).json({ error: "Artist not found", debug: finalizeDebug() });
-      }
-
-      playlists_fetched_count = Array.isArray(localAfter.playlists) ? localAfter.playlists.length : 0;
-      tracks_fetched_count = Array.isArray(localAfter.tracks) ? localAfter.tracks.length : 0;
-      return res.status(200).json(mapOkForFrontend(youtube_channel_id, localAfter, finalizeDebug()));
+    if (!supabase) return res.status(500).json({ error: "Supabase not configured" });
+    if (!artistName || artistName.length < MIN_QUERY_CHARS) {
+      return res.status(400).json({ error: "Missing artistName" });
     }
 
-    // Path B: caller provided an artist name/slug (no channelId).
-    const artistName = raw;
+    const [artistRow, tracksRows] = await Promise.all([
+      loadArtistRowByName(artistName),
+      loadTracksByArtistName(artistName),
+    ]);
 
-    // First: attempt stored mapping by name, but still validate before use.
-    const stored = await findYoutubeChannelMappingByArtistName(artistName);
-    if (stored?.youtube_channel_id) {
-      const mappedId = normalizeString(stored.youtube_channel_id);
-      stored_channel_id = mappedId || null;
+    const fallbackChannelId = normalizeNullableString(artistRow?.youtube_channel_id);
 
-      const validation = await validateYouTubeChannelId(mappedId);
-      if (validation.status === "invalid") {
-        channel_validation_result = "invalid";
-        await deleteYoutubeChannelMappingByChannelId(mappedId);
-        return res.status(200).json({ status: "invalid_channel", requiresChannelSelection: true, debug: finalizeDebug() });
-      }
+    // Playlists: primarno preko playlist_tracks + tracks.artist == artistName.
+    // Fallback: ako postoji artists.youtube_channel_id, uzmi playlists po channel_id.
+    const trackIds = tracksRows.map((t: any) => normalizeString(t?.id)).filter(Boolean);
+    const [playlistsViaJoin, playlistsViaChannel] = await Promise.all([
+      loadPlaylistsViaPlaylistTracks(trackIds),
+      fallbackChannelId ? loadPlaylistsByChannelId(fallbackChannelId) : Promise.resolve([]),
+    ]);
 
-      if (validation.status === "valid") {
-        channel_validation_result = "valid";
+    const playlistById = new Map<string, any>();
+    for (const p of [...(Array.isArray(playlistsViaJoin) ? playlistsViaJoin : []), ...(Array.isArray(playlistsViaChannel) ? playlistsViaChannel : [])]) {
+      const id = normalizeString((p as any)?.id);
+      if (!id) continue;
+      if (!playlistById.has(id)) playlistById.set(id, p);
+    }
+    const playlistsRows = Array.from(playlistById.values());
 
-        // Best-effort: keep mapping fresh.
-        await upsertYoutubeChannelMapping({
-          name: validation.channelTitle ?? stored.name ?? artistName,
-          youtube_channel_id: mappedId,
-          thumbnail_url: validation.thumbnailUrl ?? stored.thumbnail_url ?? null,
-        });
+    const playlists = mapPlaylistsForFrontend(playlistsRows, fallbackChannelId);
+    const tracks = mapTracksForFrontend(tracksRows, artistName, fallbackChannelId);
 
-        const localBefore = await loadAndMaybeRevalidateLocalBundle(mappedId, revalidate);
-        if (localBefore) {
-          playlists_fetched_count = Array.isArray(localBefore.playlists) ? localBefore.playlists.length : 0;
-          tracks_fetched_count = Array.isArray(localBefore.tracks) ? localBefore.tracks.length : 0;
-          return res.status(200).json(mapOkForFrontend(mappedId, localBefore, finalizeDebug()));
-        }
+    const hasLocal = playlists.length > 0 || tracks.length > 0;
+    console.info(LOG_PREFIX, "GET", { artistName, playlists: playlists.length, tracks: tracks.length, hasLocal });
 
-        hydration_started = true;
-        const ingest = await ingestArtistFromYouTubeByChannelId({ youtube_channel_id: mappedId, artistName: artistName });
-        if (!ingest) return res.status(404).json({ error: "Artist not found", debug: finalizeDebug() });
-
-        const localAfter = await loadLocalArtistBundle(mappedId);
-        if (!localAfter) return res.status(404).json({ error: "Artist not found", debug: finalizeDebug() });
-
-        playlists_fetched_count = Array.isArray(localAfter.playlists) ? localAfter.playlists.length : 0;
-        tracks_fetched_count = Array.isArray(localAfter.tracks) ? localAfter.tracks.length : 0;
-        return res.status(200).json(mapOkForFrontend(mappedId, localAfter, finalizeDebug()));
-      }
-
-      channel_validation_result = "none";
-      return res.status(502).json({ error: "YouTube validation failed", debug: finalizeDebug() });
+    if (!hasLocal) {
+      const resp: NotReadyResponse = {
+        status: "not_ready",
+        artistName,
+        message: "Sadržaj za ovog izvođača još nije spreman (ingestija nije završena).",
+        playlists: [],
+        tracks: [],
+      };
+      return res.status(200).json(resp);
     }
 
-    // Only here (no valid channelId exists): YouTube search.list (quota=100).
-    search_fallback_used = true;
-    const candidates = await youtubeSearchArtistChannel(artistName);
-    return res.status(200).json({ status: "requires_channel_selection", candidates, debug: finalizeDebug() });
-  } catch (err) {
-    console.error("[artistRoute] unexpected error", err);
-    return res.status(500).json({ error: "Internal error", debug: finalizeDebug() });
+    const artist = mapArtistForFrontend(artistName, artistRow, fallbackChannelId);
+    const resp: OkResponse = { status: "ok", artist, playlists, tracks };
+    return res.status(200).json(resp);
+  } catch (err: any) {
+    console.error(LOG_PREFIX, "GET unexpected error", { artistName, message: err?.message ? String(err.message) : "unknown" });
+    return res.status(500).json({ error: "Internal error" });
   }
 });
 
 /**
  * POST /api/artist/selected
  *
- * Frontend sends a selected channelId for an artist name.
- * Strict order:
- * 1) Validate via channels.list
- * 2) Persist youtube_channel_id mapping
- * 3) Hydrate playlists/tracks (valid channel only)
+ * Ovaj endpoint se zadržava radi kompatibilnosti, ali:
+ * - NULA YouTube API poziva
+ * - NEMA hidracije
+ * - Samo upsert u `youtube_channels` (lokalni DB cache)
  */
 router.post("/selected", async (req, res) => {
   const artistName = normalizeString((req.body as any)?.artistName);
   const youtube_channel_id = normalizeString((req.body as any)?.youtube_channel_id);
-
-  let stored_channel_id: string | null = youtube_channel_id || null;
-  let channel_validation_result: "valid" | "invalid" | "none" = "none";
-  let search_fallback_used = false;
-  let hydration_started = false;
-  let playlists_fetched_count = 0;
-  let tracks_fetched_count = 0;
-
-  const finalizeDebug = () =>
-    makeDebug({
-      input_artist_identifier: artistName,
-      stored_channel_id,
-      channel_validation_result,
-      search_fallback_used,
-      hydration_started,
-      playlists_fetched_count,
-      tracks_fetched_count,
-    });
+  const thumbnail_url = normalizeNullableString((req.body as any)?.thumbnail_url);
 
   try {
-    if (!supabase) return res.status(500).json({ error: "Supabase not configured", debug: finalizeDebug() });
+    if (!supabase) return res.status(500).json({ error: "Supabase not configured" });
 
-    if (!artistName) return res.status(400).json({ error: "Missing artistName", debug: finalizeDebug() });
-    if (!youtube_channel_id) return res.status(400).json({ error: "Missing youtube_channel_id", debug: finalizeDebug() });
-
-    const validation = await validateYouTubeChannelId(youtube_channel_id);
-    if (validation.status === "invalid") {
-      channel_validation_result = "invalid";
-      await deleteYoutubeChannelMappingByChannelId(youtube_channel_id);
-      return res.status(200).json({ status: "invalid_channel", requiresChannelSelection: true, debug: finalizeDebug() });
-    }
-    if (validation.status === "error") {
-      channel_validation_result = "none";
-      return res.status(502).json({ error: "YouTube validation failed", debug: finalizeDebug() });
-    }
-    channel_validation_result = "valid";
-
-    await upsertYoutubeChannelMapping({
-      name: validation.channelTitle ?? artistName,
-      youtube_channel_id,
-      thumbnail_url: validation.thumbnailUrl ?? null,
-    });
-
-    hydration_started = true;
-    const ingest = await ingestArtistFromYouTubeByChannelId({ youtube_channel_id, artistName });
-    if (!ingest) {
-      return res.status(404).json({ error: "Artist not found", debug: finalizeDebug() });
+    // Ako više nije u upotrebi, ovo ostaje benigno.
+    if (!artistName || !youtube_channel_id) {
+      const resp: DeprecatedResponse = {
+        status: "deprecated",
+        message: "Ovaj endpoint je zastareo; izbor kanala više ne pokreće hidraciju.",
+      };
+      return res.status(200).json(resp);
     }
 
-    const local = await loadLocalArtistBundle(youtube_channel_id);
-    if (!local) return res.status(404).json({ error: "Artist not found", debug: finalizeDebug() });
+    const row = { name: artistName, youtube_channel_id, thumbnail_url };
+    const { error } = await supabase
+      .from("youtube_channels")
+      .upsert(row, { onConflict: "youtube_channel_id" })
+      .select("name, youtube_channel_id, thumbnail_url")
+      .maybeSingle();
 
-    playlists_fetched_count = Array.isArray(local.playlists) ? local.playlists.length : 0;
-    tracks_fetched_count = Array.isArray(local.tracks) ? local.tracks.length : 0;
-    return res.status(200).json(mapOkForFrontend(youtube_channel_id, local, finalizeDebug()));
-  } catch (err) {
-    console.error("[artistRoute] unexpected error", err);
-    return res.status(500).json({ error: "Internal error", debug: finalizeDebug() });
+    if (error) {
+      console.error(LOG_PREFIX, "POST /selected upsert failed", { artistName, youtube_channel_id, code: error.code, message: error.message });
+      return res.status(500).json({ error: "Failed to persist channel mapping" });
+    }
+
+    console.info(LOG_PREFIX, "POST /selected", { artistName, youtube_channel_id });
+    return res.status(200).json({ status: "ok", artistName, youtube_channel_id });
+  } catch (err: any) {
+    console.error(LOG_PREFIX, "POST /selected unexpected error", { artistName, youtube_channel_id, message: err?.message ? String(err.message) : "unknown" });
+    return res.status(500).json({ error: "Internal error" });
   }
 });
 
