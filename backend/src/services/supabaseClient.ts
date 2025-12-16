@@ -81,7 +81,7 @@ export async function searchTracksForQuery(q: string): Promise<SearchTrackRow[]>
       .from('tracks')
       .select('id, title, artist, external_id, cover_url, duration')
       .or(`title.ilike.%${query}%,artist.ilike.%${query}%`)
-      .limit(10);
+      .limit(8);
 
     if (result.error) {
       status = 'error';

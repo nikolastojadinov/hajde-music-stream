@@ -23,6 +23,12 @@ const MIN_QUERY_CHARS = 2;
 const LOG_PREFIX = "[ArtistIngest]";
 const RESOLVE_LOG_PREFIX = "[SearchResolve]";
 
+const MAX_ARTISTS = 3;
+const MIN_TRACKS = 5;
+const MAX_TRACKS = 8;
+const MIN_PLAYLISTS = 5;
+const MAX_PLAYLISTS = 8;
+
 type ResolveMode = "track" | "artist" | "album" | "generic";
 
 type ResolveRequestBody = {
@@ -289,15 +295,14 @@ async function runArtistIngestFlow(artistNameRaw: string): Promise<void> {
 function computeMinimums(opts: {
   mode: ResolveMode;
   spotify: SpotifySelection | null;
-}): { minTracks: number; minPlaylists: number } {
-  // User-confirmed rule:
-  // - playlist queries: 10 tracks / 5 playlists
-  // - track/album queries: 10 tracks / 5 playlists
-  // - artist: "do 3" (interpreted here as min 3 tracks, 0 playlists)
-  const kind = opts.spotify?.type ?? opts.mode;
-  if (kind === "artist") return { minTracks: 3, minPlaylists: 0 };
-  if (kind === "track" || kind === "album" || kind === "playlist") return { minTracks: 10, minPlaylists: 5 };
-  return { minTracks: 0, minPlaylists: 0 };
+}): { minTracks: number; maxTracks: number; minPlaylists: number; maxPlaylists: number } {
+  void opts;
+  return {
+    minTracks: MIN_TRACKS,
+    maxTracks: MAX_TRACKS,
+    minPlaylists: MIN_PLAYLISTS,
+    maxPlaylists: MAX_PLAYLISTS,
+  };
 }
 
 function resolveArtistNameForIngest(opts: {
@@ -366,11 +371,12 @@ router.post("/resolve", async (req, res) => {
       const tracks = trackRows.map(mapTrackRow);
       const playlists_by_title = playlistsDual.playlists_by_title.map(mapPlaylistRow);
       const playlists_by_artist = playlistsDual.playlists_by_artist.map(mapPlaylistRow);
-      const mergedPlaylists = mergeLegacyPlaylists(playlists_by_title, playlists_by_artist);
+      const mergedPlaylists = mergeLegacyPlaylists(playlists_by_title, playlists_by_artist).slice(0, MAX_PLAYLISTS);
 
       const artistChannelsLocal = artistChannelRows
         .map(mapLocalArtistChannelRow)
-        .filter((x): x is ResolvedArtistChannel => Boolean(x));
+        .filter((x): x is ResolvedArtistChannel => Boolean(x))
+        .slice(0, MAX_ARTISTS);
 
       const artist_channels: ArtistChannelsEnvelope = {
         local: artistChannelsLocal,
@@ -379,10 +385,10 @@ router.post("/resolve", async (req, res) => {
       };
 
       return {
-        tracks,
+        tracks: tracks.slice(0, MAX_TRACKS),
         playlists_by_title,
         playlists_by_artist,
-        local: { tracks, playlists: mergedPlaylists },
+        local: { tracks: tracks.slice(0, MAX_TRACKS), playlists: mergedPlaylists },
         artist_channels,
       };
     };
@@ -397,7 +403,9 @@ router.post("/resolve", async (req, res) => {
       mode,
       spotifyType: spotify?.type ?? null,
       minTracks: minimums.minTracks,
+      maxTracks: minimums.maxTracks,
       minPlaylists: minimums.minPlaylists,
+      maxPlaylists: minimums.maxPlaylists,
       tracks: before.local.tracks.length,
       playlists: before.local.playlists.length,
       missingTracks,
@@ -462,10 +470,11 @@ router.post("/resolve", async (req, res) => {
       }
 
       if (channelId) {
+        const maxPlaylistsForIngest = missingPlaylists > 0 ? missingPlaylists : missingTracks > 0 ? 1 : 0;
         const ingest = await ingestArtistFromYouTubeByChannelId({
           youtube_channel_id: channelId,
           artistName: ingestArtistName,
-          max_playlists: missingPlaylists > 0 ? missingPlaylists : 0,
+          max_playlists: maxPlaylistsForIngest,
           max_tracks: missingTracks > 0 ? missingTracks : 0,
         });
         if (ingest) {
