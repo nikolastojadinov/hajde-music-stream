@@ -561,40 +561,49 @@ router.post("/resolve", async (req, res) => {
         // NOTE: Click-only backfill. We do EXACTLY ONE search.list call and persist IDs immediately.
         console.info(LOG_PREFIX, "SEARCH_LIST_CALL", { q: ingestArtistName });
 
-        const mixed = await youtubeSearchMixed(ingestArtistName);
-        await persistYouTubeMixedResults({
-          q: ingestArtistName,
-          channels: mixed.channels as any,
-          videos: mixed.videos as any,
-          playlists: mixed.playlists as any,
-        });
-
-        const first = Array.isArray(mixed.channels) ? mixed.channels[0] : null;
-        const candidateId = first?.channelId ? String(first.channelId).trim() : "";
-        const candidateTitle = first?.title ? String(first.title).trim() : "";
-
-        if (candidateId) {
-          const validation = await validateYouTubeChannelId(candidateId);
-          console.info(LOG_PREFIX, "CHANNELS_LIST", {
-            artistName: ingestArtistName,
-            channelId: candidateId,
-            result: validation.status,
-            source: "search_mixed",
+        try {
+          const mixed = await youtubeSearchMixed(ingestArtistName);
+          await persistYouTubeMixedResults({
+            q: ingestArtistName,
+            channels: mixed.channels as any,
+            videos: mixed.videos as any,
+            playlists: mixed.playlists as any,
           });
 
-          if (validation.status === "valid") {
-            channelId = candidateId;
-            await upsertYoutubeChannelMapping({
-              name: ingestArtistName,
-              youtube_channel_id: channelId,
+          const first = Array.isArray(mixed.channels) ? mixed.channels[0] : null;
+          const candidateId = first?.channelId ? String(first.channelId).trim() : "";
+          const candidateTitle = first?.title ? String(first.title).trim() : "";
+
+          if (candidateId) {
+            const validation = await validateYouTubeChannelId(candidateId);
+            console.info(LOG_PREFIX, "CHANNELS_LIST", {
+              artistName: ingestArtistName,
+              channelId: candidateId,
+              result: validation.status,
+              source: "search_mixed",
             });
 
-            console.info(LOG_PREFIX, "CACHE_UPSERT", {
-              artistName: ingestArtistName,
-              channelId,
-              channelTitle: (validation.channelTitle ?? candidateTitle) || null,
-            });
+            if (validation.status === "valid") {
+              channelId = candidateId;
+              await upsertYoutubeChannelMapping({
+                name: ingestArtistName,
+                youtube_channel_id: channelId,
+              });
+
+              console.info(LOG_PREFIX, "CACHE_UPSERT", {
+                artistName: ingestArtistName,
+                channelId,
+                channelTitle: (validation.channelTitle ?? candidateTitle) || null,
+              });
+            }
           }
+        } catch (err: any) {
+          console.warn(RESOLVE_LOG_PREFIX, "SEARCH_LIST_FAILED", {
+            q,
+            mode,
+            ingestArtistName,
+            message: err?.message ? String(err.message) : "unknown",
+          });
         }
       }
 
@@ -648,26 +657,34 @@ router.post("/resolve", async (req, res) => {
       // - then hydrate via existing playlist/tracks fetchers
       console.info(RESOLVE_LOG_PREFIX, "SEARCH_LIST_BACKFILL", { q, missingTracks, missingPlaylists, missingArtists });
 
-      const mixed = await youtubeSearchMixed(q);
-      const persisted = await persistYouTubeMixedResults({
-        q,
-        channels: mixed.channels as any,
-        videos: mixed.videos as any,
-        playlists: mixed.playlists as any,
-      });
-
-      // Hydrate tracks via playlist fetch (best-effort, quota-light vs repeated search.list).
-      let remainingTracks = missingTracks;
-      for (const p of persisted.playlists) {
-        if (remainingTracks <= 0) break;
-        const inserted = await youtubeFetchPlaylistTracks({
-          playlist_id: p.id,
-          external_playlist_id: p.external_id,
-          max_tracks: remainingTracks,
-          artist_override: ingestArtistName ?? undefined,
+      try {
+        const mixed = await youtubeSearchMixed(q);
+        const persisted = await persistYouTubeMixedResults({
+          q,
+          channels: mixed.channels as any,
+          videos: mixed.videos as any,
+          playlists: mixed.playlists as any,
         });
-        if (inserted === null) break;
-        remainingTracks = Math.max(0, remainingTracks - inserted);
+
+        // Hydrate tracks via playlist fetch (best-effort, quota-light vs repeated search.list).
+        let remainingTracks = missingTracks;
+        for (const p of persisted.playlists) {
+          if (remainingTracks <= 0) break;
+          const inserted = await youtubeFetchPlaylistTracks({
+            playlist_id: p.id,
+            external_playlist_id: p.external_id,
+            max_tracks: remainingTracks,
+            artist_override: ingestArtistName ?? undefined,
+          });
+          if (inserted === null) break;
+          remainingTracks = Math.max(0, remainingTracks - inserted);
+        }
+      } catch (err: any) {
+        console.warn(RESOLVE_LOG_PREFIX, "SEARCH_LIST_FAILED", {
+          q,
+          mode,
+          message: err?.message ? String(err.message) : "unknown",
+        });
       }
     }
 

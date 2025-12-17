@@ -40,7 +40,7 @@ function normalizeQuery(q: string): string {
 function getApiKey(): string {
   const apiKey = process.env.YOUTUBE_API_KEY;
   if (!apiKey) {
-    throw new Error('YouTube search failed');
+    throw new Error('YouTube search failed: missing YOUTUBE_API_KEY');
   }
   return apiKey;
 }
@@ -52,6 +52,25 @@ function pickDefaultThumbUrl(thumbnails: any): string | undefined {
 
 function normalizeKind(kind: unknown): string {
   return typeof kind === 'string' ? kind : '';
+}
+
+function tryExtractYouTubeErrorDetails(body: unknown): { reason?: string; message?: string } {
+  if (!body || typeof body !== 'object') return {};
+  const err = (body as any).error;
+  if (!err || typeof err !== 'object') return {};
+
+  const message = typeof err.message === 'string' ? err.message : undefined;
+  const first = Array.isArray(err.errors) ? err.errors[0] : null;
+  const reason = first && typeof first.reason === 'string' ? first.reason : undefined;
+  return { reason, message };
+}
+
+async function safeReadJson(response: Response): Promise<unknown> {
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
 }
 
 async function executeSearch(params: Record<string, string>, apiKeyForHash: string): Promise<any> {
@@ -70,25 +89,31 @@ async function executeSearch(params: Record<string, string>, apiKeyForHash: stri
     if (!response.ok) {
       status = 'error';
       errorCode = String(response.status);
-      errorMessage = 'YouTube search failed';
-      throw new Error('YouTube search failed');
+      const body = await safeReadJson(response);
+      const details = tryExtractYouTubeErrorDetails(body);
+      const reason = details.reason ? ` (${details.reason})` : '';
+      const msg = details.message ? `: ${details.message}` : '';
+      errorMessage = `YouTube search failed${reason}${msg}`;
+      throw new Error(errorMessage);
     }
 
-    const json = await response.json().catch(() => null);
+    const json = await safeReadJson(response);
     if (!json || typeof json !== 'object') {
       status = 'error';
-      errorMessage = 'YouTube search failed';
-      throw new Error('YouTube search failed');
+      errorMessage = 'YouTube search failed: invalid JSON response';
+      throw new Error(errorMessage);
     }
 
     return json;
   } catch (err) {
-    if (err instanceof Error && err.message === 'YouTube search failed') {
+    status = 'error';
+    if (err instanceof Error) {
+      // Preserve the most specific message we have.
+      errorMessage = errorMessage ?? err.message;
       throw err;
     }
-    status = 'error';
     errorMessage = errorMessage ?? 'YouTube search failed';
-    throw new Error('YouTube search failed');
+    throw new Error(String(errorMessage));
   } finally {
     void logApiUsage({
       apiKeyOrIdentifier: apiKeyForHash,
