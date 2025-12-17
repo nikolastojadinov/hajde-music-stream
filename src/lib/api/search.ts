@@ -13,6 +13,22 @@ export type SearchResolveRequest = {
   mode: SearchResolveMode;
 };
 
+export type SearchSuggestLocalTrack = {
+  id: string;
+  title: string;
+  artist: string;
+  externalId: string | null;
+  coverUrl: string | null;
+  duration: number | null;
+};
+
+export type SearchSuggestLocalPlaylist = {
+  id: string;
+  title: string;
+  externalId: string | null;
+  coverUrl: string | null;
+};
+
 export type SearchResolveLocal = {
   tracks: SearchSuggestLocalTrack[];
   playlists: SearchSuggestLocalPlaylist[];
@@ -26,6 +42,14 @@ export type SearchResolveResponse = {
   // Wiring fields for "Search triggers artist ingestion" pipeline.
   artist_ingested: boolean;
   artist_name: string | null;
+
+  // Optional enriched artist media (from Supabase artists table)
+  artist?: {
+    name: string;
+    youtube_channel_id: string | null;
+    thumbnail_url: string | null;
+    banner_url: string | null;
+  } | null;
 };
 
 async function readJsonOrThrow(response: Response): Promise<any> {

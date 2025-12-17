@@ -121,6 +121,11 @@ export default function Search() {
     return name || null;
   }, [resolved]);
 
+  const ingestedArtistThumb = useMemo(() => {
+    const url = resolved?.artist?.thumbnail_url;
+    return typeof url === "string" && url.trim() ? url.trim() : null;
+  }, [resolved]);
+
   async function runResolve(nextQuery: string, mode: SearchResolveMode) {
     const q = normalizeQuery(nextQuery);
     if (!q) return;
@@ -264,7 +269,11 @@ export default function Search() {
                     <div className="flex gap-4 overflow-x-auto pb-2">
                       <button type="button" onClick={() => handleArtistClick(ingestedArtistName)} className="shrink-0 w-20 text-center">
                         <div className="mx-auto w-14 h-14 rounded-full bg-muted overflow-hidden flex items-center justify-center">
-                          <span className="text-sm font-semibold text-muted-foreground">{firstLetter(ingestedArtistName)}</span>
+                          {ingestedArtistThumb ? (
+                            <img src={ingestedArtistThumb} alt={ingestedArtistName} className="w-full h-full object-cover" loading="lazy" />
+                          ) : (
+                            <span className="text-sm font-semibold text-muted-foreground">{firstLetter(ingestedArtistName)}</span>
+                          )}
                         </div>
                         <div className="mt-2 text-xs font-medium truncate">{ingestedArtistName}</div>
                         <div className="mt-1 text-[10px] text-muted-foreground inline-flex items-center justify-center gap-1">

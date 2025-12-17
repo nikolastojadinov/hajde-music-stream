@@ -14,6 +14,7 @@ import { youtubeSearchMixed } from "../services/youtubeClient";
 import { youtubeFetchPlaylistTracks } from "../services/youtubeFetchPlaylistTracks";
 import {
   deleteYoutubeChannelMappingByChannelId,
+  deriveArtistKey,
   upsertYoutubeChannelMapping,
   validateYouTubeChannelId,
 } from "../services/artistResolver";
@@ -72,6 +73,13 @@ type ArtistChannelsEnvelope = {
 type YoutubeChannelsRow = {
   name: string;
   youtube_channel_id: string;
+};
+
+type ResolvedArtistMedia = {
+  name: string;
+  youtube_channel_id: string | null;
+  thumbnail_url: string | null;
+  banner_url: string | null;
 };
 
 function normalizeQuery(input: unknown): string {
@@ -148,6 +156,39 @@ function mergeLegacyPlaylists(byTitle: LocalPlaylist[], byArtist: LocalPlaylist[
   }
 
   return merged;
+}
+
+async function loadArtistMediaByName(artistNameRaw: string): Promise<ResolvedArtistMedia | null> {
+  if (!supabase) return null;
+  const name = normalizeQuery(artistNameRaw);
+  if (!name) return null;
+
+  const key = deriveArtistKey(name);
+  if (!key) return null;
+
+  const { data, error } = await supabase
+    .from("artists")
+    .select("artist, youtube_channel_id, thumbnail_url, banner_url")
+    .eq("artist_key", key)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.warn("[SearchResolve] artists lookup failed", { artistName: name, code: error.code, message: error.message });
+    return null;
+  }
+
+  const artist = typeof (data as any)?.artist === "string" ? String((data as any).artist).trim() : "";
+  const youtube_channel_id = typeof (data as any)?.youtube_channel_id === "string" ? String((data as any).youtube_channel_id).trim() : "";
+  const thumb = typeof (data as any)?.thumbnail_url === "string" ? String((data as any).thumbnail_url).trim() : "";
+  const banner = typeof (data as any)?.banner_url === "string" ? String((data as any).banner_url).trim() : "";
+
+  return {
+    name: artist || name,
+    youtube_channel_id: youtube_channel_id || null,
+    thumbnail_url: thumb || null,
+    banner_url: banner || null,
+  };
 }
 
 async function findYoutubeChannelByArtistName(artistName: string): Promise<YoutubeChannelsRow | null> {
@@ -616,6 +657,7 @@ router.post("/resolve", async (req, res) => {
     }
 
     const after = (missingTracks > 0 || missingPlaylists > 0 || missingArtists > 0) ? await fetchLocal() : before;
+    const artist = artist_name ? await loadArtistMediaByName(artist_name) : null;
 
     console.info(RESOLVE_LOG_PREFIX, "FINAL_COUNTS", {
       q,
@@ -634,6 +676,7 @@ router.post("/resolve", async (req, res) => {
       decision: "local_only",
       artist_ingested,
       artist_name,
+      artist,
     });
   } catch (err: any) {
     console.warn("[SearchResolve] ERROR", { q, mode, message: err?.message ? String(err.message) : "unknown" });

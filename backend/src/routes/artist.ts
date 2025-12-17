@@ -1,6 +1,7 @@
 import { Router } from "express";
 
 import supabase from "../services/supabaseClient";
+import { deriveArtistKey } from "../services/artistResolver";
 
 const router = Router();
 
@@ -78,6 +79,69 @@ async function loadTracksByArtistName(artistName: string): Promise<any[]> {
 
   if (error) {
     console.warn(LOG_PREFIX, "tracks query failed", { artistName: name, code: error.code, message: error.message });
+    return [];
+  }
+
+  return Array.isArray(data) ? data : [];
+}
+
+async function loadArtistRowByName(artistName: string): Promise<any | null> {
+  if (!supabase) return null;
+  const name = normalizeString(artistName);
+  if (!name) return null;
+
+  const key = deriveArtistKey(name);
+  if (!key) return null;
+
+  const { data, error } = await supabase
+    .from("artists")
+    .select("artist, artist_key, youtube_channel_id, thumbnail_url, banner_url")
+    .eq("artist_key", key)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.warn(LOG_PREFIX, "artists lookup by key failed", { artistName: name, code: error.code, message: error.message });
+    return null;
+  }
+
+  return data ?? null;
+}
+
+async function loadTracksByChannelId(youtube_channel_id: string): Promise<any[]> {
+  if (!supabase) return [];
+  const id = normalizeString(youtube_channel_id);
+  if (!id) return [];
+
+  const { data, error } = await supabase
+    .from("tracks")
+    .select("id, title, artist, external_id, youtube_id, artist_channel_id, cover_url, duration, created_at")
+    .eq("artist_channel_id", id)
+    .order("created_at", { ascending: false })
+    .limit(500);
+
+  if (error) {
+    console.warn(LOG_PREFIX, "tracks by channel query failed", { youtube_channel_id: id, code: error.code, message: error.message });
+    return [];
+  }
+
+  return Array.isArray(data) ? data : [];
+}
+
+async function loadPlaylistsByChannelId(youtube_channel_id: string): Promise<any[]> {
+  if (!supabase) return [];
+  const id = normalizeString(youtube_channel_id);
+  if (!id) return [];
+
+  const { data, error } = await supabase
+    .from("playlists")
+    .select("id, title, external_id, channel_id, cover_url, created_at, sync_status")
+    .eq("channel_id", id)
+    .order("created_at", { ascending: false })
+    .limit(100);
+
+  if (error) {
+    console.warn(LOG_PREFIX, "playlists by channel query failed", { youtube_channel_id: id, code: error.code, message: error.message });
     return [];
   }
 
@@ -233,23 +297,30 @@ router.get("/:artistName", async (req, res) => {
       return res.status(400).json({ error: "Missing artistName" });
     }
 
-    const trackRows = await loadTracksByArtistName(artistName);
+    // Prefer artists table if present (gives stable channelId + media even if no tracks yet).
+    const artistRow = await loadArtistRowByName(artistName);
+    const channelId = normalizeString((artistRow as any)?.youtube_channel_id);
+
+    const trackRows = channelId ? await loadTracksByChannelId(channelId) : await loadTracksByArtistName(artistName);
     const tracks = mapTracksForFrontend(trackRows, artistName);
 
-    // Artist media is derived from tracks.artist_channel_id (artist identity stays tracks.artist).
-    const channelId =
-      normalizeString((Array.isArray(trackRows) ? trackRows : [])[0]?.artist_channel_id) ||
-      tracks.map((t) => normalizeString(t.youtube_channel_id)).find(Boolean) ||
-      "";
-    const artist = await loadArtistMediaByChannelId(channelId, artistName);
+    const artist = channelId
+      ? await loadArtistMediaByChannelId(channelId, artistName)
+      : await loadArtistMediaByChannelId(
+          normalizeString((Array.isArray(trackRows) ? trackRows : [])[0]?.artist_channel_id) ||
+            tracks.map((t) => normalizeString(t.youtube_channel_id)).find(Boolean) ||
+            "",
+          artistName
+        );
 
-    const trackIds = tracks.map((t) => t.id);
-    const playlistRows = await loadPlaylistsViaPlaylistTracks(trackIds);
+    // Prefer channel-based playlists if we know the channelId; fallback to playlist_tracks join.
+    const playlistRows = channelId ? await loadPlaylistsByChannelId(channelId) : await loadPlaylistsViaPlaylistTracks(tracks.map((t) => t.id));
     const playlists = mapPlaylistsForFrontend(playlistRows);
 
     console.info(LOG_PREFIX, { artistName, playlistsCount: playlists.length, tracksCount: tracks.length });
 
-    if (playlists.length === 0 && tracks.length === 0) {
+    // If we have an artist record but no media/tracks yet, still return ok so the page can render.
+    if (playlists.length === 0 && tracks.length === 0 && !artistRow) {
       const resp: NotReadyResponse = { status: "not_ready" };
       return res.status(200).json(resp);
     }
