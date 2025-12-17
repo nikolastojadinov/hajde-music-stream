@@ -27,6 +27,12 @@ type ApiTrack = {
 
 type ArtistOkResponse = {
   status: "ok";
+  artist: {
+    artist_name: string;
+    youtube_channel_id: string | null;
+    thumbnail_url: string | null;
+    banner_url: string | null;
+  };
   playlists: ApiPlaylist[];
   tracks: ApiTrack[];
 };
@@ -48,7 +54,15 @@ function formatCount(n: number): string {
 }
 
 function isOk(x: any): x is ArtistOkResponse {
-  return x && typeof x === "object" && x.status === "ok" && Array.isArray(x.playlists) && Array.isArray(x.tracks);
+  return (
+    x &&
+    typeof x === "object" &&
+    x.status === "ok" &&
+    x.artist &&
+    typeof x.artist === "object" &&
+    Array.isArray(x.playlists) &&
+    Array.isArray(x.tracks)
+  );
 }
 
 function isNotReady(x: any): x is ArtistNotReadyResponse {
@@ -72,6 +86,7 @@ export default function Artist() {
 
   const [playlists, setPlaylists] = useState<ApiPlaylist[]>([]);
   const [tracks, setTracks] = useState<ApiTrack[]>([]);
+  const [artistMedia, setArtistMedia] = useState<{ thumbnail_url: string | null; banner_url: string | null } | null>(null);
 
   const playlistTracks = useMemo(() => {
     return tracks
@@ -99,6 +114,7 @@ export default function Artist() {
         setStatus("unknown");
         setPlaylists([]);
         setTracks([]);
+        setArtistMedia(null);
         return;
       }
 
@@ -117,6 +133,7 @@ export default function Artist() {
           setStatus("not_ready");
           setPlaylists([]);
           setTracks([]);
+          setArtistMedia(null);
           return;
         }
 
@@ -124,6 +141,10 @@ export default function Artist() {
           setStatus("ok");
           setPlaylists(Array.isArray(json.playlists) ? json.playlists : []);
           setTracks(Array.isArray(json.tracks) ? json.tracks : []);
+          setArtistMedia({
+            thumbnail_url: json.artist?.thumbnail_url ?? null,
+            banner_url: json.artist?.banner_url ?? null,
+          });
           return;
         }
 
@@ -132,6 +153,7 @@ export default function Artist() {
           setStatus("unknown");
           setPlaylists([]);
           setTracks([]);
+          setArtistMedia(null);
           return;
         }
 
@@ -140,6 +162,7 @@ export default function Artist() {
           setStatus("unknown");
           setPlaylists([]);
           setTracks([]);
+          setArtistMedia(null);
           return;
         }
 
@@ -147,12 +170,14 @@ export default function Artist() {
         setStatus("unknown");
         setPlaylists([]);
         setTracks([]);
+        setArtistMedia(null);
       } catch (e: any) {
         if (!active) return;
         setError(e?.message || "Artist request failed");
         setStatus("unknown");
         setPlaylists([]);
         setTracks([]);
+        setArtistMedia(null);
       } finally {
         if (!active) return;
         setLoading(false);
@@ -211,9 +236,41 @@ export default function Artist() {
 
   return (
     <div className="p-4 max-w-4xl mx-auto pb-32">
+      <div className="mb-6">
+        <div className="relative overflow-hidden rounded-xl border border-border bg-muted">
+          <div className="h-28 md:h-36 w-full">
+            {artistMedia?.banner_url ? (
+              <img
+                src={artistMedia.banner_url}
+                alt={artistName || "Artist"}
+                className="h-full w-full object-cover"
+                loading="lazy"
+              />
+            ) : (
+              <div className="h-full w-full bg-muted" />
+            )}
+          </div>
+
+          <div className="absolute left-4 -bottom-8">
+            <div className="h-16 w-16 rounded-full border border-border bg-background overflow-hidden flex items-center justify-center">
+              {artistMedia?.thumbnail_url ? (
+                <img
+                  src={artistMedia.thumbnail_url}
+                  alt={artistName || "Artist"}
+                  className="h-full w-full object-cover"
+                  loading="lazy"
+                />
+              ) : (
+                <span className="text-lg font-semibold text-muted-foreground">{(artistName || "?")[0]?.toUpperCase()}</span>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div className="flex items-center gap-4 mb-6">
         <div className="flex-1 min-w-0">
-          <h1 className="text-2xl font-bold truncate">{artistName || "Artist"}</h1>
+          <h1 className="text-2xl font-bold truncate mt-6">{artistName || "Artist"}</h1>
           <div className="text-sm text-muted-foreground">
             {formatCount(playlists.length)} playlists • {formatCount(tracks.length)} tracks
           </div>

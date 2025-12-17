@@ -1,73 +1,16 @@
 import { withBackendOrigin } from "@/lib/backendUrl";
 
-export type SearchSuggestArtist = { id: string; name: string; imageUrl?: string };
-
-export type SearchSuggestAlbum = {
-  id: string;
-  name: string;
-  artistName?: string;
-  imageUrl?: string;
-};
-
-export type SearchSuggestTrack = {
-  id: string;
-  name: string;
-  artistName?: string;
-  durationMs: number;
-  imageUrl?: string;
-};
-
-export type SearchSuggestPlaylist = {
-  id: string;
-  name: string;
-  ownerName?: string;
-  imageUrl?: string;
-};
-
-export type SearchSuggestLocalTrack = {
-  id: string;
-  title: string;
-  artist: string;
-  externalId: string | null;
-  coverUrl: string | null;
-  duration: number | null;
-};
-
-export type SearchSuggestLocalPlaylist = {
-  id: string;
-  title: string;
-  externalId: string | null;
-  coverUrl: string | null;
-};
-
 export type SearchSuggestResponse = {
   q: string;
-  source: "spotify";
-  artists: SearchSuggestArtist[];
-  albums: SearchSuggestAlbum[];
-  tracks: SearchSuggestTrack[];
-  playlists?: SearchSuggestPlaylist[];
-  // Some deployments may also include local suggestions.
-  local?: {
-    tracks?: SearchSuggestLocalTrack[];
-    playlists?: SearchSuggestLocalPlaylist[];
-  };
+  source: "youtube_suggest";
+  suggestions: string[];
 };
 
 export type SearchResolveMode = "track" | "artist" | "album" | "generic";
 
-export type SearchResolveSpotifySelection = {
-  type: "track" | "artist" | "album" | "playlist";
-  id: string;
-  name: string;
-  artistName?: string;
-  ownerName?: string;
-};
-
 export type SearchResolveRequest = {
   q: string;
   mode: SearchResolveMode;
-  spotify?: SearchResolveSpotifySelection;
 };
 
 export type SearchResolveLocal = {

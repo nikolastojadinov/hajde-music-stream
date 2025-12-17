@@ -14,6 +14,20 @@ export type YouTubeChannelSearchResult = {
   thumbUrl?: string;
 };
 
+export type YouTubePlaylistSearchResult = {
+  playlistId: string;
+  title: string;
+  channelId: string;
+  channelTitle: string;
+  thumbUrl?: string;
+};
+
+export type YouTubeMixedSearchResult = {
+  channels: YouTubeChannelSearchResult[];
+  videos: YouTubeVideoSearchResult[];
+  playlists: YouTubePlaylistSearchResult[];
+};
+
 const YOUTUBE_SEARCH_ENDPOINT = 'https://www.googleapis.com/youtube/v3/search';
 const MAX_RESULTS = 5;
 const MIN_QUERY_CHARS = 2;
@@ -34,6 +48,10 @@ function getApiKey(): string {
 function pickDefaultThumbUrl(thumbnails: any): string | undefined {
   const url = thumbnails?.default?.url;
   return typeof url === 'string' && url.length > 0 ? url : undefined;
+}
+
+function normalizeKind(kind: unknown): string {
+  return typeof kind === 'string' ? kind : '';
 }
 
 async function executeSearch(params: Record<string, string>, apiKeyForHash: string): Promise<any> {
@@ -154,4 +172,83 @@ export async function youtubeSearchArtistChannel(q: string): Promise<YouTubeChan
       if (thumbUrl) out.thumbUrl = thumbUrl;
       return out;
     });
+}
+
+/**
+ * One YouTube Data API `search.list` call that returns a mix of:
+ * - channels
+ * - videos (music category)
+ * - playlists
+ */
+export async function youtubeSearchMixed(q: string): Promise<YouTubeMixedSearchResult> {
+  const query = normalizeQuery(q);
+  if (query.length < MIN_QUERY_CHARS) {
+    return { channels: [], videos: [], playlists: [] };
+  }
+
+  const apiKey = getApiKey();
+
+  const json = await executeSearch(
+    {
+      key: apiKey,
+      part: 'snippet',
+      type: 'video,channel,playlist',
+      videoCategoryId: '10',
+      maxResults: '25',
+      fields:
+        'items(id/kind,id/videoId,id/channelId,id/playlistId,snippet/title,snippet/channelId,snippet/channelTitle,snippet/thumbnails/default/url)',
+      q: query,
+    },
+    apiKey
+  );
+
+  const items = Array.isArray((json as any).items) ? (json as any).items : [];
+  const channels: YouTubeChannelSearchResult[] = [];
+  const videos: YouTubeVideoSearchResult[] = [];
+  const playlists: YouTubePlaylistSearchResult[] = [];
+
+  for (const item of items) {
+    const kind = normalizeKind(item?.id?.kind);
+    const title = item?.snippet?.title ? String(item.snippet.title) : '';
+    const channelId = item?.snippet?.channelId ? String(item.snippet.channelId) : '';
+    const channelTitle = item?.snippet?.channelTitle ? String(item.snippet.channelTitle) : '';
+    const thumbUrl = pickDefaultThumbUrl(item?.snippet?.thumbnails);
+
+    const videoId = item?.id?.videoId ? String(item.id.videoId) : '';
+    const chId = item?.id?.channelId ? String(item.id.channelId) : '';
+    const playlistId = item?.id?.playlistId ? String(item.id.playlistId) : '';
+
+    if (kind.includes('youtube#channel') && chId && title) {
+      const out: YouTubeChannelSearchResult = { channelId: chId, title };
+      if (thumbUrl) out.thumbUrl = thumbUrl;
+      channels.push(out);
+      continue;
+    }
+
+    if (kind.includes('youtube#video') && videoId && title && channelId) {
+      const out: YouTubeVideoSearchResult = {
+        videoId,
+        title,
+        channelId,
+        channelTitle,
+      };
+      if (thumbUrl) out.thumbUrl = thumbUrl;
+      videos.push(out);
+      continue;
+    }
+
+    if (kind.includes('youtube#playlist') && playlistId && title) {
+      const out: YouTubePlaylistSearchResult = {
+        playlistId,
+        title,
+        channelId,
+        channelTitle,
+      };
+      if (thumbUrl) out.thumbUrl = thumbUrl;
+      playlists.push(out);
+      continue;
+    }
+  }
+
+  return { channels, videos, playlists };
 }

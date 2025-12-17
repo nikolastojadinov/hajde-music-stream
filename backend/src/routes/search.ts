@@ -8,8 +8,10 @@ import supabase, {
   type SearchPlaylistRow,
   type SearchTrackRow,
 } from "../services/supabaseClient";
-import { spotifySearch } from "../services/spotifyClient";
 import { youtubeSearchArtistChannel } from "../services/youtubeClient";
+import { youtubeSuggest } from "../services/youtubeSuggest";
+import { youtubeSearchMixed } from "../services/youtubeClient";
+import { youtubeFetchPlaylistTracks } from "../services/youtubeFetchPlaylistTracks";
 import {
   deleteYoutubeChannelMappingByChannelId,
   upsertYoutubeChannelMapping,
@@ -24,9 +26,9 @@ const LOG_PREFIX = "[ArtistIngest]";
 const RESOLVE_LOG_PREFIX = "[SearchResolve]";
 
 const MAX_ARTISTS = 3;
-const MIN_TRACKS = 5;
+const MIN_TRACKS = 8;
 const MAX_TRACKS = 8;
-const MIN_PLAYLISTS = 5;
+const MIN_PLAYLISTS = 8;
 const MAX_PLAYLISTS = 8;
 
 type ResolveMode = "track" | "artist" | "album" | "generic";
@@ -37,25 +39,7 @@ type ResolveRequestBody = {
   spotify?: unknown;
 };
 
-type SpotifySelection =
-  | { type: "artist"; id: string; name: string }
-  | { type: "track"; id: string; name: string; artistName?: string }
-  | { type: "album"; id: string; name: string; artistName?: string }
-  | { type: "playlist"; id: string; name: string; ownerName?: string };
-
-function normalizeSpotifySelection(value: unknown): SpotifySelection | null {
-  if (!value || typeof value !== "object") return null;
-  const type = (value as any).type;
-  const id = normalizeQuery((value as any).id);
-  const name = normalizeQuery((value as any).name);
-  if (!id || !name) return null;
-
-  if (type === "artist") return { type: "artist", id, name };
-  if (type === "track") return { type: "track", id, name, artistName: normalizeQuery((value as any).artistName) || undefined };
-  if (type === "album") return { type: "album", id, name, artistName: normalizeQuery((value as any).artistName) || undefined };
-  if (type === "playlist") return { type: "playlist", id, name, ownerName: normalizeQuery((value as any).ownerName) || undefined };
-  return null;
-}
+type SpotifySelection = unknown;
 
 type LocalTrack = {
   id: string;
@@ -306,20 +290,113 @@ function resolveArtistNameForIngest(opts: {
   mode: ResolveMode;
   spotify: SpotifySelection | null;
 }): string | null {
-  if (opts.spotify?.type === "artist") return normalizeQuery(opts.spotify.name) || null;
-  if (opts.spotify?.type === "track" || opts.spotify?.type === "album") {
-    return normalizeQuery(opts.spotify.artistName) || null;
-  }
   if (opts.mode === "artist") return normalizeQuery(opts.q) || null;
   if (isArtistQuery(opts.q)) return normalizeQuery(opts.q) || null;
   return null;
 }
 
+type YouTubeMixedChannel = { channelId: string; title: string; thumbUrl?: string };
+type YouTubeMixedVideo = { videoId: string; title: string; channelId: string; channelTitle: string; thumbUrl?: string };
+type YouTubeMixedPlaylist = { playlistId: string; title: string; channelId: string; channelTitle: string; thumbUrl?: string };
+
+async function persistYouTubeMixedResults(opts: {
+  q: string;
+  channels: YouTubeMixedChannel[];
+  videos: YouTubeMixedVideo[];
+  playlists: YouTubeMixedPlaylist[];
+}): Promise<{ playlists: Array<{ id: string; external_id: string }> }> {
+  if (!supabase) return { playlists: [] };
+
+  // 1) Cache channelId mappings.
+  if (opts.channels.length > 0) {
+    for (const ch of opts.channels) {
+      const name = normalizeQuery(ch.title);
+      const youtube_channel_id = normalizeQuery(ch.channelId);
+      if (!name || !youtube_channel_id) continue;
+      await upsertYoutubeChannelMapping({ name, youtube_channel_id });
+    }
+  }
+
+  // 2) Upsert lightweight track rows (for local-first UI; full hydration happens later).
+  if (opts.videos.length > 0) {
+    const trackRows = opts.videos
+      .map((v) => {
+        const external_id = normalizeQuery(v.videoId);
+        const title = normalizeQuery(v.title);
+        if (!external_id || !title) return null;
+        const channelTitle = normalizeQuery(v.channelTitle);
+        const artistFallback = isArtistQuery(opts.q) ? normalizeQuery(opts.q) : channelTitle;
+
+        return {
+          source: "youtube" as const,
+          external_id,
+          youtube_id: external_id,
+          title,
+          artist: artistFallback || null,
+          cover_url: v.thumbUrl ?? null,
+          artist_channel_id: normalizeQuery(v.channelId) || null,
+          duration: null,
+        };
+      })
+      .filter((x): x is NonNullable<typeof x> => Boolean(x));
+
+    if (trackRows.length > 0) {
+      // Best-effort: environments may restrict columns; rely on existing schema.
+      try {
+        await supabase.from("tracks").upsert(trackRows as any, { onConflict: "external_id" });
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  // 3) Upsert lightweight playlist rows.
+  let playlistRowsOut: Array<{ id: string; external_id: string }> = [];
+  if (opts.playlists.length > 0) {
+    const playlistRows = opts.playlists
+      .map((p) => {
+        const external_id = normalizeQuery(p.playlistId);
+        const title = normalizeQuery(p.title);
+        const channel_id = normalizeQuery(p.channelId);
+        const channel_title = normalizeQuery(p.channelTitle);
+        if (!external_id || !title) return null;
+        return {
+          external_id,
+          title,
+          description: null,
+          cover_url: p.thumbUrl ?? null,
+          channel_id: channel_id || null,
+          channel_title: channel_title || null,
+          item_count: null,
+          sync_status: "fetched",
+        };
+      })
+      .filter((x): x is NonNullable<typeof x> => Boolean(x));
+
+    if (playlistRows.length > 0) {
+      try {
+        const { data } = await supabase
+          .from("playlists")
+          .upsert(playlistRows as any, { onConflict: "external_id" })
+          .select("id, external_id");
+        const rows = Array.isArray(data) ? (data as any[]) : [];
+        playlistRowsOut = rows
+          .map((r) => ({ id: String(r.id), external_id: String(r.external_id) }))
+          .filter((r) => r.id && r.external_id);
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  return { playlists: playlistRowsOut };
+}
+
 router.get("/suggest", async (req, res) => {
   const q = normalizeQuery(req.query.q);
   try {
-    const result = await spotifySearch(q);
-    return res.json({ q, source: "spotify", ...result });
+    const suggestions = await youtubeSuggest(q);
+    return res.json({ q, source: "youtube_suggest", suggestions });
   } catch (err: any) {
     console.warn("[SearchSuggest] ERROR", { q, message: err?.message ? String(err.message) : "unknown" });
     return res.status(500).json({ error: "Search suggest failed" });
@@ -330,7 +407,7 @@ router.post("/resolve", async (req, res) => {
   const body = (req.body || {}) as ResolveRequestBody;
   const q = normalizeQuery(body.q);
   const mode = normalizeMode(body.mode);
-  const spotify = normalizeSpotifySelection(body.spotify);
+  const spotify = null;
 
   if (!supabase) {
     console.info(LOG_PREFIX, "SKIP", { reason: "supabase_missing", q, mode });
@@ -393,26 +470,29 @@ router.post("/resolve", async (req, res) => {
 
     const missingTracks = Math.max(0, minimums.minTracks - before.local.tracks.length);
     const missingPlaylists = Math.max(0, minimums.minPlaylists - before.local.playlists.length);
+    const missingArtists = Math.max(0, MAX_ARTISTS - before.artist_channels.local.length);
 
     console.info(RESOLVE_LOG_PREFIX, "LOCAL_COUNTS", {
       q,
       mode,
-      spotifyType: spotify?.type ?? null,
+      spotifyType: null,
       minTracks: minimums.minTracks,
       maxTracks: minimums.maxTracks,
       minPlaylists: minimums.minPlaylists,
       maxPlaylists: minimums.maxPlaylists,
       tracks: before.local.tracks.length,
       playlists: before.local.playlists.length,
+      artists: before.artist_channels.local.length,
       missingTracks,
       missingPlaylists,
+      missingArtists,
       ingestArtistName,
     });
 
     let artist_ingested = false;
     const artist_name = ingestArtistName;
 
-    if ((missingTracks > 0 || missingPlaylists > 0) && ingestArtistName) {
+    if ((missingTracks > 0 || missingPlaylists > 0 || missingArtists > 0) && ingestArtistName) {
       console.info(RESOLVE_LOG_PREFIX, "INGEST_NEEDED", { q, mode, ingestArtistName, missingTracks, missingPlaylists });
 
       // Resolve channelId via the existing strict flow (cache -> validate -> search.list).
@@ -437,16 +517,29 @@ router.post("/resolve", async (req, res) => {
       }
 
       if (!channelId) {
-        console.info(LOG_PREFIX, "SEARCH_LIST_CALL", { artistName: ingestArtistName });
-        const candidates = await youtubeSearchArtistChannel(ingestArtistName);
-        const first = Array.isArray(candidates) ? candidates[0] : null;
+        // NOTE: Click-only backfill. We do EXACTLY ONE search.list call and persist IDs immediately.
+        console.info(LOG_PREFIX, "SEARCH_LIST_CALL", { q: ingestArtistName });
+
+        const mixed = await youtubeSearchMixed(ingestArtistName);
+        await persistYouTubeMixedResults({
+          q: ingestArtistName,
+          channels: mixed.channels as any,
+          videos: mixed.videos as any,
+          playlists: mixed.playlists as any,
+        });
+
+        const first = Array.isArray(mixed.channels) ? mixed.channels[0] : null;
         const candidateId = first?.channelId ? String(first.channelId).trim() : "";
         const candidateTitle = first?.title ? String(first.title).trim() : "";
-        const candidateThumbUrl = first?.thumbUrl ? String(first.thumbUrl) : null;
 
         if (candidateId) {
           const validation = await validateYouTubeChannelId(candidateId);
-          console.info(LOG_PREFIX, "CHANNELS_LIST", { artistName: ingestArtistName, channelId: candidateId, result: validation.status, source: "search" });
+          console.info(LOG_PREFIX, "CHANNELS_LIST", {
+            artistName: ingestArtistName,
+            channelId: candidateId,
+            result: validation.status,
+            source: "search_mixed",
+          });
 
           if (validation.status === "valid") {
             channelId = candidateId;
@@ -488,13 +581,41 @@ router.post("/resolve", async (req, res) => {
       } else {
         console.warn(RESOLVE_LOG_PREFIX, "INGEST_SKIPPED", { q, mode, ingestArtistName, reason: "no_channelId" });
       }
-    } else {
+    } else if (missingTracks > 0 || missingPlaylists > 0 || missingArtists > 0) {
       if (missingTracks > 0 || missingPlaylists > 0) {
         console.info(RESOLVE_LOG_PREFIX, "INGEST_SKIPPED", { q, mode, reason: "no_artist_for_ingest", missingTracks, missingPlaylists });
       }
+
+      // General (non-artist) query backfill:
+      // - ONE youtube.search.list call
+      // - persist channel/video/playlist IDs immediately
+      // - then hydrate via existing playlist/tracks fetchers
+      console.info(RESOLVE_LOG_PREFIX, "SEARCH_LIST_BACKFILL", { q, missingTracks, missingPlaylists, missingArtists });
+
+      const mixed = await youtubeSearchMixed(q);
+      const persisted = await persistYouTubeMixedResults({
+        q,
+        channels: mixed.channels as any,
+        videos: mixed.videos as any,
+        playlists: mixed.playlists as any,
+      });
+
+      // Hydrate tracks via playlist fetch (best-effort, quota-light vs repeated search.list).
+      let remainingTracks = missingTracks;
+      for (const p of persisted.playlists) {
+        if (remainingTracks <= 0) break;
+        const inserted = await youtubeFetchPlaylistTracks({
+          playlist_id: p.id,
+          external_playlist_id: p.external_id,
+          max_tracks: remainingTracks,
+          artist_override: ingestArtistName ?? undefined,
+        });
+        if (inserted === null) break;
+        remainingTracks = Math.max(0, remainingTracks - inserted);
+      }
     }
 
-    const after = (missingTracks > 0 || missingPlaylists > 0) ? await fetchLocal() : before;
+    const after = (missingTracks > 0 || missingPlaylists > 0 || missingArtists > 0) ? await fetchLocal() : before;
 
     console.info(RESOLVE_LOG_PREFIX, "FINAL_COUNTS", {
       q,

@@ -26,8 +26,16 @@ type ApiTrack = {
   created_at?: string | null;
 };
 
+type ApiArtistMedia = {
+  artist_name: string;
+  youtube_channel_id: string | null;
+  thumbnail_url: string | null;
+  banner_url: string | null;
+};
+
 type OkResponse = {
   status: "ok";
+  artist: ApiArtistMedia;
   playlists: ApiPlaylist[];
   tracks: ApiTrack[];
 };
@@ -69,6 +77,47 @@ async function loadTracksByArtistName(artistName: string): Promise<any[]> {
   }
 
   return Array.isArray(data) ? data : [];
+}
+
+async function loadArtistMediaByChannelId(youtube_channel_id: string, artistName: string): Promise<ApiArtistMedia> {
+  const base: ApiArtistMedia = {
+    artist_name: artistName,
+    youtube_channel_id: youtube_channel_id || null,
+    thumbnail_url: null,
+    banner_url: null,
+  };
+
+  if (!supabase) return base;
+  const id = normalizeString(youtube_channel_id);
+  if (!id) return base;
+
+  try {
+    const { data, error } = await supabase
+      .from("artists")
+      .select("thumbnail_url, banner_url, youtube_channel_id")
+      .eq("youtube_channel_id", id)
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      console.warn(LOG_PREFIX, "artists lookup failed", { youtube_channel_id: id, code: error.code, message: error.message });
+      return base;
+    }
+
+    const thumb = normalizeNullableString((data as any)?.thumbnail_url);
+    const banner = normalizeNullableString((data as any)?.banner_url);
+    const outId = normalizeNullableString((data as any)?.youtube_channel_id) ?? id;
+
+    return {
+      artist_name: artistName,
+      youtube_channel_id: outId,
+      thumbnail_url: thumb,
+      banner_url: banner,
+    };
+  } catch (err: any) {
+    console.warn(LOG_PREFIX, "artists lookup unexpected error", { youtube_channel_id: id, message: err?.message ? String(err.message) : "unknown" });
+    return base;
+  }
 }
 
 async function loadPlaylistsViaPlaylistTracks(trackIds: string[]): Promise<any[]> {
@@ -177,6 +226,13 @@ router.get("/:artistName", async (req, res) => {
     const trackRows = await loadTracksByArtistName(artistName);
     const tracks = mapTracksForFrontend(trackRows, artistName);
 
+    // Artist media is derived from tracks.artist_channel_id (artist identity stays tracks.artist).
+    const channelId =
+      normalizeString((Array.isArray(trackRows) ? trackRows : [])[0]?.artist_channel_id) ||
+      tracks.map((t) => normalizeString(t.youtube_channel_id)).find(Boolean) ||
+      "";
+    const artist = await loadArtistMediaByChannelId(channelId, artistName);
+
     const trackIds = tracks.map((t) => t.id);
     const playlistRows = await loadPlaylistsViaPlaylistTracks(trackIds);
     const playlists = mapPlaylistsForFrontend(playlistRows);
@@ -188,7 +244,7 @@ router.get("/:artistName", async (req, res) => {
       return res.status(200).json(resp);
     }
 
-    const resp: OkResponse = { status: "ok", playlists, tracks };
+    const resp: OkResponse = { status: "ok", artist, playlists, tracks };
     return res.status(200).json(resp);
   } catch (err: any) {
     console.warn(LOG_PREFIX, "ERROR", { artistName, message: err?.message ? String(err.message) : "unknown" });
