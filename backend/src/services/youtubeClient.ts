@@ -33,6 +33,12 @@ const MAX_RESULTS = 5;
 const MIN_QUERY_CHARS = 2;
 const QUOTA_COST_SEARCH_LIST = 100;
 
+// IMPORTANT: The YouTube Data API uses a Google partial response selector syntax.
+// Use parentheses, not slash-delimited paths, to avoid 400 badRequest invalidArgument.
+const FIELDS_VIDEO = 'items(id(videoId),snippet(title,channelId,channelTitle,thumbnails(default(url))))';
+const FIELDS_CHANNEL = 'items(id(channelId),snippet(title,thumbnails(default(url))))';
+const FIELDS_MIXED = 'items(id(kind,videoId,channelId,playlistId),snippet(title,channelId,channelTitle,thumbnails(default(url))))';
+
 function normalizeQuery(q: string): string {
   return typeof q === 'string' ? q.trim() : '';
 }
@@ -141,7 +147,7 @@ export async function youtubeSearchVideos(q: string): Promise<YouTubeVideoSearch
       type: 'video',
       videoCategoryId: '10',
       maxResults: String(MAX_RESULTS),
-      fields: 'items(id/videoId,snippet/title,snippet/channelId,snippet/channelTitle,snippet/thumbnails/default/url)',
+      fields: FIELDS_VIDEO,
       q: query,
     },
     apiKey
@@ -178,7 +184,7 @@ export async function youtubeSearchArtistChannel(q: string): Promise<YouTubeChan
       part: 'snippet',
       type: 'channel',
       maxResults: '2',
-      fields: 'items(id/channelId,snippet/title,snippet/thumbnails/default/url)',
+      fields: FIELDS_CHANNEL,
       q: query,
     },
     apiKey
@@ -218,10 +224,8 @@ export async function youtubeSearchMixed(q: string): Promise<YouTubeMixedSearchR
       key: apiKey,
       part: 'snippet',
       type: 'video,channel,playlist',
-      videoCategoryId: '10',
       maxResults: '25',
-      fields:
-        'items(id/kind,id/videoId,id/channelId,id/playlistId,snippet/title,snippet/channelId,snippet/channelTitle,snippet/thumbnails/default/url)',
+      fields: FIELDS_MIXED,
       q: query,
     },
     apiKey
