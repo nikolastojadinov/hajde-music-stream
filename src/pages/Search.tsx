@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { ListMusic, Music, Search as SearchIcon, User } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -34,6 +34,7 @@ export default function Search() {
   // Search mora raditi i za goste (bez login gate-a).
   const { playTrack } = usePlayer();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
@@ -185,6 +186,45 @@ export default function Search() {
     resultsPlaylists.local.length === 0;
 
   const showResolveError = Boolean(error) && showResults && !resolveLoading;
+
+  const scrollKey = useMemo(
+    () => `${location.pathname}${location.search}`,
+    [location.pathname, location.search],
+  );
+
+  const tickingRef = useRef(false);
+
+  useEffect(() => {
+    const container = document.querySelector("main") as HTMLElement | null;
+    const getY = () => (container ? container.scrollTop : window.scrollY);
+
+    const raw = sessionStorage.getItem(scrollKey);
+    const saved = raw == null ? null : Number(raw);
+
+    if (Number.isFinite(saved)) {
+      requestAnimationFrame(() => {
+        if (container) container.scrollTop = saved as number;
+        else window.scrollTo({ top: saved as number, left: 0, behavior: "auto" });
+      });
+    }
+
+    const onScroll = () => {
+      if (tickingRef.current) return;
+      tickingRef.current = true;
+
+      requestAnimationFrame(() => {
+        tickingRef.current = false;
+        sessionStorage.setItem(scrollKey, String(getY()));
+      });
+    };
+
+    const target: HTMLElement | Window = container ?? window;
+    target.addEventListener("scroll", onScroll as EventListener, { passive: true });
+
+    return () => {
+      target.removeEventListener("scroll", onScroll as EventListener);
+    };
+  }, [scrollKey]);
 
   return (
     <div className="p-4 max-w-4xl mx-auto pb-32">

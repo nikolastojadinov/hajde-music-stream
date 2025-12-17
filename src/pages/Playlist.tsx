@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
-import { Play, Pause, Heart } from "lucide-react";
+import { useParams, useNavigate } from "react-router-dom";
+import { Play, Pause, Heart, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { usePlayer } from "@/contexts/PlayerContext";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -24,6 +24,7 @@ const Playlist = () => {
   const { user } = usePi();
   const lastLoggedViewId = useRef<string | null>(null);
   const { trackView } = usePlaylistViewTracking();
+  const navigate = useNavigate();
 
   const { data: playlist, isLoading, error } = useExternalPlaylist(id || "");
   const isLiked = id ? isPlaylistLiked(id) : false;
@@ -92,6 +93,12 @@ const Playlist = () => {
     if (statsKey) mutate(statsKey);
   };
 
+  const handleBack = () => {
+    const idx = (window.history.state as { idx?: number } | null)?.idx;
+    if (typeof idx === "number" && idx > 0) navigate(-1);
+    else navigate("/search");
+  };
+
   if (isLoading) {
     return (
       <div className="flex-1 overflow-y-auto pb-32 flex justify-center pt-20">
@@ -105,7 +112,7 @@ const Playlist = () => {
   }
 
   return (
-    <div className="flex-1 overflow-y-auto pb-32">
+    <div className="relative flex-1 overflow-y-auto pb-32">
       {/* ===== HEADER ===== */}
       <div className="pt-6 px-4 text-center">
         <div className="flex justify-center mb-4">
@@ -202,6 +209,18 @@ const Playlist = () => {
             </div>
           );
         })}
+      </div>
+
+      <div className="absolute left-2 top-2 z-10">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          onClick={handleBack}
+          aria-label="Back"
+        >
+          <ArrowLeft className="h-5 w-5" />
+        </Button>
       </div>
     </div>
   );
