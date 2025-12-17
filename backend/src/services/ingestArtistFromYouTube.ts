@@ -82,9 +82,7 @@ function normalizeToArtistsUpsertRow(opts: {
   const statistics = opts.channel?.statistics;
 
   const thumbnail_url = pickBestThumbnailUrl(snippet?.thumbnails);
-  const banner_url =
-    normalizeNullableString(brandingSettings?.channel?.unsubscribedTrailer) ||
-    normalizeNullableString(brandingSettings?.image?.bannerExternalUrl);
+  const banner_url = normalizeNullableString(brandingSettings?.image?.bannerExternalUrl);
   const subscribers = parseNullableInt(statistics?.subscriberCount);
   const views = parseNullableInt(statistics?.viewCount);
   const country = normalizeNullableString(snippet?.country);

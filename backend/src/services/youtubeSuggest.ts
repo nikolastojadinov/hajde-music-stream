@@ -18,7 +18,10 @@ export async function youtubeSuggest(q: string): Promise<string[]> {
   if (query.length < MIN_QUERY_CHARS) return [];
 
   const url = new URL(YOUTUBE_SUGGEST_ENDPOINT);
-  url.searchParams.set("client", "youtube");
+  // IMPORTANT:
+  // - client=youtube returns a JavaScript callback wrapper (text/javascript)
+  // - client=firefox returns a plain JSON array, safe to parse server-side
+  url.searchParams.set("client", "firefox");
   url.searchParams.set("ds", "yt");
   url.searchParams.set("q", query);
 
@@ -29,7 +32,11 @@ export async function youtubeSuggest(q: string): Promise<string[]> {
   try {
     const response = await fetch(url.toString(), {
       method: "GET",
-      headers: { Accept: "application/json" },
+      headers: {
+        Accept: "application/json",
+        // Some environments (proxies/CDNs) are picky; a UA helps reduce odd responses.
+        "User-Agent": "hajde-music-stream/1.0",
+      },
     });
 
     if (!response.ok) {

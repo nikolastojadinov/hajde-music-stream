@@ -41,6 +41,21 @@ if (env.supabase_url && env.supabase_service_role_key) {
       },
     },
   });
+
+  try {
+    const url = new URL(env.supabase_url);
+    console.log("[Supabase] configured", {
+      host: url.host,
+      serviceRoleKeyPresent: true,
+      serviceRoleKeyLength: env.supabase_service_role_key.length,
+    });
+  } catch {
+    console.log("[Supabase] configured", {
+      host: "invalid-url",
+      serviceRoleKeyPresent: true,
+      serviceRoleKeyLength: env.supabase_service_role_key.length,
+    });
+  }
 } else {
   console.warn('Supabase credentials missing; set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY');
   // @ts-expect-error intentionally undefined until env provided

@@ -12,6 +12,7 @@ type ApiPlaylist = {
   id: string;
   title: string;
   youtube_playlist_id: string;
+  cover_url?: string | null;
   youtube_channel_id?: string;
   source?: string;
   created_at?: string | null;
@@ -21,6 +22,8 @@ type ApiTrack = {
   id: string;
   title: string;
   youtube_video_id: string;
+  cover_url?: string | null;
+  duration?: number | null;
   youtube_channel_id?: string;
   artist_name?: string | null;
   created_at?: string | null;
@@ -66,8 +69,10 @@ async function loadTracksByArtistName(artistName: string): Promise<any[]> {
 
   const { data, error } = await supabase
     .from("tracks")
-    .select("id, title, external_id, youtube_id, artist_channel_id, created_at")
-    .eq("artist", name)
+    .select("id, title, artist, external_id, youtube_id, artist_channel_id, cover_url, duration, created_at")
+    // Stored artist names often differ by capitalization (e.g. "Michael Jackson" vs "Michael jackson").
+    // Use case-insensitive equality.
+    .ilike("artist", name)
     .order("created_at", { ascending: false })
     .limit(500);
 
@@ -150,7 +155,7 @@ async function loadPlaylistsViaPlaylistTracks(trackIds: string[]): Promise<any[]
   for (const chunk of chunkArray(playlistIdList, IN_CHUNK)) {
     const { data, error } = await supabase
       .from("playlists")
-      .select("id, title, external_id, channel_id, created_at, sync_status")
+      .select("id, title, external_id, channel_id, cover_url, created_at, sync_status")
       .in("id", chunk);
     if (error) {
       console.warn(LOG_PREFIX, "playlists query failed", { code: error.code, message: error.message });
@@ -177,12 +182,16 @@ function mapTracksForFrontend(rows: any[], artistName: string): ApiTrack[] {
     const youtube_video_id = normalizeString(t?.external_id) || normalizeString(t?.youtube_id);
     if (!id || !youtube_video_id) continue;
 
+    const duration = typeof t?.duration === "number" && Number.isFinite(t.duration) ? t.duration : null;
+
     out.push({
       id,
       title,
       youtube_video_id,
+      cover_url: normalizeNullableString(t?.cover_url) ?? null,
+      duration,
       youtube_channel_id: normalizeNullableString(t?.artist_channel_id) ?? undefined,
-      artist_name: artistName,
+      artist_name: normalizeNullableString(t?.artist) ?? artistName,
       created_at: normalizeNullableString(t?.created_at),
     });
   }
@@ -201,6 +210,7 @@ function mapPlaylistsForFrontend(rows: any[]): ApiPlaylist[] {
       id,
       title,
       youtube_playlist_id,
+      cover_url: normalizeNullableString(p?.cover_url) ?? null,
       youtube_channel_id: normalizeNullableString(p?.channel_id) ?? undefined,
       source: normalizeNullableString(p?.sync_status) ?? undefined,
       created_at: normalizeNullableString(p?.created_at),

@@ -1,16 +1,21 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
-import { Play } from "lucide-react";
+import { ListMusic, Music, Play } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import EmptyState from "@/components/ui/EmptyState";
 import ErrorState from "@/components/ui/ErrorState";
+import PlaylistCard from "@/components/PlaylistCard";
+import TrackCard from "@/components/TrackCard";
+import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { usePlayer } from "@/contexts/PlayerContext";
+import { withBackendOrigin } from "@/lib/backendUrl";
 
 type ApiPlaylist = {
   id: string;
   title: string;
   youtube_playlist_id: string;
+  cover_url?: string | null;
   youtube_channel_id?: string;
   source?: string;
   created_at?: string | null;
@@ -20,6 +25,8 @@ type ApiTrack = {
   id: string;
   title: string;
   youtube_video_id: string;
+  cover_url?: string | null;
+  duration?: number | null;
   youtube_channel_id?: string;
   artist_name?: string | null;
   created_at?: string | null;
@@ -99,6 +106,11 @@ export default function Artist() {
       }));
   }, [tracks, artistName]);
 
+  const handlePlayAll = () => {
+    if (playlistTracks.length === 0) return;
+    playPlaylist(playlistTracks, 0);
+  };
+
   const retry = () => {
     if (!artistName) return;
     setReloadNonce((x) => x + 1);
@@ -122,7 +134,7 @@ export default function Artist() {
         setLoading(true);
         setError(null);
 
-        const res = await fetch(`/api/artist/${encodeURIComponent(artistName)}`, {
+        const res = await fetch(withBackendOrigin(`/api/artist/${encodeURIComponent(artistName)}`), {
           method: "GET",
           headers: { Accept: "application/json" },
         });
@@ -234,105 +246,91 @@ export default function Artist() {
     );
   }
 
+  const displayInitial = (artistName || "?").trim()[0]?.toUpperCase() ?? "?";
+
   return (
-    <div className="p-4 max-w-4xl mx-auto pb-32">
-      <div className="mb-6">
-        <div className="relative overflow-hidden rounded-xl border border-border bg-muted">
-          <div className="h-28 md:h-36 w-full">
-            {artistMedia?.banner_url ? (
+    <div className="flex-1 overflow-y-auto pb-32">
+      {/* ===== HEADER ===== */}
+      <div className="pt-6 px-4 text-center">
+        <div className="flex justify-center mb-4">
+          <div className="w-28 h-28 rounded-full overflow-hidden bg-card border border-border flex items-center justify-center">
+            {artistMedia?.thumbnail_url ? (
               <img
-                src={artistMedia.banner_url}
+                src={artistMedia.thumbnail_url}
                 alt={artistName || "Artist"}
-                className="h-full w-full object-cover"
+                className="w-full h-full object-cover"
                 loading="lazy"
               />
             ) : (
-              <div className="h-full w-full bg-muted" />
+              <div className="text-3xl font-bold text-muted-foreground">{displayInitial}</div>
             )}
           </div>
+        </div>
 
-          <div className="absolute left-4 -bottom-8">
-            <div className="h-16 w-16 rounded-full border border-border bg-background overflow-hidden flex items-center justify-center">
-              {artistMedia?.thumbnail_url ? (
-                <img
-                  src={artistMedia.thumbnail_url}
-                  alt={artistName || "Artist"}
-                  className="h-full w-full object-cover"
-                  loading="lazy"
-                />
-              ) : (
-                <span className="text-lg font-semibold text-muted-foreground">{(artistName || "?")[0]?.toUpperCase()}</span>
-              )}
-            </div>
-          </div>
+        <h1 className="font-black text-[26px] leading-tight truncate">{artistName || "Artist"}</h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          {formatCount(tracks.length)} tracks • {formatCount(playlists.length)} playlists
+        </p>
+
+        <div className="flex justify-center items-center gap-4 mt-5">
+          <Button size="lg" className="rounded-full" onClick={handlePlayAll} disabled={playlistTracks.length === 0}>
+            <Play className="w-5 h-5 mr-2 fill-current" />
+            Play
+          </Button>
         </div>
       </div>
 
-      <div className="flex items-center gap-4 mb-6">
-        <div className="flex-1 min-w-0">
-          <h1 className="text-2xl font-bold truncate mt-6">{artistName || "Artist"}</h1>
-          <div className="text-sm text-muted-foreground">
-            {formatCount(playlists.length)} playlists • {formatCount(tracks.length)} tracks
-          </div>
+      {/* ===== PLAYLIST FLOW (home-like) ===== */}
+      <section className="mt-8">
+        <div className="px-4 flex items-center gap-2 mb-4">
+          <ListMusic className="w-5 h-5 text-muted-foreground" />
+          <h2 className="text-xl font-bold">Playlists</h2>
         </div>
 
-        <Button
-          onClick={() => {
-            if (playlistTracks.length === 0) return;
-            playPlaylist(playlistTracks, 0);
-          }}
-          disabled={playlistTracks.length === 0}
-          className="shrink-0"
-        >
-          <Play className="w-4 h-4 mr-2" /> Play All
-        </Button>
-      </div>
-
-      <section className="mb-10">
-        <h2 className="text-xl font-bold mb-4">Playlists</h2>
         {playlists.length === 0 ? (
-          <EmptyState title="No playlists yet" subtitle="This artist doesn’t have any playlists available" />
+          <div className="px-4">
+            <EmptyState title="No playlists yet" subtitle="This artist doesn’t have any playlists available" />
+          </div>
         ) : (
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-            {playlists.map((p) => (
-              <a
-                key={p.id}
-                href={`https://www.youtube.com/playlist?list=${encodeURIComponent(p.youtube_playlist_id)}`}
-                target="_blank"
-                rel="noreferrer"
-                className="rounded-lg border border-border bg-card/30 px-3 py-3 hover:bg-card/50 transition-colors"
-              >
-                <div className="font-medium line-clamp-2">{p.title}</div>
-                {p.source ? <div className="text-xs text-muted-foreground mt-1">{p.source}</div> : null}
-              </a>
-            ))}
+          <div className="px-4">
+            <ScrollArea className="w-full whitespace-nowrap rounded-md">
+              <div className="flex w-max space-x-4 pb-4">
+                {playlists.map((p) => (
+                  <div key={p.id} className="w-[140px]">
+                    <PlaylistCard id={p.id} title={p.title} description="" imageUrl={p.cover_url || "/placeholder.svg"} />
+                  </div>
+                ))}
+              </div>
+              <ScrollBar orientation="horizontal" />
+            </ScrollArea>
           </div>
         )}
       </section>
 
-      <section>
-        <h2 className="text-xl font-bold mb-4">Tracks</h2>
+      {/* ===== TRACK LIST (playlist-like vertical list) ===== */}
+      <section className="mt-8">
+        <div className="px-4 flex items-center gap-2 mb-4">
+          <Music className="w-5 h-5 text-muted-foreground" />
+          <h2 className="text-xl font-bold">Tracks</h2>
+        </div>
+
         {tracks.length === 0 ? (
-          <EmptyState title="No tracks yet" subtitle="This artist doesn’t have any tracks available" />
+          <div className="px-4">
+            <EmptyState title="No tracks yet" subtitle="This artist doesn’t have any tracks available" />
+          </div>
         ) : (
-          <div className="space-y-2">
-            {tracks.map((t) => {
-              const idx = playlistTracks.findIndex((x) => x.id === t.id);
-              return (
-                <button
-                  key={t.id}
-                  type="button"
-                  onClick={() => {
-                    if (idx < 0) return;
-                    playPlaylist(playlistTracks, idx);
-                  }}
-                  className="w-full text-left rounded-lg border border-border bg-card/30 px-3 py-3 hover:bg-card/50 transition-colors"
-                >
-                  <div className="font-medium truncate">{t.title}</div>
-                  <div className="text-sm text-muted-foreground truncate">{t.artist_name || artistName || "Unknown artist"}</div>
-                </button>
-              );
-            })}
+          <div className="px-4 space-y-2">
+            {tracks.map((t) => (
+              <TrackCard
+                key={t.id}
+                id={t.id}
+                title={t.title}
+                artist={t.artist_name || artistName || "Unknown artist"}
+                imageUrl={t.cover_url || null}
+                youtubeId={t.youtube_video_id}
+                duration={t.duration ?? null}
+              />
+            ))}
           </div>
         )}
       </section>
