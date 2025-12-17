@@ -599,12 +599,27 @@ router.post("/resolve", async (req, res) => {
       }
 
       if (channelId) {
-        const maxPlaylistsForIngest = missingPlaylists > 0 ? missingPlaylists : missingTracks > 0 ? 1 : 0;
+        // IMPORTANT:
+        // - Passing 0 here previously meant "ingest nothing", but some downstream code treated it as "unlimited".
+        // - If we're missing only artist metadata (missingArtists>0), we still want the artist page to be usable,
+        //   so we ingest playlists + tracks (best-effort) instead of ingesting 0 tracks.
+
+        const max_playlists =
+          missingPlaylists > 0 ? missingPlaylists :
+          missingTracks > 0 ? 1 :
+          missingArtists > 0 ? undefined :
+          undefined;
+
+        const max_tracks =
+          missingTracks > 0 ? missingTracks :
+          missingArtists > 0 ? undefined :
+          undefined;
+
         const ingest = await ingestArtistFromYouTubeByChannelId({
           youtube_channel_id: channelId,
           artistName: ingestArtistName,
-          max_playlists: maxPlaylistsForIngest,
-          max_tracks: missingTracks > 0 ? missingTracks : 0,
+          max_playlists,
+          max_tracks,
         });
         if (ingest) {
           artist_ingested = true;

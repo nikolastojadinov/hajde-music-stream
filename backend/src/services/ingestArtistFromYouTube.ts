@@ -5,6 +5,7 @@ import {
   findYoutubeChannelMappingByArtistName,
   validateYouTubeChannelId,
 } from "./artistResolver";
+import { youtubeSearchArtistChannel } from "./youtubeClient";
 import { youtubeFetchArtistPlaylists } from "./youtubeFetchArtistPlaylists";
 import { youtubeFetchPlaylistTracks } from "./youtubeFetchPlaylistTracks";
 
@@ -203,10 +204,55 @@ export async function ingestArtistFromYouTubeByChannelId(
     const maxTracksRaw = input.max_tracks;
     const maxTracks = typeof maxTracksRaw === "number" && Number.isFinite(maxTracksRaw) ? Math.max(0, Math.trunc(maxTracksRaw)) : null;
 
-    const playlists = await youtubeFetchArtistPlaylists({ youtube_channel_id, artist_id, max_playlists: maxPlaylists ?? undefined });
-    if (playlists === null) return null;
+    const allPlaylists: any[] = [];
 
-    const playlists_ingested = Array.isArray(playlists) ? playlists.length : 0;
+    // 1) Primary (official) channel playlists
+    const primaryPlaylists = await youtubeFetchArtistPlaylists({
+      youtube_channel_id,
+      artist_id,
+      max_playlists: maxPlaylists ?? undefined,
+    });
+    if (primaryPlaylists === null) return null;
+    allPlaylists.push(...(Array.isArray(primaryPlaylists) ? primaryPlaylists : []));
+
+    // 2) Topic channel playlists (often where official album playlists live)
+    // Best-effort: if we can't find/validate it, continue with primary.
+    try {
+      const query = `${artistName} - Topic`;
+      const candidates = await youtubeSearchArtistChannel(query);
+      const best = (Array.isArray(candidates) ? candidates : []).find((c) => {
+        const title = normalizeString((c as any)?.title).toLowerCase();
+        return title === query.toLowerCase() || title.endsWith("- topic");
+      });
+
+      const topicChannelId = normalizeString((best as any)?.channelId);
+      if (topicChannelId && topicChannelId !== youtube_channel_id) {
+        const topicValidation = await validateYouTubeChannelId(topicChannelId);
+        if (topicValidation.status === "valid") {
+          const topicPlaylists = await youtubeFetchArtistPlaylists({
+            youtube_channel_id: topicChannelId,
+            artist_id,
+            // Store under primary channel so /api/artist lists them.
+            store_channel_id_override: youtube_channel_id,
+            store_channel_title_override: artistName,
+          });
+          if (topicPlaylists === null) return null;
+          allPlaylists.push(...(Array.isArray(topicPlaylists) ? topicPlaylists : []));
+        }
+      }
+    } catch (e) {
+      void e;
+    }
+
+    // Dedupe by playlist id
+    const deduped = new Map<string, any>();
+    for (const p of allPlaylists) {
+      const playlist_id = normalizeString((p as any)?.id) || normalizeString((p as any)?.playlist_id);
+      if (playlist_id) deduped.set(playlist_id, p);
+    }
+
+    const playlists = Array.from(deduped.values());
+    const playlists_ingested = playlists.length;
     let tracks_ingested = 0;
 
     for (const p of Array.isArray(playlists) ? playlists : []) {
@@ -222,6 +268,7 @@ export async function ingestArtistFromYouTubeByChannelId(
         external_playlist_id,
         max_tracks: remainingTracks ?? undefined,
         artist_override: artistName,
+        artist_channel_id_override: youtube_channel_id,
       });
       if (inserted === null) return null;
       tracks_ingested += inserted;

@@ -301,7 +301,13 @@ router.get("/:artistName", async (req, res) => {
     const artistRow = await loadArtistRowByName(artistName);
     const channelId = normalizeString((artistRow as any)?.youtube_channel_id);
 
-    const trackRows = channelId ? await loadTracksByChannelId(channelId) : await loadTracksByArtistName(artistName);
+    let trackRows = channelId ? await loadTracksByChannelId(channelId) : await loadTracksByArtistName(artistName);
+    // Many "official" album playlists live on "- Topic" or VEVO channels.
+    // If we have a primary channelId but no tracks, fall back to artist-name matching.
+    if (channelId && Array.isArray(trackRows) && trackRows.length === 0) {
+      const byName = await loadTracksByArtistName(artistName);
+      trackRows = byName;
+    }
     const tracks = mapTracksForFrontend(trackRows, artistName);
 
     const artist = channelId
@@ -314,7 +320,10 @@ router.get("/:artistName", async (req, res) => {
         );
 
     // Prefer channel-based playlists if we know the channelId; fallback to playlist_tracks join.
-    const playlistRows = channelId ? await loadPlaylistsByChannelId(channelId) : await loadPlaylistsViaPlaylistTracks(tracks.map((t) => t.id));
+    let playlistRows = channelId ? await loadPlaylistsByChannelId(channelId) : await loadPlaylistsViaPlaylistTracks(tracks.map((t) => t.id));
+    if (channelId && Array.isArray(playlistRows) && playlistRows.length === 0) {
+      playlistRows = await loadPlaylistsViaPlaylistTracks(tracks.map((t) => t.id));
+    }
     const playlists = mapPlaylistsForFrontend(playlistRows);
 
     console.info(LOG_PREFIX, { artistName, playlistsCount: playlists.length, tracksCount: tracks.length });

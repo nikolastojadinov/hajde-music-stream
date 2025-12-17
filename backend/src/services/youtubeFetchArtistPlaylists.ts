@@ -5,8 +5,13 @@ const YOUTUBE_PLAYLISTS_ENDPOINT = "https://www.googleapis.com/youtube/v3/playli
 const QUOTA_COST_PLAYLISTS_LIST = 1;
 
 export type YoutubeFetchArtistPlaylistsInput = {
+  // Channel to fetch playlists from.
   youtube_channel_id: string;
   artist_id: string;
+  // Optional: store fetched playlists under a different channel id/title.
+  // Used to attach Topic-channel album playlists to the primary artist channel page.
+  store_channel_id_override?: string;
+  store_channel_title_override?: string;
   // Optional: limit number of playlists persisted.
   // Used by the Search resolve "delta ingestion" flow.
   max_playlists?: number;
@@ -96,7 +101,7 @@ function isOfficialAlbumLike(title: string, description: string | null): boolean
   return true;
 }
 
-async function fetchPlaylistsOnce(youtube_channel_id: string): Promise<any | null> {
+async function fetchPlaylistsPage(youtube_channel_id: string, pageToken?: string | null): Promise<any | null> {
   const apiKey = getApiKey();
   if (!apiKey) return null;
 
@@ -108,9 +113,10 @@ async function fetchPlaylistsOnce(youtube_channel_id: string): Promise<any | nul
   url.searchParams.set("part", "snippet,contentDetails");
   url.searchParams.set("channelId", channelId);
   url.searchParams.set("maxResults", "50");
+  if (pageToken) url.searchParams.set("pageToken", pageToken);
   url.searchParams.set(
     "fields",
-    "items(id,snippet(title,description,channelTitle,thumbnails(default(url),medium(url),high(url))),contentDetails(itemCount))"
+    "items(id,snippet(title,description,channelTitle,thumbnails(default(url),medium(url),high(url))),contentDetails(itemCount)),nextPageToken"
   );
 
   let status: "ok" | "error" = "ok";
@@ -158,18 +164,49 @@ async function fetchPlaylistsOnce(youtube_channel_id: string): Promise<any | nul
   }
 }
 
+async function fetchPlaylistsAll(youtube_channel_id: string, opts?: { max_playlists?: number | null }): Promise<any[] | null> {
+  const maxRaw = opts?.max_playlists;
+  const maxPlaylists = typeof maxRaw === "number" && Number.isFinite(maxRaw) ? Math.max(0, Math.trunc(maxRaw)) : null;
+  if (maxPlaylists === 0) return [];
+
+  const out: any[] = [];
+  let pageToken: string | null = null;
+  let guard = 0;
+
+  while (true) {
+    guard += 1;
+    if (guard > 50) break;
+
+    const json = await fetchPlaylistsPage(youtube_channel_id, pageToken);
+    if (!json) return null;
+
+    const items = Array.isArray((json as any)?.items) ? (json as any).items : [];
+    out.push(...items);
+
+    if (maxPlaylists !== null && out.length >= maxPlaylists) {
+      return out.slice(0, maxPlaylists);
+    }
+
+    pageToken = normalizeNullableString((json as any)?.nextPageToken);
+    if (!pageToken) break;
+  }
+
+  return out;
+}
+
 function normalizeToInsertRows(
-  json: any,
+  items: any[],
   youtube_channel_id: string,
+  storeChannel: { id: string; title: string },
   opts?: { max_playlists?: number | null }
 ): PlaylistInsertRow[] {
-  const items = Array.isArray(json?.items) ? json.items : [];
   const preferred: PlaylistInsertRow[] = [];
   const fallback: PlaylistInsertRow[] = [];
   const seen = new Set<string>();
 
   const maxRaw = opts?.max_playlists;
   const maxPlaylists = typeof maxRaw === "number" && Number.isFinite(maxRaw) ? Math.max(0, Math.trunc(maxRaw)) : null;
+  if (maxPlaylists === 0) return [];
 
   for (const item of items) {
     const external_id = normalizeString(item?.id);
@@ -191,8 +228,8 @@ function normalizeToInsertRows(
       title,
       description,
       cover_url,
-      channel_id: youtube_channel_id,
-      channel_title,
+      channel_id: storeChannel.id || youtube_channel_id,
+      channel_title: storeChannel.title || channel_title,
       item_count,
       sync_status: "fetched",
     };
@@ -234,10 +271,13 @@ export async function youtubeFetchArtistPlaylists(input: YoutubeFetchArtistPlayl
     const youtube_channel_id = normalizeString(input.youtube_channel_id);
     if (!youtube_channel_id) return null;
 
-    const json = await fetchPlaylistsOnce(youtube_channel_id);
-    if (!json) return null;
+    const storeChannelId = normalizeString(input.store_channel_id_override) || youtube_channel_id;
+    const storeChannelTitle = normalizeString(input.store_channel_title_override);
 
-    const rows = normalizeToInsertRows(json, youtube_channel_id, { max_playlists: input.max_playlists ?? null });
+    const items = await fetchPlaylistsAll(youtube_channel_id, { max_playlists: input.max_playlists ?? null });
+    if (!items) return null;
+
+    const rows = normalizeToInsertRows(items, youtube_channel_id, { id: storeChannelId, title: storeChannelTitle }, { max_playlists: input.max_playlists ?? null });
     if (rows.length === 0) return [];
 
     // Upsert is required for repeat-safe hydration.

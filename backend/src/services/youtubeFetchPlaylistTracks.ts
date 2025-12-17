@@ -19,6 +19,9 @@ export type YoutubeFetchPlaylistTracksInput = {
   // Optional: force the stored track artist to a specific name.
   // Used to ensure tracks are saved under the search artistName.
   artist_override?: string;
+  // Optional: force the stored artist_channel_id to a specific channel id.
+  // Used to ensure tracks from Topic/VEVO uploads appear under the primary artist channel page.
+  artist_channel_id_override?: string;
 };
 
 type PlaylistItem = {
@@ -364,8 +367,13 @@ export async function youtubeFetchPlaylistTracks(input: YoutubeFetchPlaylistTrac
       if (desiredTrackRowsMap.has(row.external_id)) continue;
 
       const override = typeof input.artist_override === "string" ? input.artist_override.trim() : "";
-      if (override) {
-        desiredTrackRowsMap.set(row.external_id, { ...row, artist: override });
+      const channelOverride = typeof input.artist_channel_id_override === "string" ? input.artist_channel_id_override.trim() : "";
+      if (override || channelOverride) {
+        desiredTrackRowsMap.set(row.external_id, {
+          ...row,
+          artist: override ? override : row.artist,
+          artist_channel_id: channelOverride ? channelOverride : row.artist_channel_id,
+        });
       } else {
         desiredTrackRowsMap.set(row.external_id, row);
       }
