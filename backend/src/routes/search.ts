@@ -97,12 +97,16 @@ export function isArtistQuery(q: string): boolean {
   if (raw.length < MIN_QUERY_CHARS) return false;
 
   const lower = raw.toLowerCase();
-  const forbidden = ["-", "feat", "ft.", "remix", "official", "lyrics", "video"];
+  // NOTE: We intentionally do NOT forbid '-' globally, because many valid artist names contain it
+  // (e.g. AC-DC, Jay-Z). We'll treat separators as whitespace below.
+  const forbidden = ["feat", "ft.", "remix", "official", "lyrics", "video"];
   for (const token of forbidden) {
     if (lower.includes(token)) return false;
   }
 
-  const words = raw.split(/\s+/).filter(Boolean);
+  // Treat common artist separators as whitespace so names like "AC/DC" become "AC DC".
+  const cleaned = raw.replace(/[\/-]+/g, " ");
+  const words = cleaned.split(/\s+/).filter(Boolean);
   if (words.length < 1 || words.length > 4) return false;
 
   // "all alphabetic" per spec

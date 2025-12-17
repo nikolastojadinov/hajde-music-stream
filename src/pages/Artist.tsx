@@ -81,11 +81,11 @@ function isError(x: any): x is ArtistErrorResponse {
 }
 
 export default function Artist() {
-  const { artistName: artistNameParam } = useParams();
+  const { artistKey: artistKeyParam } = useParams();
   const { playPlaylist } = usePlayer();
   const navigate = useNavigate();
 
-  const artistName = normalizeString(artistNameParam);
+  const artistKey = normalizeString(artistKeyParam);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -95,6 +95,7 @@ export default function Artist() {
   const [playlists, setPlaylists] = useState<ApiPlaylist[]>([]);
   const [tracks, setTracks] = useState<ApiTrack[]>([]);
   const [artistMedia, setArtistMedia] = useState<{ thumbnail_url: string | null; banner_url: string | null } | null>(null);
+  const [artistTitle, setArtistTitle] = useState<string>(artistKey);
 
   const playlistTracks = useMemo(() => {
     return tracks
@@ -103,9 +104,9 @@ export default function Artist() {
         id: t.id,
         external_id: t.youtube_video_id,
         title: t.title,
-        artist: t.artist_name || artistName || "Unknown artist",
+        artist: t.artist_name || artistTitle || "Unknown artist",
       }));
-  }, [tracks, artistName]);
+  }, [tracks, artistTitle]);
 
   const handlePlayAll = () => {
     if (playlistTracks.length === 0) return;
@@ -113,7 +114,7 @@ export default function Artist() {
   };
 
   const retry = () => {
-    if (!artistName) return;
+    if (!artistKey) return;
     setReloadNonce((x) => x + 1);
   };
 
@@ -127,13 +128,14 @@ export default function Artist() {
     let active = true;
 
     async function load() {
-      if (!artistName) {
+      if (!artistKey) {
         setLoading(false);
-        setError("Missing artist name");
+        setError("Missing artist");
         setStatus("unknown");
         setPlaylists([]);
         setTracks([]);
         setArtistMedia(null);
+        setArtistTitle("");
         return;
       }
 
@@ -141,7 +143,10 @@ export default function Artist() {
         setLoading(true);
         setError(null);
 
-        const res = await fetch(withBackendOrigin(`/api/artist/${encodeURIComponent(artistName)}`), {
+        // Route param is a safe slug (artist_key). Fetch via query param so names with '/' never break.
+        setArtistTitle(artistKey);
+
+        const res = await fetch(withBackendOrigin(`/api/artist?artist_key=${encodeURIComponent(artistKey)}`), {
           method: "GET",
           headers: { Accept: "application/json" },
         });
@@ -160,6 +165,7 @@ export default function Artist() {
           setStatus("ok");
           setPlaylists(Array.isArray(json.playlists) ? json.playlists : []);
           setTracks(Array.isArray(json.tracks) ? json.tracks : []);
+          setArtistTitle(normalizeString(json.artist?.artist_name) || artistKey);
           setArtistMedia({
             thumbnail_url: json.artist?.thumbnail_url ?? null,
             banner_url: json.artist?.banner_url ?? null,
@@ -207,7 +213,7 @@ export default function Artist() {
     return () => {
       active = false;
     };
-  }, [artistName, reloadNonce]);
+  }, [artistKey, reloadNonce]);
 
   if (loading) {
     return (
@@ -222,7 +228,7 @@ export default function Artist() {
   if (error) {
     return (
       <div className="p-4 max-w-4xl mx-auto pb-32">
-        <ErrorState title="Artist request failed" subtitle={error} onRetry={artistName ? retry : undefined} />
+        <ErrorState title="Artist request failed" subtitle={error} onRetry={artistKey ? retry : undefined} />
       </div>
     );
   }
@@ -231,7 +237,7 @@ export default function Artist() {
     return (
       <div className="p-4 max-w-4xl mx-auto pb-32">
         <div className="mb-6">
-          <h1 className="text-2xl font-bold truncate">{artistName || "Artist"}</h1>
+          <h1 className="text-2xl font-bold truncate">{artistTitle || "Artist"}</h1>
           <div className="text-sm text-muted-foreground mt-1">Artist is being prepared. Please retry.</div>
           <div className="mt-4">
             <Button type="button" onClick={retry}>
@@ -253,7 +259,7 @@ export default function Artist() {
     );
   }
 
-  const displayInitial = (artistName || "?").trim()[0]?.toUpperCase() ?? "?";
+  const displayInitial = (artistTitle || "?").trim()[0]?.toUpperCase() ?? "?";
 
   return (
     <div className="relative">

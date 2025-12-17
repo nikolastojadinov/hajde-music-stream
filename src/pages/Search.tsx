@@ -15,6 +15,7 @@ import {
   type SearchResolveResponse,
   type SearchSuggestResponse,
 } from "@/lib/api/search";
+import { deriveArtistKey } from "@/lib/artistKey";
 
 type Suggestion = {
   name: string;
@@ -170,7 +171,9 @@ export default function Search() {
   const handleArtistClick = (artistName: string) => {
     const name = artistName.trim();
     if (!name) return;
-    const internal = `/artist/${encodeURIComponent(name)}`;
+    const key = deriveArtistKey(name);
+    if (!key) return;
+    const internal = `/artist/${encodeURIComponent(key)}`;
     try {
       navigate(internal);
     } catch {

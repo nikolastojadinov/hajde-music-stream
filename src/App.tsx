@@ -66,7 +66,7 @@ const AppRoutes = () => {
       <Route path="/" element={<Home />} />
       <Route path="/search" element={<Search />} />
       <Route path="/library" element={<Library />} />
-      <Route path="/artist/:artistName" element={<Artist />} />
+      <Route path="/artist/:artistKey" element={<Artist />} />
       <Route path="/playlist/:id" element={<Playlist />} />
       <Route path="/create" element={<CreatePlaylist />} />
       <Route path="/edit/:id" element={<EditPlaylist />} />

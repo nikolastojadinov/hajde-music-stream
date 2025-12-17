@@ -48,6 +48,11 @@ type NotReadyResponse = {
   status: "not_ready";
 };
 
+type QueryArtistRequest = {
+  artist_key?: unknown;
+  artist?: unknown;
+};
+
 function normalizeString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -283,40 +288,37 @@ function mapPlaylistsForFrontend(rows: any[]): ApiPlaylist[] {
   return out;
 }
 
-/**
- * GET /api/artist/:artistName
- *
- * MUST be pure local DB. NEVER call YouTube.
- */
-router.get("/:artistName", async (req, res) => {
-  const artistName = normalizeString(req.params.artistName);
+async function handleArtistLocalRequest(artistIdentifierRaw: string, res: any): Promise<any> {
+  const artistIdentifier = normalizeString(artistIdentifierRaw);
 
   try {
     if (!supabase) return res.status(500).json({ error: "Supabase not configured" });
-    if (!artistName || artistName.length < MIN_QUERY_CHARS) {
-      return res.status(400).json({ error: "Missing artistName" });
+    if (!artistIdentifier || artistIdentifier.length < MIN_QUERY_CHARS) {
+      return res.status(400).json({ error: "Missing artist" });
     }
 
     // Prefer artists table if present (gives stable channelId + media even if no tracks yet).
-    const artistRow = await loadArtistRowByName(artistName);
+    // NOTE: artistIdentifier can be either a display name ("AC/DC") or an artist_key ("ac-dc").
+    const artistRow = await loadArtistRowByName(artistIdentifier);
+    const artistDisplayName = normalizeString((artistRow as any)?.artist) || artistIdentifier;
     const channelId = normalizeString((artistRow as any)?.youtube_channel_id);
 
-    let trackRows = channelId ? await loadTracksByChannelId(channelId) : await loadTracksByArtistName(artistName);
+    let trackRows = channelId ? await loadTracksByChannelId(channelId) : await loadTracksByArtistName(artistDisplayName);
     // Many "official" album playlists live on "- Topic" or VEVO channels.
     // If we have a primary channelId but no tracks, fall back to artist-name matching.
     if (channelId && Array.isArray(trackRows) && trackRows.length === 0) {
-      const byName = await loadTracksByArtistName(artistName);
+      const byName = await loadTracksByArtistName(artistDisplayName);
       trackRows = byName;
     }
-    const tracks = mapTracksForFrontend(trackRows, artistName);
+    const tracks = mapTracksForFrontend(trackRows, artistDisplayName);
 
     const artist = channelId
-      ? await loadArtistMediaByChannelId(channelId, artistName)
+      ? await loadArtistMediaByChannelId(channelId, artistDisplayName)
       : await loadArtistMediaByChannelId(
           normalizeString((Array.isArray(trackRows) ? trackRows : [])[0]?.artist_channel_id) ||
             tracks.map((t) => normalizeString(t.youtube_channel_id)).find(Boolean) ||
             "",
-          artistName
+          artistDisplayName
         );
 
     // Prefer channel-based playlists if we know the channelId; fallback to playlist_tracks join.
@@ -326,7 +328,7 @@ router.get("/:artistName", async (req, res) => {
     }
     const playlists = mapPlaylistsForFrontend(playlistRows);
 
-    console.info(LOG_PREFIX, { artistName, playlistsCount: playlists.length, tracksCount: tracks.length });
+    console.info(LOG_PREFIX, { artistName: artistDisplayName, playlistsCount: playlists.length, tracksCount: tracks.length });
 
     // If we have an artist record but no media/tracks yet, still return ok so the page can render.
     if (playlists.length === 0 && tracks.length === 0 && !artistRow) {
@@ -337,9 +339,33 @@ router.get("/:artistName", async (req, res) => {
     const resp: OkResponse = { status: "ok", artist, playlists, tracks };
     return res.status(200).json(resp);
   } catch (err: any) {
-    console.warn(LOG_PREFIX, "ERROR", { artistName, message: err?.message ? String(err.message) : "unknown" });
+    console.warn(LOG_PREFIX, "ERROR", { artistName: artistIdentifier, message: err?.message ? String(err.message) : "unknown" });
     return res.status(500).json({ error: "Internal error" });
   }
+}
+
+/**
+ * GET /api/artist?artist_key=ac-dc
+ * GET /api/artist?artist=AC%2FDC
+ *
+ * Safer than path params because '/' cannot split routing.
+ */
+router.get("/", async (req, res) => {
+  const q = (req.query || {}) as QueryArtistRequest;
+  const artistKeyParam = normalizeString(q.artist_key);
+  const artistNameParam = normalizeString(q.artist);
+  const identifier = artistKeyParam || artistNameParam;
+  return handleArtistLocalRequest(identifier, res);
+});
+
+/**
+ * GET /api/artist/:artistName
+ *
+ * MUST be pure local DB. NEVER call YouTube.
+ */
+router.get("/:artistName", async (req, res) => {
+  const artistName = normalizeString(req.params.artistName);
+  return handleArtistLocalRequest(artistName, res);
 });
 
 export default router;
