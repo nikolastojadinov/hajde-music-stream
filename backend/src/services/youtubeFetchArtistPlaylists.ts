@@ -1,5 +1,6 @@
 import supabase from "./supabaseClient";
 import { logApiUsage } from "./apiUsageLogger";
+import { youtubeScrapeChannelPlaylistIds } from "./youtubeScrapeChannelPlaylistIds";
 
 const YOUTUBE_PLAYLISTS_ENDPOINT = "https://www.googleapis.com/youtube/v3/playlists";
 const QUOTA_COST_PLAYLISTS_LIST = 1;
@@ -194,6 +195,88 @@ async function fetchPlaylistsAll(youtube_channel_id: string, opts?: { max_playli
   return out;
 }
 
+async function fetchPlaylistsByIds(ids: string[]): Promise<any[] | null> {
+  const apiKey = getApiKey();
+  if (!apiKey) return null;
+
+  const cleaned = Array.from(new Set(ids.map((id) => normalizeString(id)).filter(Boolean)));
+  if (cleaned.length === 0) return [];
+
+  const url = new URL(YOUTUBE_PLAYLISTS_ENDPOINT);
+  url.searchParams.set("key", apiKey);
+  url.searchParams.set("part", "snippet,contentDetails");
+  url.searchParams.set("id", cleaned.join(","));
+  url.searchParams.set(
+    "fields",
+    "items(id,snippet(title,description,channelTitle,thumbnails(default(url),medium(url),high(url))),contentDetails(itemCount))"
+  );
+
+  let status: "ok" | "error" = "ok";
+  let errorCode: string | null = null;
+  let errorMessage: string | null = null;
+  let quotaCost = QUOTA_COST_PLAYLISTS_LIST;
+
+  try {
+    const response = await fetch(url.toString(), { method: "GET" });
+
+    const quotaHeader = response.headers.get("x-goog-quota-used");
+    if (quotaHeader) {
+      const parsed = Number.parseFloat(quotaHeader);
+      if (Number.isFinite(parsed) && parsed >= 0) quotaCost = parsed;
+    }
+
+    if (!response.ok) {
+      status = "error";
+      errorCode = String(response.status);
+      errorMessage = "YouTube playlists.list (by id) failed";
+      return null;
+    }
+
+    const json = await response.json().catch(() => null);
+    if (!json || typeof json !== "object") {
+      status = "error";
+      errorMessage = "YouTube playlists.list (by id) failed";
+      return null;
+    }
+
+    return Array.isArray((json as any)?.items) ? (json as any).items : [];
+  } catch (err: any) {
+    status = "error";
+    errorMessage = err?.message ? String(err.message) : "YouTube playlists.list (by id) failed";
+    return null;
+  } finally {
+    void logApiUsage({
+      apiKeyOrIdentifier: apiKey,
+      endpoint: "youtube.playlists.list",
+      quotaCost,
+      status,
+      errorCode,
+      errorMessage,
+    });
+  }
+}
+
+async function fetchPlaylistsByIdsAll(ids: string[], opts?: { max_playlists?: number | null }): Promise<any[] | null> {
+  const maxRaw = opts?.max_playlists;
+  const maxPlaylists = typeof maxRaw === "number" && Number.isFinite(maxRaw) ? Math.max(0, Math.trunc(maxRaw)) : null;
+  if (maxPlaylists === 0) return [];
+
+  const out: any[] = [];
+  const unique = Array.from(new Set(ids.map((id) => normalizeString(id)).filter(Boolean)));
+
+  // playlists.list supports up to 50 playlist IDs per call.
+  for (let i = 0; i < unique.length; i += 50) {
+    const batch = unique.slice(i, i + 50);
+    const items = await fetchPlaylistsByIds(batch);
+    if (!items) return null;
+
+    out.push(...items);
+    if (maxPlaylists !== null && out.length >= maxPlaylists) return out.slice(0, maxPlaylists);
+  }
+
+  return out;
+}
+
 function normalizeToInsertRows(
   items: any[],
   youtube_channel_id: string,
@@ -274,10 +357,24 @@ export async function youtubeFetchArtistPlaylists(input: YoutubeFetchArtistPlayl
     const storeChannelId = normalizeString(input.store_channel_id_override) || youtube_channel_id;
     const storeChannelTitle = normalizeString(input.store_channel_title_override);
 
-    const items = await fetchPlaylistsAll(youtube_channel_id, { max_playlists: input.max_playlists ?? null });
+    const maxRaw = input.max_playlists;
+    const maxPlaylists = typeof maxRaw === "number" && Number.isFinite(maxRaw) ? Math.max(0, Math.trunc(maxRaw)) : null;
+
+    let items = await fetchPlaylistsAll(youtube_channel_id, { max_playlists: maxPlaylists });
     if (!items) return null;
 
-    const rows = normalizeToInsertRows(items, youtube_channel_id, { id: storeChannelId, title: storeChannelTitle }, { max_playlists: input.max_playlists ?? null });
+    // Fallback for Topic channels: playlists.list by channel can return 0 even when
+    // the channel has "Albums & Singles" playlists visible in HTML.
+    if (Array.isArray(items) && items.length === 0) {
+      const scrapedIds = await youtubeScrapeChannelPlaylistIds(youtube_channel_id, { max: maxPlaylists ?? 200 });
+      if (scrapedIds.length > 0) {
+        const byIdItems = await fetchPlaylistsByIdsAll(scrapedIds, { max_playlists: maxPlaylists });
+        if (!byIdItems) return null;
+        items = byIdItems;
+      }
+    }
+
+    const rows = normalizeToInsertRows(items, youtube_channel_id, { id: storeChannelId, title: storeChannelTitle }, { max_playlists: maxPlaylists });
     if (rows.length === 0) return [];
 
     // Upsert is required for repeat-safe hydration.
