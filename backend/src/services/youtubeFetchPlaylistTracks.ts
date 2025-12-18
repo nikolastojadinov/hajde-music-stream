@@ -1,5 +1,6 @@
 import supabase from "./supabaseClient";
 import { logApiUsage } from "./apiUsageLogger";
+import { youtubeScrapePlaylistVideoIds } from "./youtubeScrapePlaylistVideoIds";
 
 const YOUTUBE_API_BASE = "https://www.googleapis.com/youtube/v3";
 const QUOTA_COST_PLAYLIST_ITEMS_LIST = 1;
@@ -327,8 +328,23 @@ export async function youtubeFetchPlaylistTracks(input: YoutubeFetchPlaylistTrac
     const external_playlist_id = normalizeString(input.external_playlist_id);
     if (!playlist_id || !external_playlist_id) return null;
 
-    const playlistItemsResult = await fetchPlaylistItemsAll(external_playlist_id, input.if_none_match ?? null);
-    if (!playlistItemsResult) return null;
+    let playlistItemsResult = await fetchPlaylistItemsAll(external_playlist_id, input.if_none_match ?? null);
+    if (!playlistItemsResult) {
+      // Some Topic auto-generated album playlists (OLAK5uy...) can intermittently fail playlistItems.list.
+      // Fallback: scrape the playlist page and continue.
+      if (external_playlist_id.startsWith("OLAK5uy")) {
+        const scraped = await youtubeScrapePlaylistVideoIds(external_playlist_id, { max: input.max_tracks ?? null });
+        if (scraped.length === 0) return null;
+
+        playlistItemsResult = {
+          state: 'fetched',
+          etag: null,
+          items: scraped.map((videoId, idx) => ({ videoId, position: idx })),
+        };
+      } else {
+        return null;
+      }
+    }
 
     // Best-effort: persist ETag/refresh timestamp on the playlist row when available.
     if (playlistItemsResult.etag) {
@@ -354,7 +370,16 @@ export async function youtubeFetchPlaylistTracks(input: YoutubeFetchPlaylistTrac
       if (maxTracks === 0) return 0;
       playlistItems = playlistItems.slice(0, maxTracks);
     }
-    if (playlistItems.length === 0) return 0;
+    if (playlistItems.length === 0) {
+      // Another edge: playlistItems.list can return 0 for some OLAK playlists.
+      if (external_playlist_id.startsWith("OLAK5uy")) {
+        const scraped = await youtubeScrapePlaylistVideoIds(external_playlist_id, { max: maxTracks });
+        if (scraped.length === 0) return 0;
+        playlistItems = scraped.map((videoId, idx) => ({ videoId, position: idx }));
+      } else {
+        return 0;
+      }
+    }
 
     const videoIds = playlistItems.map((i) => i.videoId);
     const videoDetailsMap = await fetchVideosDetails(videoIds);

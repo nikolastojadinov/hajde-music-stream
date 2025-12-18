@@ -212,6 +212,35 @@ async function loadArtistMediaByName(artistNameRaw: string): Promise<ResolvedArt
   };
 }
 
+async function loadCountsByChannelId(youtube_channel_id_raw: string): Promise<{ tracksCount: number; playlistsCount: number } | null> {
+  if (!supabase) return null;
+  const youtube_channel_id = normalizeQuery(youtube_channel_id_raw);
+  if (!youtube_channel_id) return null;
+
+  try {
+    const [tracksRes, playlistsRes] = await Promise.all([
+      supabase
+        .from("tracks")
+        .select("id", { count: "exact", head: true })
+        .eq("artist_channel_id", youtube_channel_id),
+      supabase
+        .from("playlists")
+        .select("id", { count: "exact", head: true })
+        .eq("channel_id", youtube_channel_id),
+    ]);
+
+    // If either count fails, treat as unknown.
+    if (tracksRes.error || playlistsRes.error) return null;
+
+    const tracksCount = typeof tracksRes.count === "number" ? Math.max(0, tracksRes.count) : 0;
+    const playlistsCount = typeof playlistsRes.count === "number" ? Math.max(0, playlistsRes.count) : 0;
+
+    return { tracksCount, playlistsCount };
+  } catch {
+    return null;
+  }
+}
+
 async function findYoutubeChannelByArtistName(artistName: string): Promise<YoutubeChannelsRow | null> {
   if (!supabase) return null;
 
@@ -341,6 +370,7 @@ async function runSearchResolveBackfill(opts: {
   missingTracks: number;
   missingPlaylists: number;
   missingArtists: number;
+  forceArtistIngest?: boolean;
 }): Promise<void> {
   if (!supabase) return;
 
@@ -350,9 +380,10 @@ async function runSearchResolveBackfill(opts: {
   const missingTracks = Math.max(0, Number(opts.missingTracks) || 0);
   const missingPlaylists = Math.max(0, Number(opts.missingPlaylists) || 0);
   const missingArtists = Math.max(0, Number(opts.missingArtists) || 0);
+  const forceArtistIngest = Boolean(opts.forceArtistIngest);
 
   try {
-    if ((missingTracks > 0 || missingPlaylists > 0 || missingArtists > 0) && ingestArtistName) {
+    if ((missingTracks > 0 || missingPlaylists > 0 || missingArtists > 0 || forceArtistIngest) && ingestArtistName) {
       // Artist ingest/backfill: resolve channelId then ingest with bounded limits.
       console.info(RESOLVE_LOG_PREFIX, "INGEST_NEEDED", { q, mode, ingestArtistName, missingTracks, missingPlaylists });
 
@@ -427,12 +458,12 @@ async function runSearchResolveBackfill(opts: {
         const max_playlists =
           missingPlaylists > 0 ? missingPlaylists :
           missingTracks > 0 ? 1 :
-          missingArtists > 0 ? 10 :
+          (missingArtists > 0 || forceArtistIngest) ? 10 :
           undefined;
 
         const max_tracks =
           missingTracks > 0 ? missingTracks :
-          missingArtists > 0 ? 50 :
+          (missingArtists > 0 || forceArtistIngest) ? 50 :
           undefined;
 
         const ingest = await ingestArtistFromYouTubeByChannelId({
@@ -691,11 +722,35 @@ router.post("/resolve", async (req, res) => {
       };
     };
 
-    const before = await fetchLocal();
+    const [before, ingestArtistMedia] = await Promise.all([
+      fetchLocal(),
+      ingestArtistName ? loadArtistMediaByName(ingestArtistName) : Promise.resolve(null),
+    ]);
 
     const missingTracks = Math.max(0, minimums.minTracks - before.local.tracks.length);
     const missingPlaylists = Math.max(0, minimums.minPlaylists - before.local.playlists.length);
     const missingArtists = Math.max(0, MAX_ARTISTS - before.artist_channels.local.length);
+
+    // IMPORTANT: youtube_channels search results can be "full" even when the artist page
+    // is empty (0 tracks/0 playlists). Treat that as missing so background ingest triggers.
+    let forceArtistIngest = false;
+    let ingestArtistTracksCount: number | null = null;
+    let ingestArtistPlaylistsCount: number | null = null;
+    if (ingestArtistName) {
+      if (!ingestArtistMedia?.youtube_channel_id) {
+        forceArtistIngest = true;
+      } else {
+        const counts = await loadCountsByChannelId(ingestArtistMedia.youtube_channel_id);
+        if (counts) {
+          ingestArtistTracksCount = counts.tracksCount;
+          ingestArtistPlaylistsCount = counts.playlistsCount;
+          if (counts.tracksCount === 0 && counts.playlistsCount === 0) forceArtistIngest = true;
+        } else {
+          // If we can't compute counts, be conservative and allow ingest.
+          forceArtistIngest = true;
+        }
+      }
+    }
 
     console.info(RESOLVE_LOG_PREFIX, "LOCAL_COUNTS", {
       q,
@@ -711,6 +766,9 @@ router.post("/resolve", async (req, res) => {
       missingTracks,
       missingPlaylists,
       missingArtists,
+      forceArtistIngest,
+      ingestArtistTracksCount,
+      ingestArtistPlaylistsCount,
       ingestArtistName,
     });
 
@@ -719,20 +777,49 @@ router.post("/resolve", async (req, res) => {
 
     let ingest_started = false;
 
-    if ((missingTracks > 0 || missingPlaylists > 0 || missingArtists > 0) && ingestArtistName) {
+    const needsBackfill = missingTracks > 0 || missingPlaylists > 0 || missingArtists > 0 || forceArtistIngest;
+
+    if (needsBackfill && ingestArtistName) {
       const key = `artist:${ingestArtistName.toLowerCase()}`;
       if (shouldStartBackfill(key)) {
         ingest_started = true;
+
+        // Best-effort: if the artist is missing locally but we already have a youtube_channels mapping,
+        // do a tiny ingest (0 playlists / 0 tracks) to upsert the artist row (thumbnail/banner) ASAP.
+        // This keeps the resolve response fast while ensuring the next resolve can show the avatar.
+        if (!ingestArtistMedia?.youtube_channel_id) {
+          const seedKey = `artist-seed:${ingestArtistName.toLowerCase()}`;
+          if (shouldStartBackfill(seedKey)) {
+            setImmediate(() => {
+              void (async () => {
+                try {
+                  const mapped = await findYoutubeChannelByArtistName(ingestArtistName);
+                  const channelId = mapped?.youtube_channel_id ? String(mapped.youtube_channel_id).trim() : "";
+                  if (!channelId) return;
+                  await ingestArtistFromYouTubeByChannelId({
+                    youtube_channel_id: channelId,
+                    artistName: ingestArtistName,
+                    max_playlists: 0,
+                    max_tracks: 0,
+                  });
+                } catch (e) {
+                  void e;
+                }
+              })();
+            });
+          }
+        }
+
         setImmediate(() => {
-          void runSearchResolveBackfill({ q, mode, ingestArtistName, missingTracks, missingPlaylists, missingArtists });
+          void runSearchResolveBackfill({ q, mode, ingestArtistName, missingTracks, missingPlaylists, missingArtists, forceArtistIngest });
         });
       }
-    } else if (missingTracks > 0 || missingPlaylists > 0 || missingArtists > 0) {
+    } else if (needsBackfill) {
       const key = `query:${q.toLowerCase()}`;
       if (shouldStartBackfill(key)) {
         ingest_started = true;
         setImmediate(() => {
-          void runSearchResolveBackfill({ q, mode, ingestArtistName, missingTracks, missingPlaylists, missingArtists });
+          void runSearchResolveBackfill({ q, mode, ingestArtistName, missingTracks, missingPlaylists, missingArtists, forceArtistIngest });
         });
       }
     }
@@ -740,7 +827,7 @@ router.post("/resolve", async (req, res) => {
     // Return immediately with current local results; any backfill/ingest runs in the background.
     const after = before;
     // Artist media lookup is local DB-only and cheap; include it so the UI can show avatar instantly.
-    const artist = artist_name ? await loadArtistMediaByName(artist_name) : null;
+    const artist = ingestArtistMedia;
 
     console.info(RESOLVE_LOG_PREFIX, "FINAL_COUNTS", {
       q,
