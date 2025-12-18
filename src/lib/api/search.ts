@@ -4,6 +4,16 @@ export type SearchSuggestResponse = {
   q: string;
   source: "youtube_suggest";
   suggestions: string[];
+  // Optional enrichment (DB-only) keyed by artist_key.
+  artist_media?: Record<
+    string,
+    {
+      name: string;
+      youtube_channel_id: string | null;
+      thumbnail_url: string | null;
+      banner_url: string | null;
+    }
+  >;
 };
 
 export type SearchResolveMode = "track" | "artist" | "album" | "generic";
@@ -42,6 +52,9 @@ export type SearchResolveResponse = {
   // Wiring fields for "Search triggers artist ingestion" pipeline.
   artist_ingested: boolean;
   artist_name: string | null;
+
+  // Whether background ingest/backfill was started for this resolve.
+  ingest_started?: boolean;
 
   // Optional enriched artist media (from Supabase artists table)
   artist?: {

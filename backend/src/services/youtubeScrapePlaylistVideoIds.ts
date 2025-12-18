@@ -19,7 +19,7 @@ export async function youtubeScrapePlaylistVideoIds(
   const max = typeof maxRaw === "number" && Number.isFinite(maxRaw) ? Math.max(0, Math.trunc(maxRaw)) : null;
   if (max === 0) return [];
 
-  const url = `https://www.youtube.com/playlist?list=${encodeURIComponent(playlistId)}`;
+  const url = `https://www.youtube.com/playlist?list=${encodeURIComponent(playlistId)}&hl=en&gl=US`;
 
   try {
     const response = await fetch(url, {
@@ -29,6 +29,7 @@ export async function youtubeScrapePlaylistVideoIds(
         "Accept": "text/html,application/xhtml+xml",
         "Accept-Language": "en-US,en;q=0.9",
         "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) HajdeMusicIngest/1.0",
+        Cookie: "CONSENT=YES+1;",
       },
     });
 
@@ -36,6 +37,11 @@ export async function youtubeScrapePlaylistVideoIds(
 
     const html = await response.text().catch(() => "");
     if (!html) return [];
+
+    if (html.includes("consent.youtube.com") || html.includes("Before you continue")) {
+      console.warn("[youtubeScrapePlaylistVideoIds] consent wall", { youtube_playlist_id: playlistId });
+      return [];
+    }
 
     const ids: string[] = [];
     const seen = new Set<string>();

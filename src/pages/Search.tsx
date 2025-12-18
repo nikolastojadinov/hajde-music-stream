@@ -52,6 +52,8 @@ export default function Search() {
 
   const suggestAbortRef = useRef<AbortController | null>(null);
   const resolveAbortRef = useRef<AbortController | null>(null);
+  const resolveRetryTimersRef = useRef<number[]>([]);
+  const resolveRequestIdRef = useRef(0);
 
   useEffect(() => {
     const t = window.setTimeout(() => setDebouncedQuery(normalizeQuery(query)), 250);
@@ -133,6 +135,12 @@ export default function Search() {
     const q = normalizeQuery(nextQuery);
     if (!q) return;
 
+    // Cancel any pending silent retries from a previous query.
+    resolveRetryTimersRef.current.forEach((t) => window.clearTimeout(t));
+    resolveRetryTimersRef.current = [];
+    resolveRequestIdRef.current += 1;
+    const requestId = resolveRequestIdRef.current;
+
     resolveAbortRef.current?.abort();
     const controller = new AbortController();
     resolveAbortRef.current = controller;
@@ -143,7 +151,38 @@ export default function Search() {
     try {
       const payload = { q, mode };
       const next = await searchResolve(payload, { signal: controller.signal });
-      if (!controller.signal.aborted) setResolved(next);
+      if (!controller.signal.aborted) {
+        setResolved(next);
+
+        // If background ingest was started, re-run resolve silently to pick up
+        // newly inserted artist media (thumbnail/banner) from Supabase.
+        const started = Boolean((next as any)?.ingest_started);
+        const hasThumb = typeof (next as any)?.artist?.thumbnail_url === "string" && String((next as any)?.artist?.thumbnail_url).trim().length > 0;
+
+        if (started && !hasThumb) {
+          const schedule = (delayMs: number) => {
+            const timer = window.setTimeout(() => {
+              // Only refresh if this is still the latest request.
+              if (resolveRequestIdRef.current !== requestId) return;
+
+              void (async () => {
+                try {
+                  const refreshed = await searchResolve(payload);
+                  // Only apply if still latest request.
+                  if (resolveRequestIdRef.current !== requestId) return;
+                  setResolved(refreshed);
+                } catch {
+                  // ignore
+                }
+              })();
+            }, delayMs);
+            resolveRetryTimersRef.current.push(timer);
+          };
+
+          schedule(1200);
+          schedule(3000);
+        }
+      }
     } catch (e: any) {
       if (controller.signal.aborted) return;
       setResolved(null);

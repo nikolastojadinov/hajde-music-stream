@@ -24,7 +24,8 @@ export async function youtubeScrapeChannelPlaylistIds(
 
   // Use the canonical channel playlists page. For Topic channels, this is often the
   // only place where "Albums & Singles" shelves expose playlist IDs.
-  const url = `https://www.youtube.com/channel/${encodeURIComponent(channelId)}/playlists`;
+  // NOTE: Some environments get a consent wall HTML unless we send a CONSENT cookie.
+  const url = `https://www.youtube.com/channel/${encodeURIComponent(channelId)}/playlists?hl=en&gl=US`;
 
   try {
     const response = await fetch(url, {
@@ -35,6 +36,8 @@ export async function youtubeScrapeChannelPlaylistIds(
         "Accept-Language": "en-US,en;q=0.9",
         // Basic UA helps avoid some bot heuristics.
         "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) HajdeMusicIngest/1.0",
+        // Best-effort: bypass consent wall in server environments.
+        Cookie: "CONSENT=YES+1;",
       },
     });
 
@@ -42,6 +45,11 @@ export async function youtubeScrapeChannelPlaylistIds(
 
     const html = await response.text().catch(() => "");
     if (!html) return [];
+
+    if (html.includes("consent.youtube.com") || html.includes("Before you continue")) {
+      console.warn("[youtubeScrapeChannelPlaylistIds] consent wall", { youtube_channel_id: channelId });
+      return [];
+    }
 
     const ids: string[] = [];
     const seen = new Set<string>();

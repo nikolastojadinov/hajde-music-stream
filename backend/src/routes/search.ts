@@ -652,7 +652,47 @@ router.get("/suggest", async (req, res) => {
   const q = normalizeQuery(req.query.q);
   try {
     const suggestions = await youtubeSuggest(q);
-    return res.json({ q, source: "youtube_suggest", suggestions });
+
+    // Best-effort local enrichment (DB-only): map suggestion strings to artist media
+    // so the UI can show thumbnails without any additional YouTube API calls.
+    let artist_media: Record<string, ResolvedArtistMedia> = {};
+    try {
+      if (supabase && Array.isArray(suggestions) && suggestions.length > 0) {
+        const keys = Array.from(
+          new Set(
+            suggestions
+              .map((s) => deriveArtistKey(normalizeQuery(s)))
+              .filter((k) => typeof k === "string" && k.length > 0)
+          )
+        ).slice(0, 20);
+
+        if (keys.length > 0) {
+          const { data, error } = await supabase
+            .from("artists")
+            .select("artist, artist_key, youtube_channel_id, thumbnail_url, banner_url")
+            .in("artist_key", keys);
+
+          if (!error && Array.isArray(data)) {
+            for (const row of data as any[]) {
+              const name = typeof row?.artist === "string" ? String(row.artist).trim() : "";
+              const key = typeof row?.artist_key === "string" ? String(row.artist_key).trim() : "";
+              if (!key) continue;
+
+              artist_media[key] = {
+                name: name || key,
+                youtube_channel_id: typeof row?.youtube_channel_id === "string" ? String(row.youtube_channel_id).trim() : null,
+                thumbnail_url: typeof row?.thumbnail_url === "string" && String(row.thumbnail_url).trim() ? String(row.thumbnail_url).trim() : null,
+                banner_url: typeof row?.banner_url === "string" && String(row.banner_url).trim() ? String(row.banner_url).trim() : null,
+              };
+            }
+          }
+        }
+      }
+    } catch {
+      // ignore enrichment failures
+    }
+
+    return res.json({ q, source: "youtube_suggest", suggestions, artist_media });
   } catch (err: any) {
     console.warn("[SearchSuggest] ERROR", { q, message: err?.message ? String(err.message) : "unknown" });
     return res.status(500).json({ error: "Search suggest failed" });
