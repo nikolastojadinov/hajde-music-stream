@@ -368,6 +368,11 @@ export async function youtubeFetchArtistPlaylists(input: YoutubeFetchArtistPlayl
     if (Array.isArray(items) && items.length === 0) {
       const scrapedIds = await youtubeScrapeChannelPlaylistIds(youtube_channel_id, { max: maxPlaylists ?? 200 });
       if (scrapedIds.length > 0) {
+        console.info("[youtubeFetchArtistPlaylists] fallback: scraped playlist ids from channel playlists page", {
+          youtube_channel_id,
+          scraped_count: scrapedIds.length,
+          max_playlists: maxPlaylists,
+        });
         const byIdItems = await fetchPlaylistsByIdsAll(scrapedIds, { max_playlists: maxPlaylists });
         if (!byIdItems) return null;
         items = byIdItems;
