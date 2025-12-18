@@ -97,6 +97,11 @@ export default function Artist() {
   const [artistMedia, setArtistMedia] = useState<{ thumbnail_url: string | null; banner_url: string | null } | null>(null);
   const [artistTitle, setArtistTitle] = useState<string>(artistKey);
 
+  const artistName = useMemo(() => {
+    const name = normalizeString(artistTitle) || normalizeString(artistKey);
+    return name || "Artist";
+  }, [artistTitle, artistKey]);
+
   const playlistTracks = useMemo(() => {
     return tracks
       .filter((t) => t && typeof t === "object" && t.youtube_video_id)
@@ -259,7 +264,7 @@ export default function Artist() {
     );
   }
 
-  const displayInitial = (artistTitle || "?").trim()[0]?.toUpperCase() ?? "?";
+  const displayInitial = (artistName || "?").trim()[0]?.toUpperCase() ?? "?";
 
   return (
     <div className="relative">
