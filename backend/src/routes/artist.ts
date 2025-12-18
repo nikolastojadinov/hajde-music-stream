@@ -1,13 +1,30 @@
 import { Router } from "express";
+import crypto from "node:crypto";
 
 import supabase from "../services/supabaseClient";
 import { deriveArtistKey } from "../services/artistResolver";
+import { TtlCache } from "../lib/ttlCache";
 
 const router = Router();
 
 const LOG_PREFIX = "[ArtistLocal]";
 const MIN_QUERY_CHARS = 2;
 const IN_CHUNK = 200;
+
+const ARTIST_CACHE_TTL_MS = 60_000;
+const artistResponseCache = new TtlCache<{ etag: string; body: unknown }>(ARTIST_CACHE_TTL_MS);
+
+function makeEtagFromBody(body: unknown): string {
+  const json = JSON.stringify(body);
+  return `"${crypto.createHash("sha1").update(json).digest("hex")}"`;
+}
+
+function cacheKeyForIdentifier(identifierRaw: string): string {
+  const identifier = normalizeString(identifierRaw);
+  if (!identifier) return "";
+  const key = deriveArtistKey(identifier);
+  return (key || identifier).toLowerCase();
+}
 
 type ApiPlaylist = {
   id: string;
@@ -288,14 +305,12 @@ function mapPlaylistsForFrontend(rows: any[]): ApiPlaylist[] {
   return out;
 }
 
-async function handleArtistLocalRequest(artistIdentifierRaw: string, res: any): Promise<any> {
+async function handleArtistLocalRequest(artistIdentifierRaw: string): Promise<OkResponse | NotReadyResponse> {
   const artistIdentifier = normalizeString(artistIdentifierRaw);
 
   try {
-    if (!supabase) return res.status(500).json({ error: "Supabase not configured" });
-    if (!artistIdentifier || artistIdentifier.length < MIN_QUERY_CHARS) {
-      return res.status(400).json({ error: "Missing artist" });
-    }
+    if (!supabase) throw new Error("Supabase not configured");
+    if (!artistIdentifier || artistIdentifier.length < MIN_QUERY_CHARS) throw new Error("Missing artist");
 
     // Prefer artists table if present (gives stable channelId + media even if no tracks yet).
     // NOTE: artistIdentifier can be either a display name ("AC/DC") or an artist_key ("ac-dc").
@@ -332,15 +347,13 @@ async function handleArtistLocalRequest(artistIdentifierRaw: string, res: any): 
 
     // If we have an artist record but no media/tracks yet, still return ok so the page can render.
     if (playlists.length === 0 && tracks.length === 0 && !artistRow) {
-      const resp: NotReadyResponse = { status: "not_ready" };
-      return res.status(200).json(resp);
+      return { status: "not_ready" };
     }
 
-    const resp: OkResponse = { status: "ok", artist, playlists, tracks };
-    return res.status(200).json(resp);
+    return { status: "ok", artist, playlists, tracks };
   } catch (err: any) {
     console.warn(LOG_PREFIX, "ERROR", { artistName: artistIdentifier, message: err?.message ? String(err.message) : "unknown" });
-    return res.status(500).json({ error: "Internal error" });
+    throw err;
   }
 }
 
@@ -355,7 +368,33 @@ router.get("/", async (req, res) => {
   const artistKeyParam = normalizeString(q.artist_key);
   const artistNameParam = normalizeString(q.artist);
   const identifier = artistKeyParam || artistNameParam;
-  return handleArtistLocalRequest(identifier, res);
+
+  try {
+    const key = cacheKeyForIdentifier(identifier);
+    const cached = key ? artistResponseCache.get(key) : null;
+    if (cached) {
+      const inm = typeof req.headers["if-none-match"] === "string" ? req.headers["if-none-match"] : "";
+      res.setHeader("ETag", cached.etag);
+      res.setHeader("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
+      if (inm && inm === cached.etag) return res.status(304).end();
+      return res.status(200).json(cached.body);
+    }
+
+    const body = await handleArtistLocalRequest(identifier);
+    const etag = makeEtagFromBody(body);
+    if (key) artistResponseCache.set(key, { etag, body });
+
+    const inm = typeof req.headers["if-none-match"] === "string" ? req.headers["if-none-match"] : "";
+    res.setHeader("ETag", etag);
+    res.setHeader("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
+    if (inm && inm === etag) return res.status(304).end();
+    return res.status(200).json(body);
+  } catch (err: any) {
+    const message = err?.message ? String(err.message) : "Internal error";
+    if (message === "Missing artist") return res.status(400).json({ error: "Missing artist" });
+    if (message === "Supabase not configured") return res.status(500).json({ error: "Supabase not configured" });
+    return res.status(500).json({ error: "Internal error" });
+  }
 });
 
 /**
@@ -365,7 +404,33 @@ router.get("/", async (req, res) => {
  */
 router.get("/:artistName", async (req, res) => {
   const artistName = normalizeString(req.params.artistName);
-  return handleArtistLocalRequest(artistName, res);
+
+  try {
+    const key = cacheKeyForIdentifier(artistName);
+    const cached = key ? artistResponseCache.get(key) : null;
+    if (cached) {
+      const inm = typeof req.headers["if-none-match"] === "string" ? req.headers["if-none-match"] : "";
+      res.setHeader("ETag", cached.etag);
+      res.setHeader("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
+      if (inm && inm === cached.etag) return res.status(304).end();
+      return res.status(200).json(cached.body);
+    }
+
+    const body = await handleArtistLocalRequest(artistName);
+    const etag = makeEtagFromBody(body);
+    if (key) artistResponseCache.set(key, { etag, body });
+
+    const inm = typeof req.headers["if-none-match"] === "string" ? req.headers["if-none-match"] : "";
+    res.setHeader("ETag", etag);
+    res.setHeader("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
+    if (inm && inm === etag) return res.status(304).end();
+    return res.status(200).json(body);
+  } catch (err: any) {
+    const message = err?.message ? String(err.message) : "Internal error";
+    if (message === "Missing artist") return res.status(400).json({ error: "Missing artist" });
+    if (message === "Supabase not configured") return res.status(500).json({ error: "Supabase not configured" });
+    return res.status(500).json({ error: "Internal error" });
+  }
 });
 
 export default router;

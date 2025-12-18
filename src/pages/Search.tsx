@@ -16,6 +16,7 @@ import {
   type SearchSuggestResponse,
 } from "@/lib/api/search";
 import { deriveArtistKey } from "@/lib/artistKey";
+import { withBackendOrigin } from "@/lib/backendUrl";
 
 type Suggestion = {
   name: string;
@@ -181,6 +182,21 @@ export default function Search() {
     }
   };
 
+  const prefetchArtist = (artistName: string) => {
+    const name = artistName.trim();
+    if (!name) return;
+    const key = deriveArtistKey(name);
+    if (!key) return;
+    // Warm browser + backend cache; best-effort.
+    void fetch(withBackendOrigin(`/api/artist?artist_key=${encodeURIComponent(key)}`), {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      credentials: "include",
+    }).catch(() => {
+      // ignore
+    });
+  };
+
   const isEmptyResults =
     !resolveLoading &&
     Boolean(resolved) &&
@@ -310,7 +326,13 @@ export default function Search() {
                   <div>
                     <div className="mb-2 text-xs text-muted-foreground">Artist</div>
                     <div className="flex gap-4 overflow-x-auto pb-2">
-                      <button type="button" onClick={() => handleArtistClick(ingestedArtistName)} className="shrink-0 w-20 text-center">
+                      <button
+                        type="button"
+                        onClick={() => handleArtistClick(ingestedArtistName)}
+                        onMouseEnter={() => prefetchArtist(ingestedArtistName)}
+                        onTouchStart={() => prefetchArtist(ingestedArtistName)}
+                        className="shrink-0 w-20 text-center"
+                      >
                         <div className="mx-auto w-14 h-14 rounded-full bg-muted overflow-hidden flex items-center justify-center">
                           {ingestedArtistThumb ? (
                             <img src={ingestedArtistThumb} alt={ingestedArtistName} className="w-full h-full object-cover" loading="lazy" />
