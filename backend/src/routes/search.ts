@@ -19,6 +19,8 @@ import {
   validateYouTubeChannelId,
 } from "../services/artistResolver";
 import { ingestArtistFromYouTubeByChannelId } from "../services/ingestArtistFromYouTube";
+import { getIngestMap, type IngestEntry } from "../lib/ingestLock";
+import { normalizeArtistKey } from "../utils/artistKey";
 
 const router = Router();
 
@@ -819,7 +821,6 @@ router.post("/resolve", async (req, res) => {
     let ingest_started = false;
 
     const needsBackfill = missingTracks > 0 || missingPlaylists > 0 || missingArtists > 0 || forceArtistIngest;
-    const dedupTtlMs = forceArtistIngest ? 10_000 : BACKFILL_DEDUP_MS;
 
     if (needsBackfill && ingestArtistName) {
       console.info(RESOLVE_LOG_PREFIX, "INGEST_NEEDED", {
@@ -832,64 +833,63 @@ router.post("/resolve", async (req, res) => {
         forceArtistIngest,
       });
 
-      const key = `artist:${ingestArtistName.toLowerCase()}`;
-      const gate = shouldStartBackfill(key, dedupTtlMs);
-      if (gate.start) {
+      const ingestKey = normalizeArtistKey(ingestArtistName);
+      const ingestMap = getIngestMap();
+      const entry: IngestEntry =
+        ingestMap.get(ingestKey) ?? { promise: null, startedAt: null, lastCompletedAt: null, lastFailedAt: null };
+
+      if (entry.promise) {
         ingest_started = true;
-
-        // Best-effort: if the artist is missing locally but we already have a youtube_channels mapping,
-        // do a tiny ingest (0 playlists / 0 tracks) to upsert the artist row (thumbnail/banner) ASAP.
-        // This keeps the resolve response fast while ensuring the next resolve can show the avatar.
-        if (!ingestArtistMedia?.youtube_channel_id) {
-          const seedKey = `artist-seed:${ingestArtistName.toLowerCase()}`;
-          const seedGate = shouldStartBackfill(seedKey, dedupTtlMs);
-          if (seedGate.start) {
-            setImmediate(() => {
-              void (async () => {
-                try {
-                  const mapped = await findYoutubeChannelByArtistName(ingestArtistName);
-                  const channelId = mapped?.youtube_channel_id ? String(mapped.youtube_channel_id).trim() : "";
-                  if (!channelId) return;
-                  await ingestArtistFromYouTubeByChannelId({
-                    youtube_channel_id: channelId,
-                    artistName: ingestArtistName,
-                    max_playlists: 0,
-                    max_tracks: 0,
-                  });
-                } catch (e) {
-                  void e;
-                }
-              })();
-            });
-          } else {
-            console.info(RESOLVE_LOG_PREFIX, "INGEST_SEED_DEDUPED", {
-              q,
-              mode,
-              ingestArtistName,
-              ageMs: seedGate.ageMs,
-              ttlMs: dedupTtlMs,
-            });
-          }
-        }
-
-        setImmediate(() => {
-          console.info(RESOLVE_LOG_PREFIX, "BACKFILL_SCHEDULED", {
-            q,
-            mode,
-            ingestArtistName,
-            forceArtistIngest,
-            ttlMs: dedupTtlMs,
-          });
-          void runSearchResolveBackfill({ q, mode, ingestArtistName, missingTracks, missingPlaylists, missingArtists, forceArtistIngest });
-        });
-      } else {
-        console.info(RESOLVE_LOG_PREFIX, "INGEST_DEDUPED", {
+        console.info(RESOLVE_LOG_PREFIX, "INGEST_INFLIGHT", {
           q,
           mode,
           ingestArtistName,
-          ageMs: gate.ageMs,
-          ttlMs: dedupTtlMs,
+          ingestKey,
+          ageMs: entry.startedAt ? Date.now() - entry.startedAt : null,
         });
+      } else {
+        // Cooldown avoids hammering YouTube on repeated resolve calls.
+        // For empty artists, allow immediate retries.
+        const ttlMs = forceArtistIngest ? 0 : 30_000;
+        const last = entry.lastCompletedAt ?? entry.lastFailedAt ?? 0;
+        const ageMs = last ? Date.now() - last : null;
+
+        if (ttlMs > 0 && last > 0 && ageMs !== null && ageMs < ttlMs) {
+          console.info(RESOLVE_LOG_PREFIX, "INGEST_DEDUPED", {
+            q,
+            mode,
+            ingestArtistName,
+            ingestKey,
+            ageMs,
+            ttlMs,
+          });
+        } else {
+          ingest_started = true;
+          console.info(RESOLVE_LOG_PREFIX, "INGEST_START", { q, mode, ingestArtistName, ingestKey });
+
+          entry.startedAt = Date.now();
+          entry.promise = (async () => {
+            try {
+              await runSearchResolveBackfill({ q, mode, ingestArtistName, missingTracks, missingPlaylists, missingArtists, forceArtistIngest });
+              entry.lastCompletedAt = Date.now();
+              console.info(RESOLVE_LOG_PREFIX, "INGEST_DONE", { ingestArtistName, ingestKey });
+            } catch (err: any) {
+              entry.lastFailedAt = Date.now();
+              console.error(RESOLVE_LOG_PREFIX, "INGEST_FAILED", {
+                ingestArtistName,
+                ingestKey,
+                message: err?.message ? String(err.message) : "unknown",
+              });
+              throw err;
+            } finally {
+              entry.promise = null;
+              entry.startedAt = null;
+              ingestMap.set(ingestKey, entry);
+            }
+          })();
+
+          ingestMap.set(ingestKey, entry);
+        }
       }
     } else if (needsBackfill) {
       const key = `query:${q.toLowerCase()}`;

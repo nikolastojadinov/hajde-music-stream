@@ -3,7 +3,11 @@ import crypto from "node:crypto";
 
 import supabase from "../services/supabaseClient";
 import { deriveArtistKey } from "../services/artistResolver";
+import type { IngestEntry } from "../lib/ingestLock";
+import { getIngestMap } from "../lib/ingestLock";
 import { TtlCache } from "../lib/ttlCache";
+import { normalizeArtistKey } from "../utils/artistKey";
+import { ingestArtistFromYouTube, ingestArtistFromYouTubeByChannelId } from "../services/ingestArtistFromYouTube";
 
 const router = Router();
 
@@ -347,7 +351,53 @@ async function handleArtistLocalRequest(artistIdentifierRaw: string): Promise<Ok
 
     // If there is no local content yet, indicate that the artist is still being prepared.
     // IMPORTANT: we do NOT cache this response so it can become available immediately after ingest.
+    // Also: kick off an ingest in the background so direct artist-page opens work.
     if (playlists.length === 0 && tracks.length === 0) {
+      const ingestName = artistDisplayName || artistIdentifier;
+      const ingestKey = normalizeArtistKey(ingestName);
+      if (ingestKey) {
+        const ingestMap = getIngestMap();
+        const entry: IngestEntry =
+          ingestMap.get(ingestKey) ?? { promise: null, startedAt: null, lastCompletedAt: null, lastFailedAt: null };
+
+        if (entry.promise) {
+          console.info(LOG_PREFIX, "INGEST_INFLIGHT", {
+            ingestName,
+            ingestKey,
+            ageMs: entry.startedAt ? Date.now() - entry.startedAt : null,
+          });
+        } else {
+          console.info(LOG_PREFIX, "INGEST_SCHEDULED", {
+            ingestName,
+            ingestKey,
+            youtube_channel_id: channelId || null,
+          });
+
+          entry.startedAt = Date.now();
+          entry.promise = (async () => {
+            // Ensure the response returns first.
+            await new Promise<void>((resolve) => setImmediate(resolve));
+            try {
+              if (channelId) {
+                await ingestArtistFromYouTubeByChannelId({ youtube_channel_id: channelId, artistName: ingestName });
+              } else {
+                await ingestArtistFromYouTube({ artistName: ingestName });
+              }
+              entry.lastCompletedAt = Date.now();
+            } catch (e) {
+              entry.lastFailedAt = Date.now();
+              void e;
+            } finally {
+              entry.promise = null;
+              entry.startedAt = null;
+              ingestMap.set(ingestKey, entry);
+            }
+          })();
+
+          ingestMap.set(ingestKey, entry);
+        }
+      }
+
       return { status: "not_ready" };
     }
 
