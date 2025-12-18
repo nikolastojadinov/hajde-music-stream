@@ -427,12 +427,12 @@ async function runSearchResolveBackfill(opts: {
         const max_playlists =
           missingPlaylists > 0 ? missingPlaylists :
           missingTracks > 0 ? 1 :
-          missingArtists > 0 ? undefined :
+          missingArtists > 0 ? 10 :
           undefined;
 
         const max_tracks =
           missingTracks > 0 ? missingTracks :
-          missingArtists > 0 ? undefined :
+          missingArtists > 0 ? 50 :
           undefined;
 
         const ingest = await ingestArtistFromYouTubeByChannelId({
@@ -739,7 +739,8 @@ router.post("/resolve", async (req, res) => {
 
     // Return immediately with current local results; any backfill/ingest runs in the background.
     const after = before;
-    const artist = null;
+    // Artist media lookup is local DB-only and cheap; include it so the UI can show avatar instantly.
+    const artist = artist_name ? await loadArtistMediaByName(artist_name) : null;
 
     console.info(RESOLVE_LOG_PREFIX, "FINAL_COUNTS", {
       q,

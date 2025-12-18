@@ -345,8 +345,9 @@ async function handleArtistLocalRequest(artistIdentifierRaw: string): Promise<Ok
 
     console.info(LOG_PREFIX, { artistName: artistDisplayName, playlistsCount: playlists.length, tracksCount: tracks.length });
 
-    // If we have an artist record but no media/tracks yet, still return ok so the page can render.
-    if (playlists.length === 0 && tracks.length === 0 && !artistRow) {
+    // If there is no local content yet, indicate that the artist is still being prepared.
+    // IMPORTANT: we do NOT cache this response so it can become available immediately after ingest.
+    if (playlists.length === 0 && tracks.length === 0) {
       return { status: "not_ready" };
     }
 
@@ -382,11 +383,17 @@ router.get("/", async (req, res) => {
 
     const body = await handleArtistLocalRequest(identifier);
     const etag = makeEtagFromBody(body);
-    if (key) artistResponseCache.set(key, { etag, body });
+    const okBody = (body as any)?.status === "ok";
+    const hasContent = okBody && (Array.isArray((body as any)?.tracks) ? (body as any).tracks.length > 0 : false || Array.isArray((body as any)?.playlists) ? (body as any).playlists.length > 0 : false);
+    if (key && okBody && hasContent) {
+      artistResponseCache.set(key, { etag, body });
+      res.setHeader("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
+    } else {
+      res.setHeader("Cache-Control", "no-store");
+    }
 
     const inm = typeof req.headers["if-none-match"] === "string" ? req.headers["if-none-match"] : "";
     res.setHeader("ETag", etag);
-    res.setHeader("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
     if (inm && inm === etag) return res.status(304).end();
     return res.status(200).json(body);
   } catch (err: any) {
@@ -418,11 +425,17 @@ router.get("/:artistName", async (req, res) => {
 
     const body = await handleArtistLocalRequest(artistName);
     const etag = makeEtagFromBody(body);
-    if (key) artistResponseCache.set(key, { etag, body });
+    const okBody = (body as any)?.status === "ok";
+    const hasContent = okBody && (Array.isArray((body as any)?.tracks) ? (body as any).tracks.length > 0 : false || Array.isArray((body as any)?.playlists) ? (body as any).playlists.length > 0 : false);
+    if (key && okBody && hasContent) {
+      artistResponseCache.set(key, { etag, body });
+      res.setHeader("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
+    } else {
+      res.setHeader("Cache-Control", "no-store");
+    }
 
     const inm = typeof req.headers["if-none-match"] === "string" ? req.headers["if-none-match"] : "";
     res.setHeader("ETag", etag);
-    res.setHeader("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
     if (inm && inm === etag) return res.status(304).end();
     return res.status(200).json(body);
   } catch (err: any) {
