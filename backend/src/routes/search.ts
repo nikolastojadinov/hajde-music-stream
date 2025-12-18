@@ -29,10 +29,11 @@ const RESOLVE_LOG_PREFIX = "[SearchResolve]";
 const BACKFILL_DEDUP_MS = 60_000;
 const backfillInFlight = new Map<string, number>();
 
-function shouldStartBackfill(key: string): boolean {
+function shouldStartBackfill(key: string, ttlMs: number = BACKFILL_DEDUP_MS): { start: boolean; ageMs: number | null } {
   const now = Date.now();
   const last = backfillInFlight.get(key);
-  if (typeof last === "number" && now - last < BACKFILL_DEDUP_MS) return false;
+  const ageMs = typeof last === "number" ? Math.max(0, now - last) : null;
+  if (typeof last === "number" && now - last < ttlMs) return { start: false, ageMs };
   backfillInFlight.set(key, now);
   // Best-effort cleanup.
   if (backfillInFlight.size > 500) {
@@ -40,7 +41,7 @@ function shouldStartBackfill(key: string): boolean {
       if (now - ts > BACKFILL_DEDUP_MS) backfillInFlight.delete(k);
     });
   }
-  return true;
+  return { start: true, ageMs };
 }
 
 const MAX_ARTISTS = 3;
@@ -818,10 +819,22 @@ router.post("/resolve", async (req, res) => {
     let ingest_started = false;
 
     const needsBackfill = missingTracks > 0 || missingPlaylists > 0 || missingArtists > 0 || forceArtistIngest;
+    const dedupTtlMs = forceArtistIngest ? 10_000 : BACKFILL_DEDUP_MS;
 
     if (needsBackfill && ingestArtistName) {
+      console.info(RESOLVE_LOG_PREFIX, "INGEST_NEEDED", {
+        q,
+        mode,
+        ingestArtistName,
+        missingTracks,
+        missingPlaylists,
+        missingArtists,
+        forceArtistIngest,
+      });
+
       const key = `artist:${ingestArtistName.toLowerCase()}`;
-      if (shouldStartBackfill(key)) {
+      const gate = shouldStartBackfill(key, dedupTtlMs);
+      if (gate.start) {
         ingest_started = true;
 
         // Best-effort: if the artist is missing locally but we already have a youtube_channels mapping,
@@ -829,7 +842,8 @@ router.post("/resolve", async (req, res) => {
         // This keeps the resolve response fast while ensuring the next resolve can show the avatar.
         if (!ingestArtistMedia?.youtube_channel_id) {
           const seedKey = `artist-seed:${ingestArtistName.toLowerCase()}`;
-          if (shouldStartBackfill(seedKey)) {
+          const seedGate = shouldStartBackfill(seedKey, dedupTtlMs);
+          if (seedGate.start) {
             setImmediate(() => {
               void (async () => {
                 try {
@@ -847,20 +861,47 @@ router.post("/resolve", async (req, res) => {
                 }
               })();
             });
+          } else {
+            console.info(RESOLVE_LOG_PREFIX, "INGEST_SEED_DEDUPED", {
+              q,
+              mode,
+              ingestArtistName,
+              ageMs: seedGate.ageMs,
+              ttlMs: dedupTtlMs,
+            });
           }
         }
 
         setImmediate(() => {
+          console.info(RESOLVE_LOG_PREFIX, "BACKFILL_SCHEDULED", {
+            q,
+            mode,
+            ingestArtistName,
+            forceArtistIngest,
+            ttlMs: dedupTtlMs,
+          });
           void runSearchResolveBackfill({ q, mode, ingestArtistName, missingTracks, missingPlaylists, missingArtists, forceArtistIngest });
+        });
+      } else {
+        console.info(RESOLVE_LOG_PREFIX, "INGEST_DEDUPED", {
+          q,
+          mode,
+          ingestArtistName,
+          ageMs: gate.ageMs,
+          ttlMs: dedupTtlMs,
         });
       }
     } else if (needsBackfill) {
       const key = `query:${q.toLowerCase()}`;
-      if (shouldStartBackfill(key)) {
+      const gate = shouldStartBackfill(key, BACKFILL_DEDUP_MS);
+      if (gate.start) {
         ingest_started = true;
         setImmediate(() => {
+          console.info(RESOLVE_LOG_PREFIX, "BACKFILL_SCHEDULED", { q, mode, ttlMs: BACKFILL_DEDUP_MS });
           void runSearchResolveBackfill({ q, mode, ingestArtistName, missingTracks, missingPlaylists, missingArtists, forceArtistIngest });
         });
+      } else {
+        console.info(RESOLVE_LOG_PREFIX, "BACKFILL_DEDUPED", { q, mode, ageMs: gate.ageMs, ttlMs: BACKFILL_DEDUP_MS });
       }
     }
 
