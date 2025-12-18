@@ -215,35 +215,6 @@ async function loadArtistMediaByName(artistNameRaw: string): Promise<ResolvedArt
   };
 }
 
-async function loadCountsByChannelId(youtube_channel_id_raw: string): Promise<{ tracksCount: number; playlistsCount: number } | null> {
-  if (!supabase) return null;
-  const youtube_channel_id = normalizeQuery(youtube_channel_id_raw);
-  if (!youtube_channel_id) return null;
-
-  try {
-    const [tracksRes, playlistsRes] = await Promise.all([
-      supabase
-        .from("tracks")
-        .select("id", { count: "exact", head: true })
-        .eq("artist_channel_id", youtube_channel_id),
-      supabase
-        .from("playlists")
-        .select("id", { count: "exact", head: true })
-        .eq("channel_id", youtube_channel_id),
-    ]);
-
-    // If either count fails, treat as unknown.
-    if (tracksRes.error || playlistsRes.error) return null;
-
-    const tracksCount = typeof tracksRes.count === "number" ? Math.max(0, tracksRes.count) : 0;
-    const playlistsCount = typeof playlistsRes.count === "number" ? Math.max(0, playlistsRes.count) : 0;
-
-    return { tracksCount, playlistsCount };
-  } catch {
-    return null;
-  }
-}
-
 async function findYoutubeChannelByArtistName(artistName: string): Promise<YoutubeChannelsRow | null> {
   if (!supabase) return null;
 
@@ -774,25 +745,14 @@ router.post("/resolve", async (req, res) => {
     const missingPlaylists = Math.max(0, minimums.minPlaylists - before.local.playlists.length);
     const missingArtists = Math.max(0, MAX_ARTISTS - before.artist_channels.local.length);
 
-    // IMPORTANT: youtube_channels search results can be "full" even when the artist page
-    // is empty (0 tracks/0 playlists). Treat that as missing so background ingest triggers.
+    // IMPORTANT UX RULE:
+    // If we already have local data to render (tracks/playlists), do NOT force an artist ingest.
+    // Force-ingest should only happen when we have *no* local content and also can't resolve a channelId.
     let forceArtistIngest = false;
-    let ingestArtistTracksCount: number | null = null;
-    let ingestArtistPlaylistsCount: number | null = null;
     if (ingestArtistName) {
-      if (!ingestArtistMedia?.youtube_channel_id) {
-        forceArtistIngest = true;
-      } else {
-        const counts = await loadCountsByChannelId(ingestArtistMedia.youtube_channel_id);
-        if (counts) {
-          ingestArtistTracksCount = counts.tracksCount;
-          ingestArtistPlaylistsCount = counts.playlistsCount;
-          if (counts.tracksCount === 0 && counts.playlistsCount === 0) forceArtistIngest = true;
-        } else {
-          // If we can't compute counts, be conservative and allow ingest.
-          forceArtistIngest = true;
-        }
-      }
+      const hasRenderableLocal = before.local.tracks.length > 0 || before.local.playlists.length > 0;
+      const hasChannelId = Boolean(ingestArtistMedia?.youtube_channel_id);
+      forceArtistIngest = !hasRenderableLocal && !hasChannelId;
     }
 
     console.info(RESOLVE_LOG_PREFIX, "LOCAL_COUNTS", {
@@ -810,8 +770,6 @@ router.post("/resolve", async (req, res) => {
       missingPlaylists,
       missingArtists,
       forceArtistIngest,
-      ingestArtistTracksCount,
-      ingestArtistPlaylistsCount,
       ingestArtistName,
     });
 
@@ -820,7 +778,13 @@ router.post("/resolve", async (req, res) => {
 
     let ingest_started = false;
 
-    const needsBackfill = missingTracks > 0 || missingPlaylists > 0 || missingArtists > 0 || forceArtistIngest;
+    // Backfill should never be triggered purely because "missingArtists" when we already have
+    // enough tracks/playlists to render the view quickly.
+    const needsBackfill =
+      missingTracks > 0 ||
+      missingPlaylists > 0 ||
+      forceArtistIngest ||
+      (missingArtists > 0 && (missingTracks > 0 || missingPlaylists > 0));
 
     if (needsBackfill && ingestArtistName) {
       console.info(RESOLVE_LOG_PREFIX, "INGEST_NEEDED", {

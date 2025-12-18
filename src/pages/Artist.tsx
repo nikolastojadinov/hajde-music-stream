@@ -9,7 +9,7 @@ import PlaylistCard from "@/components/PlaylistCard";
 import TrackCard from "@/components/TrackCard";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { usePlayer } from "@/contexts/PlayerContext";
-import { withBackendOrigin } from "@/lib/backendUrl";
+import { fetchArtistByKey } from "@/lib/api/artist";
 
 type ApiPlaylist = {
   id: string;
@@ -151,11 +151,7 @@ export default function Artist() {
         // Route param is a safe slug (artist_key). Fetch via query param so names with '/' never break.
         setArtistTitle(artistKey);
 
-        const res = await fetch(withBackendOrigin(`/api/artist?artist_key=${encodeURIComponent(artistKey)}`), {
-          method: "GET",
-          headers: { Accept: "application/json" },
-        });
-        const json = await res.json().catch(() => ({}));
+        const json = await fetchArtistByKey(artistKey, { force: reloadNonce > 0 });
         if (!active) return;
 
         if (isNotReady(json)) {
@@ -180,15 +176,6 @@ export default function Artist() {
 
         if (isError(json)) {
           setError(json.error || "Artist request failed");
-          setStatus("unknown");
-          setPlaylists([]);
-          setTracks([]);
-          setArtistMedia(null);
-          return;
-        }
-
-        if (!res.ok) {
-          setError("Artist request failed");
           setStatus("unknown");
           setPlaylists([]);
           setTracks([]);

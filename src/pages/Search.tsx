@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { ListMusic, Music, Search as SearchIcon, User } from "lucide-react";
+import { ListMusic, Music, Search as SearchIcon, User, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,8 +15,8 @@ import {
   type SearchResolveResponse,
   type SearchSuggestResponse,
 } from "@/lib/api/search";
+import { prefetchArtistByKey } from "@/lib/api/artist";
 import { deriveArtistKey } from "@/lib/artistKey";
-import { withBackendOrigin } from "@/lib/backendUrl";
 
 type Suggestion = {
   name: string;
@@ -54,6 +54,30 @@ export default function Search() {
   const resolveAbortRef = useRef<AbortController | null>(null);
   const resolveRetryTimersRef = useRef<number[]>([]);
   const resolveRequestIdRef = useRef(0);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  const clearQuery = () => {
+    // Cancel any in-flight requests and pending retries.
+    suggestAbortRef.current?.abort();
+    resolveAbortRef.current?.abort();
+    resolveRetryTimersRef.current.forEach((t) => window.clearTimeout(t));
+    resolveRetryTimersRef.current = [];
+    resolveRequestIdRef.current += 1;
+
+    setQuery("");
+    setDebouncedQuery("");
+    setSuggestOpen(false);
+    setSuggestions(null);
+    setSuggestLoading(false);
+
+    setResolved(null);
+    setResolveLoading(false);
+    setError(null);
+
+    requestAnimationFrame(() => {
+      inputRef.current?.focus();
+    });
+  };
 
   useEffect(() => {
     const t = window.setTimeout(() => setDebouncedQuery(normalizeQuery(query)), 250);
@@ -227,13 +251,7 @@ export default function Search() {
     const key = deriveArtistKey(name);
     if (!key) return;
     // Warm browser + backend cache; best-effort.
-    void fetch(withBackendOrigin(`/api/artist?artist_key=${encodeURIComponent(key)}`), {
-      method: "GET",
-      headers: { Accept: "application/json" },
-      credentials: "include",
-    }).catch(() => {
-      // ignore
-    });
+    prefetchArtistByKey(key);
   };
 
   const isEmptyResults =
@@ -293,19 +311,36 @@ export default function Search() {
         }}
         className="mb-6"
       >
-        <div className="relative">
-          <SearchIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+        <div>
           <div className="flex gap-2">
-            <Input
-              value={query}
-              onChange={(e) => {
-                setQuery(e.target.value);
-                setSuggestOpen(true);
-              }}
-              onFocus={() => setSuggestOpen(true)}
-              placeholder="Search songs, artists or playlists"
-              className="pl-12 h-12"
-            />
+            <div className="relative flex-1">
+              <SearchIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+              <Input
+                ref={inputRef}
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  setSuggestOpen(true);
+                }}
+                onFocus={() => setSuggestOpen(true)}
+                placeholder="Search songs, artists or playlists"
+                className="pl-12 pr-10 h-12"
+              />
+
+              {normalizeQuery(query).length > 0 ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={clearQuery}
+                  aria-label="Clear search"
+                  className="absolute right-1 top-1/2 -translate-y-1/2 h-10 w-10"
+                >
+                  <X className="h-4 w-4 text-muted-foreground" />
+                </Button>
+              ) : null}
+            </div>
+
             <Button type="submit" className="h-12">
               Search
             </Button>
