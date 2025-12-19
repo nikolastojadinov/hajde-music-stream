@@ -9,9 +9,9 @@ import supabase, {
   type SearchTrackRow,
 } from "../services/supabaseClient";
 import { youtubeSearchArtistChannel } from "../services/youtubeClient";
-import { youtubeSuggest } from "../services/youtubeSuggest";
 import { youtubeSearchMixed } from "../services/youtubeClient";
 import { youtubeFetchPlaylistTracks } from "../services/youtubeFetchPlaylistTracks";
+import { spotifySuggest } from "../services/spotifyClient";
 import {
   deleteYoutubeChannelMappingByChannelId,
   deriveArtistKey,
@@ -625,7 +625,7 @@ async function persistYouTubeMixedResults(opts: {
 router.get("/suggest", async (req, res) => {
   const q = normalizeQuery(req.query.q);
   try {
-    const suggestions = await youtubeSuggest(q);
+    const suggestions = await spotifySuggest(q);
 
     // Best-effort local enrichment (DB-only): map suggestion strings to artist media
     // so the UI can show thumbnails without any additional YouTube API calls.
@@ -666,7 +666,7 @@ router.get("/suggest", async (req, res) => {
       // ignore enrichment failures
     }
 
-    return res.json({ q, source: "youtube_suggest", suggestions, artist_media });
+    return res.json({ q, source: "spotify_suggest", suggestions, artist_media });
   } catch (err: any) {
     console.warn("[SearchSuggest] ERROR", { q, message: err?.message ? String(err.message) : "unknown" });
     return res.status(500).json({ error: "Search suggest failed" });

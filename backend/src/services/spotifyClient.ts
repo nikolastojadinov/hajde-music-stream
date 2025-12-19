@@ -217,3 +217,75 @@ export async function spotifySearch(q: string): Promise<SpotifySearchResult> {
     });
   }
 }
+
+export async function spotifySuggest(q: string): Promise<string[]> {
+  const query = typeof q === 'string' ? q.trim() : '';
+  if (query.length < 2) return [];
+
+  const { clientId } = getClientCredentials();
+  let status: 'ok' | 'error' = 'ok';
+  let errorCode: string | null = null;
+  let errorMessage: string | null = null;
+
+  try {
+    const token = await getAccessToken();
+
+    const url = new URL('https://api.spotify.com/v1/search');
+    url.searchParams.set('q', query);
+    url.searchParams.set('type', 'artist');
+    url.searchParams.set('limit', '10');
+
+    const response = await fetch(url.toString(), {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      status = 'error';
+      errorCode = String(response.status);
+      errorMessage = 'Spotify suggest failed';
+      throw new Error('Spotify suggest failed');
+    }
+
+    const json: any = await response.json().catch(() => null);
+    const items: any[] = Array.isArray(json?.artists?.items) ? json.artists.items : [];
+
+    const out = items
+      .filter((a: any) => a && typeof a === 'object' && typeof a.name === 'string')
+      .map((a: any) => String(a.name).trim())
+      .filter(Boolean);
+
+    // De-dupe while preserving order.
+    const seen = new Set<string>();
+    const deduped: string[] = [];
+    for (const name of out) {
+      const key = name.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      deduped.push(name);
+      if (deduped.length >= 10) break;
+    }
+
+    return deduped;
+  } catch (err) {
+    if (err instanceof Error && err.message === 'Spotify suggest failed') {
+      throw err;
+    }
+
+    status = 'error';
+    errorMessage = errorMessage ?? 'Spotify suggest failed';
+    throw new Error('Spotify suggest failed');
+  } finally {
+    void logApiUsage({
+      apiKeyOrIdentifier: clientId,
+      endpoint: 'spotify.suggest',
+      quotaCost: 0,
+      status,
+      errorCode,
+      errorMessage,
+    });
+  }
+}

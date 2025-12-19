@@ -374,7 +374,7 @@ export default function Search() {
 
                     <div className="min-w-0 flex-1">
                       <div className="font-medium truncate">{s.name}</div>
-                      <div className="text-xs text-muted-foreground truncate">Suggestion</div>
+                      <div className="text-xs text-muted-foreground truncate">Spotify</div>
                     </div>
                   </button>
                 ))}

@@ -2,7 +2,7 @@ import { withBackendOrigin } from "@/lib/backendUrl";
 
 export type SearchSuggestResponse = {
   q: string;
-  source: "youtube_suggest";
+  source: "spotify_suggest";
   suggestions: string[];
   // Optional enrichment (DB-only) keyed by artist_key.
   artist_media?: Record<
