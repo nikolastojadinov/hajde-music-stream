@@ -14,6 +14,7 @@ import supabase from './services/supabaseClient';
 import { initDailyRefreshScheduler } from './lib/dailyRefreshScheduler';
 import { initJobProcessor } from './lib/jobProcessor';
 import { getPublicPlaylistStats, registerPlaylistView } from './handlers/playlists/stats';
+import { refreshPlaylistTracks } from './handlers/playlists/refresh';
 import categoriesRouter from './routes/categories';
 import studioPlaylistsRouter from './routes/studioPlaylists';
 import usersRouter from './routes/users';
@@ -188,6 +189,9 @@ app.use('/pi/payments', piPaymentsRouter);
 // Public playlist stats endpoints
 app.get('/api/playlists/:id/public-stats', getPublicPlaylistStats);
 app.post('/api/playlists/:id/public-view', registerPlaylistView);
+
+// Playlist refresh endpoint (used when opening playlists from Artist page)
+app.post('/api/playlists/:id/refresh', refreshPlaylistTracks);
 
 // Playlist views tracking (no auth required for now - will add Pi auth later)
 app.use('/api/playlist-views', playlistViewsRouter);

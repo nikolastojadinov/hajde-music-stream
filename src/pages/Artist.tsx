@@ -315,7 +315,13 @@ export default function Artist() {
                 <div className="flex w-max space-x-4 pb-4">
                   {playlists.map((p) => (
                     <div key={p.id} className="w-[140px]">
-                      <PlaylistCard id={p.id} title={p.title} description="" imageUrl={p.cover_url || "/placeholder.svg"} />
+                      <PlaylistCard
+                        id={p.id}
+                        title={p.title}
+                        description=""
+                        imageUrl={p.cover_url || "/placeholder.svg"}
+                        linkState={{ fromArtist: true }}
+                      />
                     </div>
                   ))}
                 </div>

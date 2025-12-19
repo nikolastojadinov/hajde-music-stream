@@ -6,11 +6,12 @@ interface PlaylistCardProps {
   title: string;
   description: string;
   imageUrl?: string;
+  linkState?: unknown;
 }
 
-const PlaylistCard = ({ id, title, description, imageUrl }: PlaylistCardProps) => {
+const PlaylistCard = ({ id, title, description, imageUrl, linkState }: PlaylistCardProps) => {
   return (
-    <Link to={`/playlist/${id}`} className="group block">
+    <Link to={`/playlist/${id}`} state={linkState} className="group block">
       <div className="bg-card p-3 rounded-lg hover:bg-secondary/80 transition-all duration-300">
         <div className="relative mb-3 w-full h-28 rounded-md bg-black overflow-hidden flex items-center justify-center">
           {imageUrl ? (

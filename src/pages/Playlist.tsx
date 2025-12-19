@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { Play, Pause, Heart, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { usePlayer } from "@/contexts/PlayerContext";
@@ -13,6 +13,7 @@ import { useSWRConfig } from "swr";
 import { withBackendOrigin } from "@/lib/backendUrl";
 import { usePlaylistViewTracking } from "@/hooks/usePlaylistViewTracking";
 import AddToPlaylistButton from "@/components/AddToPlaylistButton";
+import { useQueryClient } from "@tanstack/react-query";
 
 const Playlist = () => {
   const { id } = useParams<{ id: string }>();
@@ -25,6 +26,9 @@ const Playlist = () => {
   const lastLoggedViewId = useRef<string | null>(null);
   const { trackView } = usePlaylistViewTracking();
   const navigate = useNavigate();
+  const location = useLocation();
+  const queryClient = useQueryClient();
+  const didArtistRefresh = useRef(false);
 
   const { data: playlist, isLoading, error } = useExternalPlaylist(id || "");
   const isLiked = id ? isPlaylistLiked(id) : false;
@@ -44,6 +48,23 @@ const Playlist = () => {
       trackView(id);
     }
   }, [id, user?.uid, trackView]);
+
+  useEffect(() => {
+    const fromArtist = Boolean((location.state as any)?.fromArtist);
+    if (!fromArtist || !id || didArtistRefresh.current) return;
+
+    didArtistRefresh.current = true;
+    const url = withBackendOrigin(`/api/playlists/${id}/refresh`);
+
+    fetch(url, { method: "POST", credentials: "include" })
+      .then((res) => {
+        if (!res.ok) throw new Error("playlist_refresh_failed");
+      })
+      .then(() => queryClient.invalidateQueries({ queryKey: ["external-playlist", id] }))
+      .catch(() => {
+        // Silent: playlist page should still work with cached/local data.
+      });
+  }, [id, location.state, queryClient]);
 
   useEffect(() => {
     if (!id || !user?.uid || lastLoggedViewId.current === id || !viewUrl) return;

@@ -388,6 +388,105 @@ async function handleArtistLocalRequest(artistIdentifierRaw: string): Promise<Ok
 
     console.info(LOG_PREFIX, { artistName: artistDisplayName, playlistsCount: playlists.length, tracksCount: tracks.length });
 
+    // If we have playlists but no tracks yet, kick off ingest in the background.
+    // This ensures "tracks from playlists" appear shortly after playlists do.
+    if (tracks.length === 0 && playlists.length > 0) {
+      const ingestName = artistDisplayName || artistIdentifier;
+      const ingestKey = normalizeArtistKey(ingestName);
+      if (ingestKey) {
+        const ingestMap = getIngestMap();
+        const entry: IngestEntry =
+          ingestMap.get(ingestKey) ?? { promise: null, startedAt: null, lastCompletedAt: null, lastFailedAt: null };
+
+        if (entry.promise) {
+          console.info(LOG_PREFIX, "INGEST_INFLIGHT", {
+            ingestName,
+            ingestKey,
+            ageMs: entry.startedAt ? Date.now() - entry.startedAt : null,
+          });
+        } else {
+          console.info(LOG_PREFIX, "INGEST_SCHEDULED", {
+            ingestName,
+            ingestKey,
+            youtube_channel_id: channelId || null,
+          });
+
+          entry.startedAt = Date.now();
+          entry.promise = (async () => {
+            // Ensure the response returns first.
+            await new Promise<void>((resolve) => setImmediate(resolve));
+            try {
+              let resolvedChannelId: string | null = channelId || null;
+
+              // If we don't have a stable channelId, try exact cache lookup first.
+              if (!resolvedChannelId) {
+                const cached = await findYoutubeChannelByArtistNameExact(ingestName);
+                if (cached?.youtube_channel_id) {
+                  resolvedChannelId = cached.youtube_channel_id;
+                  console.info(LOG_PREFIX, "CACHE_HIT", { ingestName, channelId: resolvedChannelId });
+
+                  const validation = await validateYouTubeChannelId(resolvedChannelId);
+                  console.info(LOG_PREFIX, "CHANNELS_LIST", { ingestName, channelId: resolvedChannelId, result: validation.status });
+
+                  if (validation.status === "invalid") {
+                    await deleteYoutubeChannelMappingByChannelId(resolvedChannelId);
+                    console.info(LOG_PREFIX, "CACHE_DELETE_INVALID", { ingestName, channelId: resolvedChannelId });
+                    resolvedChannelId = null;
+                  } else if (validation.status === "error") {
+                    console.warn(LOG_PREFIX, "CHANNELS_LIST_ERROR", { ingestName, channelId: resolvedChannelId, error: validation.error });
+                    resolvedChannelId = null;
+                  }
+                }
+              }
+
+              // As a last resort (route-only), search for a channel id then ingest by channel id.
+              if (!resolvedChannelId) {
+                console.info(LOG_PREFIX, "SEARCH_LIST_CALL", { ingestName });
+                const candidates = await youtubeSearchArtistChannel(ingestName);
+                const first = Array.isArray(candidates) ? candidates[0] : null;
+                const candidateId = first?.channelId ? String(first.channelId).trim() : "";
+                const candidateTitle = first?.title ? String(first.title).trim() : "";
+
+                if (candidateId) {
+                  const validation = await validateYouTubeChannelId(candidateId);
+                  console.info(LOG_PREFIX, "CHANNELS_LIST", {
+                    ingestName,
+                    channelId: candidateId,
+                    result: validation.status,
+                    source: "search",
+                  });
+
+                  if (validation.status === "valid") {
+                    resolvedChannelId = candidateId;
+                    await upsertYoutubeChannelMapping({ name: ingestName.toLowerCase(), youtube_channel_id: resolvedChannelId });
+                    console.info(LOG_PREFIX, "CACHE_UPSERT", {
+                      ingestName,
+                      channelId: resolvedChannelId,
+                      channelTitle: (validation.channelTitle ?? candidateTitle) || null,
+                    });
+                  }
+                }
+              }
+
+              if (resolvedChannelId) {
+                await ingestArtistFromYouTubeByChannelId({ youtube_channel_id: resolvedChannelId, artistName: ingestName });
+              }
+              entry.lastCompletedAt = Date.now();
+            } catch (e) {
+              entry.lastFailedAt = Date.now();
+              void e;
+            } finally {
+              entry.promise = null;
+              entry.startedAt = null;
+              ingestMap.set(ingestKey, entry);
+            }
+          })();
+
+          ingestMap.set(ingestKey, entry);
+        }
+      }
+    }
+
     // If there is no local content yet, indicate that the artist is still being prepared.
     // IMPORTANT: we do NOT cache this response so it can become available immediately after ingest.
     // Also: kick off an ingest in the background so direct artist-page opens work.
@@ -523,8 +622,12 @@ router.get("/", async (req, res) => {
     const body = await handleArtistLocalRequest(identifier);
     const etag = makeEtagFromBody(body);
     const okBody = (body as any)?.status === "ok";
-    const hasContent = okBody && (Array.isArray((body as any)?.tracks) ? (body as any).tracks.length > 0 : false || Array.isArray((body as any)?.playlists) ? (body as any).playlists.length > 0 : false);
-    if (key && okBody && hasContent) {
+    const tracksLen = okBody && Array.isArray((body as any)?.tracks) ? (body as any).tracks.length : 0;
+    const playlistsLen = okBody && Array.isArray((body as any)?.playlists) ? (body as any).playlists.length : 0;
+    const hasContent = okBody && (tracksLen > 0 || playlistsLen > 0);
+    // If we only have playlists, we want rapid revalidation because tracks may arrive moments later.
+    const isPartial = okBody && playlistsLen > 0 && tracksLen === 0;
+    if (key && okBody && hasContent && !isPartial) {
       artistResponseCache.set(key, { etag, body });
       res.setHeader("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
     } else {
@@ -565,8 +668,11 @@ router.get("/:artistName", async (req, res) => {
     const body = await handleArtistLocalRequest(artistName);
     const etag = makeEtagFromBody(body);
     const okBody = (body as any)?.status === "ok";
-    const hasContent = okBody && (Array.isArray((body as any)?.tracks) ? (body as any).tracks.length > 0 : false || Array.isArray((body as any)?.playlists) ? (body as any).playlists.length > 0 : false);
-    if (key && okBody && hasContent) {
+    const tracksLen = okBody && Array.isArray((body as any)?.tracks) ? (body as any).tracks.length : 0;
+    const playlistsLen = okBody && Array.isArray((body as any)?.playlists) ? (body as any).playlists.length : 0;
+    const hasContent = okBody && (tracksLen > 0 || playlistsLen > 0);
+    const isPartial = okBody && playlistsLen > 0 && tracksLen === 0;
+    if (key && okBody && hasContent && !isPartial) {
       artistResponseCache.set(key, { etag, body });
       res.setHeader("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
     } else {
