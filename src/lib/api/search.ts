@@ -3,17 +3,13 @@ import { withBackendOrigin } from "@/lib/backendUrl";
 export type SearchSuggestResponse = {
   q: string;
   source: "spotify_suggest";
-  suggestions: string[];
-  // Optional enrichment (DB-only) keyed by artist_key.
-  artist_media?: Record<
-    string,
-    {
-      name: string;
-      youtube_channel_id: string | null;
-      thumbnail_url: string | null;
-      banner_url: string | null;
-    }
-  >;
+  suggestions: Array<{
+    type: "artist" | "track" | "playlist" | "album";
+    id: string;
+    name: string;
+    imageUrl?: string;
+    subtitle?: string;
+  }>;
 };
 
 export type SearchResolveMode = "track" | "artist" | "album" | "generic";
@@ -21,6 +17,9 @@ export type SearchResolveMode = "track" | "artist" | "album" | "generic";
 export type SearchResolveRequest = {
   q: string;
   mode: SearchResolveMode;
+  // When true, server will run fallback ingest synchronously (if needed)
+  // and return refreshed local results.
+  sync?: boolean;
 };
 
 export type SearchSuggestLocalTrack = {

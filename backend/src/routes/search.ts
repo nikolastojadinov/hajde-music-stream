@@ -11,7 +11,7 @@ import supabase, {
 import { youtubeSearchArtistChannel } from "../services/youtubeClient";
 import { youtubeSearchMixed } from "../services/youtubeClient";
 import { youtubeFetchPlaylistTracks } from "../services/youtubeFetchPlaylistTracks";
-import { spotifySuggest } from "../services/spotifyClient";
+import { spotifySearch } from "../services/spotifyClient";
 import { isOlakPlaylistId } from "../utils/olak";
 import {
   deleteYoutubeChannelMappingByChannelId,
@@ -59,6 +59,7 @@ type ResolveRequestBody = {
   q?: unknown;
   mode?: unknown;
   spotify?: unknown;
+  sync?: unknown;
 };
 
 type SpotifySelection = unknown;
@@ -627,48 +628,40 @@ async function persistYouTubeMixedResults(opts: {
 router.get("/suggest", async (req, res) => {
   const q = normalizeQuery(req.query.q);
   try {
-    const suggestions = await spotifySuggest(q);
+    // Spotify-only autocomplete: MUST NOT touch Supabase, and MUST NOT call YouTube.
+    const result = await spotifySearch(q);
 
-    // Best-effort local enrichment (DB-only): map suggestion strings to artist media
-    // so the UI can show thumbnails without any additional YouTube API calls.
-    let artist_media: Record<string, ResolvedArtistMedia> = {};
-    try {
-      if (supabase && Array.isArray(suggestions) && suggestions.length > 0) {
-        const keys = Array.from(
-          new Set(
-            suggestions
-              .map((s) => deriveArtistKey(normalizeQuery(s)))
-              .filter((k) => typeof k === "string" && k.length > 0)
-          )
-        ).slice(0, 20);
+    type SuggestionType = "artist" | "track" | "playlist" | "album";
+    type SuggestionItem = {
+      type: SuggestionType;
+      id: string;
+      name: string;
+      imageUrl?: string;
+      subtitle?: string;
+    };
 
-        if (keys.length > 0) {
-          const { data, error } = await supabase
-            .from("artists")
-            .select("artist, artist_key, youtube_channel_id, thumbnail_url, banner_url")
-            .in("artist_key", keys);
+    const suggestions: SuggestionItem[] = [];
 
-          if (!error && Array.isArray(data)) {
-            for (const row of data as any[]) {
-              const name = typeof row?.artist === "string" ? String(row.artist).trim() : "";
-              const key = typeof row?.artist_key === "string" ? String(row.artist_key).trim() : "";
-              if (!key) continue;
-
-              artist_media[key] = {
-                name: name || key,
-                youtube_channel_id: typeof row?.youtube_channel_id === "string" ? String(row.youtube_channel_id).trim() : null,
-                thumbnail_url: typeof row?.thumbnail_url === "string" && String(row.thumbnail_url).trim() ? String(row.thumbnail_url).trim() : null,
-                banner_url: typeof row?.banner_url === "string" && String(row.banner_url).trim() ? String(row.banner_url).trim() : null,
-              };
-            }
-          }
-        }
-      }
-    } catch {
-      // ignore enrichment failures
+    for (const a of result.artists) {
+      suggestions.push({ type: "artist", id: a.id, name: a.name, imageUrl: a.imageUrl });
     }
 
-    return res.json({ q, source: "spotify_suggest", suggestions, artist_media });
+    for (const t of result.tracks) {
+      const subtitle = t.artistName ? t.artistName : undefined;
+      suggestions.push({ type: "track", id: t.id, name: t.name, imageUrl: t.imageUrl, subtitle });
+    }
+
+    for (const p of result.playlists) {
+      const subtitle = p.ownerName ? p.ownerName : undefined;
+      suggestions.push({ type: "playlist", id: p.id, name: p.name, imageUrl: p.imageUrl, subtitle });
+    }
+
+    for (const a of result.albums) {
+      const subtitle = a.artistName ? a.artistName : undefined;
+      suggestions.push({ type: "album", id: a.id, name: a.name, imageUrl: a.imageUrl, subtitle });
+    }
+
+    return res.json({ q, source: "spotify_suggest", suggestions });
   } catch (err: any) {
     console.warn("[SearchSuggest] ERROR", { q, message: err?.message ? String(err.message) : "unknown" });
     return res.status(500).json({ error: "Search suggest failed" });
@@ -680,6 +673,7 @@ router.post("/resolve", async (req, res) => {
   const q = normalizeQuery(body.q);
   const mode = normalizeMode(body.mode);
   const spotify = null;
+  const sync = Boolean((body as any)?.sync);
 
   if (!supabase) {
     console.info(LOG_PREFIX, "SKIP", { reason: "supabase_missing", q, mode });
@@ -751,15 +745,15 @@ router.post("/resolve", async (req, res) => {
     const missingPlaylists = Math.max(0, minimums.minPlaylists - before.local.playlists.length);
     const missingArtists = Math.max(0, MAX_ARTISTS - before.artist_channels.local.length);
 
-    // IMPORTANT UX RULE:
-    // If we already have local data to render (tracks/playlists), do NOT force an artist ingest.
-    // Force-ingest should only happen when we have *no* local content and also can't resolve a channelId.
-    let forceArtistIngest = false;
-    if (ingestArtistName) {
-      const hasRenderableLocal = before.local.tracks.length > 0 || before.local.playlists.length > 0;
-      const hasChannelId = Boolean(ingestArtistMedia?.youtube_channel_id);
-      forceArtistIngest = !hasRenderableLocal && !hasChannelId;
-    }
+    // Strict architecture rule:
+    // - If we have ANY local data to render, do not ingest.
+    // - If the artist exists in Supabase (artists row found), do not ingest.
+    const hasRenderableLocal = before.local.tracks.length > 0 || before.local.playlists.length > 0;
+    const artistExistsInDb = Boolean(ingestArtistMedia);
+
+    // Legacy flag kept for wiring into runSearchResolveBackfill; with strict DB-first
+    // we only ingest when there's nothing to show.
+    const forceArtistIngest = false;
 
     console.info(RESOLVE_LOG_PREFIX, "LOCAL_COUNTS", {
       q,
@@ -777,6 +771,9 @@ router.post("/resolve", async (req, res) => {
       missingArtists,
       forceArtistIngest,
       ingestArtistName,
+      sync,
+      hasRenderableLocal,
+      artistExistsInDb,
     });
 
     let artist_ingested = false;
@@ -784,13 +781,9 @@ router.post("/resolve", async (req, res) => {
 
     let ingest_started = false;
 
-    // Backfill should never be triggered purely because "missingArtists" when we already have
-    // enough tracks/playlists to render the view quickly.
-    const needsBackfill =
-      missingTracks > 0 ||
-      missingPlaylists > 0 ||
-      forceArtistIngest ||
-      (missingArtists > 0 && (missingTracks > 0 || missingPlaylists > 0));
+    // DB-first policy: ingest ONLY when we have nothing to show AND the artist doesn't already exist in DB.
+    // (For artist queries, an existing artists row means "do not call YouTube" even if tracks/playlists are empty.)
+    const needsBackfill = !hasRenderableLocal && !artistExistsInDb;
 
     if (needsBackfill && ingestArtistName) {
       console.info(RESOLVE_LOG_PREFIX, "INGEST_NEEDED", {
@@ -819,8 +812,8 @@ router.post("/resolve", async (req, res) => {
         });
       } else {
         // Cooldown avoids hammering YouTube on repeated resolve calls.
-        // For empty artists, allow immediate retries.
-        const ttlMs = forceArtistIngest ? 0 : 30_000;
+        // For strict DB-first, we only ever ingest on empty local results.
+        const ttlMs = 30_000;
         const last = entry.lastCompletedAt ?? entry.lastFailedAt ?? 0;
         const ageMs = last ? Date.now() - last : null;
 
@@ -835,12 +828,64 @@ router.post("/resolve", async (req, res) => {
           });
         } else {
           ingest_started = true;
-          console.info(RESOLVE_LOG_PREFIX, "INGEST_START", { q, mode, ingestArtistName, ingestKey });
+          console.info(RESOLVE_LOG_PREFIX, "INGEST_START", { q, mode, ingestArtistName, ingestKey, sync });
 
+          const run = async () => {
+            await runSearchResolveBackfill({ q, mode, ingestArtistName, missingTracks, missingPlaylists, missingArtists, forceArtistIngest });
+          };
+
+          if (sync) {
+            // Synchronous resolve: run ingest and then return refreshed local results.
+            try {
+              entry.startedAt = Date.now();
+              entry.promise = run();
+              ingestMap.set(ingestKey, entry);
+              await entry.promise;
+              entry.lastCompletedAt = Date.now();
+              console.info(RESOLVE_LOG_PREFIX, "INGEST_DONE", { ingestArtistName, ingestKey });
+            } catch (err: any) {
+              entry.lastFailedAt = Date.now();
+              console.error(RESOLVE_LOG_PREFIX, "INGEST_FAILED", {
+                ingestArtistName,
+                ingestKey,
+                message: err?.message ? String(err.message) : "unknown",
+              });
+            } finally {
+              entry.promise = null;
+              entry.startedAt = null;
+              ingestMap.set(ingestKey, entry);
+            }
+
+            // Refresh local results after ingest attempt.
+            const refreshed = await fetchLocal();
+            const artist = ingestArtistName ? await loadArtistMediaByName(ingestArtistName) : ingestArtistMedia;
+            console.info(RESOLVE_LOG_PREFIX, "FINAL_COUNTS", {
+              q,
+              mode,
+              tracks: refreshed.local.tracks.length,
+              playlists: refreshed.local.playlists.length,
+            });
+
+            return res.json({
+              q,
+              tracks: refreshed.tracks,
+              playlists_by_title: refreshed.playlists_by_title,
+              playlists_by_artist: refreshed.playlists_by_artist,
+              artist_channels: refreshed.artist_channels,
+              local: refreshed.local,
+              decision: "local_only",
+              artist_ingested: false,
+              ingest_started: true,
+              artist_name: ingestArtistName,
+              artist,
+            });
+          }
+
+          // Async/background ingest (non-sync callers only).
           entry.startedAt = Date.now();
           entry.promise = (async () => {
             try {
-              await runSearchResolveBackfill({ q, mode, ingestArtistName, missingTracks, missingPlaylists, missingArtists, forceArtistIngest });
+              await run();
               entry.lastCompletedAt = Date.now();
               console.info(RESOLVE_LOG_PREFIX, "INGEST_DONE", { ingestArtistName, ingestKey });
             } catch (err: any) {
@@ -866,6 +911,32 @@ router.post("/resolve", async (req, res) => {
       const gate = shouldStartBackfill(key, BACKFILL_DEDUP_MS);
       if (gate.start) {
         ingest_started = true;
+
+        if (sync) {
+          await runSearchResolveBackfill({ q, mode, ingestArtistName, missingTracks, missingPlaylists, missingArtists, forceArtistIngest });
+          const refreshed = await fetchLocal();
+          const artist = ingestArtistName ? await loadArtistMediaByName(ingestArtistName) : ingestArtistMedia;
+          console.info(RESOLVE_LOG_PREFIX, "FINAL_COUNTS", {
+            q,
+            mode,
+            tracks: refreshed.local.tracks.length,
+            playlists: refreshed.local.playlists.length,
+          });
+          return res.json({
+            q,
+            tracks: refreshed.tracks,
+            playlists_by_title: refreshed.playlists_by_title,
+            playlists_by_artist: refreshed.playlists_by_artist,
+            artist_channels: refreshed.artist_channels,
+            local: refreshed.local,
+            decision: "local_only",
+            artist_ingested: false,
+            ingest_started: true,
+            artist_name: ingestArtistName,
+            artist,
+          });
+        }
+
         setImmediate(() => {
           console.info(RESOLVE_LOG_PREFIX, "BACKFILL_SCHEDULED", { q, mode, ttlMs: BACKFILL_DEDUP_MS });
           void runSearchResolveBackfill({ q, mode, ingestArtistName, missingTracks, missingPlaylists, missingArtists, forceArtistIngest });

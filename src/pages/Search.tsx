@@ -19,7 +19,11 @@ import { prefetchArtistByKey } from "@/lib/api/artist";
 import { deriveArtistKey } from "@/lib/artistKey";
 
 type Suggestion = {
+  type: "artist" | "track" | "playlist" | "album";
+  id: string;
   name: string;
+  imageUrl?: string;
+  subtitle?: string;
 };
 
 function normalizeQuery(value: string): string {
@@ -117,10 +121,11 @@ export default function Search() {
   const flatSuggestions: Suggestion[] = useMemo(() => {
     if (!suggestions) return [];
 
-    const maxItems = 8;
-    return (suggestions.suggestions || [])
-      .map((name) => ({ name }))
-      .filter((s) => Boolean(s.name && s.name.trim()))
+    const maxItems = 12;
+    return (Array.isArray(suggestions.suggestions) ? suggestions.suggestions : [])
+      .filter((s) => Boolean(s && typeof s === "object"))
+      .map((s) => s as Suggestion)
+      .filter((s) => Boolean(s.id && s.name && s.name.trim() && s.type))
       .slice(0, maxItems);
   }, [suggestions]);
 
@@ -173,39 +178,10 @@ export default function Search() {
     setError(null);
 
     try {
-      const payload = { q, mode };
+      const payload = { q, mode, sync: true };
       const next = await searchResolve(payload, { signal: controller.signal });
       if (!controller.signal.aborted) {
         setResolved(next);
-
-        // If background ingest was started, re-run resolve silently to pick up
-        // newly inserted artist media (thumbnail/banner) from Supabase.
-        const started = Boolean((next as any)?.ingest_started);
-        const hasThumb = typeof (next as any)?.artist?.thumbnail_url === "string" && String((next as any)?.artist?.thumbnail_url).trim().length > 0;
-
-        if (started && !hasThumb) {
-          const schedule = (delayMs: number) => {
-            const timer = window.setTimeout(() => {
-              // Only refresh if this is still the latest request.
-              if (resolveRequestIdRef.current !== requestId) return;
-
-              void (async () => {
-                try {
-                  const refreshed = await searchResolve(payload);
-                  // Only apply if still latest request.
-                  if (resolveRequestIdRef.current !== requestId) return;
-                  setResolved(refreshed);
-                } catch {
-                  // ignore
-                }
-              })();
-            }, delayMs);
-            resolveRetryTimersRef.current.push(timer);
-          };
-
-          schedule(1200);
-          schedule(3000);
-        }
       }
     } catch (e: any) {
       if (controller.signal.aborted) return;
@@ -222,8 +198,8 @@ export default function Search() {
   };
 
   const handleSuggestionClick = async (s: Suggestion) => {
-    const nextMode: SearchResolveMode = "generic";
-    const nextQuery = s.name;
+    const nextMode: SearchResolveMode = s.type === "artist" ? "artist" : s.type === "track" ? "track" : s.type === "album" ? "album" : "generic";
+    const nextQuery = s.type === "track" && s.subtitle ? `${s.name} ${s.subtitle}` : s.name;
     setQuery(nextQuery);
     setSuggestOpen(false);
     await runResolve(nextQuery, nextMode);
@@ -361,20 +337,30 @@ export default function Search() {
               <div>
                 {flatSuggestions.map((s) => (
                   <button
-                    key={s.name}
+                    key={`${s.type}:${s.id}`}
                     type="button"
                     onClick={() => void handleSuggestionClick(s)}
                     className="w-full text-left flex items-center gap-3 rounded-md px-2 py-2 hover:bg-accent"
                   >
                     <div className="w-8 h-8 rounded bg-muted overflow-hidden shrink-0">
                       <div className="w-full h-full flex items-center justify-center">
-                        <SearchIcon className="w-4 h-4 text-muted-foreground" />
+                        {s.imageUrl ? (
+                          <img src={s.imageUrl} alt={s.name} className="w-full h-full object-cover" loading="lazy" />
+                        ) : s.type === "artist" ? (
+                          <User className="w-4 h-4 text-muted-foreground" />
+                        ) : s.type === "track" ? (
+                          <Music className="w-4 h-4 text-muted-foreground" />
+                        ) : (
+                          <ListMusic className="w-4 h-4 text-muted-foreground" />
+                        )}
                       </div>
                     </div>
 
                     <div className="min-w-0 flex-1">
                       <div className="font-medium truncate">{s.name}</div>
-                      <div className="text-xs text-muted-foreground truncate">Spotify</div>
+                      <div className="text-xs text-muted-foreground truncate">
+                        {s.subtitle ? `${s.subtitle} · Spotify` : "Spotify"}
+                      </div>
                     </div>
                   </button>
                 ))}
