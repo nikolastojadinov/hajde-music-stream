@@ -361,29 +361,55 @@ async function handleArtistLocalRequest(artistIdentifierRaw: string): Promise<Ok
     const artistDisplayName = normalizeString((artistRow as any)?.artist) || artistIdentifier;
     const channelId = normalizeString((artistRow as any)?.youtube_channel_id);
 
-    let trackRows = channelId ? await loadTracksByChannelId(channelId) : await loadTracksByArtistName(artistDisplayName);
-    // Many "official" album playlists live on "- Topic" or VEVO channels.
-    // If we have a primary channelId but no tracks, fall back to artist-name matching.
-    if (channelId && Array.isArray(trackRows) && trackRows.length === 0) {
-      const byName = await loadTracksByArtistName(artistDisplayName);
-      trackRows = byName;
+    // IMPORTANT: We intentionally merge BOTH sources when channelId is present.
+    // Rationale: search-based ingestion and "regular" playlists may store tracks under the same artist name
+    // but a different artist_channel_id. If we only show channelId-scoped tracks, content can appear missing.
+    const [trackRowsByChannel, trackRowsByName] = await Promise.all([
+      channelId ? loadTracksByChannelId(channelId) : Promise.resolve([]),
+      loadTracksByArtistName(artistDisplayName),
+    ]);
+
+    const trackRowDedupe = new Map<string, any>();
+    for (const r of Array.isArray(trackRowsByChannel) ? trackRowsByChannel : []) {
+      const key = normalizeString((r as any)?.id) || normalizeString((r as any)?.external_id) || normalizeString((r as any)?.youtube_id);
+      if (key) trackRowDedupe.set(key, r);
     }
-    const tracks = mapTracksForFrontend(trackRows, artistDisplayName);
+    for (const r of Array.isArray(trackRowsByName) ? trackRowsByName : []) {
+      const key = normalizeString((r as any)?.id) || normalizeString((r as any)?.external_id) || normalizeString((r as any)?.youtube_id);
+      if (key && !trackRowDedupe.has(key)) trackRowDedupe.set(key, r);
+    }
+
+    const mergedTrackRows = Array.from(trackRowDedupe.values());
+    const tracks = mapTracksForFrontend(mergedTrackRows, artistDisplayName);
 
     const artist = channelId
       ? await loadArtistMediaByChannelId(channelId, artistDisplayName)
       : await loadArtistMediaByChannelId(
-          normalizeString((Array.isArray(trackRows) ? trackRows : [])[0]?.artist_channel_id) ||
+          normalizeString((Array.isArray(mergedTrackRows) ? mergedTrackRows : [])[0]?.artist_channel_id) ||
             tracks.map((t) => normalizeString(t.youtube_channel_id)).find(Boolean) ||
             "",
           artistDisplayName
         );
 
-    // Prefer channel-based playlists if we know the channelId; fallback to playlist_tracks join.
-    let playlistRows = channelId ? await loadPlaylistsByChannelId(channelId) : await loadPlaylistsViaPlaylistTracks(tracks.map((t) => t.id));
-    if (channelId && Array.isArray(playlistRows) && playlistRows.length === 0) {
-      playlistRows = await loadPlaylistsViaPlaylistTracks(tracks.map((t) => t.id));
+    // Merge playlists from both sources:
+    // - channelId playlists (official)
+    // - any playlists that contain currently-known tracks ("regular" playlists)
+    const [playlistRowsByChannel, playlistRowsByTracks] = await Promise.all([
+      channelId ? loadPlaylistsByChannelId(channelId) : Promise.resolve([]),
+      loadPlaylistsViaPlaylistTracks(tracks.map((t) => t.id)),
+    ]);
+
+    const playlistRowDedupe = new Map<string, any>();
+    for (const r of Array.isArray(playlistRowsByChannel) ? playlistRowsByChannel : []) {
+      const key = normalizeString((r as any)?.id) || normalizeString((r as any)?.external_id);
+      if (key) playlistRowDedupe.set(key, r);
     }
+    for (const r of Array.isArray(playlistRowsByTracks) ? playlistRowsByTracks : []) {
+      const key = normalizeString((r as any)?.id) || normalizeString((r as any)?.external_id);
+      if (key && !playlistRowDedupe.has(key)) playlistRowDedupe.set(key, r);
+    }
+
+    const playlistRows = Array.from(playlistRowDedupe.values());
     const playlists = mapPlaylistsForFrontend(playlistRows);
 
     console.info(LOG_PREFIX, { artistName: artistDisplayName, playlistsCount: playlists.length, tracksCount: tracks.length });

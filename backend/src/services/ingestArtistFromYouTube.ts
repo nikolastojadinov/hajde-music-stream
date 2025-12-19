@@ -8,6 +8,7 @@ import {
 import { youtubeSearchArtistChannel } from "./youtubeClient";
 import { youtubeFetchArtistPlaylists } from "./youtubeFetchArtistPlaylists";
 import { youtubeFetchPlaylistTracks } from "./youtubeFetchPlaylistTracks";
+import { ingestArtistFromYouTubeSearch } from "./ingestArtistFromYouTubeSearch";
 
 export type IngestArtistFromYouTubeInput = {
   artistName: string;
@@ -272,6 +273,28 @@ export async function ingestArtistFromYouTubeByChannelId(
       });
       if (inserted === null) return null;
       tracks_ingested += inserted;
+    }
+
+    // EXTRA: search-based ingestion to capture "regular" playlists/videos beyond the official channel.
+    // Bounded to avoid burning quota.
+    try {
+      const needMore = playlists_ingested < 5 || tracks_ingested < 10;
+      if (needMore) {
+        const remainingTracks = maxTracks !== null ? Math.max(0, maxTracks - tracks_ingested) : null;
+        const searchMaxTracks = remainingTracks !== null ? Math.min(remainingTracks, 50) : 50;
+        const searchMaxPlaylists = maxPlaylists !== null ? Math.min(maxPlaylists, 10) : 10;
+
+        const searchRes = await ingestArtistFromYouTubeSearch({
+          artistName,
+          store_channel_id_override: youtube_channel_id,
+          store_channel_title_override: artistName,
+          max_playlists: searchMaxPlaylists,
+          max_tracks: searchMaxTracks,
+        });
+        if (searchRes) tracks_ingested += searchRes.tracks_ingested;
+      }
+    } catch {
+      // Best-effort only.
     }
 
     return { artist_id, playlists_ingested, tracks_ingested };
