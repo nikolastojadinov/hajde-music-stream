@@ -14,6 +14,9 @@ export type YoutubeFetchPlaylistTracksInput = {
   playlist_id: string;
   external_playlist_id: string;
   if_none_match?: string | null;
+  // Optional: fully replace playlist_tracks for this playlist.
+  // Useful for refresh to reflect deletions/reordering.
+  replace_existing?: boolean;
   // Optional: limit how many tracks we ingest from this playlist.
   // Used by the Search resolve "delta ingestion" flow.
   max_tracks?: number;
@@ -441,6 +444,43 @@ export async function youtubeFetchPlaylistTracks(input: YoutubeFetchPlaylistTrac
     }
     const desiredLinks = Array.from(linkDedupe.values()).sort((a, b) => a.position - b.position);
     if (desiredLinks.length === 0) return insertedTracksCount;
+
+    const replaceExisting = Boolean(input.replace_existing);
+    if (replaceExisting) {
+      console.info("[youtubeFetchPlaylistTracks] replace_existing", {
+        playlist_id,
+        external_playlist_id,
+        desired_links: desiredLinks.length,
+        inserted_tracks: insertedTracksCount,
+      });
+
+      const { error: deleteError } = await supabase
+        .from("playlist_tracks")
+        .delete()
+        .eq("playlist_id", playlist_id);
+
+      if (deleteError) {
+        console.error("[youtubeFetchPlaylistTracks] delete playlist_tracks failed:", deleteError);
+        return null;
+      }
+
+      for (const chunk of chunkArray(desiredLinks, INSERT_CHUNK_SIZE)) {
+        const { error } = await supabase.from("playlist_tracks").insert(chunk);
+        if (error) {
+          console.error("[youtubeFetchPlaylistTracks] insert playlist_tracks failed:", error);
+          return null;
+        }
+      }
+
+      console.info("[youtubeFetchPlaylistTracks] replace_existing_done", {
+        playlist_id,
+        external_playlist_id,
+        desired_links: desiredLinks.length,
+        inserted_tracks: insertedTracksCount,
+      });
+
+      return insertedTracksCount;
+    }
 
     const existingPlaylistTrackIds = await loadExistingPlaylistTrackIds(
       playlist_id,
