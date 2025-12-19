@@ -1,6 +1,7 @@
 import supabase from "./supabaseClient";
 import { logApiUsage } from "./apiUsageLogger";
 import { youtubeScrapeChannelPlaylistIds } from "./youtubeScrapeChannelPlaylistIds";
+import { isOlakPlaylistId } from "../utils/olak";
 
 const YOUTUBE_PLAYLISTS_ENDPOINT = "https://www.googleapis.com/youtube/v3/playlists";
 const QUOTA_COST_PLAYLISTS_LIST = 1;
@@ -382,11 +383,20 @@ export async function youtubeFetchArtistPlaylists(input: YoutubeFetchArtistPlayl
     const rows = normalizeToInsertRows(items, youtube_channel_id, { id: storeChannelId, title: storeChannelTitle }, { max_playlists: maxPlaylists });
     if (rows.length === 0) return [];
 
+    const filtered = rows.filter((r) => !isOlakPlaylistId((r as any)?.external_id));
+    if (filtered.length !== rows.length) {
+      console.info("[youtubeFetchArtistPlaylists] filtered OLAK playlists", {
+        youtube_channel_id,
+        dropped: rows.length - filtered.length,
+      });
+    }
+    if (filtered.length === 0) return [];
+
     // Upsert is required for repeat-safe hydration.
     // Existing codebase assumes playlists are unique by external_id (see batch refresh logic).
     const { data, error } = await supabase
       .from("playlists")
-      .upsert(rows, { onConflict: "external_id" })
+      .upsert(filtered, { onConflict: "external_id" })
       .select("*");
     if (error) {
       console.error("[youtubeFetchArtistPlaylists] upsert failed:", error);

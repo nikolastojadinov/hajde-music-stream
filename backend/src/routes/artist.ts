@@ -2,12 +2,18 @@ import { Router } from "express";
 import crypto from "node:crypto";
 
 import supabase from "../services/supabaseClient";
-import { deriveArtistKey } from "../services/artistResolver";
+import {
+  deleteYoutubeChannelMappingByChannelId,
+  deriveArtistKey,
+  upsertYoutubeChannelMapping,
+  validateYouTubeChannelId,
+} from "../services/artistResolver";
 import type { IngestEntry } from "../lib/ingestLock";
 import { getIngestMap } from "../lib/ingestLock";
 import { TtlCache } from "../lib/ttlCache";
 import { normalizeArtistKey } from "../utils/artistKey";
-import { ingestArtistFromYouTube, ingestArtistFromYouTubeByChannelId } from "../services/ingestArtistFromYouTube";
+import { ingestArtistFromYouTubeByChannelId } from "../services/ingestArtistFromYouTube";
+import { youtubeSearchArtistChannel } from "../services/youtubeClient";
 import { isOlakPlaylistId } from "../utils/olak";
 
 const router = Router();
@@ -18,6 +24,11 @@ const IN_CHUNK = 200;
 
 const ARTIST_CACHE_TTL_MS = 60_000;
 const artistResponseCache = new TtlCache<{ etag: string; body: unknown }>(ARTIST_CACHE_TTL_MS);
+
+type YoutubeChannelsRow = {
+  name: string;
+  youtube_channel_id: string;
+};
 
 function makeEtagFromBody(body: unknown): string {
   const json = JSON.stringify(body);
@@ -88,6 +99,32 @@ function chunkArray<T>(items: T[], size: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
   return out;
+}
+
+async function findYoutubeChannelByArtistNameExact(artistName: string): Promise<YoutubeChannelsRow | null> {
+  if (!supabase) return null;
+
+  const name = normalizeString(artistName).toLowerCase();
+  if (name.length < MIN_QUERY_CHARS) return null;
+
+  const { data, error } = await supabase
+    .from("youtube_channels")
+    .select("name, youtube_channel_id")
+    // ilike without wildcards behaves like case-insensitive equality.
+    .ilike("name", name)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.warn(LOG_PREFIX, "cache lookup failed", { artistName: name, code: error.code, message: error.message });
+    return null;
+  }
+
+  const outId = typeof (data as any)?.youtube_channel_id === "string" ? String((data as any).youtube_channel_id).trim() : "";
+  const outName = typeof (data as any)?.name === "string" ? String((data as any).name).trim() : "";
+  if (!outId) return null;
+
+  return { name: outName || name, youtube_channel_id: outId };
 }
 
 async function loadTracksByArtistName(artistName: string): Promise<any[]> {
@@ -355,12 +392,6 @@ async function handleArtistLocalRequest(artistIdentifierRaw: string): Promise<Ok
     // IMPORTANT: we do NOT cache this response so it can become available immediately after ingest.
     // Also: kick off an ingest in the background so direct artist-page opens work.
     if (playlists.length === 0 && tracks.length === 0) {
-      // Deterministic rule: if the artist exists in our DB, do NOT schedule any external ingest.
-      // (We still return not_ready so the UI can handle the empty state.)
-      if (artistRow) {
-        return { status: "not_ready" };
-      }
-
       const ingestName = artistDisplayName || artistIdentifier;
       const ingestKey = normalizeArtistKey(ingestName);
       if (ingestKey) {
@@ -386,10 +417,60 @@ async function handleArtistLocalRequest(artistIdentifierRaw: string): Promise<Ok
             // Ensure the response returns first.
             await new Promise<void>((resolve) => setImmediate(resolve));
             try {
-              if (channelId) {
-                await ingestArtistFromYouTubeByChannelId({ youtube_channel_id: channelId, artistName: ingestName });
-              } else {
-                await ingestArtistFromYouTube({ artistName: ingestName });
+              let resolvedChannelId: string | null = channelId || null;
+
+              // If we don't have a stable channelId, try exact cache lookup first.
+              if (!resolvedChannelId) {
+                const cached = await findYoutubeChannelByArtistNameExact(ingestName);
+                if (cached?.youtube_channel_id) {
+                  resolvedChannelId = cached.youtube_channel_id;
+                  console.info(LOG_PREFIX, "CACHE_HIT", { ingestName, channelId: resolvedChannelId });
+
+                  const validation = await validateYouTubeChannelId(resolvedChannelId);
+                  console.info(LOG_PREFIX, "CHANNELS_LIST", { ingestName, channelId: resolvedChannelId, result: validation.status });
+
+                  if (validation.status === "invalid") {
+                    await deleteYoutubeChannelMappingByChannelId(resolvedChannelId);
+                    console.info(LOG_PREFIX, "CACHE_DELETE_INVALID", { ingestName, channelId: resolvedChannelId });
+                    resolvedChannelId = null;
+                  } else if (validation.status === "error") {
+                    console.warn(LOG_PREFIX, "CHANNELS_LIST_ERROR", { ingestName, channelId: resolvedChannelId, error: validation.error });
+                    resolvedChannelId = null;
+                  }
+                }
+              }
+
+              // As a last resort (route-only), search for a channel id then ingest by channel id.
+              if (!resolvedChannelId) {
+                console.info(LOG_PREFIX, "SEARCH_LIST_CALL", { ingestName });
+                const candidates = await youtubeSearchArtistChannel(ingestName);
+                const first = Array.isArray(candidates) ? candidates[0] : null;
+                const candidateId = first?.channelId ? String(first.channelId).trim() : "";
+                const candidateTitle = first?.title ? String(first.title).trim() : "";
+
+                if (candidateId) {
+                  const validation = await validateYouTubeChannelId(candidateId);
+                  console.info(LOG_PREFIX, "CHANNELS_LIST", {
+                    ingestName,
+                    channelId: candidateId,
+                    result: validation.status,
+                    source: "search",
+                  });
+
+                  if (validation.status === "valid") {
+                    resolvedChannelId = candidateId;
+                    await upsertYoutubeChannelMapping({ name: ingestName.toLowerCase(), youtube_channel_id: resolvedChannelId });
+                    console.info(LOG_PREFIX, "CACHE_UPSERT", {
+                      ingestName,
+                      channelId: resolvedChannelId,
+                      channelTitle: (validation.channelTitle ?? candidateTitle) || null,
+                    });
+                  }
+                }
+              }
+
+              if (resolvedChannelId) {
+                await ingestArtistFromYouTubeByChannelId({ youtube_channel_id: resolvedChannelId, artistName: ingestName });
               }
               entry.lastCompletedAt = Date.now();
             } catch (e) {
