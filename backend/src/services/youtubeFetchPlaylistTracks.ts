@@ -10,6 +10,8 @@ const YOUTUBE_PAGE_SIZE = 50;
 const VIDEO_BATCH_SIZE = 50;
 const INSERT_CHUNK_SIZE = 200;
 
+const LOG_PREFIX = "[youtubeFetchPlaylistTracks]";
+
 export type YoutubeFetchPlaylistTracksInput = {
   playlist_id: string;
   external_playlist_id: string;
@@ -57,6 +59,40 @@ function getApiKey(): string | null {
   return typeof apiKey === "string" && apiKey.trim() ? apiKey.trim() : null;
 }
 
+type YoutubeApiErrorInfo = {
+  code?: number;
+  status?: string;
+  message?: string;
+  reason?: string;
+  errorsCount?: number;
+};
+
+function extractYoutubeApiErrorInfo(json: any): YoutubeApiErrorInfo | null {
+  if (!json || typeof json !== "object") return null;
+  const err = (json as any)?.error;
+  if (!err || typeof err !== "object") return null;
+
+  const firstError = Array.isArray(err?.errors) ? err.errors[0] : null;
+  const info: YoutubeApiErrorInfo = {
+    code: typeof err?.code === "number" ? err.code : undefined,
+    status: typeof err?.status === "string" ? err.status : undefined,
+    message: typeof err?.message === "string" ? err.message : undefined,
+    reason: typeof firstError?.reason === "string" ? firstError.reason : undefined,
+    errorsCount: Array.isArray(err?.errors) ? err.errors.length : undefined,
+  };
+
+  const hasAny = Object.values(info).some((v) => v !== undefined);
+  return hasAny ? info : null;
+}
+
+async function safeReadJson(response: Response): Promise<any | null> {
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
 function chunkArray<T>(items: T[], size: number): T[][] {
   const chunks: T[][] = [];
   for (let i = 0; i < items.length; i += size) {
@@ -93,7 +129,12 @@ async function fetchPlaylistItemsAll(
   ifNoneMatch?: string | null
 ): Promise<{ state: 'unchanged'; etag: string | null } | { state: 'fetched'; etag: string | null; items: PlaylistItem[] } | null> {
   const apiKey = getApiKey();
-  if (!apiKey) return null;
+  if (!apiKey) {
+    console.warn(`${LOG_PREFIX} playlistItems.list skipped: missing YOUTUBE_API_KEY`, {
+      external_playlist_id: normalizeString(external_playlist_id),
+    });
+    return null;
+  }
 
   const playlistId = normalizeString(external_playlist_id);
   if (!playlistId) return null;
@@ -103,6 +144,9 @@ async function fetchPlaylistItemsAll(
   let currentPage = 1;
   let etagToSend: string | null = normalizeNullableString(ifNoneMatch);
   let finalEtag: string | null = etagToSend;
+
+  let rawItemsCount = 0;
+  let skippedItemsCount = 0;
 
   while (true) {
     const url = new URL(`${YOUTUBE_API_BASE}/playlistItems`);
@@ -150,13 +194,26 @@ async function fetchPlaylistItemsAll(
         status = "error";
         errorCode = String(response.status);
         errorMessage = "YouTube playlistItems.list failed";
+
+        const body = await safeReadJson(response);
+        const info = extractYoutubeApiErrorInfo(body);
+        console.warn(`${LOG_PREFIX} playlistItems.list http_error`, {
+          playlistId,
+          page: currentPage,
+          status: response.status,
+          error: info,
+        });
         return null;
       }
 
-      const json = await response.json().catch(() => null);
+      const json = await safeReadJson(response);
       if (!json || typeof json !== "object") {
         status = "error";
         errorMessage = "YouTube playlistItems.list failed";
+        console.warn(`${LOG_PREFIX} playlistItems.list invalid_json`, {
+          playlistId,
+          page: currentPage,
+        });
         return null;
       }
 
@@ -164,13 +221,17 @@ async function fetchPlaylistItemsAll(
       if (bodyEtag) finalEtag = bodyEtag;
 
       const items = Array.isArray((json as any).items) ? (json as any).items : [];
+      rawItemsCount += items.length;
       for (const item of items) {
         const videoId = normalizeString(item?.contentDetails?.videoId);
         const position = typeof item?.snippet?.position === "number" ? item.snippet.position : out.length;
         const title = normalizeString(item?.snippet?.title);
 
         if (!videoId) continue;
-        if (title === "Private video" || title === "Deleted video") continue;
+        if (title === "Private video" || title === "Deleted video") {
+          skippedItemsCount += 1;
+          continue;
+        }
 
         out.push({ videoId, position });
       }
@@ -183,6 +244,11 @@ async function fetchPlaylistItemsAll(
     } catch (err: any) {
       status = "error";
       errorMessage = err?.message ? String(err.message) : "YouTube playlistItems.list failed";
+      console.warn(`${LOG_PREFIX} playlistItems.list exception`, {
+        playlistId,
+        page: currentPage,
+        message: errorMessage,
+      });
       return null;
     } finally {
       void logApiUsage({
@@ -197,17 +263,34 @@ async function fetchPlaylistItemsAll(
   }
 
   out.sort((a, b) => a.position - b.position);
+  console.info(`${LOG_PREFIX} playlistItems.list done`, {
+    playlistId,
+    pages: currentPage,
+    items_raw: rawItemsCount,
+    items_kept: out.length,
+    items_skipped_private_or_deleted: skippedItemsCount,
+    etag: finalEtag,
+  });
   return { state: 'fetched', etag: finalEtag, items: out };
 }
 
 async function fetchVideosDetails(videoIds: string[]): Promise<Map<string, VideoRow> | null> {
   const apiKey = getApiKey();
-  if (!apiKey) return null;
+  if (!apiKey) {
+    console.warn(`${LOG_PREFIX} videos.list skipped: missing YOUTUBE_API_KEY`, {
+      requested_ids: videoIds.length,
+    });
+    return null;
+  }
 
   const uniqueIds = Array.from(new Set(videoIds.map((id) => normalizeString(id)).filter(Boolean)));
   const out = new Map<string, VideoRow>();
 
+  let totalRequested = 0;
+  let totalReturned = 0;
+
   for (const batch of chunkArray(uniqueIds, VIDEO_BATCH_SIZE)) {
+    totalRequested += batch.length;
     const url = new URL(`${YOUTUBE_API_BASE}/videos`);
     url.searchParams.set("key", apiKey);
     url.searchParams.set("part", "snippet,contentDetails,statistics");
@@ -235,17 +318,37 @@ async function fetchVideosDetails(videoIds: string[]): Promise<Map<string, Video
         status = "error";
         errorCode = String(response.status);
         errorMessage = "YouTube videos.list failed";
+
+        const body = await safeReadJson(response);
+        const info = extractYoutubeApiErrorInfo(body);
+        console.warn(`${LOG_PREFIX} videos.list http_error`, {
+          status: response.status,
+          requested: batch.length,
+          error: info,
+        });
         return null;
       }
 
-      const json = await response.json().catch(() => null);
+      const json = await safeReadJson(response);
       if (!json || typeof json !== "object") {
         status = "error";
         errorMessage = "YouTube videos.list failed";
+        console.warn(`${LOG_PREFIX} videos.list invalid_json`, {
+          requested: batch.length,
+        });
         return null;
       }
 
       const items = Array.isArray((json as any).items) ? (json as any).items : [];
+      totalReturned += items.length;
+      const missing = Math.max(0, batch.length - items.length);
+      if (missing > 0) {
+        console.info(`${LOG_PREFIX} videos.list partial`, {
+          requested: batch.length,
+          returned: items.length,
+          missing,
+        });
+      }
       for (const item of items) {
         const youtube_id = normalizeString(item?.id);
         const snippet = item?.snippet;
@@ -264,6 +367,10 @@ async function fetchVideosDetails(videoIds: string[]): Promise<Map<string, Video
     } catch (err: any) {
       status = "error";
       errorMessage = err?.message ? String(err.message) : "YouTube videos.list failed";
+      console.warn(`${LOG_PREFIX} videos.list exception`, {
+        requested: batch.length,
+        message: errorMessage,
+      });
       return null;
     } finally {
       void logApiUsage({
@@ -277,6 +384,12 @@ async function fetchVideosDetails(videoIds: string[]): Promise<Map<string, Video
     }
   }
 
+  console.info(`${LOG_PREFIX} videos.list done`, {
+    requested_unique: uniqueIds.length,
+    requested_total: totalRequested,
+    returned_total: totalReturned,
+    returned_unique: out.size,
+  });
   return out;
 }
 
@@ -324,12 +437,28 @@ async function loadExistingPlaylistTrackIds(playlist_id: string, trackIds: strin
  * - Never throws: returns null on any failure
  */
 export async function youtubeFetchPlaylistTracks(input: YoutubeFetchPlaylistTracksInput): Promise<number | null> {
+  const startedAt = Date.now();
+  const playlist_id_for_log = normalizeString(input.playlist_id);
+  const external_playlist_id_for_log = normalizeString(input.external_playlist_id);
+
+  console.info(`${LOG_PREFIX} START`, {
+    playlist_id: playlist_id_for_log,
+    external_playlist_id: external_playlist_id_for_log,
+    replace_existing: Boolean(input.replace_existing),
+    max_tracks: typeof input.max_tracks === "number" ? input.max_tracks : null,
+    has_if_none_match: Boolean(normalizeNullableString(input.if_none_match)),
+    has_artist_override: Boolean(normalizeString(input.artist_override)),
+    has_artist_channel_id_override: Boolean(normalizeString(input.artist_channel_id_override)),
+  });
+
   try {
     if (!supabase) return null;
 
     const playlist_id = normalizeString(input.playlist_id);
     const external_playlist_id = normalizeString(input.external_playlist_id);
     if (!playlist_id || !external_playlist_id) return null;
+
+    let usedScrapeFallback = false;
 
     let playlistItemsResult = await fetchPlaylistItemsAll(external_playlist_id, input.if_none_match ?? null);
     if (!playlistItemsResult) {
@@ -339,12 +468,23 @@ export async function youtubeFetchPlaylistTracks(input: YoutubeFetchPlaylistTrac
         const scraped = await youtubeScrapePlaylistVideoIds(external_playlist_id, { max: input.max_tracks ?? null });
         if (scraped.length === 0) return null;
 
+        usedScrapeFallback = true;
+        console.info(`${LOG_PREFIX} playlistItems.list failed; using scrape fallback`, {
+          playlist_id,
+          external_playlist_id,
+          scraped_ids: scraped.length,
+        });
+
         playlistItemsResult = {
           state: 'fetched',
           etag: null,
           items: scraped.map((videoId, idx) => ({ videoId, position: idx })),
         };
       } else {
+        console.warn(`${LOG_PREFIX} playlistItems.list failed; no fallback`, {
+          playlist_id,
+          external_playlist_id,
+        });
         return null;
       }
     }
@@ -363,30 +503,74 @@ export async function youtubeFetchPlaylistTracks(input: YoutubeFetchPlaylistTrac
     }
 
     if (playlistItemsResult.state === 'unchanged') {
+      console.info(`${LOG_PREFIX} DONE unchanged`, {
+        playlist_id,
+        external_playlist_id,
+        durationMs: Date.now() - startedAt,
+        etag: playlistItemsResult.etag,
+        usedScrapeFallback,
+      });
       return 0;
     }
 
     let playlistItems = playlistItemsResult.items;
+    const playlistItemsFetchedCount = playlistItems.length;
     const maxTracksRaw = input.max_tracks;
     const maxTracks = typeof maxTracksRaw === "number" && Number.isFinite(maxTracksRaw) ? Math.max(0, Math.trunc(maxTracksRaw)) : null;
     if (maxTracks !== null) {
       if (maxTracks === 0) return 0;
       playlistItems = playlistItems.slice(0, maxTracks);
     }
+    const playlistItemsAfterMaxCount = playlistItems.length;
     if (playlistItems.length === 0) {
       // Another edge: playlistItems.list can return 0 for some OLAK playlists.
       if (external_playlist_id.startsWith("OLAK5uy")) {
         const scraped = await youtubeScrapePlaylistVideoIds(external_playlist_id, { max: maxTracks });
         if (scraped.length === 0) return 0;
+
+        usedScrapeFallback = true;
+        console.info(`${LOG_PREFIX} playlistItems.list returned 0; using scrape fallback`, {
+          playlist_id,
+          external_playlist_id,
+          scraped_ids: scraped.length,
+        });
         playlistItems = scraped.map((videoId, idx) => ({ videoId, position: idx }));
       } else {
+        console.info(`${LOG_PREFIX} DONE empty_playlist_items`, {
+          playlist_id,
+          external_playlist_id,
+          durationMs: Date.now() - startedAt,
+          etag: playlistItemsResult.etag,
+          usedScrapeFallback,
+          playlistItemsFetchedCount,
+          playlistItemsAfterMaxCount,
+        });
         return 0;
       }
     }
 
     const videoIds = playlistItems.map((i) => i.videoId);
     const videoDetailsMap = await fetchVideosDetails(videoIds);
-    if (!videoDetailsMap) return null;
+    if (!videoDetailsMap) {
+      console.warn(`${LOG_PREFIX} DONE videos_details_failed`, {
+        playlist_id,
+        external_playlist_id,
+        durationMs: Date.now() - startedAt,
+        requested_video_ids: videoIds.length,
+      });
+      return null;
+    }
+
+    const missingVideoDetailsCount = Math.max(0, videoIds.length - videoDetailsMap.size);
+    if (missingVideoDetailsCount > 0) {
+      console.info(`${LOG_PREFIX} missing_video_details`, {
+        playlist_id,
+        external_playlist_id,
+        requested: videoIds.length,
+        returned: videoDetailsMap.size,
+        missing: missingVideoDetailsCount,
+      });
+    }
 
     const desiredTrackRowsMap = new Map<string, VideoRow>();
     for (const item of playlistItems) {
@@ -407,7 +591,20 @@ export async function youtubeFetchPlaylistTracks(input: YoutubeFetchPlaylistTrac
       }
     }
     const desiredTrackRows = Array.from(desiredTrackRowsMap.values());
-    if (desiredTrackRows.length === 0) return 0;
+    if (desiredTrackRows.length === 0) {
+      console.info(`${LOG_PREFIX} DONE no_usable_video_details`, {
+        playlist_id,
+        external_playlist_id,
+        durationMs: Date.now() - startedAt,
+        playlistItemsFetchedCount,
+        playlistItemsAfterMaxCount,
+        requested_video_ids: videoIds.length,
+        returned_video_details: videoDetailsMap.size,
+        missing_video_details: missingVideoDetailsCount,
+        usedScrapeFallback,
+      });
+      return 0;
+    }
 
     const existingTrackIdMap = await loadExistingTracksByExternalId(desiredTrackRows.map((r) => r.external_id));
     if (!existingTrackIdMap) return null;
@@ -454,6 +651,17 @@ export async function youtubeFetchPlaylistTracks(input: YoutubeFetchPlaylistTrac
         inserted_tracks: insertedTracksCount,
       });
 
+      let deletedExisting: number | null = null;
+      try {
+        const { count, error: countError } = await supabase
+          .from("playlist_tracks")
+          .select("track_id", { count: "exact", head: true })
+          .eq("playlist_id", playlist_id);
+        if (!countError && typeof count === "number") deletedExisting = count;
+      } catch {
+        // ignore
+      }
+
       const { error: deleteError } = await supabase
         .from("playlist_tracks")
         .delete()
@@ -477,8 +685,27 @@ export async function youtubeFetchPlaylistTracks(input: YoutubeFetchPlaylistTrac
         external_playlist_id,
         desired_links: desiredLinks.length,
         inserted_tracks: insertedTracksCount,
+        deleted_existing: deletedExisting,
       });
 
+      console.info(`${LOG_PREFIX} DONE`, {
+        playlist_id,
+        external_playlist_id,
+        durationMs: Date.now() - startedAt,
+        etag: playlistItemsResult.etag,
+        usedScrapeFallback,
+        playlistItemsFetchedCount,
+        playlistItemsAfterMaxCount,
+        requested_video_ids: videoIds.length,
+        returned_video_details: videoDetailsMap.size,
+        missing_video_details: missingVideoDetailsCount,
+        desired_track_rows: desiredTrackRows.length,
+        new_track_rows: newTrackRows.length,
+        inserted_tracks: insertedTracksCount,
+        replace_existing: true,
+        deleted_existing: deletedExisting,
+        inserted_links: desiredLinks.length,
+      });
       return insertedTracksCount;
     }
 
@@ -499,6 +726,24 @@ export async function youtubeFetchPlaylistTracks(input: YoutubeFetchPlaylistTrac
       }
     }
 
+    console.info(`${LOG_PREFIX} DONE`, {
+      playlist_id,
+      external_playlist_id,
+      durationMs: Date.now() - startedAt,
+      etag: playlistItemsResult.etag,
+      usedScrapeFallback,
+      playlistItemsFetchedCount,
+      playlistItemsAfterMaxCount,
+      requested_video_ids: videoIds.length,
+      returned_video_details: videoDetailsMap.size,
+      missing_video_details: missingVideoDetailsCount,
+      desired_track_rows: desiredTrackRows.length,
+      new_track_rows: newTrackRows.length,
+      inserted_tracks: insertedTracksCount,
+      replace_existing: false,
+      inserted_links: newLinks.length,
+      desired_links: desiredLinks.length,
+    });
     return insertedTracksCount;
   } catch (err) {
     console.error("[youtubeFetchPlaylistTracks] unexpected error:", err);
