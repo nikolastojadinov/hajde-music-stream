@@ -9,6 +9,7 @@ export type SearchSuggestResponse = {
     name: string;
     imageUrl?: string;
     subtitle?: string;
+    artists?: string[];
   }>;
 };
 

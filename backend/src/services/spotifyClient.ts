@@ -17,6 +17,7 @@ export type SpotifyTrack = {
   id: string;
   name: string;
   artistName?: string;
+  artistNames?: string[];
   durationMs: number;
   imageUrl?: string;
 };
@@ -177,10 +178,16 @@ export async function spotifySearch(q: string): Promise<SpotifySearchResult> {
       .slice(0, 5)
       .map((t: any) => {
         const durationMs = typeof t.duration_ms === 'number' ? t.duration_ms : 0;
+        const artistNames = Array.isArray(t?.artists)
+          ? t.artists
+              .map((a: any) => (a && typeof a === 'object' ? a.name : null))
+              .filter((n: any): n is string => typeof n === 'string' && n.trim().length > 0)
+          : [];
         const artistName = typeof t?.artists?.[0]?.name === 'string' ? t.artists[0].name : undefined;
         const imageUrl = firstImageUrl(t?.album?.images);
         const out: SpotifyTrack = { id: t.id, name: t.name, durationMs };
         if (artistName) out.artistName = artistName;
+        if (artistNames.length > 0) out.artistNames = artistNames;
         if (imageUrl) out.imageUrl = imageUrl;
         return out;
       });

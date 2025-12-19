@@ -24,6 +24,7 @@ type Suggestion = {
   name: string;
   imageUrl?: string;
   subtitle?: string;
+  artists?: string[];
 };
 
 function suggestionTypeLabel(type: Suggestion["type"]): string {
@@ -67,6 +68,9 @@ export default function Search() {
   const [resolved, setResolved] = useState<SearchResolveResponse | null>(null);
   const [resolveLoading, setResolveLoading] = useState(false);
 
+  // When a track suggestion is clicked, show/prefetch all connected artists under Search.
+  const [relatedArtists, setRelatedArtists] = useState<string[] | null>(null);
+
   const [error, setError] = useState<string | null>(null);
 
   const suggestAbortRef = useRef<AbortController | null>(null);
@@ -92,6 +96,7 @@ export default function Search() {
     setResolved(null);
     setResolveLoading(false);
     setError(null);
+    setRelatedArtists(null);
 
     requestAnimationFrame(() => {
       inputRef.current?.focus();
@@ -209,6 +214,7 @@ export default function Search() {
 
   const handleSubmit = async () => {
     setSuggestOpen(false);
+    setRelatedArtists(null);
     await runResolve(query, "generic");
   };
 
@@ -217,8 +223,29 @@ export default function Search() {
     const nextQuery = s.type === "track" && s.subtitle ? `${s.name} ${s.subtitle}` : s.name;
     setQuery(nextQuery);
     setSuggestOpen(false);
+
+    if (s.type === "track") {
+      const artists = Array.isArray(s.artists) && s.artists.length > 0 ? s.artists : s.subtitle ? [s.subtitle] : [];
+      setRelatedArtists(artists.length > 0 ? artists : null);
+    } else {
+      setRelatedArtists(null);
+    }
+
     await runResolve(nextQuery, nextMode);
   };
+
+  const relatedArtistsKey = useMemo(() => (relatedArtists ? relatedArtists.join("|") : ""), [relatedArtists]);
+  const lastPrefetchedArtistsRef = useRef<string>("");
+
+  useEffect(() => {
+    if (!relatedArtists || relatedArtists.length === 0) return;
+    if (lastPrefetchedArtistsRef.current === relatedArtistsKey) return;
+    lastPrefetchedArtistsRef.current = relatedArtistsKey;
+
+    for (const name of relatedArtists) {
+      prefetchArtist(name);
+    }
+  }, [relatedArtists, relatedArtistsKey]);
 
   const showSuggestBox = suggestOpen && normalizeQuery(query).length >= 2;
   const showResults = Boolean(resolved) || resolveLoading;
@@ -379,7 +406,9 @@ export default function Search() {
 
                     <div className="min-w-0 flex-1">
                       <div className="font-medium truncate">{s.name}</div>
-                      <div className="text-xs text-muted-foreground truncate">{suggestionTypeLabel(s.type)}</div>
+                      <div className="text-xs text-muted-foreground truncate">
+                        {s.type === "track" ? (s.subtitle ? `Song • ${s.subtitle}` : "Song") : suggestionTypeLabel(s.type)}
+                      </div>
                     </div>
                   </button>
                 ))}
@@ -391,6 +420,35 @@ export default function Search() {
 
       {showResults ? (
         <div>
+          {relatedArtists && relatedArtists.length > 0 ? (
+            <section className="mb-10">
+              <h2 className="flex items-center gap-2 text-xl font-bold mb-4">
+                <User className="w-5 h-5" /> Artists
+              </h2>
+
+              <div className="flex gap-4 overflow-x-auto pb-2">
+                {relatedArtists.map((name) => (
+                  <button
+                    key={name}
+                    type="button"
+                    onClick={() => handleArtistClick(name)}
+                    onMouseEnter={() => prefetchArtist(name)}
+                    onTouchStart={() => prefetchArtist(name)}
+                    className="shrink-0 w-20 text-center"
+                  >
+                    <div className="mx-auto w-14 h-14 rounded-full bg-muted overflow-hidden flex items-center justify-center">
+                      <span className="text-sm font-semibold text-muted-foreground">{firstLetter(name)}</span>
+                    </div>
+                    <div className="mt-2 text-xs font-medium truncate">{name}</div>
+                    <div className="mt-1 text-[10px] text-muted-foreground inline-flex items-center justify-center gap-1">
+                      <User className="w-3 h-3" /> <span>Artist</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
           {resolveLoading ? (
             <LoadingSkeleton type="search" />
           ) : showResolveError ? (

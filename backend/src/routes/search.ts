@@ -638,6 +638,7 @@ router.get("/suggest", async (req, res) => {
       name: string;
       imageUrl?: string;
       subtitle?: string;
+      artists?: string[];
     };
 
     const suggestions: SuggestionItem[] = [];
@@ -647,8 +648,9 @@ router.get("/suggest", async (req, res) => {
     }
 
     for (const t of result.tracks) {
-      const subtitle = t.artistName ? t.artistName : undefined;
-      suggestions.push({ type: "track", id: t.id, name: t.name, imageUrl: t.imageUrl, subtitle });
+      const artists = Array.isArray((t as any).artistNames) ? ((t as any).artistNames as string[]) : [];
+      const subtitle = artists.length > 0 ? artists.join(", ") : t.artistName ? t.artistName : undefined;
+      suggestions.push({ type: "track", id: t.id, name: t.name, imageUrl: t.imageUrl, subtitle, artists: artists.length > 0 ? artists : undefined });
     }
 
     for (const p of result.playlists) {
