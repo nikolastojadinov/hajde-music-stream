@@ -26,6 +26,21 @@ type Suggestion = {
   subtitle?: string;
 };
 
+function suggestionTypeLabel(type: Suggestion["type"]): string {
+  switch (type) {
+    case "artist":
+      return "Artist";
+    case "track":
+      return "Song";
+    case "album":
+      return "Album";
+    case "playlist":
+      return "Playlist";
+    default:
+      return "";
+  }
+}
+
 function normalizeQuery(value: string): string {
   return value.trim();
 }
@@ -323,7 +338,11 @@ export default function Search() {
           </div>
 
           {showSuggestBox ? (
-            <div className="absolute z-20 mt-2 w-full rounded-lg border border-border bg-card/95 backdrop-blur p-2">
+            <div
+              className="absolute z-20 mt-2 w-full rounded-lg border border-border bg-card/95 backdrop-blur p-2"
+              // iOS-friendly scrolling for overflow containers.
+              style={{ WebkitOverflowScrolling: "touch" }}
+            >
               {suggestLoading ? <div className="px-2 py-2 text-sm text-muted-foreground">Searching…</div> : null}
 
               {!suggestLoading && error && !showResults ? (
@@ -334,7 +353,7 @@ export default function Search() {
                 <div className="px-2 py-2 text-sm text-muted-foreground">No suggestions.</div>
               ) : null}
 
-              <div>
+              <div className="max-h-[60vh] overflow-y-auto overscroll-contain touch-pan-y">
                 {flatSuggestions.map((s) => (
                   <button
                     key={`${s.type}:${s.id}`}
@@ -342,7 +361,9 @@ export default function Search() {
                     onClick={() => void handleSuggestionClick(s)}
                     className="w-full text-left flex items-center gap-3 rounded-md px-2 py-2 hover:bg-accent"
                   >
-                    <div className="w-8 h-8 rounded bg-muted overflow-hidden shrink-0">
+                    <div
+                      className={`w-8 h-8 bg-muted overflow-hidden shrink-0 ${s.type === "artist" ? "rounded-full" : "rounded"}`}
+                    >
                       <div className="w-full h-full flex items-center justify-center">
                         {s.imageUrl ? (
                           <img src={s.imageUrl} alt={s.name} className="w-full h-full object-cover" loading="lazy" />
@@ -358,9 +379,7 @@ export default function Search() {
 
                     <div className="min-w-0 flex-1">
                       <div className="font-medium truncate">{s.name}</div>
-                      <div className="text-xs text-muted-foreground truncate">
-                        {s.subtitle ? `${s.subtitle} · Spotify` : "Spotify"}
-                      </div>
+                      <div className="text-xs text-muted-foreground truncate">{suggestionTypeLabel(s.type)}</div>
                     </div>
                   </button>
                 ))}
