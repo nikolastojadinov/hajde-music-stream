@@ -32,6 +32,7 @@ const YOUTUBE_SEARCH_ENDPOINT = 'https://www.googleapis.com/youtube/v3/search';
 const MAX_RESULTS = 5;
 const MIN_QUERY_CHARS = 2;
 const QUOTA_COST_SEARCH_LIST = 100;
+const MUSIC_VIDEO_CATEGORY_ID = '10';
 
 // IMPORTANT: The YouTube Data API uses a Google partial response selector syntax.
 // Use parentheses, not slash-delimited paths, to avoid 400 badRequest invalidArgument.
@@ -54,6 +55,41 @@ function getApiKey(): string {
 function pickDefaultThumbUrl(thumbnails: any): string | undefined {
   const url = thumbnails?.default?.url;
   return typeof url === 'string' && url.length > 0 ? url : undefined;
+}
+
+function isLikelyMusicContentTitle(value: unknown): boolean {
+  const raw = typeof value === 'string' ? value.trim() : '';
+  if (!raw) return false;
+  const t = raw.toLowerCase();
+
+  // Conservative blacklist to avoid pulling clearly non-music content.
+  // (This is not perfect, but it prevents obvious mismatches like podcasts, gameplay, trailers, etc.)
+  const banned = [
+    'podcast',
+    'episode',
+    'interview',
+    'trailer',
+    'movie',
+    'film',
+    'gameplay',
+    'walkthrough',
+    'reaction',
+    'review',
+    'vlog',
+    'stream',
+    'highlights',
+    'compilation',
+    'lecture',
+    'lesson',
+    'tutorial',
+    'how to',
+    'news',
+  ];
+  for (const b of banned) {
+    if (t.includes(b)) return false;
+  }
+
+  return true;
 }
 
 function normalizeKind(kind: unknown): string {
@@ -145,7 +181,8 @@ export async function youtubeSearchVideos(q: string): Promise<YouTubeVideoSearch
       key: apiKey,
       part: 'snippet',
       type: 'video',
-      videoCategoryId: '10',
+      // Music category only.
+      videoCategoryId: MUSIC_VIDEO_CATEGORY_ID,
       maxResults: String(MAX_RESULTS),
       fields: FIELDS_VIDEO,
       q: query,
@@ -157,6 +194,7 @@ export async function youtubeSearchVideos(q: string): Promise<YouTubeVideoSearch
 
   return items
     .filter((item: any) => item?.id?.videoId && item?.snippet?.title && item?.snippet?.channelId)
+    .filter((item: any) => isLikelyMusicContentTitle(item?.snippet?.title))
     .map((item: any) => {
       const out: YouTubeVideoSearchResult = {
         videoId: String(item.id.videoId),
@@ -194,6 +232,7 @@ export async function youtubeSearchArtistChannel(q: string): Promise<YouTubeChan
 
   return items
     .filter((item: any) => item?.id?.channelId && item?.snippet?.title)
+    .filter((item: any) => isLikelyMusicContentTitle(item?.snippet?.title))
     .map((item: any) => {
       const out: YouTubeChannelSearchResult = {
         channelId: String(item.id.channelId),
@@ -224,6 +263,9 @@ export async function youtubeSearchMixed(q: string): Promise<YouTubeMixedSearchR
       key: apiKey,
       part: 'snippet',
       type: 'video,channel,playlist',
+      // Music-only constraint for videos in the mixed result set.
+      // Note: YouTube applies this only to the video portion.
+      videoCategoryId: MUSIC_VIDEO_CATEGORY_ID,
       maxResults: '25',
       fields: FIELDS_MIXED,
       q: query,
@@ -248,6 +290,7 @@ export async function youtubeSearchMixed(q: string): Promise<YouTubeMixedSearchR
     const playlistId = item?.id?.playlistId ? String(item.id.playlistId) : '';
 
     if (kind.includes('youtube#channel') && chId && title) {
+      if (!isLikelyMusicContentTitle(title)) continue;
       const out: YouTubeChannelSearchResult = { channelId: chId, title };
       if (thumbUrl) out.thumbUrl = thumbUrl;
       channels.push(out);
@@ -255,6 +298,7 @@ export async function youtubeSearchMixed(q: string): Promise<YouTubeMixedSearchR
     }
 
     if (kind.includes('youtube#video') && videoId && title && channelId) {
+      if (!isLikelyMusicContentTitle(title)) continue;
       const out: YouTubeVideoSearchResult = {
         videoId,
         title,
@@ -267,6 +311,7 @@ export async function youtubeSearchMixed(q: string): Promise<YouTubeMixedSearchR
     }
 
     if (kind.includes('youtube#playlist') && playlistId && title) {
+      if (!isLikelyMusicContentTitle(title)) continue;
       const out: YouTubePlaylistSearchResult = {
         playlistId,
         title,
