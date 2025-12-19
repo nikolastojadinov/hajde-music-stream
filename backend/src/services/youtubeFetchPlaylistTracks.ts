@@ -399,7 +399,14 @@ async function loadExistingTracksByExternalId(externalIds: string[]): Promise<Ma
   const out = new Map<string, string>();
   for (const chunk of chunkArray(externalIds, 200)) {
     const { data, error } = await supabase.from("tracks").select("id, external_id").in("external_id", chunk);
-    if (error) return null;
+    if (error) {
+      console.warn(`${LOG_PREFIX} supabase_select_tracks_failed`, {
+        code: (error as any)?.code,
+        message: (error as any)?.message,
+        chunkSize: chunk.length,
+      });
+      return null;
+    }
     for (const row of (data as any[]) || []) {
       const id = normalizeString(row?.id);
       const external_id = normalizeString(row?.external_id);
@@ -419,7 +426,15 @@ async function loadExistingPlaylistTrackIds(playlist_id: string, trackIds: strin
       .select("track_id")
       .eq("playlist_id", playlist_id)
       .in("track_id", chunk);
-    if (error) return null;
+    if (error) {
+      console.warn(`${LOG_PREFIX} supabase_select_playlist_tracks_failed`, {
+        code: (error as any)?.code,
+        message: (error as any)?.message,
+        playlist_id,
+        chunkSize: chunk.length,
+      });
+      return null;
+    }
     for (const row of (data as any[]) || []) {
       const track_id = normalizeString(row?.track_id);
       if (track_id) out.add(track_id);
@@ -523,19 +538,11 @@ export async function youtubeFetchPlaylistTracks(input: YoutubeFetchPlaylistTrac
     }
     const playlistItemsAfterMaxCount = playlistItems.length;
     if (playlistItems.length === 0) {
-      // Another edge: playlistItems.list can return 0 for some OLAK playlists.
-      if (external_playlist_id.startsWith("OLAK5uy")) {
-        const scraped = await youtubeScrapePlaylistVideoIds(external_playlist_id, { max: maxTracks });
-        if (scraped.length === 0) return 0;
-
-        usedScrapeFallback = true;
-        console.info(`${LOG_PREFIX} playlistItems.list returned 0; using scrape fallback`, {
-          playlist_id,
-          external_playlist_id,
-          scraped_ids: scraped.length,
-        });
-        playlistItems = scraped.map((videoId, idx) => ({ videoId, position: idx }));
-      } else {
+      // Edge case: playlistItems.list can return 0 even for playlists that appear to have videos.
+      // Fallback: scrape the playlist page and continue. Keep it bounded to avoid huge scrapes.
+      const scrapeMax = maxTracks !== null ? maxTracks : 200;
+      const scraped = await youtubeScrapePlaylistVideoIds(external_playlist_id, { max: scrapeMax });
+      if (scraped.length === 0) {
         console.info(`${LOG_PREFIX} DONE empty_playlist_items`, {
           playlist_id,
           external_playlist_id,
@@ -544,9 +551,20 @@ export async function youtubeFetchPlaylistTracks(input: YoutubeFetchPlaylistTrac
           usedScrapeFallback,
           playlistItemsFetchedCount,
           playlistItemsAfterMaxCount,
+          scrapeAttempted: true,
+          scrapeMax,
         });
         return 0;
       }
+
+      usedScrapeFallback = true;
+      console.info(`${LOG_PREFIX} playlistItems.list returned 0; using scrape fallback`, {
+        playlist_id,
+        external_playlist_id,
+        scraped_ids: scraped.length,
+        scrapeMax,
+      });
+      playlistItems = scraped.map((videoId, idx) => ({ videoId, position: idx }));
     }
 
     const videoIds = playlistItems.map((i) => i.videoId);

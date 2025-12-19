@@ -258,22 +258,52 @@ export async function youtubeSearchMixed(q: string): Promise<YouTubeMixedSearchR
 
   const apiKey = getApiKey();
 
-  const json = await executeSearch(
-    {
-      key: apiKey,
-      part: 'snippet',
-      type: 'video,channel,playlist',
-      // Music-only constraint for videos in the mixed result set.
-      // Note: YouTube applies this only to the video portion.
-      videoCategoryId: MUSIC_VIDEO_CATEGORY_ID,
-      maxResults: '25',
-      fields: FIELDS_MIXED,
-      q: query,
-    },
-    apiKey
-  );
+  // NOTE: YouTube Data API does NOT support comma-separated `type` values.
+  // A single request with `type=video,channel,playlist` fails with 400 invalidArgument.
+  // We intentionally do 3 small calls and merge.
+  const [channelsJson, videosJson, playlistsJson] = await Promise.all([
+    executeSearch(
+      {
+        key: apiKey,
+        part: 'snippet',
+        type: 'channel',
+        maxResults: '5',
+        fields: FIELDS_MIXED,
+        q: query,
+      },
+      apiKey
+    ),
+    executeSearch(
+      {
+        key: apiKey,
+        part: 'snippet',
+        type: 'video',
+        // Music-only constraint for videos.
+        videoCategoryId: MUSIC_VIDEO_CATEGORY_ID,
+        maxResults: '15',
+        fields: FIELDS_MIXED,
+        q: query,
+      },
+      apiKey
+    ),
+    executeSearch(
+      {
+        key: apiKey,
+        part: 'snippet',
+        type: 'playlist',
+        maxResults: '10',
+        fields: FIELDS_MIXED,
+        q: query,
+      },
+      apiKey
+    ),
+  ]);
 
-  const items = Array.isArray((json as any).items) ? (json as any).items : [];
+  const items = [
+    ...(Array.isArray((channelsJson as any).items) ? (channelsJson as any).items : []),
+    ...(Array.isArray((videosJson as any).items) ? (videosJson as any).items : []),
+    ...(Array.isArray((playlistsJson as any).items) ? (playlistsJson as any).items : []),
+  ];
   const channels: YouTubeChannelSearchResult[] = [];
   const videos: YouTubeVideoSearchResult[] = [];
   const playlists: YouTubePlaylistSearchResult[] = [];
