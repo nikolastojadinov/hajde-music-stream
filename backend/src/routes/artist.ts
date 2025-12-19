@@ -8,6 +8,7 @@ import { getIngestMap } from "../lib/ingestLock";
 import { TtlCache } from "../lib/ttlCache";
 import { normalizeArtistKey } from "../utils/artistKey";
 import { ingestArtistFromYouTube, ingestArtistFromYouTubeByChannelId } from "../services/ingestArtistFromYouTube";
+import { isOlakPlaylistId } from "../utils/olak";
 
 const router = Router();
 
@@ -295,6 +296,7 @@ function mapPlaylistsForFrontend(rows: any[]): ApiPlaylist[] {
     const title = normalizeString(p?.title) || "Untitled";
     const youtube_playlist_id = normalizeString(p?.external_id);
     if (!id || !youtube_playlist_id) continue;
+    if (isOlakPlaylistId(youtube_playlist_id)) continue;
 
     out.push({
       id,
@@ -353,6 +355,12 @@ async function handleArtistLocalRequest(artistIdentifierRaw: string): Promise<Ok
     // IMPORTANT: we do NOT cache this response so it can become available immediately after ingest.
     // Also: kick off an ingest in the background so direct artist-page opens work.
     if (playlists.length === 0 && tracks.length === 0) {
+      // Deterministic rule: if the artist exists in our DB, do NOT schedule any external ingest.
+      // (We still return not_ready so the UI can handle the empty state.)
+      if (artistRow) {
+        return { status: "not_ready" };
+      }
+
       const ingestName = artistDisplayName || artistIdentifier;
       const ingestKey = normalizeArtistKey(ingestName);
       if (ingestKey) {

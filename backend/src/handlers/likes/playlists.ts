@@ -41,7 +41,8 @@ export async function getLikedPlaylists(req: Request, res: Response) {
         region,
         category,
         owner_id,
-        created_at
+        created_at,
+        external_id
       )
     `)
     .eq('user_id', internalId)
@@ -58,6 +59,8 @@ export async function getLikedPlaylists(req: Request, res: Response) {
     .map((row: any) => row.playlists as any)
     .filter((pl: any) => {
       if (!pl?.id) return false;
+      const externalId = typeof pl?.external_id === 'string' ? String(pl.external_id).trim() : '';
+      if (externalId.startsWith('OLAK')) return false;
       if (seen.has(pl.id)) return false;
       seen.add(pl.id);
       return true;

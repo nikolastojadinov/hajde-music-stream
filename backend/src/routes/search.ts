@@ -12,6 +12,7 @@ import { youtubeSearchArtistChannel } from "../services/youtubeClient";
 import { youtubeSearchMixed } from "../services/youtubeClient";
 import { youtubeFetchPlaylistTracks } from "../services/youtubeFetchPlaylistTracks";
 import { spotifySuggest } from "../services/spotifyClient";
+import { isOlakPlaylistId } from "../utils/olak";
 import {
   deleteYoutubeChannelMappingByChannelId,
   deriveArtistKey,
@@ -590,6 +591,7 @@ async function persistYouTubeMixedResults(opts: {
         const channel_id = normalizeQuery(p.channelId);
         const channel_title = normalizeQuery(p.channelTitle);
         if (!external_id || !title) return null;
+        if (isOlakPlaylistId(external_id)) return null;
         return {
           external_id,
           title,
@@ -712,8 +714,12 @@ router.post("/resolve", async (req, res) => {
       ]);
 
       const tracks = trackRows.map(mapTrackRow);
-      const playlists_by_title = playlistsDual.playlists_by_title.map(mapPlaylistRow);
-      const playlists_by_artist = playlistsDual.playlists_by_artist.map(mapPlaylistRow);
+      const playlists_by_title = playlistsDual.playlists_by_title
+        .map(mapPlaylistRow)
+        .filter((p) => !isOlakPlaylistId(p.externalId));
+      const playlists_by_artist = playlistsDual.playlists_by_artist
+        .map(mapPlaylistRow)
+        .filter((p) => !isOlakPlaylistId(p.externalId));
       const mergedPlaylists = mergeLegacyPlaylists(playlists_by_title, playlists_by_artist).slice(0, MAX_PLAYLISTS);
 
       const artistChannelsLocal = artistChannelRows

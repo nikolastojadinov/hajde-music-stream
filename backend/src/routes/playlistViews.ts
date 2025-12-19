@@ -106,12 +106,16 @@ router.get('/top', async (req, res) => {
     if (playlistIds.length > 0) {
       const { data: playlistData, error: playlistError } = await supabase!
         .from('playlists')
-        .select('id, title, cover_url, description')
+        .select('id, title, cover_url, description, external_id')
         .in('id', playlistIds);
 
       if (playlistError) throw playlistError;
 
-      playlistMap = new Map((playlistData || []).map((playlist) => [playlist.id, playlist]));
+      const filtered = (playlistData || []).filter((p: any) => {
+        const externalId = typeof p?.external_id === 'string' ? String(p.external_id).trim() : '';
+        return !externalId.startsWith('OLAK');
+      });
+      playlistMap = new Map(filtered.map((playlist: any) => [playlist.id, playlist]));
     }
 
     const merged = (views || []).map((view) => {

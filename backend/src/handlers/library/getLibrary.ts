@@ -176,7 +176,7 @@ export async function getUserLibrary(req: AuthedRequest, res: Response) {
     if (playlistIds.length > 0) {
       const { data: playlistRows, error: playlistErr } = await supabase
         .from('playlists')
-        .select('id, title, description, cover_url, region, category, owner_id, created_at')
+        .select('id, title, description, cover_url, region, category, owner_id, created_at, external_id')
         .in('id', playlistIds)
         .returns<PlaylistRow[]>();
 
@@ -194,6 +194,9 @@ export async function getUserLibrary(req: AuthedRequest, res: Response) {
 
         const pl = map.get(String(id));
         if (!pl) return acc;
+
+        const externalId = typeof (pl as any)?.external_id === 'string' ? String((pl as any).external_id).trim() : '';
+        if (externalId.startsWith('OLAK')) return acc;
 
         seen.add(id);
         acc.push({
