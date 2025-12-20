@@ -38,6 +38,16 @@ export type SpotifySearchResult = {
 
 const EMPTY_RESULT: SpotifySearchResult = { artists: [], albums: [], tracks: [], playlists: [] };
 
+export class SpotifyRateLimitError extends Error {
+  public readonly retryAfterMs: number;
+
+  constructor(retryAfterMs: number, message: string = 'Spotify rate limited') {
+    super(message);
+    this.name = 'SpotifyRateLimitError';
+    this.retryAfterMs = retryAfterMs;
+  }
+}
+
 type TokenCache = {
   accessToken: string;
   expiresAtMs: number;
@@ -69,6 +79,15 @@ function firstImageUrl(images: unknown): string | undefined {
     }
   }
   return undefined;
+}
+
+function parseRetryAfterMs(headerValue: string | null): number {
+  // Spotify returns Retry-After as seconds.
+  const raw = typeof headerValue === 'string' ? headerValue.trim() : '';
+  const seconds = raw ? Number.parseInt(raw, 10) : NaN;
+  if (Number.isFinite(seconds) && seconds > 0) return seconds * 1000;
+  // Conservative default when header is missing/invalid.
+  return 30_000;
 }
 
 async function fetchClientCredentialsToken(): Promise<TokenCache> {
@@ -142,6 +161,14 @@ export async function spotifySearch(q: string): Promise<SpotifySearchResult> {
       },
     });
 
+    if (response.status === 429) {
+      status = 'error';
+      errorCode = '429';
+      errorMessage = 'Spotify rate limited';
+      const retryAfterMs = parseRetryAfterMs(response.headers.get('retry-after'));
+      throw new SpotifyRateLimitError(retryAfterMs);
+    }
+
     if (!response.ok) {
       status = 'error';
       errorCode = String(response.status);
@@ -206,9 +233,8 @@ export async function spotifySearch(q: string): Promise<SpotifySearchResult> {
 
     return { artists, albums, tracks, playlists };
   } catch (err) {
-    if (err instanceof Error && err.message === 'Spotify search failed') {
-      throw err;
-    }
+    if (err instanceof SpotifyRateLimitError) throw err;
+    if (err instanceof Error && err.message === 'Spotify search failed') throw err;
 
     status = 'error';
     errorMessage = errorMessage ?? 'Spotify search failed';
@@ -250,6 +276,14 @@ export async function spotifySuggest(q: string): Promise<string[]> {
       },
     });
 
+    if (response.status === 429) {
+      status = 'error';
+      errorCode = '429';
+      errorMessage = 'Spotify rate limited';
+      const retryAfterMs = parseRetryAfterMs(response.headers.get('retry-after'));
+      throw new SpotifyRateLimitError(retryAfterMs);
+    }
+
     if (!response.ok) {
       status = 'error';
       errorCode = String(response.status);
@@ -278,6 +312,7 @@ export async function spotifySuggest(q: string): Promise<string[]> {
 
     return deduped;
   } catch (err) {
+    if (err instanceof SpotifyRateLimitError) throw err;
     if (err instanceof Error && err.message === 'Spotify suggest failed') {
       throw err;
     }

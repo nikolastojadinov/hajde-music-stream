@@ -11,7 +11,7 @@ import supabase, {
 import { youtubeSearchArtistChannel } from "../services/youtubeClient";
 import { youtubeSearchMixed } from "../services/youtubeClient";
 import { youtubeBatchFetchPlaylists } from "../services/youtubeBatchFetchPlaylists";
-import { spotifySearch } from "../services/spotifyClient";
+import { spotifySearch, SpotifyRateLimitError } from "../services/spotifyClient";
 import { isOlakPlaylistId } from "../utils/olak";
 import {
   deleteYoutubeChannelMappingByChannelId,
@@ -28,6 +28,126 @@ const router = Router();
 const MIN_QUERY_CHARS = 2;
 const LOG_PREFIX = "[ArtistIngest]";
 const RESOLVE_LOG_PREFIX = "[SearchResolve]";
+const SUGGEST_LOG_PREFIX = "[SearchSuggest]";
+
+const SUGGEST_CACHE_TTL_MS = 60_000;
+const SUGGEST_CACHE_MAX = 500;
+type SuggestionType = "artist" | "track" | "playlist" | "album";
+type SuggestionItem = {
+  type: SuggestionType;
+  id: string;
+  name: string;
+  imageUrl?: string;
+  subtitle?: string;
+  artists?: string[];
+};
+
+type SuggestEnvelope = {
+  q: string;
+  source: "spotify_suggest" | "local_fallback";
+  suggestions: SuggestionItem[];
+};
+
+type SuggestCacheEntry = { expiresAtMs: number; value: SuggestEnvelope };
+const suggestCache = new Map<string, SuggestCacheEntry>();
+
+function normalizeSuggestKey(raw: unknown): string {
+  return normalizeQuery(raw).toLowerCase();
+}
+
+function pruneSuggestCache(now: number): void {
+  // Drop expired.
+  const expiredKeys: string[] = [];
+  suggestCache.forEach((v, k) => {
+    if (v.expiresAtMs <= now) expiredKeys.push(k);
+  });
+  for (const k of expiredKeys) suggestCache.delete(k);
+  // Enforce cap (best-effort FIFO since Map iterates insertion order).
+  while (suggestCache.size > SUGGEST_CACHE_MAX) {
+    const firstKey = suggestCache.keys().next().value as string | undefined;
+    if (!firstKey) break;
+    suggestCache.delete(firstKey);
+  }
+}
+
+function cacheSuggest(key: string, value: SuggestEnvelope): void {
+  const now = Date.now();
+  pruneSuggestCache(now);
+  suggestCache.set(key, { expiresAtMs: now + SUGGEST_CACHE_TTL_MS, value });
+  // If we just exceeded cap due to insertion, trim again.
+  pruneSuggestCache(now);
+}
+
+function getCachedSuggest(key: string): SuggestEnvelope | null {
+  const now = Date.now();
+  const entry = suggestCache.get(key);
+  if (!entry) return null;
+  if (entry.expiresAtMs <= now) {
+    suggestCache.delete(key);
+    return null;
+  }
+  return entry.value;
+}
+
+async function buildLocalFallbackSuggestions(q: string): Promise<SuggestionItem[]> {
+  if (!supabase) return [];
+
+  const [trackRows, playlistsDual, artistChannelRows] = await Promise.all([
+    searchTracksForQuery(q),
+    searchPlaylistsDualForQuery(q),
+    searchArtistChannelsForQuery(q),
+  ]);
+
+  const out: SuggestionItem[] = [];
+
+  for (const row of trackRows) {
+    const title = typeof row.title === "string" ? row.title.trim() : "";
+    const artist = typeof row.artist === "string" ? row.artist.trim() : "";
+    if (!title) continue;
+    out.push({
+      type: "track",
+      id: String(row.id),
+      name: title,
+      imageUrl: typeof (row as any)?.cover_url === "string" ? String((row as any).cover_url) : undefined,
+      subtitle: artist || undefined,
+      artists: artist ? [artist] : undefined,
+    });
+  }
+
+  const playlistCandidates = mergeLegacyPlaylists(
+    playlistsDual.playlists_by_title.map(mapPlaylistRow),
+    playlistsDual.playlists_by_artist.map(mapPlaylistRow),
+  )
+    .filter((p) => !isOlakPlaylistId(p.externalId))
+    .slice(0, 8);
+
+  for (const p of playlistCandidates) {
+    const title = typeof p.title === "string" ? p.title.trim() : "";
+    if (!title) continue;
+    out.push({
+      type: "playlist",
+      id: String(p.id),
+      name: title,
+      imageUrl: p.coverUrl || undefined,
+    });
+  }
+
+  for (const a of artistChannelRows.slice(0, 5)) {
+    const name = typeof a.name === "string" ? a.name.trim() : "";
+    const channelId = typeof a.youtube_channel_id === "string" ? a.youtube_channel_id.trim() : "";
+    if (!name || !channelId) continue;
+    out.push({ type: "artist", id: channelId, name });
+  }
+
+  // De-dupe by type + id.
+  const seen = new Set<string>();
+  return out.filter((s) => {
+    const k = `${s.type}:${s.id}`;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+}
 
 const BACKFILL_DEDUP_MS = 60_000;
 const backfillInFlight = new Map<string, number>();
@@ -623,19 +743,21 @@ async function persistYouTubeMixedResults(opts: {
 
 router.get("/suggest", async (req, res) => {
   const q = normalizeQuery(req.query.q);
-  try {
-    // Spotify-only autocomplete: MUST NOT touch Supabase, and MUST NOT call YouTube.
-    const result = await spotifySearch(q);
+  const key = normalizeSuggestKey(q);
 
-    type SuggestionType = "artist" | "track" | "playlist" | "album";
-    type SuggestionItem = {
-      type: SuggestionType;
-      id: string;
-      name: string;
-      imageUrl?: string;
-      subtitle?: string;
-      artists?: string[];
-    };
+  if (key.length >= MIN_QUERY_CHARS) {
+    const cached = getCachedSuggest(key);
+    if (cached) {
+      console.info(SUGGEST_LOG_PREFIX, "CACHE_HIT", { q, key, source: cached.source, size: suggestCache.size });
+      return res.json(cached);
+    }
+    console.info(SUGGEST_LOG_PREFIX, "CACHE_MISS", { q, key, size: suggestCache.size });
+  }
+
+  try {
+    // Autocomplete: MUST NOT call YouTube.
+    // Primary path uses Spotify; fallback uses Supabase only.
+    const result = await spotifySearch(q);
 
     const suggestions: SuggestionItem[] = [];
 
@@ -659,10 +781,21 @@ router.get("/suggest", async (req, res) => {
       suggestions.push({ type: "album", id: a.id, name: a.name, imageUrl: a.imageUrl, subtitle });
     }
 
-    return res.json({ q, source: "spotify_suggest", suggestions });
+    const payload: SuggestEnvelope = { q, source: "spotify_suggest", suggestions };
+    if (key.length >= MIN_QUERY_CHARS) cacheSuggest(key, payload);
+    return res.json(payload);
   } catch (err: any) {
-    console.warn("[SearchSuggest] ERROR", { q, message: err?.message ? String(err.message) : "unknown" });
-    return res.status(500).json({ error: "Search suggest failed" });
+    const rateLimited = err instanceof SpotifyRateLimitError;
+    console.warn(SUGGEST_LOG_PREFIX, rateLimited ? "SPOTIFY_429" : "SPOTIFY_FAILED", {
+      q,
+      message: err?.message ? String(err.message) : "unknown",
+      retryAfterMs: rateLimited ? err.retryAfterMs : null,
+    });
+
+    const suggestions = await buildLocalFallbackSuggestions(q);
+    const payload: SuggestEnvelope = { q, source: "local_fallback", suggestions };
+    if (key.length >= MIN_QUERY_CHARS) cacheSuggest(key, payload);
+    return res.json(payload);
   }
 });
 

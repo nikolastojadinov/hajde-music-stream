@@ -162,6 +162,8 @@ export default function Search() {
       .slice(0, maxItems);
   }, [suggestions]);
 
+  const suggestIsFallback = suggestions?.source === "local_fallback";
+
   const resultsSongs = useMemo(() => {
     const tracks = (resolved as any)?.tracks && Array.isArray((resolved as any).tracks) ? ((resolved as any).tracks as any[]) : null;
     const localTracks = tracks ? (tracks as any) : resolved?.local?.tracks || [];
@@ -384,6 +386,12 @@ export default function Search() {
               // iOS-friendly scrolling for overflow containers.
               style={{ WebkitOverflowScrolling: "touch" }}
             >
+              {suggestIsFallback ? (
+                <div className="px-2 pb-2 text-xs text-muted-foreground">
+                  Spotify is unavailable right now — showing local results.
+                </div>
+              ) : null}
+
               {suggestLoading ? <div className="px-2 py-2 text-sm text-muted-foreground">Searching…</div> : null}
 
               {!suggestLoading && error && !showResults ? (

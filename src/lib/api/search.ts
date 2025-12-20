@@ -2,7 +2,7 @@ import { withBackendOrigin } from "@/lib/backendUrl";
 
 export type SearchSuggestResponse = {
   q: string;
-  source: "spotify_suggest";
+  source: "spotify_suggest" | "local_fallback";
   suggestions: Array<{
     type: "artist" | "track" | "playlist" | "album";
     id: string;
