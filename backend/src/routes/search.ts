@@ -11,7 +11,7 @@ import supabase, {
 import { youtubeSearchArtistChannel } from "../services/youtubeClient";
 import { youtubeSearchMixed } from "../services/youtubeClient";
 import { youtubeBatchFetchPlaylists } from "../services/youtubeBatchFetchPlaylists";
-import { spotifySearch, SpotifyRateLimitError } from "../services/spotifyClient";
+import { spotifySearch, SpotifyRateLimitedError } from "../services/spotifyClient";
 import { isOlakPlaylistId } from "../utils/olak";
 import {
   deleteYoutubeChannelMappingByChannelId,
@@ -785,14 +785,25 @@ router.get("/suggest", async (req, res) => {
     if (key.length >= MIN_QUERY_CHARS) cacheSuggest(key, payload);
     return res.json(payload);
   } catch (err: any) {
-    const rateLimited = err instanceof SpotifyRateLimitError;
+    const rateLimited = err instanceof SpotifyRateLimitedError;
     console.warn(SUGGEST_LOG_PREFIX, rateLimited ? "SPOTIFY_429" : "SPOTIFY_FAILED", {
       q,
       message: err?.message ? String(err.message) : "unknown",
       retryAfterMs: rateLimited ? err.retryAfterMs : null,
     });
 
-    const suggestions = await buildLocalFallbackSuggestions(q);
+    let suggestions: SuggestionItem[] = [];
+    try {
+      suggestions = await buildLocalFallbackSuggestions(q);
+    } catch (fallbackErr: any) {
+      console.warn(SUGGEST_LOG_PREFIX, "FALLBACK_FAILED", {
+        q,
+        message: fallbackErr?.message ? String(fallbackErr.message) : "unknown",
+      });
+      // Keep suggestions empty; still return 200 with local_fallback.
+      suggestions = [];
+    }
+
     const payload: SuggestEnvelope = { q, source: "local_fallback", suggestions };
     if (key.length >= MIN_QUERY_CHARS) cacheSuggest(key, payload);
     return res.json(payload);

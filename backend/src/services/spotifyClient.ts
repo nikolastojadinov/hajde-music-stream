@@ -38,12 +38,12 @@ export type SpotifySearchResult = {
 
 const EMPTY_RESULT: SpotifySearchResult = { artists: [], albums: [], tracks: [], playlists: [] };
 
-export class SpotifyRateLimitError extends Error {
+export class SpotifyRateLimitedError extends Error {
   public readonly retryAfterMs: number;
 
   constructor(retryAfterMs: number, message: string = 'Spotify rate limited') {
     super(message);
-    this.name = 'SpotifyRateLimitError';
+    this.name = 'SpotifyRateLimitedError';
     this.retryAfterMs = retryAfterMs;
   }
 }
@@ -166,7 +166,7 @@ export async function spotifySearch(q: string): Promise<SpotifySearchResult> {
       errorCode = '429';
       errorMessage = 'Spotify rate limited';
       const retryAfterMs = parseRetryAfterMs(response.headers.get('retry-after'));
-      throw new SpotifyRateLimitError(retryAfterMs);
+      throw new SpotifyRateLimitedError(retryAfterMs);
     }
 
     if (!response.ok) {
@@ -233,7 +233,7 @@ export async function spotifySearch(q: string): Promise<SpotifySearchResult> {
 
     return { artists, albums, tracks, playlists };
   } catch (err) {
-    if (err instanceof SpotifyRateLimitError) throw err;
+    if (err instanceof SpotifyRateLimitedError) throw err;
     if (err instanceof Error && err.message === 'Spotify search failed') throw err;
 
     status = 'error';
@@ -281,7 +281,7 @@ export async function spotifySuggest(q: string): Promise<string[]> {
       errorCode = '429';
       errorMessage = 'Spotify rate limited';
       const retryAfterMs = parseRetryAfterMs(response.headers.get('retry-after'));
-      throw new SpotifyRateLimitError(retryAfterMs);
+      throw new SpotifyRateLimitedError(retryAfterMs);
     }
 
     if (!response.ok) {
@@ -312,7 +312,7 @@ export async function spotifySuggest(q: string): Promise<string[]> {
 
     return deduped;
   } catch (err) {
-    if (err instanceof SpotifyRateLimitError) throw err;
+    if (err instanceof SpotifyRateLimitedError) throw err;
     if (err instanceof Error && err.message === 'Spotify suggest failed') {
       throw err;
     }

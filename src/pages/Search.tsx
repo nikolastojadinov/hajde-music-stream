@@ -388,7 +388,7 @@ export default function Search() {
             >
               {suggestIsFallback ? (
                 <div className="px-2 pb-2 text-xs text-muted-foreground">
-                  Spotify is unavailable right now — showing local results.
+                  Showing local suggestions (Spotify unavailable).
                 </div>
               ) : null}
 
