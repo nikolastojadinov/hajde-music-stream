@@ -27,7 +27,7 @@ const TIMESTAMP_KEY = "pm_search_cache_timestamp";
 const ARTISTS_SEARCH_CACHE_KEY = "pm_search_artists_search_cache";
 const ARTISTS_SEARCH_ETAG_KEY = "pm_search_artists_search_etag";
 const ARTISTS_SEARCH_TIMESTAMP_KEY = "pm_search_artists_search_cache_timestamp";
-const REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const TRACKS_ENDPOINT = `${EXTERNAL_SUPABASE_URL}/rest/v1/tracks?select=id,title,artist`;
 const ARTISTS_SEARCH_ENDPOINT = `${EXTERNAL_SUPABASE_URL}/rest/v1/artists_search?select=artist,popularity_tier`;
 

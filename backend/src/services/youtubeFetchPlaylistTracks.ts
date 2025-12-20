@@ -680,6 +680,13 @@ export async function youtubeFetchPlaylistTracks(input: YoutubeFetchPlaylistTrac
         // ignore
       }
 
+      // Optimization: if the number of playlist tracks didn't change AND we didn't insert any new track rows,
+      // skip destructive replace to reduce DB churn.
+      if (deletedExisting !== null && desiredLinks.length === deletedExisting && insertedTracksCount === 0) {
+        console.log("No changes in playlist data, skipping replace_existing.");
+        return 0;
+      }
+
       const { error: deleteError } = await supabase
         .from("playlist_tracks")
         .delete()

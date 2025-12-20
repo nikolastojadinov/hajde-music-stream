@@ -46,6 +46,9 @@ export type SearchResolveLocal = {
 
 export type SearchResolveResponse = {
   q: string;
+  // Some backend responses include top-level lists in addition to the `local` envelope.
+  // Prefer these if present.
+  tracks?: SearchSuggestLocalTrack[];
   local: SearchResolveLocal;
   decision: "local_only" | "youtube_fallback";
 

@@ -7,7 +7,7 @@ import {
 } from "./artistResolver";
 import { youtubeSearchArtistChannel } from "./youtubeClient";
 import { youtubeFetchArtistPlaylists } from "./youtubeFetchArtistPlaylists";
-import { youtubeFetchPlaylistTracks } from "./youtubeFetchPlaylistTracks";
+import { youtubeBatchFetchPlaylists } from "./youtubeBatchFetchPlaylists";
 import { ingestArtistFromYouTubeSearch } from "./ingestArtistFromYouTubeSearch";
 
 export type IngestArtistFromYouTubeInput = {
@@ -256,24 +256,22 @@ export async function ingestArtistFromYouTubeByChannelId(
     const playlists_ingested = playlists.length;
     let tracks_ingested = 0;
 
-    for (const p of Array.isArray(playlists) ? playlists : []) {
-      if (maxTracks !== null && tracks_ingested >= maxTracks) break;
+    const batchItems = (Array.isArray(playlists) ? playlists : [])
+      .map((p) => {
+        const playlist_id = normalizeString((p as any)?.id) || normalizeString((p as any)?.playlist_id);
+        const external_playlist_id = normalizeString((p as any)?.external_id);
+        if (!playlist_id || !external_playlist_id) return null;
+        return {
+          playlist_id,
+          external_playlist_id,
+          artist_override: artistName,
+          artist_channel_id_override: youtube_channel_id,
+        };
+      })
+      .filter((x): x is NonNullable<typeof x> => Boolean(x));
 
-      const playlist_id = normalizeString((p as any)?.id) || normalizeString((p as any)?.playlist_id);
-      const external_playlist_id = normalizeString((p as any)?.external_id);
-      if (!playlist_id || !external_playlist_id) return null;
-
-      const remainingTracks = maxTracks !== null ? Math.max(0, maxTracks - tracks_ingested) : null;
-      const inserted = await youtubeFetchPlaylistTracks({
-        playlist_id,
-        external_playlist_id,
-        max_tracks: remainingTracks ?? undefined,
-        artist_override: artistName,
-        artist_channel_id_override: youtube_channel_id,
-      });
-      if (inserted === null) return null;
-      tracks_ingested += inserted;
-    }
+    const batchRes = await youtubeBatchFetchPlaylists(batchItems, { max_total_tracks: maxTracks ?? undefined });
+    tracks_ingested += batchRes.tracks_ingested;
 
     // EXTRA: search-based ingestion to capture "regular" playlists/videos beyond the official channel.
     // Bounded to avoid burning quota.

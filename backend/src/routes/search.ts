@@ -10,7 +10,7 @@ import supabase, {
 } from "../services/supabaseClient";
 import { youtubeSearchArtistChannel } from "../services/youtubeClient";
 import { youtubeSearchMixed } from "../services/youtubeClient";
-import { youtubeFetchPlaylistTracks } from "../services/youtubeFetchPlaylistTracks";
+import { youtubeBatchFetchPlaylists } from "../services/youtubeBatchFetchPlaylists";
 import { spotifySearch } from "../services/spotifyClient";
 import { isOlakPlaylistId } from "../utils/olak";
 import {
@@ -48,7 +48,7 @@ function shouldStartBackfill(key: string, ttlMs: number = BACKFILL_DEDUP_MS): { 
 }
 
 const MAX_ARTISTS = 3;
-const MIN_TRACKS = 8;
+const MIN_TRACKS = 1;
 const MAX_TRACKS = 8;
 const MIN_PLAYLISTS = 8;
 const MAX_PLAYLISTS = 8;
@@ -479,18 +479,14 @@ async function runSearchResolveBackfill(opts: {
           playlists: mixed.playlists as any,
         });
 
-        let remainingTracks = missingTracks;
-        for (const p of persisted.playlists) {
-          if (remainingTracks <= 0) break;
-          const inserted = await youtubeFetchPlaylistTracks({
+        await youtubeBatchFetchPlaylists(
+          persisted.playlists.map((p) => ({
             playlist_id: p.id,
             external_playlist_id: p.external_id,
-            max_tracks: remainingTracks,
             artist_override: ingestArtistName ?? undefined,
-          });
-          if (inserted === null) break;
-          remainingTracks = Math.max(0, remainingTracks - inserted);
-        }
+          })),
+          { max_total_tracks: missingTracks },
+        );
       } catch (err: any) {
         console.warn(RESOLVE_LOG_PREFIX, "SEARCH_LIST_FAILED", {
           q,
@@ -748,9 +744,10 @@ router.post("/resolve", async (req, res) => {
     const missingArtists = Math.max(0, MAX_ARTISTS - before.artist_channels.local.length);
 
     // Strict architecture rule:
-    // - If we have ANY local data to render, do not ingest.
+    // - For generic/artist modes: if we have ANY local data to render, do not ingest.
+    // - For track mode: allow ingest when there are no local tracks, even if playlists exist.
     // - If the artist exists in Supabase (artists row found), do not ingest.
-    const hasRenderableLocal = before.local.tracks.length > 0 || before.local.playlists.length > 0;
+    const hasRenderableLocal = mode === "track" ? before.local.tracks.length > 0 : (before.local.tracks.length > 0 || before.local.playlists.length > 0);
     const artistExistsInDb = Boolean(ingestArtistMedia);
 
     // Legacy flag kept for wiring into runSearchResolveBackfill; with strict DB-first

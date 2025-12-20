@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { ListMusic, Music, Search as SearchIcon, User, X } from "lucide-react";
+import debounce from "lodash.debounce";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -59,7 +60,6 @@ export default function Search() {
   const location = useLocation();
 
   const [query, setQuery] = useState("");
-  const [debouncedQuery, setDebouncedQuery] = useState("");
 
   const [suggestions, setSuggestions] = useState<SearchSuggestResponse | null>(null);
   const [suggestLoading, setSuggestLoading] = useState(false);
@@ -88,7 +88,6 @@ export default function Search() {
     resolveRequestIdRef.current += 1;
 
     setQuery("");
-    setDebouncedQuery("");
     setSuggestOpen(false);
     setSuggestions(null);
     setSuggestLoading(false);
@@ -103,40 +102,54 @@ export default function Search() {
     });
   };
 
-  useEffect(() => {
-    const t = window.setTimeout(() => setDebouncedQuery(normalizeQuery(query)), 250);
-    return () => window.clearTimeout(t);
-  }, [query]);
+  const debouncedSearchSuggest = useMemo(
+    () =>
+      debounce((q: string) => {
+        // Cancel any in-flight request before starting a new one.
+        suggestAbortRef.current?.abort();
+        const controller = new AbortController();
+        suggestAbortRef.current = controller;
+
+        setSuggestLoading(true);
+        setError(null);
+
+        void (async () => {
+          try {
+            const next = await searchSuggest(q, { signal: controller.signal });
+            if (!controller.signal.aborted) setSuggestions(next);
+          } catch (e: any) {
+            if (controller.signal.aborted) return;
+            setSuggestions(null);
+            setError(e?.message || "Search suggest failed");
+          } finally {
+            if (!controller.signal.aborted) setSuggestLoading(false);
+          }
+        })();
+      }, 300),
+    [],
+  );
 
   useEffect(() => {
-    const q = debouncedQuery;
+    // Cleanup on unmount.
+    return () => {
+      debouncedSearchSuggest.cancel();
+      suggestAbortRef.current?.abort();
+    };
+  }, [debouncedSearchSuggest]);
+
+  useEffect(() => {
+    const q = normalizeQuery(query);
+
     if (q.length < 2) {
+      debouncedSearchSuggest.cancel();
       suggestAbortRef.current?.abort();
       setSuggestions(null);
       setSuggestLoading(false);
       return;
     }
 
-    suggestAbortRef.current?.abort();
-    const controller = new AbortController();
-    suggestAbortRef.current = controller;
-
-    setSuggestLoading(true);
-    setError(null);
-
-    void (async () => {
-      try {
-        const next = await searchSuggest(q, { signal: controller.signal });
-        if (!controller.signal.aborted) setSuggestions(next);
-      } catch (e: any) {
-        if (controller.signal.aborted) return;
-        setSuggestions(null);
-        setError(e?.message || "Search suggest failed");
-      } finally {
-        if (!controller.signal.aborted) setSuggestLoading(false);
-      }
-    })();
-  }, [debouncedQuery]);
+    debouncedSearchSuggest(q);
+  }, [query, debouncedSearchSuggest]);
 
   const flatSuggestions: Suggestion[] = useMemo(() => {
     if (!suggestions) return [];
@@ -150,7 +163,8 @@ export default function Search() {
   }, [suggestions]);
 
   const resultsSongs = useMemo(() => {
-    const localTracks = resolved?.local?.tracks || [];
+    const tracks = (resolved as any)?.tracks && Array.isArray((resolved as any).tracks) ? ((resolved as any).tracks as any[]) : null;
+    const localTracks = tracks ? (tracks as any) : resolved?.local?.tracks || [];
 
     const local = localTracks
       .filter((t) => t.externalId)
