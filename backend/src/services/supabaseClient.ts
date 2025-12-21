@@ -29,6 +29,9 @@ export type SearchArtistChannelRow = {
   youtube_channel_id: string;
 };
 
+// For artist queries, limit title matches to prioritize playlists containing the artist's tracks
+const ARTIST_QUERY_TITLE_MATCH_LIMIT = 20;
+
 let supabase: SupabaseClient;
 
 if (env.supabase_url && env.supabase_service_role_key) {
@@ -124,9 +127,12 @@ export async function searchTracksForQuery(q: string, options?: { limit?: number
               const newTracks = nameResult.data.filter((t: SearchTrackRow) => !existingIds.has(t.id));
               result = { ...result, data: [...result.data, ...newTracks] };
             }
-          } catch (supplementErr) {
+          } catch (supplementErr: any) {
             // Supplement query failed, continue with channel results only
-            console.warn('[searchTracksForQuery] supplement query failed, using channel results only');
+            console.warn('[searchTracksForQuery] supplement query failed, using channel results only', {
+              error: supplementErr?.message || 'unknown',
+              code: supplementErr?.code || null,
+            });
           }
         }
         
@@ -139,9 +145,12 @@ export async function searchTracksForQuery(q: string, options?: { limit?: number
             .order('created_at', { ascending: false })
             .limit(limit);
         }
-      } catch (channelErr) {
+      } catch (channelErr: any) {
         // Channel query failed, fall back to name-based search
-        console.warn('[searchTracksForQuery] channel query failed, falling back to name-based search');
+        console.warn('[searchTracksForQuery] channel query failed, falling back to name-based search', {
+          error: channelErr?.message || 'unknown',
+          code: channelErr?.code || null,
+        });
         result = await supabase
           .from('tracks')
           .select('id, title, artist, external_id, cover_url, duration')
@@ -253,8 +262,8 @@ export async function searchPlaylistsDualForQuery(q: string, options?: { limit?:
 
     // For artist queries, prioritize artist_matches with the full limit
     // For generic queries, split the limit between both types
-    // Limit title matches to 20 for artist queries to prioritize playlists containing the artist's tracks
-    const titleMatchLimit = prioritizeArtistMatch ? Math.min(limit, 20) : limit;
+    // Limit title matches for artist queries to prioritize playlists containing the artist's tracks
+    const titleMatchLimit = prioritizeArtistMatch ? Math.min(limit, ARTIST_QUERY_TITLE_MATCH_LIMIT) : limit;
     const artistMatchLimit = limit;
 
     const sql = `
