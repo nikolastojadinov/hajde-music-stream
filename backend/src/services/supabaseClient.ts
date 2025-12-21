@@ -253,6 +253,7 @@ export async function searchPlaylistsDualForQuery(q: string, options?: { limit?:
 
     // For artist queries, prioritize artist_matches with the full limit
     // For generic queries, split the limit between both types
+    // Limit title matches to 20 for artist queries to prioritize playlists containing the artist's tracks
     const titleMatchLimit = prioritizeArtistMatch ? Math.min(limit, 20) : limit;
     const artistMatchLimit = limit;
 

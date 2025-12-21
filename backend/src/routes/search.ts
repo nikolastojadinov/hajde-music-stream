@@ -879,11 +879,11 @@ router.post("/resolve", async (req, res) => {
     const trackLimit = isArtist ? ARTIST_MAX_TRACKS : MAX_TRACKS;
     const playlistLimit = isArtist ? ARTIST_MAX_PLAYLISTS : MAX_PLAYLISTS;
 
-    const fetchLocal = async () => {
-      // For artist queries, try to load artist media first to get channel_id
-      const artistMediaPreload = isArtist && ingestArtistName ? await loadArtistMediaByName(ingestArtistName) : null;
-      const artistChannelId = artistMediaPreload?.youtube_channel_id || null;
+    // For artist queries, preload artist media once to get channel_id
+    const artistMedia = isArtist && ingestArtistName ? await loadArtistMediaByName(ingestArtistName) : null;
+    const artistChannelId = artistMedia?.youtube_channel_id || null;
 
+    const fetchLocal = async () => {
       const [trackRows, playlistsDual, artistChannelRows] = await Promise.all([
         searchTracksForQuery(q, { limit: trackLimit, prioritizeArtistMatch: isArtist, artistChannelId }),
         searchPlaylistsDualForQuery(q, { limit: playlistLimit, prioritizeArtistMatch: isArtist, artistChannelId }),
@@ -916,14 +916,10 @@ router.post("/resolve", async (req, res) => {
         playlists_by_artist,
         local: { tracks: tracks.slice(0, trackLimit), playlists: mergedPlaylists },
         artist_channels,
-        artistMediaPreload,
       };
     };
 
     const before = await fetchLocal();
-    
-    // Use the preloaded artist media from fetchLocal
-    const artistMedia = before.artistMediaPreload;
 
     const missingTracks = Math.max(0, minimums.minTracks - before.local.tracks.length);
     const missingPlaylists = Math.max(0, minimums.minPlaylists - before.local.playlists.length);
