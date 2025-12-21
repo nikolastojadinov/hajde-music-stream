@@ -176,8 +176,9 @@ const MIN_PLAYLISTS = 8;
 const MAX_PLAYLISTS = 8;
 
 // Higher limits for artist-specific searches
-const ARTIST_MAX_TRACKS = 50;
-const ARTIST_MAX_PLAYLISTS = 50;
+// Aligned with artist route limits (500 tracks, 100 playlists)
+const ARTIST_MAX_TRACKS = 500;
+const ARTIST_MAX_PLAYLISTS = 100;
 
 type ResolveMode = "track" | "artist" | "album" | "generic";
 
@@ -878,10 +879,14 @@ router.post("/resolve", async (req, res) => {
     const trackLimit = isArtist ? ARTIST_MAX_TRACKS : MAX_TRACKS;
     const playlistLimit = isArtist ? ARTIST_MAX_PLAYLISTS : MAX_PLAYLISTS;
 
+    // For artist queries, preload artist media once to get channel_id
+    const artistMedia = isArtist && ingestArtistName ? await loadArtistMediaByName(ingestArtistName) : null;
+    const artistChannelId = artistMedia?.youtube_channel_id || null;
+
     const fetchLocal = async () => {
       const [trackRows, playlistsDual, artistChannelRows] = await Promise.all([
-        searchTracksForQuery(q, { limit: trackLimit, prioritizeArtistMatch: isArtist }),
-        searchPlaylistsDualForQuery(q, { limit: playlistLimit, prioritizeArtistMatch: isArtist }),
+        searchTracksForQuery(q, { limit: trackLimit, prioritizeArtistMatch: isArtist, artistChannelId }),
+        searchPlaylistsDualForQuery(q, { limit: playlistLimit, prioritizeArtistMatch: isArtist, artistChannelId }),
         searchArtistChannelsForQuery(q),
       ]);
 
@@ -914,10 +919,7 @@ router.post("/resolve", async (req, res) => {
       };
     };
 
-    const [before, ingestArtistMedia] = await Promise.all([
-      fetchLocal(),
-      ingestArtistName ? loadArtistMediaByName(ingestArtistName) : Promise.resolve(null),
-    ]);
+    const before = await fetchLocal();
 
     const missingTracks = Math.max(0, minimums.minTracks - before.local.tracks.length);
     const missingPlaylists = Math.max(0, minimums.minPlaylists - before.local.playlists.length);
@@ -928,7 +930,7 @@ router.post("/resolve", async (req, res) => {
     // - For track mode: allow ingest when there are no local tracks, even if playlists exist.
     // - If the artist exists in Supabase (artists row found), do not ingest.
     const hasRenderableLocal = mode === "track" ? before.local.tracks.length > 0 : (before.local.tracks.length > 0 || before.local.playlists.length > 0);
-    const artistExistsInDb = Boolean(ingestArtistMedia);
+    const artistExistsInDb = Boolean(artistMedia);
 
     // Legacy flag kept for wiring into runSearchResolveBackfill; with strict DB-first
     // we only ingest when there's nothing to show.
@@ -1037,7 +1039,7 @@ router.post("/resolve", async (req, res) => {
 
             // Refresh local results after ingest attempt.
             const refreshed = await fetchLocal();
-            const artist = ingestArtistName ? await loadArtistMediaByName(ingestArtistName) : ingestArtistMedia;
+            const artist = ingestArtistName ? await loadArtistMediaByName(ingestArtistName) : artistMedia;
             console.info(RESOLVE_LOG_PREFIX, "FINAL_COUNTS", {
               q,
               mode,
@@ -1094,7 +1096,7 @@ router.post("/resolve", async (req, res) => {
         if (sync) {
           await runSearchResolveBackfill({ q, mode, ingestArtistName, missingTracks, missingPlaylists, missingArtists, forceArtistIngest });
           const refreshed = await fetchLocal();
-          const artist = ingestArtistName ? await loadArtistMediaByName(ingestArtistName) : ingestArtistMedia;
+          const artist = ingestArtistName ? await loadArtistMediaByName(ingestArtistName) : artistMedia;
           console.info(RESOLVE_LOG_PREFIX, "FINAL_COUNTS", {
             q,
             mode,
@@ -1128,7 +1130,7 @@ router.post("/resolve", async (req, res) => {
     // Return immediately with current local results; any backfill/ingest runs in the background.
     const after = before;
     // Artist media lookup is local DB-only and cheap; include it so the UI can show avatar instantly.
-    const artist = ingestArtistMedia;
+    const artist = artistMedia;
 
     console.info(RESOLVE_LOG_PREFIX, "FINAL_COUNTS", {
       q,
