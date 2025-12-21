@@ -92,9 +92,11 @@ function getCachedSuggest(key: string): SuggestEnvelope | null {
 async function buildLocalFallbackSuggestions(q: string): Promise<SuggestionItem[]> {
   if (!supabase) return [];
 
+  const isArtist = isArtistQuery(q);
+
   const [trackRows, playlistsDual, artistChannelRows] = await Promise.all([
-    searchTracksForQuery(q),
-    searchPlaylistsDualForQuery(q),
+    searchTracksForQuery(q, { limit: isArtist ? 20 : 8, prioritizeArtistMatch: isArtist }),
+    searchPlaylistsDualForQuery(q, { limit: isArtist ? 20 : 8 }),
     searchArtistChannelsForQuery(q),
   ]);
 
@@ -119,7 +121,7 @@ async function buildLocalFallbackSuggestions(q: string): Promise<SuggestionItem[
     playlistsDual.playlists_by_artist.map(mapPlaylistRow),
   )
     .filter((p) => !isOlakPlaylistId(p.externalId))
-    .slice(0, 8);
+    .slice(0, isArtist ? 20 : 8);
 
   for (const p of playlistCandidates) {
     const title = typeof p.title === "string" ? p.title.trim() : "";
@@ -172,6 +174,10 @@ const MIN_TRACKS = 1;
 const MAX_TRACKS = 8;
 const MIN_PLAYLISTS = 8;
 const MAX_PLAYLISTS = 8;
+
+// Higher limits for artist-specific searches
+const ARTIST_MAX_TRACKS = 50;
+const ARTIST_MAX_PLAYLISTS = 50;
 
 type ResolveMode = "track" | "artist" | "album" | "generic";
 
@@ -841,11 +847,16 @@ router.post("/resolve", async (req, res) => {
   try {
     const minimums = computeMinimums({ mode, spotify });
     const ingestArtistName = resolveArtistNameForIngest({ q, mode, spotify });
+    const isArtist = Boolean(ingestArtistName);
+
+    // Use higher limits for artist queries
+    const trackLimit = isArtist ? ARTIST_MAX_TRACKS : MAX_TRACKS;
+    const playlistLimit = isArtist ? ARTIST_MAX_PLAYLISTS : MAX_PLAYLISTS;
 
     const fetchLocal = async () => {
       const [trackRows, playlistsDual, artistChannelRows] = await Promise.all([
-        searchTracksForQuery(q),
-        searchPlaylistsDualForQuery(q),
+        searchTracksForQuery(q, { limit: trackLimit, prioritizeArtistMatch: isArtist }),
+        searchPlaylistsDualForQuery(q, { limit: playlistLimit }),
         searchArtistChannelsForQuery(q),
       ]);
 
@@ -856,7 +867,7 @@ router.post("/resolve", async (req, res) => {
       const playlists_by_artist = playlistsDual.playlists_by_artist
         .map(mapPlaylistRow)
         .filter((p) => !isOlakPlaylistId(p.externalId));
-      const mergedPlaylists = mergeLegacyPlaylists(playlists_by_title, playlists_by_artist).slice(0, MAX_PLAYLISTS);
+      const mergedPlaylists = mergeLegacyPlaylists(playlists_by_title, playlists_by_artist).slice(0, playlistLimit);
 
       const artistChannelsLocal = artistChannelRows
         .map(mapLocalArtistChannelRow)
@@ -870,10 +881,10 @@ router.post("/resolve", async (req, res) => {
       };
 
       return {
-        tracks: tracks.slice(0, MAX_TRACKS),
+        tracks: tracks.slice(0, trackLimit),
         playlists_by_title,
         playlists_by_artist,
-        local: { tracks: tracks.slice(0, MAX_TRACKS), playlists: mergedPlaylists },
+        local: { tracks: tracks.slice(0, trackLimit), playlists: mergedPlaylists },
         artist_channels,
       };
     };

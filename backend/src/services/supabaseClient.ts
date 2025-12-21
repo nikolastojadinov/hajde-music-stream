@@ -82,9 +82,12 @@ function escapeLikePatternLiteral(value: string): string {
     .replace(/'/g, "''");
 }
 
-export async function searchTracksForQuery(q: string): Promise<SearchTrackRow[]> {
+export async function searchTracksForQuery(q: string, options?: { limit?: number; prioritizeArtistMatch?: boolean }): Promise<SearchTrackRow[]> {
   const query = normalizeQuery(q);
   if (!supabase || query.length < 2) return [];
+
+  const limit = options?.limit ?? 8;
+  const prioritizeArtistMatch = options?.prioritizeArtistMatch ?? false;
 
   let status: 'ok' | 'error' = 'ok';
   let errorCode: string | null = null;
@@ -95,7 +98,8 @@ export async function searchTracksForQuery(q: string): Promise<SearchTrackRow[]>
       .from('tracks')
       .select('id, title, artist, external_id, cover_url, duration')
       .or(`title.ilike.%${query}%,artist.ilike.%${query}%`)
-      .limit(8);
+      .order('created_at', { ascending: false })
+      .limit(limit);
 
     if (result.error) {
       status = 'error';
@@ -104,7 +108,21 @@ export async function searchTracksForQuery(q: string): Promise<SearchTrackRow[]>
       return [];
     }
 
-    return (result.data || []) as SearchTrackRow[];
+    let tracks = (result.data || []) as SearchTrackRow[];
+
+    // If prioritizing artist matches, sort exact artist matches first
+    if (prioritizeArtistMatch && tracks.length > 0) {
+      const queryLower = query.toLowerCase();
+      tracks = tracks.sort((a, b) => {
+        const aArtistMatch = (a.artist || '').toLowerCase() === queryLower;
+        const bArtistMatch = (b.artist || '').toLowerCase() === queryLower;
+        if (aArtistMatch && !bArtistMatch) return -1;
+        if (!aArtistMatch && bArtistMatch) return 1;
+        return 0;
+      });
+    }
+
+    return tracks;
   } catch (err: any) {
     status = 'error';
     errorMessage = err?.message ? String(err.message) : 'Supabase search failed';
@@ -121,11 +139,13 @@ export async function searchTracksForQuery(q: string): Promise<SearchTrackRow[]>
   }
 }
 
-export async function searchPlaylistsDualForQuery(q: string): Promise<DualPlaylistSearchResult> {
+export async function searchPlaylistsDualForQuery(q: string, options?: { limit?: number }): Promise<DualPlaylistSearchResult> {
   const query = normalizeQuery(q);
   if (!supabase || query.length < 2) {
     return { playlists_by_title: [], playlists_by_artist: [] };
   }
+
+  const limit = options?.limit ?? 8;
 
   let status: 'ok' | 'error' = 'ok';
   let errorCode: string | null = null;
@@ -146,7 +166,7 @@ export async function searchPlaylistsDualForQuery(q: string): Promise<DualPlayli
           position(lower(${queryLiteral}) in lower(p.title)) asc,
           length(p.title) asc,
           p.title asc
-        limit 8
+        limit ${limit}
       ),
       artist_matches as (
         select distinct p.id, p.title, p.external_id, p.cover_url
@@ -154,8 +174,10 @@ export async function searchPlaylistsDualForQuery(q: string): Promise<DualPlayli
         join playlist_tracks pt on pt.track_id = t.id
         join playlists p on p.id = pt.playlist_id
         where t.artist ilike ${likePatternLiteral} escape '\\'
-        order by p.title asc
-        limit 8
+        order by 
+          (lower(t.artist) = lower(${queryLiteral})) desc,
+          p.title asc
+        limit ${limit}
       )
       select
         (select coalesce(jsonb_agg(to_jsonb(title_matches)), '[]'::jsonb) from title_matches) as playlists_by_title,
