@@ -1,5 +1,13 @@
 import { logApiUsage } from './apiUsageLogger';
 
+// Custom error for YouTube quota exceeded
+export class YouTubeQuotaExceededError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'YouTubeQuotaExceededError';
+  }
+}
+
 export type YouTubeVideoSearchResult = {
   videoId: string;
   title: string;
@@ -136,6 +144,13 @@ async function executeSearch(params: Record<string, string>, apiKeyForHash: stri
       const reason = details.reason ? ` (${details.reason})` : '';
       const msg = details.message ? `: ${details.message}` : '';
       errorMessage = `YouTube search failed${reason}${msg}`;
+      
+      // Check if this is a quota exceeded error
+      if (details.reason === 'quotaExceeded' || errorCode === '403') {
+        console.error('[YouTubeClient] QUOTA_EXCEEDED', { reason: details.reason, message: details.message, statusCode: errorCode });
+        throw new YouTubeQuotaExceededError(errorMessage);
+      }
+      
       throw new Error(errorMessage);
     }
 
@@ -149,6 +164,11 @@ async function executeSearch(params: Record<string, string>, apiKeyForHash: stri
     return json;
   } catch (err) {
     status = 'error';
+    if (err instanceof YouTubeQuotaExceededError) {
+      // Re-throw quota exceeded errors as-is
+      errorMessage = err.message;
+      throw err;
+    }
     if (err instanceof Error) {
       // Preserve the most specific message we have.
       errorMessage = errorMessage ?? err.message;

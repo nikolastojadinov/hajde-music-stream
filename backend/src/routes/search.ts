@@ -8,7 +8,7 @@ import supabase, {
   type SearchPlaylistRow,
   type SearchTrackRow,
 } from "../services/supabaseClient";
-import { youtubeSearchArtistChannel } from "../services/youtubeClient";
+import { youtubeSearchArtistChannel, YouTubeQuotaExceededError } from "../services/youtubeClient";
 import { youtubeSearchMixed } from "../services/youtubeClient";
 import { youtubeBatchFetchPlaylists } from "../services/youtubeBatchFetchPlaylists";
 import { spotifySearch, SpotifyRateLimitedError } from "../services/spotifyClient";
@@ -407,40 +407,48 @@ async function runArtistIngestFlow(artistNameRaw: string): Promise<void> {
 
     if (!channelId) {
       console.info(LOG_PREFIX, "SEARCH_LIST_CALL", { artistName });
-      const candidates = await youtubeSearchArtistChannel(artistName);
-      const first = Array.isArray(candidates) ? candidates[0] : null;
-      const candidateId = first?.channelId ? String(first.channelId).trim() : "";
-      const candidateTitle = first?.title ? String(first.title).trim() : "";
-      const candidateThumbUrl = first?.thumbUrl ? String(first.thumbUrl) : null;
+      try {
+        const candidates = await youtubeSearchArtistChannel(artistName);
+        const first = Array.isArray(candidates) ? candidates[0] : null;
+        const candidateId = first?.channelId ? String(first.channelId).trim() : "";
+        const candidateTitle = first?.title ? String(first.title).trim() : "";
+        const candidateThumbUrl = first?.thumbUrl ? String(first.thumbUrl) : null;
 
-      if (!candidateId) {
-        console.warn(LOG_PREFIX, "SEARCH_LIST_EMPTY", { artistName, candidatesCount: Array.isArray(candidates) ? candidates.length : 0 });
-        return;
+        if (!candidateId) {
+          console.warn(LOG_PREFIX, "SEARCH_LIST_EMPTY", { artistName, candidatesCount: Array.isArray(candidates) ? candidates.length : 0 });
+          return;
+        }
+
+        const validation = await validateYouTubeChannelId(candidateId);
+        console.info(LOG_PREFIX, "CHANNELS_LIST", { artistName, channelId: candidateId, result: validation.status, source: "search" });
+
+        if (validation.status === "invalid") {
+          console.warn(LOG_PREFIX, "CANDIDATE_INVALID", { artistName, channelId: candidateId });
+          return;
+        }
+        if (validation.status === "error") {
+          console.warn(LOG_PREFIX, "CHANNELS_LIST_ERROR", { artistName, channelId: candidateId, error: validation.error, source: "search" });
+          return;
+        }
+
+        channelId = candidateId;
+        await upsertYoutubeChannelMapping({
+          name: artistName,
+          youtube_channel_id: channelId,
+        });
+
+        console.info(LOG_PREFIX, "CACHE_UPSERT", {
+          artistName,
+          channelId,
+          channelTitle: (validation.channelTitle ?? candidateTitle) || null,
+        });
+      } catch (err: any) {
+        if (err instanceof YouTubeQuotaExceededError) {
+          console.error(LOG_PREFIX, "QUOTA_EXCEEDED", { artistName, message: err.message });
+          return;
+        }
+        throw err;
       }
-
-      const validation = await validateYouTubeChannelId(candidateId);
-      console.info(LOG_PREFIX, "CHANNELS_LIST", { artistName, channelId: candidateId, result: validation.status, source: "search" });
-
-      if (validation.status === "invalid") {
-        console.warn(LOG_PREFIX, "CANDIDATE_INVALID", { artistName, channelId: candidateId });
-        return;
-      }
-      if (validation.status === "error") {
-        console.warn(LOG_PREFIX, "CHANNELS_LIST_ERROR", { artistName, channelId: candidateId, error: validation.error, source: "search" });
-        return;
-      }
-
-      channelId = candidateId;
-      await upsertYoutubeChannelMapping({
-        name: artistName,
-        youtube_channel_id: channelId,
-      });
-
-      console.info(LOG_PREFIX, "CACHE_UPSERT", {
-        artistName,
-        channelId,
-        channelTitle: (validation.channelTitle ?? candidateTitle) || null,
-      });
     }
 
     if (!channelId) {
@@ -547,12 +555,21 @@ async function runSearchResolveBackfill(opts: {
             }
           }
         } catch (err: any) {
-          console.warn(RESOLVE_LOG_PREFIX, "SEARCH_LIST_FAILED", {
-            q,
-            mode,
-            ingestArtistName,
-            message: err?.message ? String(err.message) : "unknown",
-          });
+          if (err instanceof YouTubeQuotaExceededError) {
+            console.error(RESOLVE_LOG_PREFIX, "QUOTA_EXCEEDED", {
+              q,
+              mode,
+              ingestArtistName,
+              message: err.message,
+            });
+          } else {
+            console.warn(RESOLVE_LOG_PREFIX, "SEARCH_LIST_FAILED", {
+              q,
+              mode,
+              ingestArtistName,
+              message: err?.message ? String(err.message) : "unknown",
+            });
+          }
         }
       }
 
@@ -614,11 +631,19 @@ async function runSearchResolveBackfill(opts: {
           { max_total_tracks: missingTracks },
         );
       } catch (err: any) {
-        console.warn(RESOLVE_LOG_PREFIX, "SEARCH_LIST_FAILED", {
-          q,
-          mode,
-          message: err?.message ? String(err.message) : "unknown",
-        });
+        if (err instanceof YouTubeQuotaExceededError) {
+          console.error(RESOLVE_LOG_PREFIX, "QUOTA_EXCEEDED", {
+            q,
+            mode,
+            message: err.message,
+          });
+        } else {
+          console.warn(RESOLVE_LOG_PREFIX, "SEARCH_LIST_FAILED", {
+            q,
+            mode,
+            message: err?.message ? String(err.message) : "unknown",
+          });
+        }
       }
     }
   } catch (err: any) {
