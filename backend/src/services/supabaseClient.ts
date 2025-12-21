@@ -105,11 +105,8 @@ export async function searchTracksForQuery(q: string, options?: { limit?: number
         .order('created_at', { ascending: false })
         .limit(limit);
       
-      // If exact match found some results, use those
-      if (result.data && result.data.length > 0) {
-        // Found exact matches, continue with these
-      } else {
-        // No exact matches, fall back to partial match
+      // No exact matches, fall back to partial match
+      if (!result.data || result.data.length === 0) {
         result = await supabase
           .from('tracks')
           .select('id, title, artist, external_id, cover_url, duration')
@@ -169,11 +166,10 @@ export async function searchPlaylistsDualForQuery(q: string, options?: { limit?:
   try {
     const queryLiteral = `'${escapeSqlStringLiteral(query)}'`;
     const likePatternLiteral = `'%${escapeLikePatternLiteral(query)}%'`;
-    const exactMatchLiteral = `'${escapeSqlStringLiteral(query)}'`;
 
     // For artist queries, use exact match on artist field to get better results
     const artistWhereClause = prioritizeArtistMatch 
-      ? `lower(t.artist) = lower(${exactMatchLiteral})`
+      ? `lower(t.artist) = lower(${queryLiteral})`
       : `t.artist ilike ${likePatternLiteral} escape '\\\\'`;
 
     const sql = `
