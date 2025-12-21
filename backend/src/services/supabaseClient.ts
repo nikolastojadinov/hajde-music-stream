@@ -94,12 +94,38 @@ export async function searchTracksForQuery(q: string, options?: { limit?: number
   let errorMessage: string | null = null;
 
   try {
-    const result = await supabase
-      .from('tracks')
-      .select('id, title, artist, external_id, cover_url, duration')
-      .or(`title.ilike.%${query}%,artist.ilike.%${query}%`)
-      .order('created_at', { ascending: false })
-      .limit(limit);
+    // For artist queries, try exact match first to get better results
+    let result;
+    if (prioritizeArtistMatch) {
+      // First try exact artist match (case-insensitive)
+      result = await supabase
+        .from('tracks')
+        .select('id, title, artist, external_id, cover_url, duration')
+        .ilike('artist', query)
+        .order('created_at', { ascending: false })
+        .limit(limit);
+      
+      // If exact match found some results, use those
+      if (result.data && result.data.length > 0) {
+        // Found exact matches, continue with these
+      } else {
+        // No exact matches, fall back to partial match
+        result = await supabase
+          .from('tracks')
+          .select('id, title, artist, external_id, cover_url, duration')
+          .or(`title.ilike.%${query}%,artist.ilike.%${query}%`)
+          .order('created_at', { ascending: false })
+          .limit(limit);
+      }
+    } else {
+      // Generic search - use partial match
+      result = await supabase
+        .from('tracks')
+        .select('id, title, artist, external_id, cover_url, duration')
+        .or(`title.ilike.%${query}%,artist.ilike.%${query}%`)
+        .order('created_at', { ascending: false })
+        .limit(limit);
+    }
 
     if (result.error) {
       status = 'error';
@@ -109,18 +135,6 @@ export async function searchTracksForQuery(q: string, options?: { limit?: number
     }
 
     let tracks = (result.data || []) as SearchTrackRow[];
-
-    // If prioritizing artist matches, sort exact artist matches first
-    if (prioritizeArtistMatch && tracks.length > 0) {
-      const queryLower = query.toLowerCase();
-      tracks = tracks.sort((a, b) => {
-        const aArtistMatch = (a.artist || '').toLowerCase() === queryLower;
-        const bArtistMatch = (b.artist || '').toLowerCase() === queryLower;
-        if (aArtistMatch && !bArtistMatch) return -1;
-        if (!aArtistMatch && bArtistMatch) return 1;
-        return 0;
-      });
-    }
 
     return tracks;
   } catch (err: any) {
@@ -139,13 +153,14 @@ export async function searchTracksForQuery(q: string, options?: { limit?: number
   }
 }
 
-export async function searchPlaylistsDualForQuery(q: string, options?: { limit?: number }): Promise<DualPlaylistSearchResult> {
+export async function searchPlaylistsDualForQuery(q: string, options?: { limit?: number; prioritizeArtistMatch?: boolean }): Promise<DualPlaylistSearchResult> {
   const query = normalizeQuery(q);
   if (!supabase || query.length < 2) {
     return { playlists_by_title: [], playlists_by_artist: [] };
   }
 
   const limit = options?.limit ?? 8;
+  const prioritizeArtistMatch = options?.prioritizeArtistMatch ?? false;
 
   let status: 'ok' | 'error' = 'ok';
   let errorCode: string | null = null;
@@ -154,6 +169,12 @@ export async function searchPlaylistsDualForQuery(q: string, options?: { limit?:
   try {
     const queryLiteral = `'${escapeSqlStringLiteral(query)}'`;
     const likePatternLiteral = `'%${escapeLikePatternLiteral(query)}%'`;
+    const exactMatchLiteral = `'${escapeSqlStringLiteral(query)}'`;
+
+    // For artist queries, use exact match on artist field to get better results
+    const artistWhereClause = prioritizeArtistMatch 
+      ? `lower(t.artist) = lower(${exactMatchLiteral})`
+      : `t.artist ilike ${likePatternLiteral} escape '\\\\'`;
 
     const sql = `
       with
@@ -173,10 +194,8 @@ export async function searchPlaylistsDualForQuery(q: string, options?: { limit?:
         from tracks t
         join playlist_tracks pt on pt.track_id = t.id
         join playlists p on p.id = pt.playlist_id
-        where t.artist ilike ${likePatternLiteral} escape '\\'
-        order by 
-          (lower(t.artist) = lower(${queryLiteral})) desc,
-          p.title asc
+        where ${artistWhereClause}
+        order by p.title asc
         limit ${limit}
       )
       select

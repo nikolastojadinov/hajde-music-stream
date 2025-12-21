@@ -96,7 +96,7 @@ async function buildLocalFallbackSuggestions(q: string): Promise<SuggestionItem[
 
   const [trackRows, playlistsDual, artistChannelRows] = await Promise.all([
     searchTracksForQuery(q, { limit: isArtist ? 20 : 8, prioritizeArtistMatch: isArtist }),
-    searchPlaylistsDualForQuery(q, { limit: isArtist ? 20 : 8 }),
+    searchPlaylistsDualForQuery(q, { limit: isArtist ? 20 : 8, prioritizeArtistMatch: isArtist }),
     searchArtistChannelsForQuery(q),
   ]);
 
@@ -881,7 +881,7 @@ router.post("/resolve", async (req, res) => {
     const fetchLocal = async () => {
       const [trackRows, playlistsDual, artistChannelRows] = await Promise.all([
         searchTracksForQuery(q, { limit: trackLimit, prioritizeArtistMatch: isArtist }),
-        searchPlaylistsDualForQuery(q, { limit: playlistLimit }),
+        searchPlaylistsDualForQuery(q, { limit: playlistLimit, prioritizeArtistMatch: isArtist }),
         searchArtistChannelsForQuery(q),
       ]);
 
