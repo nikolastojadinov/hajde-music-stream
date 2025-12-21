@@ -8,7 +8,7 @@ import supabase, {
   type SearchPlaylistRow,
   type SearchTrackRow,
 } from "../services/supabaseClient";
-import { youtubeSearchArtistChannel } from "../services/youtubeClient";
+import { youtubeSearchArtistChannel, YouTubeQuotaExceededError } from "../services/youtubeClient";
 import { youtubeSearchMixed } from "../services/youtubeClient";
 import { youtubeBatchFetchPlaylists } from "../services/youtubeBatchFetchPlaylists";
 import { spotifySearch, SpotifyRateLimitedError } from "../services/spotifyClient";
@@ -92,9 +92,11 @@ function getCachedSuggest(key: string): SuggestEnvelope | null {
 async function buildLocalFallbackSuggestions(q: string): Promise<SuggestionItem[]> {
   if (!supabase) return [];
 
+  const isArtist = isArtistQuery(q);
+
   const [trackRows, playlistsDual, artistChannelRows] = await Promise.all([
-    searchTracksForQuery(q),
-    searchPlaylistsDualForQuery(q),
+    searchTracksForQuery(q, { limit: isArtist ? 20 : 8, prioritizeArtistMatch: isArtist }),
+    searchPlaylistsDualForQuery(q, { limit: isArtist ? 20 : 8, prioritizeArtistMatch: isArtist }),
     searchArtistChannelsForQuery(q),
   ]);
 
@@ -119,7 +121,7 @@ async function buildLocalFallbackSuggestions(q: string): Promise<SuggestionItem[
     playlistsDual.playlists_by_artist.map(mapPlaylistRow),
   )
     .filter((p) => !isOlakPlaylistId(p.externalId))
-    .slice(0, 8);
+    .slice(0, isArtist ? 20 : 8);
 
   for (const p of playlistCandidates) {
     const title = typeof p.title === "string" ? p.title.trim() : "";
@@ -172,6 +174,10 @@ const MIN_TRACKS = 1;
 const MAX_TRACKS = 8;
 const MIN_PLAYLISTS = 8;
 const MAX_PLAYLISTS = 8;
+
+// Higher limits for artist-specific searches
+const ARTIST_MAX_TRACKS = 50;
+const ARTIST_MAX_PLAYLISTS = 50;
 
 type ResolveMode = "track" | "artist" | "album" | "generic";
 
@@ -401,40 +407,48 @@ async function runArtistIngestFlow(artistNameRaw: string): Promise<void> {
 
     if (!channelId) {
       console.info(LOG_PREFIX, "SEARCH_LIST_CALL", { artistName });
-      const candidates = await youtubeSearchArtistChannel(artistName);
-      const first = Array.isArray(candidates) ? candidates[0] : null;
-      const candidateId = first?.channelId ? String(first.channelId).trim() : "";
-      const candidateTitle = first?.title ? String(first.title).trim() : "";
-      const candidateThumbUrl = first?.thumbUrl ? String(first.thumbUrl) : null;
+      try {
+        const candidates = await youtubeSearchArtistChannel(artistName);
+        const first = Array.isArray(candidates) ? candidates[0] : null;
+        const candidateId = first?.channelId ? String(first.channelId).trim() : "";
+        const candidateTitle = first?.title ? String(first.title).trim() : "";
+        const candidateThumbUrl = first?.thumbUrl ? String(first.thumbUrl) : null;
 
-      if (!candidateId) {
-        console.warn(LOG_PREFIX, "SEARCH_LIST_EMPTY", { artistName, candidatesCount: Array.isArray(candidates) ? candidates.length : 0 });
-        return;
+        if (!candidateId) {
+          console.warn(LOG_PREFIX, "SEARCH_LIST_EMPTY", { artistName, candidatesCount: Array.isArray(candidates) ? candidates.length : 0 });
+          return;
+        }
+
+        const validation = await validateYouTubeChannelId(candidateId);
+        console.info(LOG_PREFIX, "CHANNELS_LIST", { artistName, channelId: candidateId, result: validation.status, source: "search" });
+
+        if (validation.status === "invalid") {
+          console.warn(LOG_PREFIX, "CANDIDATE_INVALID", { artistName, channelId: candidateId });
+          return;
+        }
+        if (validation.status === "error") {
+          console.warn(LOG_PREFIX, "CHANNELS_LIST_ERROR", { artistName, channelId: candidateId, error: validation.error, source: "search" });
+          return;
+        }
+
+        channelId = candidateId;
+        await upsertYoutubeChannelMapping({
+          name: artistName,
+          youtube_channel_id: channelId,
+        });
+
+        console.info(LOG_PREFIX, "CACHE_UPSERT", {
+          artistName,
+          channelId,
+          channelTitle: (validation.channelTitle ?? candidateTitle) || null,
+        });
+      } catch (err: any) {
+        if (err instanceof YouTubeQuotaExceededError) {
+          console.error(LOG_PREFIX, "QUOTA_EXCEEDED", { artistName, message: err.message });
+          return;
+        }
+        throw err;
       }
-
-      const validation = await validateYouTubeChannelId(candidateId);
-      console.info(LOG_PREFIX, "CHANNELS_LIST", { artistName, channelId: candidateId, result: validation.status, source: "search" });
-
-      if (validation.status === "invalid") {
-        console.warn(LOG_PREFIX, "CANDIDATE_INVALID", { artistName, channelId: candidateId });
-        return;
-      }
-      if (validation.status === "error") {
-        console.warn(LOG_PREFIX, "CHANNELS_LIST_ERROR", { artistName, channelId: candidateId, error: validation.error, source: "search" });
-        return;
-      }
-
-      channelId = candidateId;
-      await upsertYoutubeChannelMapping({
-        name: artistName,
-        youtube_channel_id: channelId,
-      });
-
-      console.info(LOG_PREFIX, "CACHE_UPSERT", {
-        artistName,
-        channelId,
-        channelTitle: (validation.channelTitle ?? candidateTitle) || null,
-      });
     }
 
     if (!channelId) {
@@ -541,12 +555,21 @@ async function runSearchResolveBackfill(opts: {
             }
           }
         } catch (err: any) {
-          console.warn(RESOLVE_LOG_PREFIX, "SEARCH_LIST_FAILED", {
-            q,
-            mode,
-            ingestArtistName,
-            message: err?.message ? String(err.message) : "unknown",
-          });
+          if (err instanceof YouTubeQuotaExceededError) {
+            console.error(RESOLVE_LOG_PREFIX, "QUOTA_EXCEEDED", {
+              q,
+              mode,
+              ingestArtistName,
+              message: err.message,
+            });
+          } else {
+            console.warn(RESOLVE_LOG_PREFIX, "SEARCH_LIST_FAILED", {
+              q,
+              mode,
+              ingestArtistName,
+              message: err?.message ? String(err.message) : "unknown",
+            });
+          }
         }
       }
 
@@ -608,11 +631,19 @@ async function runSearchResolveBackfill(opts: {
           { max_total_tracks: missingTracks },
         );
       } catch (err: any) {
-        console.warn(RESOLVE_LOG_PREFIX, "SEARCH_LIST_FAILED", {
-          q,
-          mode,
-          message: err?.message ? String(err.message) : "unknown",
-        });
+        if (err instanceof YouTubeQuotaExceededError) {
+          console.error(RESOLVE_LOG_PREFIX, "QUOTA_EXCEEDED", {
+            q,
+            mode,
+            message: err.message,
+          });
+        } else {
+          console.warn(RESOLVE_LOG_PREFIX, "SEARCH_LIST_FAILED", {
+            q,
+            mode,
+            message: err?.message ? String(err.message) : "unknown",
+          });
+        }
       }
     }
   } catch (err: any) {
@@ -841,11 +872,16 @@ router.post("/resolve", async (req, res) => {
   try {
     const minimums = computeMinimums({ mode, spotify });
     const ingestArtistName = resolveArtistNameForIngest({ q, mode, spotify });
+    const isArtist = Boolean(ingestArtistName);
+
+    // Use higher limits for artist queries
+    const trackLimit = isArtist ? ARTIST_MAX_TRACKS : MAX_TRACKS;
+    const playlistLimit = isArtist ? ARTIST_MAX_PLAYLISTS : MAX_PLAYLISTS;
 
     const fetchLocal = async () => {
       const [trackRows, playlistsDual, artistChannelRows] = await Promise.all([
-        searchTracksForQuery(q),
-        searchPlaylistsDualForQuery(q),
+        searchTracksForQuery(q, { limit: trackLimit, prioritizeArtistMatch: isArtist }),
+        searchPlaylistsDualForQuery(q, { limit: playlistLimit, prioritizeArtistMatch: isArtist }),
         searchArtistChannelsForQuery(q),
       ]);
 
@@ -856,7 +892,7 @@ router.post("/resolve", async (req, res) => {
       const playlists_by_artist = playlistsDual.playlists_by_artist
         .map(mapPlaylistRow)
         .filter((p) => !isOlakPlaylistId(p.externalId));
-      const mergedPlaylists = mergeLegacyPlaylists(playlists_by_title, playlists_by_artist).slice(0, MAX_PLAYLISTS);
+      const mergedPlaylists = mergeLegacyPlaylists(playlists_by_title, playlists_by_artist).slice(0, playlistLimit);
 
       const artistChannelsLocal = artistChannelRows
         .map(mapLocalArtistChannelRow)
@@ -870,10 +906,10 @@ router.post("/resolve", async (req, res) => {
       };
 
       return {
-        tracks: tracks.slice(0, MAX_TRACKS),
+        tracks: tracks.slice(0, trackLimit),
         playlists_by_title,
         playlists_by_artist,
-        local: { tracks: tracks.slice(0, MAX_TRACKS), playlists: mergedPlaylists },
+        local: { tracks: tracks.slice(0, trackLimit), playlists: mergedPlaylists },
         artist_channels,
       };
     };
@@ -1097,8 +1133,15 @@ router.post("/resolve", async (req, res) => {
     console.info(RESOLVE_LOG_PREFIX, "FINAL_COUNTS", {
       q,
       mode,
+      isArtistQuery: isArtist,
       tracks: after.local.tracks.length,
       playlists: after.local.playlists.length,
+      artists: after.artist_channels.local.length,
+      trackLimit,
+      playlistLimit,
+      ingest_started,
+      hasRenderableLocal,
+      artistExistsInDb,
     });
 
     return res.json({

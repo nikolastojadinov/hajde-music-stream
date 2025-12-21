@@ -82,20 +82,47 @@ function escapeLikePatternLiteral(value: string): string {
     .replace(/'/g, "''");
 }
 
-export async function searchTracksForQuery(q: string): Promise<SearchTrackRow[]> {
+export async function searchTracksForQuery(q: string, options?: { limit?: number; prioritizeArtistMatch?: boolean }): Promise<SearchTrackRow[]> {
   const query = normalizeQuery(q);
   if (!supabase || query.length < 2) return [];
+
+  const limit = options?.limit ?? 8;
+  const prioritizeArtistMatch = options?.prioritizeArtistMatch ?? false;
 
   let status: 'ok' | 'error' = 'ok';
   let errorCode: string | null = null;
   let errorMessage: string | null = null;
 
   try {
-    const result = await supabase
-      .from('tracks')
-      .select('id, title, artist, external_id, cover_url, duration')
-      .or(`title.ilike.%${query}%,artist.ilike.%${query}%`)
-      .limit(8);
+    // For artist queries, try exact match first to get better results
+    let result;
+    if (prioritizeArtistMatch) {
+      // First try exact artist match (case-insensitive)
+      result = await supabase
+        .from('tracks')
+        .select('id, title, artist, external_id, cover_url, duration')
+        .ilike('artist', query)
+        .order('created_at', { ascending: false })
+        .limit(limit);
+      
+      // No exact matches, fall back to partial match
+      if (!result.data || result.data.length === 0) {
+        result = await supabase
+          .from('tracks')
+          .select('id, title, artist, external_id, cover_url, duration')
+          .or(`title.ilike.%${query}%,artist.ilike.%${query}%`)
+          .order('created_at', { ascending: false })
+          .limit(limit);
+      }
+    } else {
+      // Generic search - use partial match
+      result = await supabase
+        .from('tracks')
+        .select('id, title, artist, external_id, cover_url, duration')
+        .or(`title.ilike.%${query}%,artist.ilike.%${query}%`)
+        .order('created_at', { ascending: false })
+        .limit(limit);
+    }
 
     if (result.error) {
       status = 'error';
@@ -104,7 +131,9 @@ export async function searchTracksForQuery(q: string): Promise<SearchTrackRow[]>
       return [];
     }
 
-    return (result.data || []) as SearchTrackRow[];
+    let tracks = (result.data || []) as SearchTrackRow[];
+
+    return tracks;
   } catch (err: any) {
     status = 'error';
     errorMessage = err?.message ? String(err.message) : 'Supabase search failed';
@@ -121,11 +150,14 @@ export async function searchTracksForQuery(q: string): Promise<SearchTrackRow[]>
   }
 }
 
-export async function searchPlaylistsDualForQuery(q: string): Promise<DualPlaylistSearchResult> {
+export async function searchPlaylistsDualForQuery(q: string, options?: { limit?: number; prioritizeArtistMatch?: boolean }): Promise<DualPlaylistSearchResult> {
   const query = normalizeQuery(q);
   if (!supabase || query.length < 2) {
     return { playlists_by_title: [], playlists_by_artist: [] };
   }
+
+  const limit = options?.limit ?? 8;
+  const prioritizeArtistMatch = options?.prioritizeArtistMatch ?? false;
 
   let status: 'ok' | 'error' = 'ok';
   let errorCode: string | null = null;
@@ -134,6 +166,11 @@ export async function searchPlaylistsDualForQuery(q: string): Promise<DualPlayli
   try {
     const queryLiteral = `'${escapeSqlStringLiteral(query)}'`;
     const likePatternLiteral = `'%${escapeLikePatternLiteral(query)}%'`;
+
+    // For artist queries, use exact match on artist field to get better results
+    const artistWhereClause = prioritizeArtistMatch 
+      ? `lower(t.artist) = lower(${queryLiteral})`
+      : `t.artist ilike ${likePatternLiteral} escape '\\\\'`;
 
     const sql = `
       with
@@ -146,16 +183,16 @@ export async function searchPlaylistsDualForQuery(q: string): Promise<DualPlayli
           position(lower(${queryLiteral}) in lower(p.title)) asc,
           length(p.title) asc,
           p.title asc
-        limit 8
+        limit ${limit}
       ),
       artist_matches as (
         select distinct p.id, p.title, p.external_id, p.cover_url
         from tracks t
         join playlist_tracks pt on pt.track_id = t.id
         join playlists p on p.id = pt.playlist_id
-        where t.artist ilike ${likePatternLiteral} escape '\\'
+        where ${artistWhereClause}
         order by p.title asc
-        limit 8
+        limit ${limit}
       )
       select
         (select coalesce(jsonb_agg(to_jsonb(title_matches)), '[]'::jsonb) from title_matches) as playlists_by_title,
