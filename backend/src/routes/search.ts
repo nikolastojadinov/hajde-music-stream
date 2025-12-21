@@ -1133,8 +1133,15 @@ router.post("/resolve", async (req, res) => {
     console.info(RESOLVE_LOG_PREFIX, "FINAL_COUNTS", {
       q,
       mode,
+      isArtistQuery: isArtist,
       tracks: after.local.tracks.length,
       playlists: after.local.playlists.length,
+      artists: after.artist_channels.local.length,
+      trackLimit,
+      playlistLimit,
+      ingest_started,
+      hasRenderableLocal,
+      artistExistsInDb,
     });
 
     return res.json({
