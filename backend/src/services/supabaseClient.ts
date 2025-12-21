@@ -99,33 +99,49 @@ export async function searchTracksForQuery(q: string, options?: { limit?: number
     let result;
     if (prioritizeArtistMatch && artistChannelId) {
       // Query by channel_id for exact match (handles Unicode normalization issues)
-      result = await supabase
-        .from('tracks')
-        .select('id, title, artist, external_id, cover_url, duration')
-        .eq('artist_channel_id', artistChannelId)
-        .order('created_at', { ascending: false })
-        .limit(limit);
-      
-      // If channel query returns results, supplement with artist name matches (up to limit)
-      if (result.data && result.data.length > 0 && result.data.length < limit) {
-        const remaining = limit - result.data.length;
-        const nameResult = await supabase
+      try {
+        result = await supabase
           .from('tracks')
           .select('id, title, artist, external_id, cover_url, duration')
-          .ilike('artist', query)
+          .eq('artist_channel_id', artistChannelId)
           .order('created_at', { ascending: false })
-          .limit(remaining);
+          .limit(limit);
         
-        if (nameResult.data && nameResult.data.length > 0) {
-          // Dedupe by id
-          const existingIds = new Set((result.data || []).map((t: any) => t.id));
-          const newTracks = nameResult.data.filter((t: any) => !existingIds.has(t.id));
-          result = { ...result, data: [...(result.data || []), ...newTracks] };
+        // If channel query returns results, supplement with artist name matches (up to limit)
+        if (result.data && result.data.length > 0 && result.data.length < limit) {
+          const remaining = limit - result.data.length;
+          try {
+            const nameResult = await supabase
+              .from('tracks')
+              .select('id, title, artist, external_id, cover_url, duration')
+              .ilike('artist', query)
+              .order('created_at', { ascending: false })
+              .limit(remaining);
+            
+            if (nameResult.data && nameResult.data.length > 0) {
+              // Dedupe by id
+              const existingIds = new Set(result.data.map((t: SearchTrackRow) => t.id));
+              const newTracks = nameResult.data.filter((t: SearchTrackRow) => !existingIds.has(t.id));
+              result = { ...result, data: [...result.data, ...newTracks] };
+            }
+          } catch (supplementErr) {
+            // Supplement query failed, continue with channel results only
+            console.warn('[searchTracksForQuery] supplement query failed, using channel results only');
+          }
         }
-      }
-      
-      // If no channel results, fall back to artist name match
-      if (!result.data || result.data.length === 0) {
+        
+        // If no channel results, fall back to artist name match
+        if (!result.data || result.data.length === 0) {
+          result = await supabase
+            .from('tracks')
+            .select('id, title, artist, external_id, cover_url, duration')
+            .ilike('artist', query)
+            .order('created_at', { ascending: false })
+            .limit(limit);
+        }
+      } catch (channelErr) {
+        // Channel query failed, fall back to name-based search
+        console.warn('[searchTracksForQuery] channel query failed, falling back to name-based search');
         result = await supabase
           .from('tracks')
           .select('id, title, artist, external_id, cover_url, duration')

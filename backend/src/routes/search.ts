@@ -920,13 +920,10 @@ router.post("/resolve", async (req, res) => {
       };
     };
 
-    const [before, ingestArtistMedia] = await Promise.all([
-      fetchLocal(),
-      Promise.resolve(null), // artistMediaPreload is now loaded inside fetchLocal
-    ]);
+    const before = await fetchLocal();
     
-    // Use the preloaded artist media if available
-    const artistMedia = before.artistMediaPreload || (ingestArtistName ? await loadArtistMediaByName(ingestArtistName) : null);
+    // Use the preloaded artist media from fetchLocal
+    const artistMedia = before.artistMediaPreload;
 
     const missingTracks = Math.max(0, minimums.minTracks - before.local.tracks.length);
     const missingPlaylists = Math.max(0, minimums.minPlaylists - before.local.playlists.length);
