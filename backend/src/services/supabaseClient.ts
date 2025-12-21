@@ -82,21 +82,58 @@ function escapeLikePatternLiteral(value: string): string {
     .replace(/'/g, "''");
 }
 
-export async function searchTracksForQuery(q: string, options?: { limit?: number; prioritizeArtistMatch?: boolean }): Promise<SearchTrackRow[]> {
+export async function searchTracksForQuery(q: string, options?: { limit?: number; prioritizeArtistMatch?: boolean; artistChannelId?: string | null }): Promise<SearchTrackRow[]> {
   const query = normalizeQuery(q);
   if (!supabase || query.length < 2) return [];
 
   const limit = options?.limit ?? 8;
   const prioritizeArtistMatch = options?.prioritizeArtistMatch ?? false;
+  const artistChannelId = options?.artistChannelId;
 
   let status: 'ok' | 'error' = 'ok';
   let errorCode: string | null = null;
   let errorMessage: string | null = null;
 
   try {
-    // For artist queries, try exact match first to get better results
+    // For artist queries with channel_id, query by channel first for better results
     let result;
-    if (prioritizeArtistMatch) {
+    if (prioritizeArtistMatch && artistChannelId) {
+      // Query by channel_id for exact match (handles Unicode normalization issues)
+      result = await supabase
+        .from('tracks')
+        .select('id, title, artist, external_id, cover_url, duration')
+        .eq('artist_channel_id', artistChannelId)
+        .order('created_at', { ascending: false })
+        .limit(limit);
+      
+      // If channel query returns results, supplement with artist name matches (up to limit)
+      if (result.data && result.data.length > 0 && result.data.length < limit) {
+        const remaining = limit - result.data.length;
+        const nameResult = await supabase
+          .from('tracks')
+          .select('id, title, artist, external_id, cover_url, duration')
+          .ilike('artist', query)
+          .order('created_at', { ascending: false })
+          .limit(remaining);
+        
+        if (nameResult.data && nameResult.data.length > 0) {
+          // Dedupe by id
+          const existingIds = new Set((result.data || []).map((t: any) => t.id));
+          const newTracks = nameResult.data.filter((t: any) => !existingIds.has(t.id));
+          result = { ...result, data: [...(result.data || []), ...newTracks] };
+        }
+      }
+      
+      // If no channel results, fall back to artist name match
+      if (!result.data || result.data.length === 0) {
+        result = await supabase
+          .from('tracks')
+          .select('id, title, artist, external_id, cover_url, duration')
+          .ilike('artist', query)
+          .order('created_at', { ascending: false })
+          .limit(limit);
+      }
+    } else if (prioritizeArtistMatch) {
       // First try exact artist match (case-insensitive)
       result = await supabase
         .from('tracks')
@@ -150,7 +187,7 @@ export async function searchTracksForQuery(q: string, options?: { limit?: number
   }
 }
 
-export async function searchPlaylistsDualForQuery(q: string, options?: { limit?: number; prioritizeArtistMatch?: boolean }): Promise<DualPlaylistSearchResult> {
+export async function searchPlaylistsDualForQuery(q: string, options?: { limit?: number; prioritizeArtistMatch?: boolean; artistChannelId?: string | null }): Promise<DualPlaylistSearchResult> {
   const query = normalizeQuery(q);
   if (!supabase || query.length < 2) {
     return { playlists_by_title: [], playlists_by_artist: [] };
@@ -158,12 +195,38 @@ export async function searchPlaylistsDualForQuery(q: string, options?: { limit?:
 
   const limit = options?.limit ?? 8;
   const prioritizeArtistMatch = options?.prioritizeArtistMatch ?? false;
+  const artistChannelId = options?.artistChannelId;
 
   let status: 'ok' | 'error' = 'ok';
   let errorCode: string | null = null;
   let errorMessage: string | null = null;
 
   try {
+    // For artist queries with channel_id, query by channel first for better results
+    if (prioritizeArtistMatch && artistChannelId) {
+      const channelPlaylists = await supabase
+        .from('playlists')
+        .select('id, title, external_id, cover_url')
+        .eq('channel_id', artistChannelId)
+        .order('title', { ascending: true })
+        .limit(limit);
+
+      if (channelPlaylists.error) {
+        status = 'error';
+        errorCode = channelPlaylists.error.code ? String(channelPlaylists.error.code) : null;
+        errorMessage = channelPlaylists.error.message ? String(channelPlaylists.error.message) : 'Supabase playlist search failed';
+        return { playlists_by_title: [], playlists_by_artist: [] };
+      }
+
+      const playlists = (channelPlaylists.data || []) as SearchPlaylistRow[];
+      
+      // For artist queries, return channel playlists as both title and artist matches
+      return {
+        playlists_by_title: playlists,
+        playlists_by_artist: playlists,
+      };
+    }
+
     const queryLiteral = `'${escapeSqlStringLiteral(query)}'`;
     const likePatternLiteral = `'%${escapeLikePatternLiteral(query)}%'`;
 
@@ -171,6 +234,11 @@ export async function searchPlaylistsDualForQuery(q: string, options?: { limit?:
     const artistWhereClause = prioritizeArtistMatch 
       ? `lower(t.artist) = lower(${queryLiteral})`
       : `t.artist ilike ${likePatternLiteral} escape '\\\\'`;
+
+    // For artist queries, prioritize artist_matches with the full limit
+    // For generic queries, split the limit between both types
+    const titleMatchLimit = prioritizeArtistMatch ? Math.min(limit, 20) : limit;
+    const artistMatchLimit = limit;
 
     const sql = `
       with
@@ -183,7 +251,7 @@ export async function searchPlaylistsDualForQuery(q: string, options?: { limit?:
           position(lower(${queryLiteral}) in lower(p.title)) asc,
           length(p.title) asc,
           p.title asc
-        limit ${limit}
+        limit ${titleMatchLimit}
       ),
       artist_matches as (
         select distinct p.id, p.title, p.external_id, p.cover_url
@@ -192,7 +260,7 @@ export async function searchPlaylistsDualForQuery(q: string, options?: { limit?:
         join playlists p on p.id = pt.playlist_id
         where ${artistWhereClause}
         order by p.title asc
-        limit ${limit}
+        limit ${artistMatchLimit}
       )
       select
         (select coalesce(jsonb_agg(to_jsonb(title_matches)), '[]'::jsonb) from title_matches) as playlists_by_title,
