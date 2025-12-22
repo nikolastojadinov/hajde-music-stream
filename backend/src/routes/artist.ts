@@ -27,7 +27,7 @@ const ARTIST_PERSISTED_CACHE_TTL_MS = 10 * 60_000; // 10 minutes
 const ARTIST_TRACK_LIMIT = 20;
 const ARTIST_PLAYLIST_LIMIT = 20;
 
-const artistResponseCache = new TtlCache<{ etag: string; body: unknown }>(ARTIST_MEMORY_CACHE_TTL_MS);
+const artistResponseCache = new TtlCache<CachedArtistPayload>(ARTIST_MEMORY_CACHE_TTL_MS);
 const ARTIST_CACHE_TABLE = "artist_cache_entries";
 
 type CachedArtistPayload = { etag: string; body: OkResponse };
