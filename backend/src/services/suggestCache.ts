@@ -3,12 +3,19 @@ import path from "path";
 import Redis from "ioredis";
 
 import { SUGGESTION_TTL_SECONDS, type SuggestEnvelope } from "../types/suggest";
+import supabase from "../services/supabaseClient";
 
 const REDIS_KEY_PREFIX = "suggest:";
 const MEMORY_CACHE_MAX = 500;
 const FILE_CACHE_PATH = path.join(__dirname, "..", "..", "log", "suggest-cache.json");
 
 type CacheEntry = { value: SuggestEnvelope; expiresAtMs: number };
+type PersistSuggestEntryParams = {
+  key: string;
+  value: SuggestEnvelope;
+  ttlSeconds?: number;
+  meta?: Record<string, unknown>;
+};
 
 let redisClient: Redis | null = null;
 let redisReady = false;
@@ -114,6 +121,40 @@ async function loadFileCache(): Promise<void> {
   }
 }
 
+function extractSourceAndQuery(key: string): { source: string; query: string } {
+  const separatorIndex = key.indexOf(":");
+  if (separatorIndex === -1) {
+    return { source: "unknown", query: key };
+  }
+
+  const source = key.slice(0, separatorIndex) || "unknown";
+  const query = key.slice(separatorIndex + 1) || key;
+  return { source, query };
+}
+
+async function persistSuggestEntry({ key, value, ttlSeconds, meta }: PersistSuggestEntryParams): Promise<void> {
+  if (!supabase) return;
+
+  const { source, query } = extractSourceAndQuery(key);
+
+  try {
+    const { error } = await supabase.from("suggest_entries").insert({
+      source,
+      query,
+      results: value,
+      ttl_seconds: ttlSeconds ?? null,
+      meta: meta ?? {},
+    });
+
+    if (error) throw error;
+  } catch (err) {
+    console.warn("[SuggestCache] Failed to persist suggest entry", {
+      key,
+      message: err instanceof Error ? err.message : err,
+    });
+  }
+}
+
 async function persistFileCache(): Promise<void> {
   try {
     await fs.mkdir(path.dirname(FILE_CACHE_PATH), { recursive: true });
@@ -157,6 +198,7 @@ export async function cacheSuggest(key: string, value: SuggestEnvelope): Promise
   if (redis) {
     try {
       await redis.setex(redisKey(key), SUGGESTION_TTL_SECONDS, JSON.stringify(value));
+      void persistSuggestEntry({ key, value, ttlSeconds: SUGGESTION_TTL_SECONDS });
       return;
     } catch (err) {
       console.warn("[SuggestCache] Redis set failed, using fallback", { message: err instanceof Error ? err.message : err });
@@ -167,4 +209,5 @@ export async function cacheSuggest(key: string, value: SuggestEnvelope): Promise
   memoryCache.set(key, { value, expiresAtMs });
   pruneMemoryCache(nowMs());
   await persistFileCache();
+  void persistSuggestEntry({ key, value, ttlSeconds: SUGGESTION_TTL_SECONDS });
 }
