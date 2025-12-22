@@ -6,6 +6,8 @@ import { promises as fs } from 'fs';
 import { randomUUID } from 'crypto';
 import env from '../environments';
 import supabase from '../services/supabaseClient';
+import { fetchChannelDetails, fetchChannelPlaylists, type ChannelPlaylist } from '../services/youtubeChannelService';
+import { normalizeArtistKey } from '../utils/artistKey';
 
 const TIMEZONE = 'Europe/Budapest';
 const JOB_TABLE = 'refresh_jobs';
@@ -45,6 +47,8 @@ type PlaylistRow = {
   external_id: string | null;
   title: string;
   description: string | null;
+  channel_id?: string | null;
+  channel_title?: string | null;
   region: string | null;
   category: string | null;
   last_refreshed_on: string | null;
@@ -73,6 +77,8 @@ type TrackUpsertRecord = {
   external_id: string;
   title: string;
   artist: string;
+  artist_channel_id: string | null;
+  channel_title: string | null;
   cover_url: string | null;
   sync_status: 'active';
   last_synced_at: string;
@@ -93,6 +99,7 @@ type YouTubePlaylistItem = {
   channelTitle: string | null;
   thumbnailUrl: string | null;
   position: number;
+  videoOwnerChannelId?: string | null;
 };
 
 type FetchPlaylistItemsResult =
@@ -131,6 +138,8 @@ type BatchResult = {
 
 type BatchFileEntry = {
   playlistId?: string;
+  channelId?: string;
+  artist?: string;
   title?: string;
 };
 
@@ -257,7 +266,12 @@ async function runBatchRefresh(job: RefreshJobRow): Promise<BatchResult> {
     dayKey: job.day_key,
   });
 
-  const { playlistIds } = await resolveBatchFile(job);
+  const { playlistIds, channelIds } = await resolveBatchFile(job);
+
+  if (channelIds.length > 0) {
+    return await runChannelBatch(channelIds, job, refreshSessionId);
+  }
+
   const { playlists, mixSkipped } = await loadPlaylistsForRefresh(playlistIds);
 
   const result: BatchResult = {
@@ -309,7 +323,126 @@ async function runBatchRefresh(job: RefreshJobRow): Promise<BatchResult> {
   return result;
 }
 
-async function resolveBatchFile(job: RefreshJobRow): Promise<{ filePath: string; playlistIds: string[] }> {
+async function runChannelBatch(channelIds: string[], job: RefreshJobRow, refreshSessionId: string): Promise<BatchResult> {
+  const result: BatchResult = {
+    playlistCount: 0,
+    successCount: 0,
+    failureCount: 0,
+    skippedCount: 0,
+    errors: [],
+    diagnostics: {},
+  };
+
+  for (const channelId of channelIds) {
+    try {
+      const channel = await fetchChannelDetails(channelId, env.youtube_api_key);
+      await upsertArtistFromChannel(channel);
+
+      const playlists = await fetchChannelPlaylists(channelId, env.youtube_api_key);
+      if (playlists.length === 0) {
+        diagLog('runChannelBatch.noPlaylists', { channelId });
+        continue;
+      }
+
+      const now = new Date().toISOString();
+      const playlistRows = await upsertChannelPlaylists(playlists, channel.title, now);
+      result.playlistCount += playlistRows.length;
+
+      for (const playlist of playlistRows) {
+        if (isMixPlaylist(playlist.external_id)) {
+          result.skippedCount += 1;
+          continue;
+        }
+
+        const diagnostics: PlaylistRefreshDiagnostics = {
+          partial_refresh: false,
+          fetched_pages: 0,
+          fetched_items: 0,
+          total_available: null,
+        };
+
+        try {
+          const skipped = await refreshSinglePlaylist(playlist, diagnostics);
+          result.diagnostics[playlist.id] = { ...diagnostics };
+          if (skipped) result.skippedCount += 1;
+          else result.successCount += 1;
+        } catch (error) {
+          result.diagnostics[playlist.id] = { ...diagnostics };
+          result.failureCount += 1;
+          const message = error instanceof Error ? error.message : 'Unknown playlist refresh error';
+          result.errors.push({ playlistId: playlist.id, message });
+          console.error('[runBatch] Playlist refresh failed', {
+            playlistId: playlist.id,
+            youtubePlaylistId: playlist.external_id,
+            message,
+            channelId,
+          });
+        }
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown channel error';
+      result.errors.push({ playlistId: channelId, message });
+      result.failureCount += 1;
+      console.error('[runBatch] Channel processing failed', { channelId, message, refreshSessionId });
+    }
+  }
+
+  return result;
+}
+
+async function upsertArtistFromChannel(channel: { id: string; title: string; thumbnailUrl?: string | null; bannerUrl?: string | null; subscribers?: number | null; views?: number | null; country?: string | null }): Promise<void> {
+  if (!supabase) throw new Error('Supabase client unavailable');
+
+  const payload = {
+    artist: channel.title,
+    artist_key: normalizeArtistKey(channel.title),
+    youtube_channel_id: channel.id,
+    thumbnail_url: channel.thumbnailUrl ?? null,
+    banner_url: channel.bannerUrl ?? null,
+    subscribers: channel.subscribers ?? null,
+    views: channel.views ?? null,
+    country: channel.country ?? null,
+    source: 'youtube',
+  } as const;
+
+  const { error } = await supabase
+    .from('artists')
+    .upsert(payload, { onConflict: 'youtube_channel_id' });
+
+  if (error) {
+    throw new Error(`Failed to upsert artist ${channel.id}: ${error.message}`);
+  }
+}
+
+async function upsertChannelPlaylists(playlists: ChannelPlaylist[], fallbackChannelTitle: string, nowIso: string): Promise<PlaylistRow[]> {
+  if (!supabase) throw new Error('Supabase client unavailable');
+
+  const payload = playlists.map(p => ({
+    external_id: p.id,
+    title: p.title,
+    description: p.description ?? null,
+    channel_id: p.channelId,
+    channel_title: p.channelTitle ?? fallbackChannelTitle ?? null,
+    cover_url: p.thumbnailUrl ?? null,
+    item_count: p.itemCount ?? null,
+    last_etag: p.etag ?? null,
+    fetched_on: nowIso,
+    last_refreshed_on: nowIso,
+  }));
+
+  const { data, error } = await supabase
+    .from(PLAYLIST_TABLE)
+    .upsert(payload, { onConflict: 'external_id' })
+    .select('id, external_id, title, description, channel_id, channel_title, region, category, last_refreshed_on, last_etag, fetched_on, item_count');
+
+  if (error) {
+    throw new Error(`Failed to upsert playlists: ${error.message}`);
+  }
+
+  return Array.isArray(data) ? (data as PlaylistRow[]) : [];
+}
+
+async function resolveBatchFile(job: RefreshJobRow): Promise<{ filePath: string; playlistIds: string[]; channelIds: string[] }> {
   const filePath = path.join(BATCH_DIR, `batch_${job.day_key}_slot_${job.slot_index}.json`);
   try {
     const raw = await fs.readFile(filePath, 'utf-8');
@@ -317,11 +450,14 @@ async function resolveBatchFile(job: RefreshJobRow): Promise<{ filePath: string;
     const playlistIds = Array.isArray(parsed)
       ? parsed.map(entry => entry?.playlistId).filter((id): id is string => Boolean(id))
       : [];
-    diagLog('resolveBatchFile.success', { filePath, playlistIdsCount: playlistIds.length });
-    return { filePath, playlistIds };
+    const channelIds = Array.isArray(parsed)
+      ? parsed.map(entry => entry?.channelId).filter((id): id is string => Boolean(id))
+      : [];
+    diagLog('resolveBatchFile.success', { filePath, playlistIdsCount: playlistIds.length, channelIdsCount: channelIds.length });
+    return { filePath, playlistIds, channelIds };
   } catch (error) {
     diagLog('resolveBatchFile.miss', { filePath, error: error instanceof Error ? error.message : String(error) });
-    return { filePath, playlistIds: [] };
+    return { filePath, playlistIds: [], channelIds: [] };
   }
 }
 
@@ -335,7 +471,7 @@ async function loadPlaylistsForRefresh(
     const { data, error } = await supabase!
       .from(PLAYLIST_TABLE)
       .select(
-        'id, external_id, title, description, region, category, last_refreshed_on, last_etag, fetched_on, item_count',
+        'id, external_id, title, description, channel_id, channel_title, region, category, last_refreshed_on, last_etag, fetched_on, item_count',
       )
       .in('id', requestedIds);
 
@@ -349,7 +485,7 @@ async function loadPlaylistsForRefresh(
     const { data, error } = await supabase!
       .from(PLAYLIST_TABLE)
       .select(
-        'id, external_id, title, description, region, category, last_refreshed_on, last_etag, fetched_on, item_count',
+        'id, external_id, title, description, channel_id, channel_title, region, category, last_refreshed_on, last_etag, fetched_on, item_count',
       )
       .order('last_refreshed_on', { ascending: true, nullsFirst: true })
       .limit(PLAYLIST_REFRESH_BATCH_SIZE);
@@ -580,7 +716,7 @@ async function fetchPlaylistPageStrict(opts: {
   url.searchParams.set('part', 'contentDetails,snippet');
   url.searchParams.set(
     'fields',
-    'items(contentDetails/videoId,snippet(title,channelTitle,thumbnails/default/url,position)),nextPageToken,pageInfo,etag',
+    'items(contentDetails/videoId,snippet(title,channelTitle,videoOwnerChannelId,thumbnails/default/url,position)),nextPageToken,pageInfo,etag',
   );
   url.searchParams.set('maxResults', YOUTUBE_PAGE_SIZE.toString());
   if (pageToken) {
@@ -707,6 +843,7 @@ function parsePlaylistItemsPage(data: PlaylistItemsResponse): YouTubePlaylistIte
       channelTitle: snippet.channelTitle || null,
       thumbnailUrl: snippet.thumbnails?.default?.url || null,
       position: typeof snippet.position === 'number' ? snippet.position : result.length,
+      videoOwnerChannelId: (snippet as any)?.videoOwnerChannelId ?? null,
     });
   }
 
@@ -743,6 +880,8 @@ async function syncPlaylistTracksFull(
     external_id: item.videoId,
     title: item.title,
     artist: item.channelTitle || 'Unknown Artist',
+    artist_channel_id: item.videoOwnerChannelId ?? playlist.channel_id ?? null,
+    channel_title: playlist.channel_title ?? item.channelTitle ?? null,
     cover_url: item.thumbnailUrl,
     sync_status: 'active',
     last_synced_at: syncTimestamp,

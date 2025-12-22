@@ -9,14 +9,14 @@ const SCHEDULER_DISABLED = process.env.SCHEDULER_DISABLED === 'true';
 let loggedDisabled = false;
 
 const TIMEZONE = 'Europe/Budapest';
-const CRON_EXPRESSION = '15 10 * * *'; // 10:15 local time daily
+const CRON_EXPRESSION = '0 1 * * *'; // 01:00 local time daily
 const TABLE_NAME = 'refresh_jobs';
 
 const SLOT_COUNT = 20;
-const PREPARE_START_HOUR = 10;
-const PREPARE_START_MINUTE = 30;
+const PREPARE_START_HOUR = 1;
+const PREPARE_START_MINUTE = 0;
 const SLOT_INTERVAL_MINUTES = 60;
-const PREPARE_TO_RUN_OFFSET_MINUTES = 10;
+const PREPARE_TO_RUN_OFFSET_MINUTES = 60; // run starts 1h after prepare
 
 type JobType = 'prepare' | 'run';
 
@@ -56,7 +56,7 @@ export function initDailyRefreshScheduler(): void {
     { timezone: TIMEZONE }
   );
 
-  console.log('[DailyRefreshScheduler] Cron scheduled for 10:15 Europe/Budapest');
+  console.log('[DailyRefreshScheduler] Cron scheduled for 01:00 Europe/Budapest');
 }
 
 async function generateDailySlots(): Promise<void> {

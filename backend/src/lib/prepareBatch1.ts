@@ -6,10 +6,9 @@ import { DateTime } from 'luxon';
 import supabase from '../services/supabaseClient';
 
 const TIMEZONE = 'Europe/Budapest';
-const PLAYLIST_LIMIT = 200;
+const CHANNEL_LIMIT = 200;
 const BATCH_DIR = path.resolve(__dirname, '../../tmp/refresh_batches');
 const JOB_TABLE = 'refresh_jobs';
-const MIX_PREFIX = 'RD';
 
 type JobStatus = 'pending' | 'running' | 'done' | 'error';
 type JobType = 'prepare' | 'run';
@@ -24,12 +23,9 @@ type RefreshJobRow = {
   payload: Record<string, unknown> | null;
 };
 
-type Row = {
-  id: string;
-  title: string | null;
-  external_id: string | null;
-  created_at: string | null;
-  last_refreshed_on: string | null;
+type SeedChannelRow = {
+  channel_id: string;
+  name?: string | null;
 };
 
 export async function executePrepareJob(job: RefreshJobRow): Promise<void> {
@@ -50,17 +46,14 @@ export async function executePrepareJob(job: RefreshJobRow): Promise<void> {
   try {
     await fs.mkdir(BATCH_DIR, { recursive: true });
 
-    // ✔ bira najstarije prazne plejliste
-    const playlists = await fetchLeastRefreshedEmptyPlaylists();
+    // Channels are the new driver for batch jobs
+    const channels = await fetchSeedChannels();
 
-    console.log('[PrepareBatch1] Playlists fetched:', playlists.length);
+    console.log('[PrepareBatch1] Channels fetched:', channels.length);
 
-    const batchPayload = playlists.map((p) => ({
-      playlistId: p.id,
-      title: p.title ?? '',
-      externalId: p.external_id,
-      createdAt: p.created_at,
-      lastRefreshedOn: p.last_refreshed_on,
+    const batchPayload = channels.map((c) => ({
+      channelId: c.channel_id,
+      artist: c.name ?? undefined,
     }));
 
     const filePath = path.join(
@@ -86,70 +79,20 @@ export async function executePrepareJob(job: RefreshJobRow): Promise<void> {
   }
 }
 
-/**
- * ✔ BIRA SAMO PRAZNE PLEJLISTE
- * ✔ SORTIRA po last_refreshed_on ASC NULLS FIRST
- * ✔ RETRY mehanizam ×3 za timeout greške
- */
-async function fetchLeastRefreshedEmptyPlaylists(): Promise<Row[]> {
-  const MAX_RETRIES = 3;
-  const RETRY_DELAY_MS = 1500;
+async function fetchSeedChannels(): Promise<SeedChannelRow[]> {
+  const { data, error } = await supabase
+    .from('seeds_channels')
+    .select('channel_id, name')
+    .order('added_on', { ascending: true })
+    .limit(CHANNEL_LIMIT);
 
-  const sql = `
-    select
-      p.id,
-      p.title,
-      p.external_id,
-      p.created_at,
-      p.last_refreshed_on
-    from playlists p
-    left join playlist_tracks pt
-      on pt.playlist_id = p.id
-    where pt.playlist_id is null
-      and p.external_id is not null
-      and p.external_id ~ '^[A-Za-z0-9_-]{16,}$'
-      and not (p.external_id ilike '${MIX_PREFIX}%')
-    order by
-      p.last_refreshed_on asc nulls first,
-      p.created_at asc
-    limit ${PLAYLIST_LIMIT}
-  `;
-
-  let attempt = 0;
-
-  while (attempt < MAX_RETRIES) {
-    attempt++;
-
-    console.log(`[PrepareBatch1] SQL attempt ${attempt}/${MAX_RETRIES}`);
-
-    const { data, error } = await supabase.rpc('run_raw', { sql });
-
-    if (!error) {
-      return data as Row[];
-    }
-
-    const message = (error as any).message ?? '';
-
-    // Retry samo na timeout
-    if (
-      message.includes("statement timeout") ||
-      message.includes("canceling statement due to statement timeout")
-    ) {
-      console.warn(
-        `[PrepareBatch1] SQL timeout on attempt ${attempt}, retrying...`
-      );
-
-      if (attempt < MAX_RETRIES) {
-        await new Promise((res) => setTimeout(res, RETRY_DELAY_MS));
-        continue;
-      }
-    }
-
-    console.error('[PrepareBatch1] SQL error:', error);
+  if (error) {
+    console.error('[PrepareBatch1] Failed to fetch seed channels', error);
     throw error;
   }
 
-  throw new Error(`fetchLeastRefreshedEmptyPlaylists failed after ${MAX_RETRIES} attempts`);
+  const rows = Array.isArray(data) ? (data as SeedChannelRow[]) : [];
+  return rows.filter((row) => typeof row.channel_id === 'string' && row.channel_id.trim().length > 0);
 }
 
 async function finalizeJob(jobId: string, payload: Record<string, unknown>) {
