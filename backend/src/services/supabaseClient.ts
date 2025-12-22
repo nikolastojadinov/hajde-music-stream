@@ -92,6 +92,8 @@ export async function searchTracksForQuery(q: string, options?: { limit?: number
   const limit = options?.limit ?? 8;
   const prioritizeArtistMatch = options?.prioritizeArtistMatch ?? false;
   const artistChannelId = options?.artistChannelId;
+  const likePattern = `%${escapeLikePatternLiteral(query)}%`;
+  const orClause = `title.ilike.${likePattern},artist.ilike.${likePattern}`;
 
   let status: 'ok' | 'error' = 'ok';
   let errorCode: string | null = null;
@@ -117,7 +119,7 @@ export async function searchTracksForQuery(q: string, options?: { limit?: number
             const nameResult = await supabase
               .from('tracks')
               .select('id, title, artist, external_id, cover_url, duration')
-              .ilike('artist', query)
+              .or(orClause)
               .order('created_at', { ascending: false })
               .limit(remaining);
             
@@ -141,7 +143,7 @@ export async function searchTracksForQuery(q: string, options?: { limit?: number
           result = await supabase
             .from('tracks')
             .select('id, title, artist, external_id, cover_url, duration')
-            .ilike('artist', query)
+            .or(orClause)
             .order('created_at', { ascending: false })
             .limit(limit);
         }
@@ -154,7 +156,7 @@ export async function searchTracksForQuery(q: string, options?: { limit?: number
         result = await supabase
           .from('tracks')
           .select('id, title, artist, external_id, cover_url, duration')
-          .ilike('artist', query)
+          .or(orClause)
           .order('created_at', { ascending: false })
           .limit(limit);
       }
@@ -163,7 +165,7 @@ export async function searchTracksForQuery(q: string, options?: { limit?: number
       result = await supabase
         .from('tracks')
         .select('id, title, artist, external_id, cover_url, duration')
-        .ilike('artist', query)
+        .ilike('artist', likePattern)
         .order('created_at', { ascending: false })
         .limit(limit);
       
@@ -172,7 +174,7 @@ export async function searchTracksForQuery(q: string, options?: { limit?: number
         result = await supabase
           .from('tracks')
           .select('id, title, artist, external_id, cover_url, duration')
-          .or(`title.ilike.%${query}%,artist.ilike.%${query}%`)
+          .or(orClause)
           .order('created_at', { ascending: false })
           .limit(limit);
       }
@@ -181,7 +183,7 @@ export async function searchTracksForQuery(q: string, options?: { limit?: number
       result = await supabase
         .from('tracks')
         .select('id, title, artist, external_id, cover_url, duration')
-        .or(`title.ilike.%${query}%,artist.ilike.%${query}%`)
+        .or(orClause)
         .order('created_at', { ascending: false })
         .limit(limit);
     }
