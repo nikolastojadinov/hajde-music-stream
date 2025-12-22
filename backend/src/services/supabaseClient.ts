@@ -85,6 +85,29 @@ function escapeLikePatternLiteral(value: string): string {
     .replace(/'/g, "''");
 }
 
+async function searchTracksAllTokens(words: string[], limit: number) {
+  const wordsArrayLiteral = words
+    .map((w) => `'${escapeLikePatternLiteral(w)}'`)
+    .join(',');
+
+  const sql = `
+    with q as (
+      select unnest(array[${wordsArrayLiteral}]) as w
+    )
+    select id, title, artist, external_id, cover_url, duration
+    from tracks t
+    where not exists (
+      select 1
+      from q
+      where (t.title ilike '%'||w||'%' escape '\\' or t.artist ilike '%'||w||'%' escape '\\') is false
+    )
+    order by t.created_at desc
+    limit ${limit}
+  `;
+
+  return supabase.rpc('run_raw', { sql });
+}
+
 export async function searchTracksForQuery(q: string, options?: { limit?: number; prioritizeArtistMatch?: boolean; artistChannelId?: string | null }): Promise<SearchTrackRow[]> {
   const query = normalizeQuery(q);
   if (!supabase || query.length < 2) return [];
@@ -94,6 +117,7 @@ export async function searchTracksForQuery(q: string, options?: { limit?: number
   const artistChannelId = options?.artistChannelId;
   const likePattern = `%${escapeLikePatternLiteral(query)}%`;
   const orClause = `title.ilike.${likePattern},artist.ilike.${likePattern}`;
+  const words = query.split(/\s+/).filter(Boolean);
 
   let status: 'ok' | 'error' = 'ok';
   let errorCode: string | null = null;
@@ -186,6 +210,20 @@ export async function searchTracksForQuery(q: string, options?: { limit?: number
         .or(orClause)
         .order('created_at', { ascending: false })
         .limit(limit);
+    }
+
+    if ((!result.data || result.data.length === 0) && words.length > 0) {
+      try {
+        const fallback = await searchTracksAllTokens(words, limit);
+        if (!fallback.error && Array.isArray(fallback.data)) {
+          result = { data: fallback.data as SearchTrackRow[], error: null } as typeof result;
+        }
+      } catch (fallbackErr: any) {
+        console.warn('[searchTracksForQuery] token-AND fallback failed', {
+          error: fallbackErr?.message || 'unknown',
+          code: fallbackErr?.code || null,
+        });
+      }
     }
 
     if (result.error) {
