@@ -12,6 +12,8 @@ import { youtubeSearchArtistChannel, YouTubeQuotaExceededError } from "../servic
 import { youtubeSearchMixed } from "../services/youtubeClient";
 import { youtubeBatchFetchPlaylists } from "../services/youtubeBatchFetchPlaylists";
 import { spotifySearch, SpotifyRateLimitedError } from "../services/spotifyClient";
+import { cacheSuggest, getCachedSuggest } from "../services/suggestCache";
+import { MAX_SUGGESTIONS, type SuggestEnvelope, type SuggestionItem } from "../types/suggest";
 import { isOlakPlaylistId } from "../utils/olak";
 import {
   deleteYoutubeChannelMappingByChannelId,
@@ -30,63 +32,8 @@ const LOG_PREFIX = "[ArtistIngest]";
 const RESOLVE_LOG_PREFIX = "[SearchResolve]";
 const SUGGEST_LOG_PREFIX = "[SearchSuggest]";
 
-const SUGGEST_CACHE_TTL_MS = 60_000;
-const SUGGEST_CACHE_MAX = 500;
-type SuggestionType = "artist" | "track" | "playlist" | "album";
-type SuggestionItem = {
-  type: SuggestionType;
-  id: string;
-  name: string;
-  imageUrl?: string;
-  subtitle?: string;
-  artists?: string[];
-};
-
-type SuggestEnvelope = {
-  q: string;
-  source: "spotify_suggest" | "local_fallback";
-  suggestions: SuggestionItem[];
-};
-
-type SuggestCacheEntry = { expiresAtMs: number; value: SuggestEnvelope };
-const suggestCache = new Map<string, SuggestCacheEntry>();
-
 function normalizeSuggestKey(raw: unknown): string {
   return normalizeQuery(raw).toLowerCase();
-}
-
-function pruneSuggestCache(now: number): void {
-  // Drop expired.
-  const expiredKeys: string[] = [];
-  suggestCache.forEach((v, k) => {
-    if (v.expiresAtMs <= now) expiredKeys.push(k);
-  });
-  for (const k of expiredKeys) suggestCache.delete(k);
-  // Enforce cap (best-effort FIFO since Map iterates insertion order).
-  while (suggestCache.size > SUGGEST_CACHE_MAX) {
-    const firstKey = suggestCache.keys().next().value as string | undefined;
-    if (!firstKey) break;
-    suggestCache.delete(firstKey);
-  }
-}
-
-function cacheSuggest(key: string, value: SuggestEnvelope): void {
-  const now = Date.now();
-  pruneSuggestCache(now);
-  suggestCache.set(key, { expiresAtMs: now + SUGGEST_CACHE_TTL_MS, value });
-  // If we just exceeded cap due to insertion, trim again.
-  pruneSuggestCache(now);
-}
-
-function getCachedSuggest(key: string): SuggestEnvelope | null {
-  const now = Date.now();
-  const entry = suggestCache.get(key);
-  if (!entry) return null;
-  if (entry.expiresAtMs <= now) {
-    suggestCache.delete(key);
-    return null;
-  }
-  return entry.value;
 }
 
 async function buildLocalFallbackSuggestions(q: string): Promise<SuggestionItem[]> {
@@ -778,12 +725,12 @@ router.get("/suggest", async (req, res) => {
   const key = normalizeSuggestKey(q);
 
   if (key.length >= MIN_QUERY_CHARS) {
-    const cached = getCachedSuggest(key);
+    const cached = await getCachedSuggest(key);
     if (cached) {
-      console.info(SUGGEST_LOG_PREFIX, "CACHE_HIT", { q, key, source: cached.source, size: suggestCache.size });
+      console.info(SUGGEST_LOG_PREFIX, "CACHE_HIT", { q, key, source: cached.source });
       return res.json(cached);
     }
-    console.info(SUGGEST_LOG_PREFIX, "CACHE_MISS", { q, key, size: suggestCache.size });
+    console.info(SUGGEST_LOG_PREFIX, "CACHE_MISS", { q, key });
   }
 
   try {
@@ -813,8 +760,8 @@ router.get("/suggest", async (req, res) => {
       suggestions.push({ type: "album", id: a.id, name: a.name, imageUrl: a.imageUrl, subtitle });
     }
 
-    const payload: SuggestEnvelope = { q, source: "spotify_suggest", suggestions };
-    if (key.length >= MIN_QUERY_CHARS) cacheSuggest(key, payload);
+    const payload: SuggestEnvelope = { q, source: "spotify_suggest", suggestions: suggestions.slice(0, MAX_SUGGESTIONS) };
+    if (key.length >= MIN_QUERY_CHARS) await cacheSuggest(key, payload);
     return res.json(payload);
   } catch (err: any) {
     const rateLimited = err instanceof SpotifyRateLimitedError;
@@ -836,8 +783,8 @@ router.get("/suggest", async (req, res) => {
       suggestions = [];
     }
 
-    const payload: SuggestEnvelope = { q, source: "local_fallback", suggestions };
-    if (key.length >= MIN_QUERY_CHARS) cacheSuggest(key, payload);
+    const payload: SuggestEnvelope = { q, source: "local_fallback", suggestions: suggestions.slice(0, MAX_SUGGESTIONS) };
+    if (key.length >= MIN_QUERY_CHARS) await cacheSuggest(key, payload);
     return res.json(payload);
   }
 });
