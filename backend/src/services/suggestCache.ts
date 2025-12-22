@@ -8,6 +8,7 @@ import supabase from "../services/supabaseClient";
 const REDIS_KEY_PREFIX = "suggest:";
 const MEMORY_CACHE_MAX = 500;
 const FILE_CACHE_PATH = path.join(__dirname, "..", "..", "log", "suggest-cache.json");
+const SUPABASE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 type CacheEntry = { value: SuggestEnvelope; expiresAtMs: number };
 type PersistSuggestEntryParams = {
@@ -23,6 +24,21 @@ let redisAttempted = false;
 
 const memoryCache = new Map<string, CacheEntry>();
 let fileCacheLoaded = false;
+
+export function normalizeQuery(q: string): string {
+  return (q ?? "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ");
+}
+
+export function buildSuggestCacheKey(userInput: string, source: string = "spotify"): string {
+  const normalized = normalizeQuery(userInput);
+  if (!normalized) return "";
+  return `${source}:${normalized}`;
+}
 
 function nowMs(): number {
   return Date.now();
@@ -132,19 +148,34 @@ function extractSourceAndQuery(key: string): { source: string; query: string } {
   return { source, query };
 }
 
+function normalizeKey(key: string): string {
+  const { source, query } = extractSourceAndQuery(key);
+  const normalizedQuery = normalizeQuery(query);
+  if (!normalizedQuery) return "";
+  return `${source}:${normalizedQuery}`;
+}
+
 async function persistSuggestEntry({ key, value, ttlSeconds, meta }: PersistSuggestEntryParams): Promise<void> {
   if (!supabase) return;
 
   const { source, query } = extractSourceAndQuery(key);
+  const normalizedQuery = normalizeQuery(query);
 
   try {
-    const { error } = await supabase.from("suggest_entries").insert({
-      source,
-      query,
-      results: value,
-      ttl_seconds: ttlSeconds ?? null,
-      meta: meta ?? {},
-    });
+    const { error } = await supabase
+      .from("suggest_entries")
+      .upsert(
+        {
+          source,
+          query: normalizeKey(key) || query,
+          normalized_query: normalizedQuery || null,
+          results: value,
+          ttl_seconds: ttlSeconds ?? null,
+          meta: meta ?? {},
+          ts: new Date().toISOString(),
+        },
+        { onConflict: "query" }
+      );
 
     if (error) throw error;
   } catch (err) {
@@ -166,10 +197,13 @@ async function persistFileCache(): Promise<void> {
 }
 
 export async function getCachedSuggest(key: string): Promise<SuggestEnvelope | null> {
+  const normalizedKey = normalizeKey(key);
+  if (!normalizedKey) return null;
+
   const redis = await getRedis();
   if (redis) {
     try {
-      const raw = await redis.get(redisKey(key));
+      const raw = await redis.get(redisKey(normalizedKey));
       if (typeof raw === "string" && raw.length > 0) {
         const value = JSON.parse(raw) as SuggestEnvelope;
         return value;
@@ -182,23 +216,69 @@ export async function getCachedSuggest(key: string): Promise<SuggestEnvelope | n
   await loadFileCache();
   const now = nowMs();
   pruneMemoryCache(now);
-  const entry = memoryCache.get(key);
-  if (!entry) return null;
-  if (entry.expiresAtMs <= now) {
-    memoryCache.delete(key);
+  const entry = memoryCache.get(normalizedKey);
+  if (entry) {
+    if (entry.expiresAtMs <= now) {
+      memoryCache.delete(normalizedKey);
+    } else if (entry.value) {
+      return entry.value;
+    }
+  }
+
+  try {
+    if (!supabase) return null;
+    const { source, query } = extractSourceAndQuery(normalizedKey);
+    const normalizedQueryOnly = normalizeQuery(query);
+
+    const { data, error } = await supabase
+      .from("suggest_entries")
+      .select("results, ts")
+      .eq("query", normalizedKey)
+      .order("ts", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    let row = data as any;
+
+    if ((error || !data) && normalizedQueryOnly) {
+      const { data: normalizedRow, error: normalizedError } = await supabase
+        .from("suggest_entries")
+        .select("results, ts")
+        .eq("normalized_query", normalizedQueryOnly)
+        .eq("source", source)
+        .order("ts", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (!normalizedError && normalizedRow) {
+        row = normalizedRow as any;
+      }
+    }
+
+    if (!row) return null;
+
+    const ts = row.ts ? new Date(String(row.ts)).getTime() : null;
+    if (ts && nowMs() - ts > SUPABASE_MAX_AGE_MS) return null;
+
+    const results = row?.results as SuggestEnvelope | null;
+    return results ?? null;
+  } catch (err) {
+    console.warn("[SuggestCache] Supabase lookup failed", { message: err instanceof Error ? err.message : err });
     return null;
   }
-  return entry.value;
 }
 
 export async function cacheSuggest(key: string, value: SuggestEnvelope): Promise<void> {
+  const normalizedKey = normalizeKey(key);
+  if (!normalizedKey) return;
+
   const redis = await getRedis();
   const expiresAtMs = nowMs() + SUGGESTION_TTL_SECONDS * 1000;
 
   if (redis) {
     try {
-      await redis.setex(redisKey(key), SUGGESTION_TTL_SECONDS, JSON.stringify(value));
-      void persistSuggestEntry({ key, value, ttlSeconds: SUGGESTION_TTL_SECONDS });
+      await redis.setex(redisKey(normalizedKey), SUGGESTION_TTL_SECONDS, JSON.stringify(value));
+      void persistSuggestEntry({ key: normalizedKey, value, ttlSeconds: SUGGESTION_TTL_SECONDS });
       return;
     } catch (err) {
       console.warn("[SuggestCache] Redis set failed, using fallback", { message: err instanceof Error ? err.message : err });
@@ -206,8 +286,8 @@ export async function cacheSuggest(key: string, value: SuggestEnvelope): Promise
   }
 
   await loadFileCache();
-  memoryCache.set(key, { value, expiresAtMs });
+  memoryCache.set(normalizedKey, { value, expiresAtMs });
   pruneMemoryCache(nowMs());
   await persistFileCache();
-  void persistSuggestEntry({ key, value, ttlSeconds: SUGGESTION_TTL_SECONDS });
+  void persistSuggestEntry({ key: normalizedKey, value, ttlSeconds: SUGGESTION_TTL_SECONDS });
 }

@@ -12,7 +12,7 @@ import { youtubeSearchArtistChannel, YouTubeQuotaExceededError } from "../servic
 import { youtubeSearchMixed } from "../services/youtubeClient";
 import { youtubeBatchFetchPlaylists } from "../services/youtubeBatchFetchPlaylists";
 import { spotifySearch, SpotifyRateLimitedError } from "../services/spotifyClient";
-import { cacheSuggest, getCachedSuggest } from "../services/suggestCache";
+import { buildSuggestCacheKey, cacheSuggest, getCachedSuggest } from "../services/suggestCache";
 import { MAX_SUGGESTIONS, type SuggestEnvelope, type SuggestionItem } from "../types/suggest";
 import { isOlakPlaylistId } from "../utils/olak";
 import {
@@ -31,10 +31,6 @@ const MIN_QUERY_CHARS = 2;
 const LOG_PREFIX = "[ArtistIngest]";
 const RESOLVE_LOG_PREFIX = "[SearchResolve]";
 const SUGGEST_LOG_PREFIX = "[SearchSuggest]";
-
-function normalizeSuggestKey(raw: unknown): string {
-  return normalizeQuery(raw).toLowerCase();
-}
 
 async function buildLocalFallbackSuggestions(q: string): Promise<SuggestionItem[]> {
   if (!supabase) return [];
@@ -722,7 +718,7 @@ async function persistYouTubeMixedResults(opts: {
 
 router.get("/suggest", async (req, res) => {
   const q = normalizeQuery(req.query.q);
-  const key = normalizeSuggestKey(q);
+  const key = buildSuggestCacheKey(q, "spotify");
 
   if (key.length >= MIN_QUERY_CHARS) {
     const cached = await getCachedSuggest(key);

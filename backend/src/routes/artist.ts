@@ -22,8 +22,15 @@ const LOG_PREFIX = "[ArtistLocal]";
 const MIN_QUERY_CHARS = 2;
 const IN_CHUNK = 200;
 
-const ARTIST_CACHE_TTL_MS = 60_000;
-const artistResponseCache = new TtlCache<{ etag: string; body: unknown }>(ARTIST_CACHE_TTL_MS);
+const ARTIST_MEMORY_CACHE_TTL_MS = 60_000;
+const ARTIST_PERSISTED_CACHE_TTL_MS = 10 * 60_000; // 10 minutes
+const ARTIST_TRACK_LIMIT = 20;
+const ARTIST_PLAYLIST_LIMIT = 20;
+
+const artistResponseCache = new TtlCache<{ etag: string; body: unknown }>(ARTIST_MEMORY_CACHE_TTL_MS);
+const ARTIST_CACHE_TABLE = "artist_cache_entries";
+
+type CachedArtistPayload = { etag: string; body: OkResponse };
 
 type YoutubeChannelsRow = {
   name: string;
@@ -101,6 +108,69 @@ function chunkArray<T>(items: T[], size: number): T[][] {
   return out;
 }
 
+async function loadPersistedArtistCache(key: string): Promise<CachedArtistPayload | null> {
+  if (!supabase) return null;
+
+  try {
+    const { data, error } = await supabase
+      .from(ARTIST_CACHE_TABLE)
+      .select("payload, etag, ts")
+      .eq("artist_key", key)
+      .order("ts", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error || !data) return null;
+
+    const ts = data.ts ? new Date(String(data.ts)).getTime() : null;
+    if (ts && Date.now() - ts > ARTIST_PERSISTED_CACHE_TTL_MS) return null;
+
+    const body = (data as any)?.payload as OkResponse | null;
+    if (!body) return null;
+
+    const etag = typeof (data as any)?.etag === "string" && (data as any).etag ? String((data as any).etag) : makeEtagFromBody(body);
+    return { etag, body };
+  } catch (err: any) {
+    console.warn(LOG_PREFIX, "cache load failed", { key, message: err?.message ? String(err.message) : "unknown" });
+    return null;
+  }
+}
+
+async function persistArtistCache(key: string, payload: CachedArtistPayload): Promise<void> {
+  if (!supabase) return;
+
+  try {
+    const { error } = await supabase
+      .from(ARTIST_CACHE_TABLE)
+      .upsert(
+        {
+          artist_key: key,
+          payload: payload.body,
+          etag: payload.etag,
+          ts: new Date().toISOString(),
+        },
+        { onConflict: "artist_key" }
+      );
+
+    if (error) throw error;
+  } catch (err: any) {
+    console.warn(LOG_PREFIX, "cache persist failed", { key, message: err?.message ? String(err.message) : "unknown" });
+  }
+}
+
+async function getCachedArtist(key: string): Promise<CachedArtistPayload | null> {
+  const memory = artistResponseCache.get(key);
+  if (memory) return memory;
+
+  const persisted = await loadPersistedArtistCache(key);
+  if (persisted) {
+    artistResponseCache.set(key, persisted);
+    return persisted;
+  }
+
+  return null;
+}
+
 async function findYoutubeChannelByArtistNameExact(artistName: string): Promise<YoutubeChannelsRow | null> {
   if (!supabase) return null;
 
@@ -139,7 +209,7 @@ async function loadTracksByArtistName(artistName: string): Promise<any[]> {
     // Use case-insensitive equality.
     .ilike("artist", name)
     .order("created_at", { ascending: false })
-    .limit(500);
+    .limit(ARTIST_TRACK_LIMIT * 3);
 
   if (error) {
     console.warn(LOG_PREFIX, "tracks query failed", { artistName: name, code: error.code, message: error.message });
@@ -182,7 +252,7 @@ async function loadTracksByChannelId(youtube_channel_id: string): Promise<any[]>
     .select("id, title, artist, external_id, youtube_id, artist_channel_id, cover_url, duration, created_at")
     .eq("artist_channel_id", id)
     .order("created_at", { ascending: false })
-    .limit(500);
+    .limit(ARTIST_TRACK_LIMIT * 3);
 
   if (error) {
     console.warn(LOG_PREFIX, "tracks by channel query failed", { youtube_channel_id: id, code: error.code, message: error.message });
@@ -202,7 +272,7 @@ async function loadPlaylistsByChannelId(youtube_channel_id: string): Promise<any
     .select("id, title, external_id, channel_id, cover_url, created_at, sync_status")
     .eq("channel_id", id)
     .order("created_at", { ascending: false })
-    .limit(100);
+    .limit(ARTIST_PLAYLIST_LIMIT * 3);
 
   if (error) {
     console.warn(LOG_PREFIX, "playlists by channel query failed", { youtube_channel_id: id, code: error.code, message: error.message });
@@ -299,7 +369,7 @@ async function loadPlaylistsViaPlaylistTracks(trackIds: string[]): Promise<any[]
     return ta.localeCompare(tb);
   });
 
-  return playlists;
+  return playlists.slice(0, ARTIST_PLAYLIST_LIMIT * 3);
 }
 
 function mapTracksForFrontend(rows: any[], artistName: string): ApiTrack[] {
@@ -380,7 +450,7 @@ async function handleArtistLocalRequest(artistIdentifierRaw: string): Promise<Ok
     }
 
     const mergedTrackRows = Array.from(trackRowDedupe.values());
-    const tracks = mapTracksForFrontend(mergedTrackRows, artistDisplayName);
+    const tracks = mapTracksForFrontend(mergedTrackRows, artistDisplayName).slice(0, ARTIST_TRACK_LIMIT);
 
     const artist = channelId
       ? await loadArtistMediaByChannelId(channelId, artistDisplayName)
@@ -410,7 +480,7 @@ async function handleArtistLocalRequest(artistIdentifierRaw: string): Promise<Ok
     }
 
     const playlistRows = Array.from(playlistRowDedupe.values());
-    const playlists = mapPlaylistsForFrontend(playlistRows);
+    const playlists = mapPlaylistsForFrontend(playlistRows).slice(0, ARTIST_PLAYLIST_LIMIT);
 
     console.info(LOG_PREFIX, { artistName: artistDisplayName, playlistsCount: playlists.length, tracksCount: tracks.length });
 
@@ -636,7 +706,7 @@ router.get("/", async (req, res) => {
 
   try {
     const key = cacheKeyForIdentifier(identifier);
-    const cached = key ? artistResponseCache.get(key) : null;
+    const cached = key ? await getCachedArtist(key) : null;
     if (cached) {
       const inm = typeof req.headers["if-none-match"] === "string" ? req.headers["if-none-match"] : "";
       res.setHeader("ETag", cached.etag);
@@ -654,7 +724,9 @@ router.get("/", async (req, res) => {
     // If we only have playlists, we want rapid revalidation because tracks may arrive moments later.
     const isPartial = okBody && playlistsLen > 0 && tracksLen === 0;
     if (key && okBody && hasContent && !isPartial) {
-      artistResponseCache.set(key, { etag, body });
+      const cachedPayload: CachedArtistPayload = { etag, body: body as OkResponse };
+      artistResponseCache.set(key, cachedPayload);
+      void persistArtistCache(key, cachedPayload);
       res.setHeader("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
     } else {
       res.setHeader("Cache-Control", "no-store");
@@ -682,7 +754,7 @@ router.get("/:artistName", async (req, res) => {
 
   try {
     const key = cacheKeyForIdentifier(artistName);
-    const cached = key ? artistResponseCache.get(key) : null;
+    const cached = key ? await getCachedArtist(key) : null;
     if (cached) {
       const inm = typeof req.headers["if-none-match"] === "string" ? req.headers["if-none-match"] : "";
       res.setHeader("ETag", cached.etag);
@@ -699,7 +771,9 @@ router.get("/:artistName", async (req, res) => {
     const hasContent = okBody && (tracksLen > 0 || playlistsLen > 0);
     const isPartial = okBody && playlistsLen > 0 && tracksLen === 0;
     if (key && okBody && hasContent && !isPartial) {
-      artistResponseCache.set(key, { etag, body });
+      const cachedPayload: CachedArtistPayload = { etag, body: body as OkResponse };
+      artistResponseCache.set(key, cachedPayload);
+      void persistArtistCache(key, cachedPayload);
       res.setHeader("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
     } else {
       res.setHeader("Cache-Control", "no-store");
