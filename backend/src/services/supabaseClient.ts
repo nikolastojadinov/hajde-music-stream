@@ -212,11 +212,29 @@ export async function searchTracksForQuery(q: string, options?: { limit?: number
         .limit(limit);
     }
 
-    if ((!result.data || result.data.length === 0) && words.length > 0) {
+    if (!result.data || result.data.length === 0) {
+      if (words.length === 0) return [];
+
+      const arr = words.map((w) => `'${escapeLikePatternLiteral(w)}'`).join(',');
+      const sql = `
+        with q as (select unnest(array[${arr}]) as w)
+        select id, title, artist, external_id, cover_url, duration
+        from tracks t
+        where not exists (
+          select 1 from q
+          where not (
+            t.title ilike '%'||w||'%' escape '\\' or
+            t.artist ilike '%'||w||'%' escape '\\'
+          )
+        )
+        order by t.created_at desc
+        limit ${limit};
+      `;
+
       try {
-        const fallback = await searchTracksAllTokens(words, limit);
-        if (!fallback.error && Array.isArray(fallback.data)) {
-          result = { data: fallback.data as SearchTrackRow[], error: null } as typeof result;
+        const { data, error } = await supabase.rpc('run_raw', { sql });
+        if (!error && Array.isArray(data) && data.length > 0) {
+          return data as SearchTrackRow[];
         }
       } catch (fallbackErr: any) {
         console.warn('[searchTracksForQuery] token-AND fallback failed', {
