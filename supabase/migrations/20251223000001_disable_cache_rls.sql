@@ -1,0 +1,6 @@
+BEGIN;
+
+ALTER TABLE public.suggest_entries DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.artist_cache_entries DISABLE ROW LEVEL SECURITY;
+
+COMMIT;
