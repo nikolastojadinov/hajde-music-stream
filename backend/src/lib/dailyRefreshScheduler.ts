@@ -1,4 +1,5 @@
 // backend/src/lib/dailyRefreshScheduler.ts
+// FULL REWRITE — adjusted daily schedule times
 
 import cron from 'node-cron';
 import { DateTime } from 'luxon';
@@ -6,7 +7,10 @@ import { randomUUID } from 'crypto';
 import supabase from '../services/supabaseClient';
 
 const TIMEZONE = 'Europe/Budapest';
-const CRON_EXPRESSION = '15 10 * * *'; // 10:15 local time
+
+// Scheduler runs every day at 13:35 local time
+const CRON_EXPRESSION = '35 13 * * *'; // 13:35 Europe/Budapest
+
 const TABLE_NAME = 'refresh_jobs';
 
 type JobType = 'prepare' | 'run';
@@ -35,7 +39,7 @@ export function initDailyRefreshScheduler(): void {
     { timezone: TIMEZONE }
   );
 
-  console.log('[DailyRefreshScheduler] Scheduled at 10:15 Europe/Budapest');
+  console.log('[DailyRefreshScheduler] Scheduled at 13:35 Europe/Budapest');
 }
 
 async function generateDailyJobs(): Promise<void> {
@@ -56,8 +60,11 @@ async function generateDailyJobs(): Promise<void> {
       return;
     }
 
-    const prepareTime = buildLocalDate(dayKey, 10, 30);
-    const runTime = buildLocalDate(dayKey, 11, 0);
+    // Job schedule:
+    // PrepareBatch1 -> 13:45
+    // RunBatch      -> 14:00
+    const prepareTime = buildLocalDate(dayKey, 13, 45);
+    const runTime = buildLocalDate(dayKey, 14, 0);
 
     const jobs: RefreshJobRow[] = [
       createJobRow(0, 'prepare', prepareTime, dayKey),
@@ -67,7 +74,9 @@ async function generateDailyJobs(): Promise<void> {
     const { error } = await supabase.from(TABLE_NAME).insert(jobs);
     if (error) throw error;
 
-    console.log(`[DailyRefreshScheduler] Created daily prepare + run jobs for ${dayKey}`);
+    console.log(
+      `[DailyRefreshScheduler] Created daily jobs for ${dayKey} (prepare 13:45, run 14:00)`
+    );
   } catch (err) {
     console.error('[DailyRefreshScheduler] Failed to create jobs', err);
   }
