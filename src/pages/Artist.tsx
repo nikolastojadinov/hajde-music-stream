@@ -80,6 +80,21 @@ function isError(x: any): x is ArtistErrorResponse {
   return x && typeof x === "object" && typeof x.error === "string";
 }
 
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function cleanTrackTitle(rawTitle: string, canonicalArtistName: string): string {
+  const title = normalizeString(rawTitle) || "Unknown title";
+  const artist = normalizeString(canonicalArtistName);
+
+  if (!artist) return title;
+
+  const pattern = new RegExp(`^${escapeRegex(artist)}\s*-\s*`, "i");
+  const stripped = title.replace(pattern, "").trim();
+  return stripped || title;
+}
+
 export default function Artist() {
   const { artistKey: artistKeyParam } = useParams();
   const { playPlaylist } = usePlayer();
@@ -97,9 +112,11 @@ export default function Artist() {
   const [artistMedia, setArtistMedia] = useState<{ thumbnail_url: string | null; banner_url: string | null } | null>(null);
   const [artistTitle, setArtistTitle] = useState<string>(artistKey);
 
-  const artistName = useMemo(() => {
-    const name = normalizeString(artistTitle) || normalizeString(artistKey);
-    return name || "Artist";
+  const canonicalArtistName = useMemo(() => {
+    const fromApi = normalizeString(artistTitle);
+    if (fromApi) return fromApi;
+    const fallback = normalizeString(artistKey);
+    return fallback || "Artist";
   }, [artistTitle, artistKey]);
 
   const playlistTracks = useMemo(() => {
@@ -108,10 +125,10 @@ export default function Artist() {
       .map((t) => ({
         id: t.id,
         external_id: t.youtube_video_id,
-        title: t.title,
-        artist: t.artist_name || artistTitle || "Unknown artist",
+        title: cleanTrackTitle(t.title, canonicalArtistName),
+        artist: canonicalArtistName,
       }));
-  }, [tracks, artistTitle]);
+  }, [tracks, canonicalArtistName]);
 
   const handlePlayAll = () => {
     if (playlistTracks.length === 0) return;
@@ -148,7 +165,6 @@ export default function Artist() {
         setLoading(true);
         setError(null);
 
-        // Route param is a safe slug (artist_key). Fetch via query param so names with '/' never break.
         setArtistTitle(artistKey);
 
         const json = await fetchArtistByKey(artistKey, { force: reloadNonce > 0 });
@@ -229,7 +245,7 @@ export default function Artist() {
     return (
       <div className="p-4 max-w-4xl mx-auto pb-32">
         <div className="mb-6">
-          <h1 className="text-2xl font-bold truncate">{artistTitle || "Artist"}</h1>
+          <h1 className="text-2xl font-bold truncate">{canonicalArtistName || "Artist"}</h1>
           <div className="text-sm text-muted-foreground mt-1">Artist is being prepared. Please retry.</div>
           <div className="mt-4">
             <Button type="button" onClick={retry}>
@@ -251,7 +267,7 @@ export default function Artist() {
     );
   }
 
-  const displayInitial = (artistName || "?").trim()[0]?.toUpperCase() ?? "?";
+  const displayInitial = (canonicalArtistName || "?").trim()[0]?.toUpperCase() ?? "?";
 
   return (
     <div className="relative">
@@ -275,7 +291,7 @@ export default function Artist() {
               {artistMedia?.thumbnail_url ? (
                 <img
                   src={artistMedia.thumbnail_url}
-                  alt={artistName || "Artist"}
+                  alt={canonicalArtistName || "Artist"}
                   className="w-full h-full object-cover"
                   loading="lazy"
                 />
@@ -285,7 +301,7 @@ export default function Artist() {
             </div>
           </div>
 
-          <h1 className="font-black text-[26px] leading-tight truncate">{artistName || "Artist"}</h1>
+          <h1 className="font-black text-[26px] leading-tight truncate">{canonicalArtistName || "Artist"}</h1>
           <p className="text-sm text-muted-foreground mt-1">
             {formatCount(tracks.length)} tracks • {formatCount(playlists.length)} playlists
           </p>
@@ -344,17 +360,21 @@ export default function Artist() {
             </div>
           ) : (
             <div className="px-4 space-y-2">
-              {tracks.map((t) => (
-                <TrackCard
-                  key={t.id}
-                  id={t.id}
-                  title={t.title}
-                  artist={t.artist_name || artistName || "Unknown artist"}
-                  imageUrl={t.cover_url || null}
-                  youtubeId={t.youtube_video_id}
-                  duration={t.duration ?? null}
-                />
-              ))}
+              {tracks.map((t) => {
+                const cleanTitle = cleanTrackTitle(t.title, canonicalArtistName);
+
+                return (
+                  <TrackCard
+                    key={t.id}
+                    id={t.id}
+                    title={cleanTitle}
+                    artist={canonicalArtistName}
+                    imageUrl={t.cover_url || null}
+                    youtubeId={t.youtube_video_id}
+                    duration={t.duration ?? null}
+                  />
+                );
+              })}
             </div>
           )}
         </section>
