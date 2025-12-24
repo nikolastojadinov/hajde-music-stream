@@ -18,8 +18,7 @@ const PLAYLIST_TRACKS_TABLE = 'playlist_tracks';
 const TRACK_SELECT_CHUNK_SIZE = 400;
 const TRACK_UPSERT_CHUNK_SIZE = 200;
 const PLAYLIST_TRACKS_CHUNK_SIZE = 500;
-
-const PLAYLIST_REFRESH_BATCH_SIZE = parseInt(process.env.PLAYLIST_REFRESH_BATCH_SIZE || '50', 10);
+const ARTIST_UPSERT_CHUNK_SIZE = 200;
 const YOUTUBE_API_BASE = 'https://www.googleapis.com/youtube/v3';
 const YOUTUBE_PAGE_SIZE = 50;
 const PLAYLIST_TRACK_LIMIT = 500;
@@ -84,6 +83,14 @@ type TrackUpsertRecord = {
   last_synced_at: string;
   region: string | null;
   category: string | null;
+};
+
+type ArtistUpsertRecord = {
+  artist: string;
+  artist_key: string;
+  youtube_channel_id: string;
+  thumbnail_url: string | null;
+  source: 'youtube';
 };
 
 type PlaylistTrackInsert = {
@@ -267,60 +274,35 @@ async function runBatchRefresh(job: RefreshJobRow): Promise<BatchResult> {
   });
 
   const { playlistIds, channelIds } = await resolveBatchFile(job);
-
-  if (channelIds.length > 0) {
-    return await runChannelBatch(channelIds, job, refreshSessionId);
-  }
-
-  const { playlists, mixSkipped } = await loadPlaylistsForRefresh(playlistIds);
-
-  const result: BatchResult = {
-    playlistCount: playlists.length,
+  const aggregate: BatchResult = {
+    playlistCount: 0,
     successCount: 0,
     failureCount: 0,
-    skippedCount: mixSkipped,
+    skippedCount: 0,
     errors: [],
     diagnostics: {},
   };
 
-  for (const playlist of playlists) {
-    const diagnostics: PlaylistRefreshDiagnostics = {
-      partial_refresh: false,
-      fetched_pages: 0,
-      fetched_items: 0,
-      total_available: null,
-    };
+  if (channelIds.length > 0) {
+    const channelResult = await runChannelBatch(channelIds, job, refreshSessionId);
+    mergeBatchResults(aggregate, channelResult);
+  }
 
-    try {
-      const skipped = await refreshSinglePlaylist(playlist, diagnostics);
-      result.diagnostics[playlist.id] = { ...diagnostics };
-      if (skipped) {
-        result.skippedCount += 1;
-      } else {
-        result.successCount += 1;
-      }
-    } catch (error) {
-      result.diagnostics[playlist.id] = { ...diagnostics };
-      result.failureCount += 1;
-      const message = error instanceof Error ? error.message : 'Unknown playlist refresh error';
-      result.errors.push({ playlistId: playlist.id, message });
-      console.error('[runBatch] Playlist refresh failed', {
-        playlistId: playlist.id,
-        youtubePlaylistId: playlist.external_id,
-        message,
-      });
-    }
+  if (playlistIds.length > 0) {
+    const playlistResult = await runPlaylistBatch(playlistIds, refreshSessionId);
+    mergeBatchResults(aggregate, playlistResult);
   }
 
   diagLog('runBatchRefresh.complete', {
     refreshSessionId,
     resultSummary: {
-      success: result.successCount,
-      failure: result.failureCount,
-      skipped: result.skippedCount,
+      success: aggregate.successCount,
+      failure: aggregate.failureCount,
+      skipped: aggregate.skippedCount,
     },
   });
-  return result;
+
+  return aggregate;
 }
 
 async function runChannelBatch(channelIds: string[], job: RefreshJobRow, refreshSessionId: string): Promise<BatchResult> {
@@ -390,6 +372,69 @@ async function runChannelBatch(channelIds: string[], job: RefreshJobRow, refresh
   return result;
 }
 
+async function runPlaylistBatch(playlistIds: string[], refreshSessionId: string): Promise<BatchResult> {
+  const { playlists, mixSkipped } = await loadPlaylistsForRefresh(playlistIds);
+
+  const result: BatchResult = {
+    playlistCount: playlists.length,
+    successCount: 0,
+    failureCount: 0,
+    skippedCount: mixSkipped,
+    errors: [],
+    diagnostics: {},
+  };
+
+  for (const playlist of playlists) {
+    const diagnostics: PlaylistRefreshDiagnostics = {
+      partial_refresh: false,
+      fetched_pages: 0,
+      fetched_items: 0,
+      total_available: null,
+    };
+
+    try {
+      const skipped = await refreshSinglePlaylist(playlist, diagnostics);
+      result.diagnostics[playlist.id] = { ...diagnostics };
+      if (skipped) {
+        result.skippedCount += 1;
+      } else {
+        result.successCount += 1;
+      }
+    } catch (error) {
+      result.diagnostics[playlist.id] = { ...diagnostics };
+      result.failureCount += 1;
+      const message = error instanceof Error ? error.message : 'Unknown playlist refresh error';
+      result.errors.push({ playlistId: playlist.id, message });
+      console.error('[runBatch] Playlist refresh failed', {
+        playlistId: playlist.id,
+        youtubePlaylistId: playlist.external_id,
+        message,
+        refreshSessionId,
+      });
+    }
+  }
+
+  diagLog('runPlaylistBatch.complete', {
+    refreshSessionId,
+    playlistCount: result.playlistCount,
+    mixSkipped,
+    success: result.successCount,
+    failure: result.failureCount,
+    skipped: result.skippedCount,
+  });
+
+  return result;
+}
+
+function mergeBatchResults(target: BatchResult, addition: BatchResult): void {
+  target.playlistCount += addition.playlistCount;
+  target.successCount += addition.successCount;
+  target.failureCount += addition.failureCount;
+  target.skippedCount += addition.skippedCount;
+  target.errors.push(...addition.errors);
+  target.diagnostics = { ...target.diagnostics, ...addition.diagnostics };
+}
+
 async function upsertArtistFromChannel(channel: { id: string; title: string; thumbnailUrl?: string | null; bannerUrl?: string | null; subscribers?: number | null; views?: number | null; country?: string | null }): Promise<void> {
   if (!supabase) throw new Error('Supabase client unavailable');
 
@@ -444,61 +489,70 @@ async function upsertChannelPlaylists(playlists: ChannelPlaylist[], fallbackChan
 
 async function resolveBatchFile(job: RefreshJobRow): Promise<{ filePath: string; playlistIds: string[]; channelIds: string[] }> {
   const filePath = path.join(BATCH_DIR, `batch_${job.day_key}_slot_${job.slot_index}.json`);
+  let raw: string;
   try {
-    const raw = await fs.readFile(filePath, 'utf-8');
-    const parsed = JSON.parse(raw) as BatchFileEntry[];
-    const playlistIds = Array.isArray(parsed)
-      ? parsed.map(entry => entry?.playlistId).filter((id): id is string => Boolean(id))
-      : [];
-    const channelIds = Array.isArray(parsed)
-      ? parsed.map(entry => entry?.channelId).filter((id): id is string => Boolean(id))
-      : [];
-    diagLog('resolveBatchFile.success', { filePath, playlistIdsCount: playlistIds.length, channelIdsCount: channelIds.length });
-    return { filePath, playlistIds, channelIds };
+    raw = await fs.readFile(filePath, 'utf-8');
   } catch (error) {
     diagLog('resolveBatchFile.miss', { filePath, error: error instanceof Error ? error.message : String(error) });
-    return { filePath, playlistIds: [], channelIds: [] };
+    throw new Error(`Batch file missing at ${filePath}`);
   }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    diagLog('resolveBatchFile.invalidJson', { filePath, error: error instanceof Error ? error.message : String(error) });
+    throw new Error(`Invalid JSON in batch file ${filePath}`);
+  }
+
+  if (!Array.isArray(parsed) || parsed.length === 0) {
+    diagLog('resolveBatchFile.empty', { filePath });
+    throw new Error(`Batch file ${filePath} is empty or invalid`);
+  }
+
+  const playlistIds = parsed
+    .map(entry => (entry as BatchFileEntry)?.playlistId)
+    .filter((id): id is string => Boolean(id));
+  const channelIds = parsed
+    .map(entry => (entry as BatchFileEntry)?.channelId)
+    .filter((id): id is string => Boolean(id));
+
+  if (playlistIds.length === 0 && channelIds.length === 0) {
+    diagLog('resolveBatchFile.noTargets', { filePath });
+    throw new Error(`Batch file ${filePath} does not contain playlistIds or channelIds`);
+  }
+
+  diagLog('resolveBatchFile.success', { filePath, playlistIdsCount: playlistIds.length, channelIdsCount: channelIds.length });
+  return { filePath, playlistIds, channelIds };
 }
 
-async function loadPlaylistsForRefresh(
-  requestedIds?: string[],
-): Promise<{ playlists: PlaylistRow[]; mixSkipped: number }> {
-  let mixSkipped = 0;
-  let rows: PlaylistRow[] = [];
-
-  if (requestedIds && requestedIds.length > 0) {
-    const { data, error } = await supabase!
-      .from(PLAYLIST_TABLE)
-      .select(
-        'id, external_id, title, description, channel_id, channel_title, region, category, last_refreshed_on, last_etag, fetched_on, item_count',
-      )
-      .in('id', requestedIds);
-
-    if (error) {
-      throw new Error(`Failed to load playlists: ${error.message}`);
-    }
-
-    const map = new Map((data || []).map(row => [row.id, row as PlaylistRow]));
-    rows = requestedIds.map(id => map.get(id)).filter((row): row is PlaylistRow => Boolean(row));
-  } else {
-    const { data, error } = await supabase!
-      .from(PLAYLIST_TABLE)
-      .select(
-        'id, external_id, title, description, channel_id, channel_title, region, category, last_refreshed_on, last_etag, fetched_on, item_count',
-      )
-      .order('last_refreshed_on', { ascending: true, nullsFirst: true })
-      .limit(PLAYLIST_REFRESH_BATCH_SIZE);
-
-    if (error) {
-      throw new Error(`Failed to load playlists: ${error.message}`);
-    }
-
-    rows = (data as PlaylistRow[]) || [];
+async function loadPlaylistsForRefresh(requestedIds: string[]): Promise<{ playlists: PlaylistRow[]; mixSkipped: number }> {
+  if (!supabase) throw new Error('Supabase client unavailable');
+  if (!requestedIds || requestedIds.length === 0) {
+    throw new Error('No playlistIds provided for refresh');
   }
 
+  const { data, error } = await supabase
+    .from(PLAYLIST_TABLE)
+    .select(
+      'id, external_id, title, description, channel_id, channel_title, region, category, last_refreshed_on, last_etag, fetched_on, item_count',
+    )
+    .in('id', requestedIds);
+
+  if (error) {
+    throw new Error(`Failed to load playlists: ${error.message}`);
+  }
+
+  const map = new Map((data || []).map(row => [row.id, row as PlaylistRow]));
+  const missing = requestedIds.filter(id => !map.has(id));
+  if (missing.length > 0) {
+    throw new Error(`Missing playlists for ids: ${missing.join(',')}`);
+  }
+
+  let mixSkipped = 0;
   const playlists: PlaylistRow[] = [];
-  for (const row of rows) {
+  for (const id of requestedIds) {
+    const row = map.get(id)!;
     if (isMixPlaylist(row.external_id)) {
       mixSkipped += 1;
       continue;
@@ -874,6 +928,9 @@ async function syncPlaylistTracksFull(
 ): Promise<void> {
   if (youtubeItems.length === 0) return;
 
+  const artistRecords = buildArtistUpsertsFromItems(youtubeItems, playlist);
+  await upsertArtistsForPlaylistItems(artistRecords);
+
   // 1) Upsert tracks — prvo deduplikacija po external_id
   const rawTrackRecords: TrackUpsertRecord[] = youtubeItems.map(item => ({
     youtube_id: item.videoId,
@@ -983,6 +1040,51 @@ async function syncPlaylistTracksFull(
 
     if (error) {
       throw new Error(`Failed to insert playlist_tracks: ${error.message}`);
+    }
+  }
+}
+
+function buildArtistUpsertsFromItems(youtubeItems: YouTubePlaylistItem[], playlist: PlaylistRow): ArtistUpsertRecord[] {
+  const artistMap = new Map<string, ArtistUpsertRecord>();
+
+  for (const item of youtubeItems) {
+    const channelId = item.videoOwnerChannelId ?? playlist.channel_id;
+    if (!channelId) {
+      throw new Error(`Missing youtube channel id for playlist item ${item.videoId} in playlist ${playlist.id}`);
+    }
+
+    const artistName = item.channelTitle ?? playlist.channel_title ?? 'Unknown Artist';
+    const thumbnail = item.thumbnailUrl ?? null;
+
+    const existing = artistMap.get(channelId);
+    if (!existing) {
+      artistMap.set(channelId, {
+        artist: artistName,
+        artist_key: normalizeArtistKey(artistName),
+        youtube_channel_id: channelId,
+        thumbnail_url: thumbnail,
+        source: 'youtube',
+      });
+    } else if (!existing.thumbnail_url && thumbnail) {
+      artistMap.set(channelId, { ...existing, thumbnail_url: thumbnail });
+    }
+  }
+
+  return Array.from(artistMap.values());
+}
+
+async function upsertArtistsForPlaylistItems(artistRecords: ArtistUpsertRecord[]): Promise<void> {
+  if (!supabase) throw new Error('Supabase client unavailable');
+  if (artistRecords.length === 0) return;
+
+  const chunks = chunkArray(artistRecords, ARTIST_UPSERT_CHUNK_SIZE);
+  for (const chunk of chunks) {
+    const { error } = await supabase
+      .from('artists')
+      .upsert(chunk, { onConflict: 'youtube_channel_id' });
+
+    if (error) {
+      throw new Error(`Failed to upsert artists: ${error.message}`);
     }
   }
 }
