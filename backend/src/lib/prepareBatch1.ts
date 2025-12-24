@@ -1,10 +1,10 @@
 // backend/src/lib/prepareBatch1.ts
-// FULL REWRITE — uses service role Supabase client ONLY
+// FULL REWRITE — uses existing service-role Supabase client
 
 import path from 'path';
 import { promises as fs } from 'fs';
 import { DateTime } from 'luxon';
-import { supabaseAdmin } from '../services/supabaseAdmin';
+import supabase from '../services/supabaseClient';
 
 const TIMEZONE = 'Europe/Budapest';
 const CHANNEL_LIMIT = 200;
@@ -72,7 +72,7 @@ export async function executePrepareJob(job: RefreshJobRow): Promise<void> {
 }
 
 async function fetchSeedChannels(): Promise<SeedChannelRow[]> {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabase
     .from('seeds_channels')
     .select('channel_id')
     .order('added_on', { ascending: true })
@@ -84,12 +84,13 @@ async function fetchSeedChannels(): Promise<SeedChannelRow[]> {
   }
 
   return (data ?? []).filter(
-    (r) => typeof r.channel_id === 'string' && r.channel_id.trim().length > 0
+    (r: SeedChannelRow) =>
+      typeof r.channel_id === 'string' && r.channel_id.trim().length > 0
   );
 }
 
 async function finalizeJob(jobId: string, payload: Record<string, unknown>): Promise<void> {
-  const { error } = await supabaseAdmin
+  const { error } = await supabase
     .from(JOB_TABLE)
     .update({
       status: 'done',
