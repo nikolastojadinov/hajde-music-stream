@@ -1,9 +1,10 @@
 // backend/src/lib/prepareBatch1.ts
+// FULL REWRITE — uses service role Supabase client ONLY
 
 import path from 'path';
 import { promises as fs } from 'fs';
 import { DateTime } from 'luxon';
-import supabase from '../services/supabaseClient';
+import { supabaseAdmin } from '../services/supabaseAdmin';
 
 const TIMEZONE = 'Europe/Budapest';
 const CHANNEL_LIMIT = 200;
@@ -49,10 +50,7 @@ export async function executePrepareJob(job: RefreshJobRow): Promise<void> {
       channelId: c.channel_id,
     }));
 
-    const filePath = path.join(
-      BATCH_DIR,
-      `batch_${job.day_key}.json`
-    );
+    const filePath = path.join(BATCH_DIR, `batch_${job.day_key}.json`);
 
     await fs.writeFile(filePath, JSON.stringify(payload, null, 2), 'utf-8');
 
@@ -67,28 +65,42 @@ export async function executePrepareJob(job: RefreshJobRow): Promise<void> {
     });
   } catch (err) {
     console.error('[PrepareBatch1] Error', err);
-    await finalizeJob(job.id, { error: (err as Error).message });
+    await finalizeJob(job.id, {
+      error: err instanceof Error ? err.message : 'Unknown error',
+    });
   }
 }
 
 async function fetchSeedChannels(): Promise<SeedChannelRow[]> {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('seeds_channels')
     .select('channel_id')
     .order('added_on', { ascending: true })
     .limit(CHANNEL_LIMIT);
 
-  if (error) throw error;
-  return (data || []).filter((r) => r.channel_id && r.channel_id.trim().length > 0);
+  if (error) {
+    console.error('[PrepareBatch1] Failed to fetch seed channels', error);
+    throw error;
+  }
+
+  return (data ?? []).filter(
+    (r) => typeof r.channel_id === 'string' && r.channel_id.trim().length > 0
+  );
 }
 
 async function finalizeJob(jobId: string, payload: Record<string, unknown>): Promise<void> {
-  const { error } = await supabase
+  const { error } = await supabaseAdmin
     .from(JOB_TABLE)
-    .update({ status: 'done', payload })
+    .update({
+      status: 'done',
+      payload,
+    })
     .eq('id', jobId);
 
   if (error) {
-    console.error('[PrepareBatch1] Failed to update job', error);
+    console.error('[PrepareBatch1] Failed to update job', {
+      jobId,
+      error,
+    });
   }
 }
