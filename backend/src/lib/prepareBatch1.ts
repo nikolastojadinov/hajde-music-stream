@@ -25,52 +25,44 @@ type RefreshJobRow = {
 
 type SeedChannelRow = {
   channel_id: string;
-  name?: string | null;
 };
 
 export async function executePrepareJob(job: RefreshJobRow): Promise<void> {
   const scheduledLocal = DateTime.fromISO(job.scheduled_at, { zone: 'utc' }).setZone(TIMEZONE);
 
-  console.log('[PrepareBatch1] Starting prepare job', {
+  console.log('[PrepareBatch1] Starting', {
     jobId: job.id,
-    slot: job.slot_index,
-    dayKey: job.day_key,
-    scheduledAtBudapest: scheduledLocal.toISO()
+    scheduledAt: scheduledLocal.toISO(),
   });
 
   if (job.type !== 'prepare') {
-    await finalizeJob(job.id, { error: `Unexpected job type ${job.type}` });
+    await finalizeJob(job.id, { error: 'Invalid job type' });
     return;
   }
 
   try {
     await fs.mkdir(BATCH_DIR, { recursive: true });
 
-    // Channels are the new driver for batch jobs
     const channels = await fetchSeedChannels();
 
-    console.log('[PrepareBatch1] Channels fetched:', channels.length);
-
-    const batchPayload = channels.map((c) => ({
+    const payload = channels.map((c) => ({
       channelId: c.channel_id,
-      artist: c.name ?? undefined,
     }));
 
     const filePath = path.join(
       BATCH_DIR,
-      `batch_${job.day_key}_slot_${job.slot_index}.json`
+      `batch_${job.day_key}.json`
     );
 
-    await fs.writeFile(filePath, JSON.stringify(batchPayload, null, 2), 'utf-8');
+    await fs.writeFile(filePath, JSON.stringify(payload, null, 2), 'utf-8');
 
     await finalizeJob(job.id, {
       file: filePath,
-      entries: batchPayload.length,
+      channels: payload.length,
     });
 
-    console.log('[PrepareBatch1] Job completed', {
-      jobId: job.id,
-      count: batchPayload.length,
+    console.log('[PrepareBatch1] Completed', {
+      count: payload.length,
       filePath,
     });
   } catch (err) {
@@ -82,26 +74,21 @@ export async function executePrepareJob(job: RefreshJobRow): Promise<void> {
 async function fetchSeedChannels(): Promise<SeedChannelRow[]> {
   const { data, error } = await supabase
     .from('seeds_channels')
-    .select('channel_id, name')
+    .select('channel_id')
     .order('added_on', { ascending: true })
     .limit(CHANNEL_LIMIT);
 
-  if (error) {
-    console.error('[PrepareBatch1] Failed to fetch seed channels', error);
-    throw error;
-  }
-
-  const rows = Array.isArray(data) ? (data as SeedChannelRow[]) : [];
-  return rows.filter((row) => typeof row.channel_id === 'string' && row.channel_id.trim().length > 0);
+  if (error) throw error;
+  return (data || []).filter((r) => r.channel_id && r.channel_id.trim().length > 0);
 }
 
-async function finalizeJob(jobId: string, payload: Record<string, unknown>) {
+async function finalizeJob(jobId: string, payload: Record<string, unknown>): Promise<void> {
   const { error } = await supabase
     .from(JOB_TABLE)
     .update({ status: 'done', payload })
     .eq('id', jobId);
 
   if (error) {
-    console.error('[PrepareBatch1] Failed to update job status', error);
+    console.error('[PrepareBatch1] Failed to update job', error);
   }
 }
