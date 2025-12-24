@@ -269,7 +269,10 @@ export default function Search() {
   const handleSuggestionClick = async (s: Suggestion) => {
     const nextMode: SearchResolveMode =
       s.type === "artist" ? "artist" : s.type === "track" ? "track" : s.type === "album" ? "album" : "generic";
-    const nextQuery = s.type === "track" && s.subtitle ? `${s.name} ${s.subtitle}` : s.name;
+
+    const nextQuery = (s.name || "").trim();
+    if (!nextQuery) return;
+
     setQuery(nextQuery);
     setSuggestOpen(false);
 
