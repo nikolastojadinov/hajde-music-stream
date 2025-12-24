@@ -8,6 +8,7 @@ export type SearchTrackRow = {
   title: string;
   artist: string;
   external_id: string | null;
+  youtube_id: string | null;
   cover_url: string | null;
   duration: number | null;
 };
@@ -31,6 +32,7 @@ export type SearchArtistChannelRow = {
 
 // For artist queries, limit title matches to prioritize playlists containing the artist's tracks
 const ARTIST_QUERY_TITLE_MATCH_LIMIT = 20;
+const TRACK_FIELDS = 'id, title, artist, external_id, youtube_id, cover_url, duration';
 
 let supabase: SupabaseClient;
 
@@ -47,14 +49,14 @@ if (env.supabase_url && env.supabase_service_role_key) {
 
   try {
     const url = new URL(env.supabase_url);
-    console.log("[Supabase] configured", {
+    console.log('[Supabase] configured', {
       host: url.host,
       serviceRoleKeyPresent: true,
       serviceRoleKeyLength: env.supabase_service_role_key.length,
     });
   } catch {
-    console.log("[Supabase] configured", {
-      host: "invalid-url",
+    console.log('[Supabase] configured', {
+      host: 'invalid-url',
       serviceRoleKeyPresent: true,
       serviceRoleKeyLength: env.supabase_service_role_key.length,
     });
@@ -85,29 +87,6 @@ function escapeLikePatternLiteral(value: string): string {
     .replace(/'/g, "''");
 }
 
-async function searchTracksAllTokens(words: string[], limit: number) {
-  const wordsArrayLiteral = words
-    .map((w) => `'${escapeLikePatternLiteral(w)}'`)
-    .join(',');
-
-  const sql = `
-    with q as (
-      select unnest(array[${wordsArrayLiteral}]) as w
-    )
-    select id, title, artist, external_id, cover_url, duration
-    from tracks t
-    where not exists (
-      select 1
-      from q
-      where (t.title ilike '%'||w||'%' escape '\\' or t.artist ilike '%'||w||'%' escape '\\') is false
-    )
-    order by t.created_at desc
-    limit ${limit}
-  `;
-
-  return supabase.rpc('run_raw', { sql });
-}
-
 export async function searchTracksForQuery(q: string, options?: { limit?: number; prioritizeArtistMatch?: boolean; artistChannelId?: string | null }): Promise<SearchTrackRow[]> {
   const query = normalizeQuery(q);
   if (!supabase || query.length < 2) return [];
@@ -131,22 +110,22 @@ export async function searchTracksForQuery(q: string, options?: { limit?: number
       try {
         result = await supabase
           .from('tracks')
-          .select('id, title, artist, external_id, cover_url, duration')
+          .select(TRACK_FIELDS)
           .eq('artist_channel_id', artistChannelId)
           .order('created_at', { ascending: false })
           .limit(limit);
-        
+
         // If channel query returns results, supplement with artist name matches (up to limit)
         if (result.data && result.data.length > 0 && result.data.length < limit) {
           const remaining = limit - result.data.length;
           try {
             const nameResult = await supabase
               .from('tracks')
-              .select('id, title, artist, external_id, cover_url, duration')
+              .select(TRACK_FIELDS)
               .or(orClause)
               .order('created_at', { ascending: false })
               .limit(remaining);
-            
+
             if (nameResult.data && nameResult.data.length > 0) {
               // Dedupe by id
               const existingIds = new Set(result.data.map((t: SearchTrackRow) => t.id));
@@ -161,12 +140,12 @@ export async function searchTracksForQuery(q: string, options?: { limit?: number
             });
           }
         }
-        
+
         // If no channel results, fall back to artist name match
         if (!result.data || result.data.length === 0) {
           result = await supabase
             .from('tracks')
-            .select('id, title, artist, external_id, cover_url, duration')
+            .select(TRACK_FIELDS)
             .or(orClause)
             .order('created_at', { ascending: false })
             .limit(limit);
@@ -179,7 +158,7 @@ export async function searchTracksForQuery(q: string, options?: { limit?: number
         });
         result = await supabase
           .from('tracks')
-          .select('id, title, artist, external_id, cover_url, duration')
+          .select(TRACK_FIELDS)
           .or(orClause)
           .order('created_at', { ascending: false })
           .limit(limit);
@@ -188,16 +167,16 @@ export async function searchTracksForQuery(q: string, options?: { limit?: number
       // First try exact artist match (case-insensitive)
       result = await supabase
         .from('tracks')
-        .select('id, title, artist, external_id, cover_url, duration')
+        .select(TRACK_FIELDS)
         .ilike('artist', likePattern)
         .order('created_at', { ascending: false })
         .limit(limit);
-      
+
       // No exact matches, fall back to partial match
       if (!result.data || result.data.length === 0) {
         result = await supabase
           .from('tracks')
-          .select('id, title, artist, external_id, cover_url, duration')
+          .select(TRACK_FIELDS)
           .or(orClause)
           .order('created_at', { ascending: false })
           .limit(limit);
@@ -206,7 +185,7 @@ export async function searchTracksForQuery(q: string, options?: { limit?: number
       // Generic search - use partial match
       result = await supabase
         .from('tracks')
-        .select('id, title, artist, external_id, cover_url, duration')
+        .select(TRACK_FIELDS)
         .or(orClause)
         .order('created_at', { ascending: false })
         .limit(limit);
@@ -218,7 +197,7 @@ export async function searchTracksForQuery(q: string, options?: { limit?: number
       const arr = words.map((w) => `'${escapeLikePatternLiteral(w)}'`).join(',');
       const sql = `
         with q as (select unnest(array[${arr}]) as w)
-        select id, title, artist, external_id, cover_url, duration
+        select id, title, artist, external_id, youtube_id, cover_url, duration
         from tracks t
         where not exists (
           select 1 from q
@@ -251,8 +230,7 @@ export async function searchTracksForQuery(q: string, options?: { limit?: number
       return [];
     }
 
-    let tracks = (result.data || []) as SearchTrackRow[];
-
+    const tracks = (result.data || []) as SearchTrackRow[];
     return tracks;
   } catch (err: any) {
     status = 'error';
@@ -302,7 +280,7 @@ export async function searchPlaylistsDualForQuery(q: string, options?: { limit?:
       }
 
       const playlists = (channelPlaylists.data || []) as SearchPlaylistRow[];
-      
+
       // For artist queries, return channel playlists as both title and artist matches
       return {
         playlists_by_title: playlists,
@@ -314,7 +292,7 @@ export async function searchPlaylistsDualForQuery(q: string, options?: { limit?:
     const likePatternLiteral = `'%${escapeLikePatternLiteral(query)}%'`;
 
     // For artist queries, use exact match on artist field to get better results
-    const artistWhereClause = prioritizeArtistMatch 
+    const artistWhereClause = prioritizeArtistMatch
       ? `lower(t.artist) = lower(${queryLiteral})`
       : `t.artist ilike ${likePatternLiteral} escape '\\\\'`;
 
