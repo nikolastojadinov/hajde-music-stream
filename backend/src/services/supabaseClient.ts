@@ -28,6 +28,7 @@ export type DualPlaylistSearchResult = {
 export type SearchArtistChannelRow = {
   name: string;
   youtube_channel_id: string;
+  thumbnail_url?: string | null;
 };
 
 // For artist queries, limit title matches to prioritize playlists containing the artist's tracks
@@ -371,11 +372,19 @@ export async function searchArtistChannelsForQuery(q: string): Promise<SearchArt
   let errorMessage: string | null = null;
 
   try {
+    const likePattern = `%${escapeLikePatternLiteral(query)}%`;
+    const orFilters = [`artist.ilike.${likePattern}`];
+    // If user pasted a channel id, try to match it directly to avoid re-ingest.
+    if (query.length > 10) {
+      orFilters.push(`youtube_channel_id.eq.${escapeSqlStringLiteral(query)}`);
+    }
+
     const result = await supabase
-      .from('youtube_channels')
-      .select('name, youtube_channel_id')
-      .ilike('name', `%${query}%`)
-      .limit(3);
+      .from('artists')
+      .select('artist, youtube_channel_id, thumbnail_url')
+      .or(orFilters.join(','))
+      .order('artist', { ascending: true })
+      .limit(5);
 
     if (result.error) {
       status = 'error';
@@ -384,20 +393,20 @@ export async function searchArtistChannelsForQuery(q: string): Promise<SearchArt
       return [];
     }
 
-    const rows = (result.data || []) as Array<{
-      name?: unknown;
-      youtube_channel_id?: unknown;
-    }>;
-
+    const rows = (result.data || []) as Array<{ artist?: unknown; youtube_channel_id?: unknown; thumbnail_url?: unknown }>;
+    const seen = new Set<string>();
     const normalized: SearchArtistChannelRow[] = [];
+
     for (const r of rows) {
-      const name = typeof r.name === 'string' ? r.name.trim() : '';
+      const name = typeof r.artist === 'string' ? r.artist.trim() : '';
       const youtube_channel_id = typeof r.youtube_channel_id === 'string' ? r.youtube_channel_id.trim() : '';
+      const thumbnail_url = typeof r.thumbnail_url === 'string' ? r.thumbnail_url.trim() : null;
 
-      if (!name) continue;
-      if (!youtube_channel_id) continue;
+      if (!name || !youtube_channel_id) continue;
+      if (seen.has(youtube_channel_id)) continue;
 
-      normalized.push({ name, youtube_channel_id });
+      seen.add(youtube_channel_id);
+      normalized.push({ name, youtube_channel_id, thumbnail_url });
     }
 
     return normalized;

@@ -118,8 +118,9 @@ function mapPlaylistRow(row: SearchPlaylistRow): LocalPlaylist {
 function mapArtistChannelRow(row: SearchArtistChannelRow): LocalArtistChannel | null {
   const title = typeof row.name === "string" ? row.name.trim() : "";
   const channelId = typeof row.youtube_channel_id === "string" ? row.youtube_channel_id.trim() : "";
+  const thumb = typeof (row as any).thumbnail_url === "string" ? (row as any).thumbnail_url.trim() : null;
   if (!title || !channelId) return null;
-  return { channelId, title, thumbnailUrl: null };
+  return { channelId, title, thumbnailUrl: thumb || null };
 }
 
 function mergePlaylists(byTitle: LocalPlaylist[], byArtist: LocalPlaylist[]): LocalPlaylist[] {
