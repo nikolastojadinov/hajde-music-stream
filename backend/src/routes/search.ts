@@ -1,4 +1,5 @@
 import { Router, type Request } from "express";
+import { type SupabaseClient } from "@supabase/supabase-js";
 
 import supabase, {
   searchArtistChannelsForQuery,
@@ -15,6 +16,7 @@ import { ingestArtistFromYouTubeByChannelId } from "../services/youtubeIngestSer
 import { MAX_SUGGESTIONS, type SuggestEnvelope, type SuggestionItem } from "../types/suggest";
 import { isOlakPlaylistId } from "../utils/olak";
 import { piAuth } from "../middleware/piAuth";
+import { getUserSupabaseClient } from "../lib/supabase";
 
 const router = Router();
 
@@ -68,7 +70,6 @@ type RecentEntityType = "artist" | "song" | "playlist" | "album" | "generic";
 
 type RecentSearchRow = {
   id: number;
-  user_id: string;
   query: string;
   entity_type: RecentEntityType;
   entity_id: string | null;
@@ -157,16 +158,6 @@ function hasAnyResults(result: LocalSearchResult, mode: ResolveMode): boolean {
   return result.tracks.length > 0 || result.mergedPlaylists.length > 0 || result.artist_channels.length > 0;
 }
 
-function getRequestUserId(req: Request): string | null {
-  const piUser = (req as any).user as { id?: string } | undefined;
-  const sessionUser = req.currentUser?.uid ?? null;
-  const headerUser = typeof req.headers["x-pi-user-id"] === "string" ? (req.headers["x-pi-user-id"] as string) : null;
-
-  const raw = (piUser?.id as string | undefined) || sessionUser || headerUser || "";
-  const trimmed = typeof raw === "string" ? raw.trim() : "";
-  return trimmed || null;
-}
-
 function normalizeEntityId(value: unknown): string | null {
   const v = typeof value === "string" ? value.trim() : "";
   return v || null;
@@ -178,13 +169,10 @@ function normalizeRecentEntityType(value: unknown): RecentEntityType {
   return "generic";
 }
 
-async function fetchRecentSearches(userId: string): Promise<RecentSearchRow[]> {
-  if (!supabase) return [];
-
-  const { data, error } = await supabase
+async function fetchRecentSearches(userSupabase: SupabaseClient): Promise<RecentSearchRow[]> {
+  const { data, error } = await userSupabase
     .from("user_recent_searches")
-    .select("id, user_id, query, entity_type, entity_id, created_at, last_used_at, use_count")
-    .eq("user_id", userId)
+    .select("id, query, entity_type, entity_id, created_at, last_used_at, use_count")
     .order("last_used_at", { ascending: false })
     .limit(MAX_RECENT_SEARCHES);
 
@@ -388,17 +376,13 @@ function buildSearchResponse(q: string, result: LocalSearchResult, artistIngeste
 // Recent searches (Pi-authenticated)
 
 router.get("/recent", piAuth, async (req, res) => {
-  if (!supabase) {
-    return res.status(503).json({ error: "Search unavailable" });
-  }
-
-  const userId = getRequestUserId(req);
-  if (!userId) {
-    return res.status(401).json({ error: "user_not_authenticated" });
+  const { client: userSupabase, status, error: clientError } = getUserSupabaseClient(req);
+  if (!userSupabase) {
+    return res.status(status).json({ error: clientError ?? "supabase_client_unavailable" });
   }
 
   try {
-    const items = await fetchRecentSearches(userId);
+    const items = await fetchRecentSearches(userSupabase);
     return res.json({ items });
   } catch (err: any) {
     console.error(`${LOG_PREFIX} recent_list_error`, { message: err?.message || "unknown" });
@@ -407,13 +391,9 @@ router.get("/recent", piAuth, async (req, res) => {
 });
 
 router.post("/recent", piAuth, async (req, res) => {
-  if (!supabase) {
-    return res.status(503).json({ error: "Search unavailable" });
-  }
-
-  const userId = getRequestUserId(req);
-  if (!userId) {
-    return res.status(401).json({ error: "user_not_authenticated" });
+  const { client: userSupabase, status, error: clientError } = getUserSupabaseClient(req);
+  if (!userSupabase) {
+    return res.status(status).json({ error: clientError ?? "supabase_client_unavailable" });
   }
 
   const body = req.body || {};
@@ -426,8 +406,7 @@ router.post("/recent", piAuth, async (req, res) => {
   }
 
   try {
-    const { data, error } = await supabase.rpc("upsert_user_recent_search", {
-      p_user_id: userId,
+    const { data, error } = await userSupabase.rpc("upsert_user_recent_search", {
       p_query: query,
       p_entity_type: entityType,
       p_entity_id: entityId,
@@ -438,7 +417,7 @@ router.post("/recent", piAuth, async (req, res) => {
       return res.status(500).json({ error: "recent_upsert_failed" });
     }
 
-    const items = await fetchRecentSearches(userId);
+    const items = await fetchRecentSearches(userSupabase);
     return res.json({ item: data ?? null, items });
   } catch (err: any) {
     console.error(`${LOG_PREFIX} recent_upsert_unexpected`, { message: err?.message || "unknown" });
@@ -447,13 +426,9 @@ router.post("/recent", piAuth, async (req, res) => {
 });
 
 router.delete("/recent/:id", piAuth, async (req, res) => {
-  if (!supabase) {
-    return res.status(503).json({ error: "Search unavailable" });
-  }
-
-  const userId = getRequestUserId(req);
-  if (!userId) {
-    return res.status(401).json({ error: "user_not_authenticated" });
+  const { client: userSupabase, status, error: clientError } = getUserSupabaseClient(req);
+  if (!userSupabase) {
+    return res.status(status).json({ error: clientError ?? "supabase_client_unavailable" });
   }
 
   const rawId = req.params.id;
@@ -463,18 +438,14 @@ router.delete("/recent/:id", piAuth, async (req, res) => {
   }
 
   try {
-    const { error } = await supabase
-      .from("user_recent_searches")
-      .delete()
-      .eq("id", id)
-      .eq("user_id", userId);
+    const { error } = await userSupabase.from("user_recent_searches").delete().eq("id", id);
 
     if (error) {
       console.error(`${LOG_PREFIX} recent_delete_error`, { message: error.message || "unknown" });
       return res.status(500).json({ error: "recent_delete_failed" });
     }
 
-    const items = await fetchRecentSearches(userId);
+    const items = await fetchRecentSearches(userSupabase);
     return res.json({ success: true, items });
   } catch (err: any) {
     console.error(`${LOG_PREFIX} recent_delete_unexpected`, { message: err?.message || "unknown" });
