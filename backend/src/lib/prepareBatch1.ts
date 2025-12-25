@@ -1,5 +1,5 @@
 // backend/src/lib/prepareBatch1.ts
-// FULL REWRITE — uses existing service-role Supabase client
+// FULL REWRITE — SLOT-AWARE, STRICT CONTRACT WITH runBatch
 
 import path from 'path';
 import { promises as fs } from 'fs';
@@ -28,11 +28,18 @@ type SeedChannelRow = {
   channel_id: string;
 };
 
+type BatchFileEntry = {
+  channelId: string;
+};
+
 export async function executePrepareJob(job: RefreshJobRow): Promise<void> {
-  const scheduledLocal = DateTime.fromISO(job.scheduled_at, { zone: 'utc' }).setZone(TIMEZONE);
+  const scheduledLocal = DateTime
+    .fromISO(job.scheduled_at, { zone: 'utc' })
+    .setZone(TIMEZONE);
 
   console.log('[PrepareBatch1] Starting', {
     jobId: job.id,
+    slot: job.slot_index,
     scheduledAt: scheduledLocal.toISO(),
   });
 
@@ -46,25 +53,40 @@ export async function executePrepareJob(job: RefreshJobRow): Promise<void> {
 
     const channels = await fetchSeedChannels();
 
-    const payload = channels.map((c) => ({
+    if (channels.length === 0) {
+      throw new Error('No seed channels available');
+    }
+
+    const payload: BatchFileEntry[] = channels.map(c => ({
       channelId: c.channel_id,
     }));
 
-    const filePath = path.join(BATCH_DIR, `batch_${job.day_key}.json`);
+    // 🔑 SLOT-AWARE FILE NAME — MUST MATCH runBatch
+    const filePath = path.join(
+      BATCH_DIR,
+      `batch_${job.day_key}_slot_${job.slot_index}.json`,
+    );
 
-    await fs.writeFile(filePath, JSON.stringify(payload, null, 2), 'utf-8');
+    await fs.writeFile(
+      filePath,
+      JSON.stringify(payload, null, 2),
+      'utf-8',
+    );
 
     await finalizeJob(job.id, {
       file: filePath,
+      slot: job.slot_index,
       channels: payload.length,
     });
 
     console.log('[PrepareBatch1] Completed', {
+      slot: job.slot_index,
       count: payload.length,
       filePath,
     });
   } catch (err) {
     console.error('[PrepareBatch1] Error', err);
+
     await finalizeJob(job.id, {
       error: err instanceof Error ? err.message : 'Unknown error',
     });
@@ -79,17 +101,18 @@ async function fetchSeedChannels(): Promise<SeedChannelRow[]> {
     .limit(CHANNEL_LIMIT);
 
   if (error) {
-    console.error('[PrepareBatch1] Failed to fetch seed channels', error);
-    throw error;
+    throw new Error(`Failed to fetch seed channels: ${error.message}`);
   }
 
   return (data ?? []).filter(
-    (r: SeedChannelRow) =>
-      typeof r.channel_id === 'string' && r.channel_id.trim().length > 0
+    r => typeof r.channel_id === 'string' && r.channel_id.trim().length > 0,
   );
 }
 
-async function finalizeJob(jobId: string, payload: Record<string, unknown>): Promise<void> {
+async function finalizeJob(
+  jobId: string,
+  payload: Record<string, unknown>,
+): Promise<void> {
   const { error } = await supabase
     .from(JOB_TABLE)
     .update({
@@ -101,7 +124,7 @@ async function finalizeJob(jobId: string, payload: Record<string, unknown>): Pro
   if (error) {
     console.error('[PrepareBatch1] Failed to update job', {
       jobId,
-      error,
+      error: error.message,
     });
   }
 }
