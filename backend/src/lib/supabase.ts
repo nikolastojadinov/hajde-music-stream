@@ -35,24 +35,43 @@ function readAccessToken(req: Request): string | null {
   return null;
 }
 
+function readPiUserId(req: Request): string | null {
+  const piUser = (req as any).user as { id?: string } | undefined;
+  const sessionUser = req.currentUser?.uid ?? null;
+  const headerUser = typeof req.headers["x-pi-user-id"] === "string" ? (req.headers["x-pi-user-id"] as string) : null;
+
+  const raw = (piUser?.id as string | undefined) || sessionUser || headerUser || "";
+  const trimmed = typeof raw === "string" ? raw.trim() : "";
+  return trimmed || null;
+}
+
 export function getUserSupabaseClient(req: Request): UserSupabaseResult {
   if (!env.supabase_url || !env.supabase_anon_key) {
     return { client: null, status: 503, error: "supabase_not_configured" };
   }
 
   const accessToken = readAccessToken(req);
-  if (!accessToken) {
+  const piUserId = readPiUserId(req);
+
+  if (!accessToken && !piUserId) {
     return { client: null, status: 401, error: "supabase_auth_required" };
+  }
+
+  const headers: Record<string, string> = {
+    apikey: env.supabase_anon_key,
+  };
+
+  if (accessToken) {
+    headers.Authorization = `Bearer ${accessToken}`;
+  }
+
+  if (piUserId) {
+    headers["x-pi-user-id"] = piUserId;
   }
 
   const client = createClient(env.supabase_url, env.supabase_anon_key, {
     auth: { persistSession: false, autoRefreshToken: false },
-    global: {
-      headers: {
-        apikey: env.supabase_anon_key,
-        Authorization: `Bearer ${accessToken}`,
-      },
-    },
+    global: { headers },
   });
 
   return { client, status: 200 };
