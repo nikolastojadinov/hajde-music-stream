@@ -1,3 +1,4 @@
+import { fetchWithPiAuth } from "@/lib/fetcher";
 import { withBackendOrigin } from "@/lib/backendUrl";
 
 export type SearchSuggestResponse = {
@@ -68,6 +69,18 @@ export type SearchResolveResponse = {
   } | null;
 };
 
+export type RecentSearchEntityType = "artist" | "song" | "playlist" | "album" | "generic";
+
+export type RecentSearchItem = {
+  id: number;
+  query: string;
+  entity_type: RecentSearchEntityType;
+  entity_id: string | null;
+  created_at: string;
+  last_used_at: string;
+  use_count: number;
+};
+
 async function readJsonOrThrow(response: Response): Promise<any> {
   const text = await response.text();
   if (!text) return null;
@@ -119,4 +132,55 @@ export async function searchResolve(
 
   const json = await readJsonOrThrow(response);
   return json as SearchResolveResponse;
+}
+
+export async function getRecentSearches(): Promise<RecentSearchItem[]> {
+  const response = await fetchWithPiAuth("/api/search/recent", {
+    method: "GET",
+    headers: { Accept: "application/json" },
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to load recent searches");
+  }
+
+  const json = await readJsonOrThrow(response);
+  return (json?.items ?? []) as RecentSearchItem[];
+}
+
+export async function upsertRecentSearch(payload: {
+  query: string;
+  entity_type?: RecentSearchEntityType;
+  entity_id?: string | null;
+}): Promise<RecentSearchItem[]> {
+  const response = await fetchWithPiAuth("/api/search/recent", {
+    method: "POST",
+    headers: { Accept: "application/json" },
+    body: JSON.stringify({
+      query: payload.query,
+      entity_type: payload.entity_type ?? "generic",
+      entity_id: payload.entity_id ?? null,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to save recent search");
+  }
+
+  const json = await readJsonOrThrow(response);
+  return (json?.items ?? []) as RecentSearchItem[];
+}
+
+export async function deleteRecentSearch(id: number): Promise<RecentSearchItem[]> {
+  const response = await fetchWithPiAuth(`/api/search/recent/${id}`, {
+    method: "DELETE",
+    headers: { Accept: "application/json" },
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to delete recent search");
+  }
+
+  const json = await readJsonOrThrow(response);
+  return (json?.items ?? []) as RecentSearchItem[];
 }

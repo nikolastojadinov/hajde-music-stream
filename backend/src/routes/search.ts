@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, type Request } from "express";
 
 import supabase, {
   searchArtistChannelsForQuery,
@@ -14,6 +14,7 @@ import { youtubeSearchMixed, YouTubeQuotaExceededError } from "../services/youtu
 import { ingestArtistFromYouTubeByChannelId } from "../services/youtubeIngestService";
 import { MAX_SUGGESTIONS, type SuggestEnvelope, type SuggestionItem } from "../types/suggest";
 import { isOlakPlaylistId } from "../utils/olak";
+import { piAuth } from "../middleware/piAuth";
 
 const router = Router();
 
@@ -22,6 +23,7 @@ const TRACK_LIMIT = 8;
 const PLAYLIST_LIMIT = 8;
 const ARTIST_LIMIT = 3;
 const LOG_PREFIX = "[search]";
+const MAX_RECENT_SEARCHES = 20;
 
 // Types
 
@@ -60,6 +62,19 @@ type LocalSearchResult = {
   playlists_by_artist: LocalPlaylist[];
   mergedPlaylists: LocalPlaylist[];
   artist_channels: LocalArtistChannel[];
+};
+
+type RecentEntityType = "artist" | "song" | "playlist" | "album" | "generic";
+
+type RecentSearchRow = {
+  id: number;
+  user_id: string;
+  query: string;
+  entity_type: RecentEntityType;
+  entity_id: string | null;
+  created_at: string;
+  last_used_at: string;
+  use_count: number;
 };
 
 type YouTubeMixedChannel = { channelId: string; title: string; thumbUrl?: string };
@@ -139,6 +154,44 @@ function emptyResult(): LocalSearchResult {
 function hasAnyResults(result: LocalSearchResult, mode: ResolveMode): boolean {
   if (mode === "track") return result.tracks.length > 0;
   return result.tracks.length > 0 || result.mergedPlaylists.length > 0 || result.artist_channels.length > 0;
+}
+
+function getRequestUserId(req: Request): string | null {
+  const piUser = (req as any).user as { id?: string } | undefined;
+  const sessionUser = req.currentUser?.uid ?? null;
+  const headerUser = typeof req.headers["x-pi-user-id"] === "string" ? (req.headers["x-pi-user-id"] as string) : null;
+
+  const raw = (piUser?.id as string | undefined) || sessionUser || headerUser || "";
+  const trimmed = typeof raw === "string" ? raw.trim() : "";
+  return trimmed || null;
+}
+
+function normalizeEntityId(value: unknown): string | null {
+  const v = typeof value === "string" ? value.trim() : "";
+  return v || null;
+}
+
+function normalizeRecentEntityType(value: unknown): RecentEntityType {
+  const v = typeof value === "string" ? value.toLowerCase() : "";
+  if (v === "artist" || v === "song" || v === "playlist" || v === "album") return v;
+  return "generic";
+}
+
+async function fetchRecentSearches(userId: string): Promise<RecentSearchRow[]> {
+  if (!supabase) return [];
+
+  const { data, error } = await supabase
+    .from("user_recent_searches")
+    .select("id, query, entity_type, entity_id, created_at, last_used_at, use_count")
+    .eq("user_id", userId)
+    .order("last_used_at", { ascending: false })
+    .limit(MAX_RECENT_SEARCHES);
+
+  if (error) {
+    throw error;
+  }
+
+  return data || [];
 }
 
 // Supabase search
@@ -330,6 +383,103 @@ function buildSearchResponse(q: string, result: LocalSearchResult, artistIngeste
     artist: null,
   };
 }
+
+// Recent searches (Pi-authenticated)
+
+router.get("/recent", piAuth, async (req, res) => {
+  if (!supabase) {
+    return res.status(503).json({ error: "Search unavailable" });
+  }
+
+  const userId = getRequestUserId(req);
+  if (!userId) {
+    return res.status(401).json({ error: "user_not_authenticated" });
+  }
+
+  try {
+    const items = await fetchRecentSearches(userId);
+    return res.json({ items });
+  } catch (err: any) {
+    console.error(`${LOG_PREFIX} recent_list_error`, { message: err?.message || "unknown" });
+    return res.status(500).json({ error: "recent_list_failed" });
+  }
+});
+
+router.post("/recent", piAuth, async (req, res) => {
+  if (!supabase) {
+    return res.status(503).json({ error: "Search unavailable" });
+  }
+
+  const userId = getRequestUserId(req);
+  if (!userId) {
+    return res.status(401).json({ error: "user_not_authenticated" });
+  }
+
+  const body = req.body || {};
+  const query = normalizeQuery((body as any).query);
+  const entityType = normalizeRecentEntityType((body as any).entity_type);
+  const entityId = normalizeEntityId((body as any).entity_id);
+
+  if (!query) {
+    return res.status(400).json({ error: "query_required" });
+  }
+
+  try {
+    const { data, error } = await supabase.rpc("upsert_user_recent_search", {
+      p_user_id: userId,
+      p_query: query,
+      p_entity_type: entityType,
+      p_entity_id: entityId,
+    });
+
+    if (error) {
+      console.error(`${LOG_PREFIX} recent_upsert_error`, { message: error.message || "unknown" });
+      return res.status(500).json({ error: "recent_upsert_failed" });
+    }
+
+    const items = await fetchRecentSearches(userId);
+    return res.json({ item: data ?? null, items });
+  } catch (err: any) {
+    console.error(`${LOG_PREFIX} recent_upsert_unexpected`, { message: err?.message || "unknown" });
+    return res.status(500).json({ error: "recent_upsert_failed" });
+  }
+});
+
+router.delete("/recent/:id", piAuth, async (req, res) => {
+  if (!supabase) {
+    return res.status(503).json({ error: "Search unavailable" });
+  }
+
+  const userId = getRequestUserId(req);
+  if (!userId) {
+    return res.status(401).json({ error: "user_not_authenticated" });
+  }
+
+  const rawId = req.params.id;
+  const id = Number(rawId);
+  if (!Number.isFinite(id)) {
+    return res.status(400).json({ error: "invalid_recent_id" });
+  }
+
+  try {
+    const { error } = await supabase
+      .from("user_recent_searches")
+      .delete()
+      .eq("id", id)
+      .eq("user_id", userId);
+
+    if (error) {
+      console.error(`${LOG_PREFIX} recent_delete_error`, { message: error.message || "unknown" });
+      return res.status(500).json({ error: "recent_delete_failed" });
+    }
+
+    const items = await fetchRecentSearches(userId);
+    return res.json({ success: true, items });
+  } catch (err: any) {
+    console.error(`${LOG_PREFIX} recent_delete_unexpected`, { message: err?.message || "unknown" });
+    return res.status(500).json({ error: "recent_delete_failed" });
+  }
+});
 
 // Suggest endpoint
 

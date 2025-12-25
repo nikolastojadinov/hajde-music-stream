@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { ListMusic, Music, Search as SearchIcon, User, X } from "lucide-react";
+import { Disc3, ListMusic, Music, Search as SearchIcon, User, X } from "lucide-react";
 import debounce from "lodash.debounce";
 
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import EmptyState from "@/components/ui/EmptyState";
 import ErrorState from "@/components/ui/ErrorState";
 import LoadingSkeleton from "@/components/ui/LoadingSkeleton";
+import { usePi } from "@/contexts/PiContext";
 import { usePlayer } from "@/contexts/PlayerContext";
 import {
   searchResolve,
@@ -15,6 +16,10 @@ import {
   type SearchResolveMode,
   type SearchResolveResponse,
   type SearchSuggestResponse,
+  deleteRecentSearch,
+  getRecentSearches,
+  upsertRecentSearch,
+  type RecentSearchItem,
 } from "@/lib/api/search";
 import { prefetchArtistByKey } from "@/lib/api/artist";
 import { deriveArtistKey } from "@/lib/artistKey";
@@ -35,6 +40,21 @@ type SongResult = {
   youtubeId: string;
   trackId: string;
 };
+
+function recentEntityLabel(type: RecentSearchItem["entity_type"]): string {
+  switch (type) {
+    case "artist":
+      return "Artist";
+    case "song":
+      return "Song";
+    case "playlist":
+      return "Playlist";
+    case "album":
+      return "Album";
+    default:
+      return "Search";
+  }
+}
 
 function suggestionTypeLabel(type: Suggestion["type"]): string {
   switch (type) {
@@ -94,6 +114,7 @@ function deriveDisplayArtist(resolvedArtistName: string | null, artistFromTitle:
 
 export default function Search() {
   const { playTrack } = usePlayer();
+  const { user } = usePi();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -105,6 +126,10 @@ export default function Search() {
   const [resolved, setResolved] = useState<SearchResolveResponse | null>(null);
   const [resolveLoading, setResolveLoading] = useState(false);
 
+  const [recentSearches, setRecentSearches] = useState<RecentSearchItem[]>([]);
+  const [recentLoading, setRecentLoading] = useState(false);
+  const [recentError, setRecentError] = useState<string | null>(null);
+
   const [relatedArtists, setRelatedArtists] = useState<string[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -113,6 +138,67 @@ export default function Search() {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const lastPrefetchedArtistsRef = useRef<string>("");
   const tickingRef = useRef(false);
+  const userId = user?.uid ?? null;
+
+  const refreshRecentSearches = useCallback(async () => {
+    if (!userId) {
+      setRecentSearches([]);
+      setRecentLoading(false);
+      setRecentError(null);
+      return;
+    }
+
+    setRecentLoading(true);
+    setRecentError(null);
+
+    try {
+      const items = await getRecentSearches();
+      setRecentSearches(items);
+    } catch (e: any) {
+      setRecentError(e?.message || "Failed to load recent searches");
+    } finally {
+      setRecentLoading(false);
+    }
+  }, [userId]);
+
+  const persistRecentSearch = useCallback(
+    async (payload: { query: string; entity_type?: RecentSearchItem["entity_type"]; entity_id?: string | null }) => {
+      const normalized = normalizeQuery(payload.query);
+      if (!userId || !normalized) return;
+
+      try {
+        const items = await upsertRecentSearch({
+          query: normalized,
+          entity_type: payload.entity_type ?? "generic",
+          entity_id: payload.entity_id ?? null,
+        });
+        setRecentSearches(items);
+        setRecentError(null);
+      } catch (e) {
+        console.warn("[recent_search] save_failed", e);
+        setRecentError("Unable to save recent search");
+      }
+    },
+    [userId],
+  );
+
+  const handleDeleteRecent = useCallback(
+    async (id: number) => {
+      if (!userId) return;
+
+      setRecentSearches((prev) => prev.filter((item) => item.id !== id));
+
+      try {
+        const items = await deleteRecentSearch(id);
+        setRecentSearches(items);
+        setRecentError(null);
+      } catch (e: any) {
+        setRecentError(e?.message || "Failed to delete recent search");
+        void refreshRecentSearches();
+      }
+    },
+    [refreshRecentSearches, userId],
+  );
 
   const clearQuery = () => {
     suggestAbortRef.current?.abort();
@@ -165,6 +251,10 @@ export default function Search() {
       suggestAbortRef.current?.abort();
     };
   }, [debouncedSearchSuggest]);
+
+  useEffect(() => {
+    void refreshRecentSearches();
+  }, [refreshRecentSearches]);
 
   useEffect(() => {
     const q = normalizeQuery(query);
@@ -261,9 +351,13 @@ export default function Search() {
   }
 
   const handleSubmit = async () => {
+    const normalized = normalizeQuery(query);
+    if (!normalized) return;
+
     setSuggestOpen(false);
     setRelatedArtists(null);
-    await runResolve(query, "generic");
+    await runResolve(normalized, "generic");
+    void persistRecentSearch({ query: normalized, entity_type: "generic" });
   };
 
   const handleSuggestionClick = async (s: Suggestion) => {
@@ -284,6 +378,31 @@ export default function Search() {
     }
 
     await runResolve(nextQuery, nextMode);
+
+    const entityType: RecentSearchItem["entity_type"] =
+      s.type === "artist"
+        ? "artist"
+        : s.type === "track"
+          ? "song"
+          : s.type === "playlist"
+            ? "playlist"
+            : s.type === "album"
+              ? "album"
+              : "generic";
+
+    void persistRecentSearch({ query: nextQuery, entity_type: entityType, entity_id: s.id });
+  };
+
+  const handleRecentClick = async (item: RecentSearchItem) => {
+    const normalized = normalizeQuery(item.query);
+    if (!normalized) return;
+
+    setQuery(normalized);
+    setSuggestOpen(false);
+    setRelatedArtists(null);
+
+    await runResolve(normalized, "generic");
+    void persistRecentSearch({ query: normalized, entity_type: item.entity_type, entity_id: item.entity_id });
   };
 
   const relatedArtistsKey = useMemo(() => (relatedArtists ? relatedArtists.join("|") : ""), [relatedArtists]);
@@ -299,6 +418,7 @@ export default function Search() {
   }, [relatedArtists, relatedArtistsKey]);
 
   const showSuggestBox = suggestOpen && normalizeQuery(query).length >= 2;
+  const showRecent = Boolean(userId) && normalizeQuery(query).length === 0;
   const showResults = Boolean(resolved) || resolveLoading;
 
   const handleArtistClick = (artistName: string) => {
@@ -468,6 +588,70 @@ export default function Search() {
           ) : null}
         </div>
       </form>
+
+          {showRecent ? (
+            <section className="space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="text-xl font-bold">Recent searches</h2>
+                {recentLoading ? <span className="text-xs text-muted-foreground">Loading…</span> : null}
+                {!recentLoading && recentError ? <span className="text-xs text-destructive">{recentError}</span> : null}
+              </div>
+
+              {!recentLoading && recentSearches.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+                  No recent searches yet. Try searching to see them here.
+                </div>
+              ) : null}
+
+              <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                {recentSearches.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => void handleRecentClick(item)}
+                    className="group flex items-center justify-between gap-3 rounded-lg border border-border bg-card/40 px-3 py-3 text-left hover:bg-card/60"
+                  >
+                    <div className="flex flex-1 items-center gap-3 min-w-0">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                        {item.entity_type === "artist" ? (
+                          <User className="h-5 w-5" />
+                        ) : item.entity_type === "song" ? (
+                          <Music className="h-5 w-5" />
+                        ) : item.entity_type === "playlist" ? (
+                          <ListMusic className="h-5 w-5" />
+                        ) : item.entity_type === "album" ? (
+                          <Disc3 className="h-5 w-5" />
+                        ) : (
+                          <SearchIcon className="h-5 w-5" />
+                        )}
+                      </div>
+
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate font-semibold">{item.query}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {recentEntityLabel(item.entity_type)} • Used {item.use_count}x
+                        </div>
+                      </div>
+                    </div>
+
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 opacity-0 transition-opacity group-hover:opacity-100"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void handleDeleteRecent(item.id);
+                      }}
+                      aria-label="Remove recent search"
+                    >
+                      <X className="h-4 w-4 text-muted-foreground" />
+                    </Button>
+                  </button>
+                ))}
+              </div>
+            </section>
+          ) : null}
 
       {showResults ? (
         <div>
