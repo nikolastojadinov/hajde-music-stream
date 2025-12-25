@@ -1,23 +1,14 @@
 import supabase from "./supabaseClient";
-import {
-  deleteYoutubeChannelMappingByChannelId,
-  deriveArtistKey,
-  findYoutubeChannelMappingByArtistName,
-  validateYouTubeChannelId,
-} from "./artistResolver";
-import { youtubeSearchArtistChannel } from "./youtubeClient";
+import { deriveArtistKey, findYoutubeChannelMappingByArtistName, validateYouTubeChannelId } from "./artistResolver";
 import { youtubeFetchArtistPlaylists } from "./youtubeFetchArtistPlaylists";
 import { youtubeBatchFetchPlaylists } from "./youtubeBatchFetchPlaylists";
 import { ingestArtistFromYouTubeSearch } from "./ingestArtistFromYouTubeSearch";
 
-export type IngestArtistFromYouTubeInput = {
-  artistName: string;
-};
+export type IngestArtistFromYouTubeInput = { artistName: string };
 
 export type IngestArtistFromYouTubeByChannelIdInput = {
   youtube_channel_id: string;
   artistName?: string;
-  // Optional ingestion limits (delta ingestion).
   max_playlists?: number;
   max_tracks?: number;
 };
@@ -28,24 +19,24 @@ export type IngestArtistFromYouTubeResult = {
   tracks_ingested: number;
 };
 
+// Helpers
+
 function normalizeString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
 function normalizeNullableString(value: unknown): string | null {
   const s = normalizeString(value);
-  return s ? s : null;
+  return s || null;
 }
 
 function parseNullableInt(value: unknown): number | null {
   const raw = typeof value === "string" ? value.trim() : value;
-
   if (typeof raw === "number" && Number.isFinite(raw)) return Math.trunc(raw);
   if (typeof raw === "string" && raw) {
     const n = Number.parseInt(raw, 10);
     return Number.isFinite(n) ? n : null;
   }
-
   return null;
 }
 
@@ -55,6 +46,26 @@ function pickBestThumbnailUrl(thumbnails: any): string | null {
     normalizeNullableString(thumbnails?.medium?.url) ||
     normalizeNullableString(thumbnails?.default?.url)
   );
+}
+
+function stripTopicSuffix(name: string): string {
+  const cleaned = normalizeString(name);
+  return cleaned.replace(/\s*-\s*topic$/i, "").trim();
+}
+
+async function findExistingArtist(opts: { artist_key: string; youtube_channel_id: string }): Promise<string | null> {
+  if (!supabase) return null;
+  const { artist_key, youtube_channel_id } = opts;
+
+  const { data, error } = await supabase
+    .from("artists")
+    .select("id")
+    .or(`artist_key.eq.${artist_key},youtube_channel_id.eq.${youtube_channel_id}`)
+    .maybeSingle();
+
+  if (error) return null;
+  const id = normalizeString((data as any)?.id);
+  return id || null;
 }
 
 type ArtistsUpsertRow = {
@@ -69,13 +80,10 @@ type ArtistsUpsertRow = {
   source: "youtube";
 };
 
-function normalizeToArtistsUpsertRow(opts: {
-  artistName: string;
-  youtube_channel_id: string;
-  channel: any;
-}): ArtistsUpsertRow | null {
+function buildArtistRow(opts: { artistName: string; youtube_channel_id: string; channel: any }): ArtistsUpsertRow | null {
   const youtube_channel_id = normalizeString(opts.youtube_channel_id);
-  const artist = normalizeString(opts.artistName);
+  const baseName = stripTopicSuffix(opts.artistName);
+  const artist = normalizeString(baseName);
   const artist_key = deriveArtistKey(artist);
   if (!youtube_channel_id || !artist || !artist_key) return null;
 
@@ -102,21 +110,8 @@ function normalizeToArtistsUpsertRow(opts: {
   };
 }
 
-/**
- * Canonical artist ingestion entry point.
- *
- * Flow:
- * 1) Resolve artist seed (no YouTube calls)
- * 2) Hydrate artist via channels.list (exactly one call)
- * 3) Fetch and persist artist playlists
- * 4) For each playlist, ingest tracks + playlist_tracks
- *
- * Constraints:
- * - Backend-only
- * - No schema guessing in DB writes (delegated to the underlying services)
- * - No retries/fallbacks
- * - Fail-fast: if any step returns null, stop and return null
- */
+// Entry points
+
 export async function ingestArtistFromYouTube(input: IngestArtistFromYouTubeInput): Promise<IngestArtistFromYouTubeResult | null> {
   try {
     if (!supabase) return null;
@@ -124,28 +119,16 @@ export async function ingestArtistFromYouTube(input: IngestArtistFromYouTubeInpu
     const artistName = normalizeString(input.artistName);
     if (!artistName) return null;
 
-    // No YouTube search fallback here (quota=100 is only allowed in the route).
-    // We may only use existing Supabase mapping, but must validate before use.
     const mapping = await findYoutubeChannelMappingByArtistName(artistName);
     if (!mapping?.youtube_channel_id) return null;
 
-    return await ingestArtistFromYouTubeByChannelId({
-      youtube_channel_id: mapping.youtube_channel_id,
-      artistName,
-    });
+    return await ingestArtistFromYouTubeByChannelId({ youtube_channel_id: mapping.youtube_channel_id, artistName });
   } catch (err) {
-    console.error("[ingestArtistFromYouTube] unexpected error:", err);
+    console.error("[ingestArtistFromYouTube] unexpected error", { message: (err as any)?.message });
     return null;
   }
 }
 
-/**
- * Canonical ingestion when a concrete youtube_channel_id is known (e.g. user clicked an artist).
- *
- * Differences vs ingestArtistFromYouTube(name):
- * - No ILIKE / fuzzy lookup that could pick the wrong channel.
- * - Still uses youtube_channels for artist name (mapping table), then hydrates via channels.list.
- */
 export async function ingestArtistFromYouTubeByChannelId(
   input: IngestArtistFromYouTubeByChannelIdInput
 ): Promise<IngestArtistFromYouTubeResult | null> {
@@ -155,108 +138,58 @@ export async function ingestArtistFromYouTubeByChannelId(
     const youtube_channel_id = normalizeString(input.youtube_channel_id);
     if (!youtube_channel_id) return null;
 
-    // STEP 1: Always validate BEFORE any playlist fetch.
     const validation = await validateYouTubeChannelId(youtube_channel_id);
-    if (validation.status === "invalid") {
-      await deleteYoutubeChannelMappingByChannelId(youtube_channel_id);
-      return null;
-    }
-    if (validation.status === "error") {
+    if (validation.status !== "valid") return null;
+
+    const providedName = normalizeString(input.artistName) || normalizeString(validation.channelTitle) || youtube_channel_id;
+    const baseName = stripTopicSuffix(providedName);
+
+    // Block Topic channels explicitly.
+    if (/\s*-\s*topic$/i.test(providedName)) {
+      console.info("[ingestArtistFromYouTubeByChannelId] skip topic channel", { youtube_channel_id, title: providedName });
       return null;
     }
 
-    const artistName = normalizeString(input.artistName) || normalizeString(validation.channelTitle) || youtube_channel_id;
-
-    const artistRow = normalizeToArtistsUpsertRow({
-      artistName,
-      youtube_channel_id,
-      channel: validation.channel,
-    });
+    const artistRow = buildArtistRow({ artistName: baseName, youtube_channel_id, channel: validation.channel });
     if (!artistRow) return null;
 
-    let artist_id = "local-only";
-    try {
-      const { data: hydratedArtist, error: artistUpsertError } = await supabase
-        .from("artists")
-        .upsert(artistRow, { onConflict: "youtube_channel_id" })
-        .select("*")
-        .maybeSingle();
+    const existingId = await findExistingArtist({ artist_key: artistRow.artist_key, youtube_channel_id });
+    let artist_id = existingId;
 
-      if (artistUpsertError) {
-        // Some environments restrict the artists table; continue ingestion without it.
-        console.warn("[ingestArtistFromYouTubeByChannelId] artists upsert failed (continuing):", {
-          code: (artistUpsertError as any)?.code ?? null,
-          message: (artistUpsertError as any)?.message ?? "unknown",
-        });
-      } else {
-        const id = normalizeString((hydratedArtist as any)?.id) || normalizeString((hydratedArtist as any)?.artist_id);
-        if (id) artist_id = id;
+    if (existingId) {
+      console.info("[ingestArtistFromYouTubeByChannelId] reuse existing artist", { youtube_channel_id, artist_id: existingId });
+    } else {
+      const { data, error } = await supabase.from("artists").upsert(artistRow, { onConflict: "youtube_channel_id" }).select("id").maybeSingle();
+      if (error) {
+        console.warn("[ingestArtistFromYouTubeByChannelId] artist insert failed", { message: error.message });
+        return null;
       }
-    } catch (e: any) {
-      console.warn("[ingestArtistFromYouTubeByChannelId] artists upsert unexpected error (continuing):", {
-        message: e?.message ? String(e.message) : "unknown",
-      });
+      artist_id = normalizeString((data as any)?.id) || null;
     }
 
-    // STEP 5: Hydration (valid channel only)
+    if (!artist_id) return null;
+
+    // Playlist + track ingestion (single canonical path)
     const maxPlaylistsRaw = input.max_playlists;
     const maxPlaylists = typeof maxPlaylistsRaw === "number" && Number.isFinite(maxPlaylistsRaw) ? Math.max(0, Math.trunc(maxPlaylistsRaw)) : null;
 
     const maxTracksRaw = input.max_tracks;
     const maxTracks = typeof maxTracksRaw === "number" && Number.isFinite(maxTracksRaw) ? Math.max(0, Math.trunc(maxTracksRaw)) : null;
 
-    const allPlaylists: any[] = [];
-
-    // 1) Primary (official) channel playlists
-    const primaryPlaylists = await youtubeFetchArtistPlaylists({
+    const playlists = await youtubeFetchArtistPlaylists({
       youtube_channel_id,
       artist_id,
       max_playlists: maxPlaylists ?? undefined,
     });
-    if (primaryPlaylists === null) return null;
-    allPlaylists.push(...(Array.isArray(primaryPlaylists) ? primaryPlaylists : []));
+    if (playlists === null) return null;
 
-    // 2) Topic channel playlists (often where official album playlists live)
-    // Best-effort: if we can't find/validate it, continue with primary.
-    try {
-      const query = `${artistName} - Topic`;
-      const candidates = await youtubeSearchArtistChannel(query);
-      const best = (Array.isArray(candidates) ? candidates : []).find((c) => {
-        const title = normalizeString((c as any)?.title).toLowerCase();
-        return title === query.toLowerCase() || title.endsWith("- topic");
-      });
-
-      const topicChannelId = normalizeString((best as any)?.channelId);
-      if (topicChannelId && topicChannelId !== youtube_channel_id) {
-        const topicValidation = await validateYouTubeChannelId(topicChannelId);
-        if (topicValidation.status === "valid") {
-          const topicPlaylists = await youtubeFetchArtistPlaylists({
-            youtube_channel_id: topicChannelId,
-            artist_id,
-            // Store under primary channel so /api/artist lists them.
-            store_channel_id_override: youtube_channel_id,
-            store_channel_title_override: artistName,
-          });
-          if (topicPlaylists === null) return null;
-          allPlaylists.push(...(Array.isArray(topicPlaylists) ? topicPlaylists : []));
-        }
-      }
-    } catch (e) {
-      void e;
+    const unique = new Map<string, any>();
+    for (const p of Array.isArray(playlists) ? playlists : []) {
+      const pid = normalizeString((p as any)?.id) || normalizeString((p as any)?.playlist_id);
+      if (pid) unique.set(pid, p);
     }
 
-    // Dedupe by playlist id
-    const deduped = new Map<string, any>();
-    for (const p of allPlaylists) {
-      const playlist_id = normalizeString((p as any)?.id) || normalizeString((p as any)?.playlist_id);
-      if (playlist_id) deduped.set(playlist_id, p);
-    }
-
-    const playlists = Array.from(deduped.values());
-    const playlists_ingested = playlists.length;
-    let tracks_ingested = 0;
-
-    const batchItems = (Array.isArray(playlists) ? playlists : [])
+    const playlistItems = Array.from(unique.values())
       .map((p) => {
         const playlist_id = normalizeString((p as any)?.id) || normalizeString((p as any)?.playlist_id);
         const external_playlist_id = normalizeString((p as any)?.external_id);
@@ -264,40 +197,41 @@ export async function ingestArtistFromYouTubeByChannelId(
         return {
           playlist_id,
           external_playlist_id,
-          artist_override: artistName,
+          artist_override: artistRow.artist,
           artist_channel_id_override: youtube_channel_id,
         };
       })
       .filter((x): x is NonNullable<typeof x> => Boolean(x));
 
-    const batchRes = await youtubeBatchFetchPlaylists(batchItems, { max_total_tracks: maxTracks ?? undefined });
-    tracks_ingested += batchRes.tracks_ingested;
+    const batchRes = await youtubeBatchFetchPlaylists(playlistItems, { max_total_tracks: maxTracks ?? undefined });
 
-    // EXTRA: search-based ingestion to capture "regular" playlists/videos beyond the official channel.
-    // Bounded to avoid burning quota.
+    // Optional search-based enrichment (best-effort, bounded)
     try {
-      const needMore = playlists_ingested < 5 || tracks_ingested < 10;
+      const needMore = unique.size < 5 || batchRes.tracks_ingested < 10;
       if (needMore) {
-        const remainingTracks = maxTracks !== null ? Math.max(0, maxTracks - tracks_ingested) : null;
+        const remainingTracks = maxTracks !== null ? Math.max(0, maxTracks - batchRes.tracks_ingested) : null;
         const searchMaxTracks = remainingTracks !== null ? Math.min(remainingTracks, 50) : 50;
         const searchMaxPlaylists = maxPlaylists !== null ? Math.min(maxPlaylists, 10) : 10;
 
-        const searchRes = await ingestArtistFromYouTubeSearch({
-          artistName,
+        await ingestArtistFromYouTubeSearch({
+          artistName: artistRow.artist,
           store_channel_id_override: youtube_channel_id,
-          store_channel_title_override: artistName,
+          store_channel_title_override: artistRow.artist,
           max_playlists: searchMaxPlaylists,
           max_tracks: searchMaxTracks,
         });
-        if (searchRes) tracks_ingested += searchRes.tracks_ingested;
       }
     } catch {
-      // Best-effort only.
+      // ignore search enrichment failures
     }
 
-    return { artist_id, playlists_ingested, tracks_ingested };
+    return {
+      artist_id,
+      playlists_ingested: unique.size,
+      tracks_ingested: batchRes.tracks_ingested,
+    };
   } catch (err) {
-    console.error("[ingestArtistFromYouTubeByChannelId] unexpected error:", err);
+    console.error("[ingestArtistFromYouTubeByChannelId] unexpected error", { message: (err as any)?.message });
     return null;
   }
 }
