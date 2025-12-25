@@ -182,7 +182,7 @@ async function fetchRecentSearches(userId: string): Promise<RecentSearchRow[]> {
 
   const { data, error } = await supabase
     .from("user_recent_searches")
-    .select("id, query, entity_type, entity_id, created_at, last_used_at, use_count")
+    .select("id, user_id, query, entity_type, entity_id, created_at, last_used_at, use_count")
     .eq("user_id", userId)
     .order("last_used_at", { ascending: false })
     .limit(MAX_RECENT_SEARCHES);
