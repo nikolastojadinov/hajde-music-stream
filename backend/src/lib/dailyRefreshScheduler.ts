@@ -1,5 +1,5 @@
 // backend/src/lib/dailyRefreshScheduler.ts
-// FULL REWRITE — adjusted daily schedule times (14:45 / 14:55 / 15:00)
+// FULL REWRITE — adjusted daily schedule times (15:30 / 15:40 / 15:50)
 
 import cron from 'node-cron';
 import { DateTime } from 'luxon';
@@ -9,12 +9,12 @@ import supabase from '../services/supabaseClient';
 const TIMEZONE = 'Europe/Budapest';
 
 /**
- * Scheduler runs every day at 14:45 local time (Europe/Budapest)
+ * Scheduler runs every day at 15:30 local time (Europe/Budapest)
  * It creates:
- *  - prepare job at 14:55
- *  - run job at 15:00
+ *  - prepare job at 15:40
+ *  - run job at 15:50
  */
-const CRON_EXPRESSION = '45 14 * * *'; // 14:45 Europe/Budapest
+const CRON_EXPRESSION = '30 15 * * *'; // 15:30 Europe/Budapest
 
 const TABLE_NAME = 'refresh_jobs';
 
@@ -44,7 +44,7 @@ export function initDailyRefreshScheduler(): void {
     { timezone: TIMEZONE }
   );
 
-  console.log('[DailyRefreshScheduler] Scheduled at 14:45 Europe/Budapest');
+  console.log('[DailyRefreshScheduler] Scheduled at 15:30 Europe/Budapest');
 }
 
 async function generateDailyJobs(): Promise<void> {
@@ -66,10 +66,10 @@ async function generateDailyJobs(): Promise<void> {
     }
 
     // Job schedule (local time):
-    // Prepare -> 14:55
-    // Run     -> 15:00
-    const prepareTime = buildLocalDate(dayKey, 14, 55);
-    const runTime = buildLocalDate(dayKey, 15, 0);
+    // Prepare -> 15:40
+    // Run     -> 15:50
+    const prepareTime = buildLocalDate(dayKey, 15, 40);
+    const runTime = buildLocalDate(dayKey, 15, 50);
 
     const jobs: RefreshJobRow[] = [
       createJobRow(0, 'prepare', prepareTime, dayKey),
@@ -80,7 +80,7 @@ async function generateDailyJobs(): Promise<void> {
     if (error) throw error;
 
     console.log(
-      `[DailyRefreshScheduler] Created daily jobs for ${dayKey} (prepare 14:55, run 15:00)`
+      `[DailyRefreshScheduler] Created daily jobs for ${dayKey} (prepare 15:40, run 15:50)`
     );
   } catch (err) {
     console.error('[DailyRefreshScheduler] Failed to create jobs', err);
