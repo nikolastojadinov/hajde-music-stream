@@ -58,6 +58,9 @@ app.use(logger('common', {
 // Enable response bodies to be sent as JSON:
 app.use(express.json())
 
+// Disable ETag to avoid 304s on dynamic JSON (e.g., recent searches)
+app.disable('etag');
+
 // Handle CORS:
 const allowedOrigins = [
   env.frontend_url,

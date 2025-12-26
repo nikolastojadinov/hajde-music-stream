@@ -382,6 +382,7 @@ router.get("/recent", piAuth, async (req, res) => {
   }
 
   try {
+    res.set("Cache-Control", "no-store");
     const items = await fetchRecentSearches(userSupabase);
     return res.json({ items });
   } catch (err: any) {
@@ -406,6 +407,7 @@ router.post("/recent", piAuth, async (req, res) => {
   }
 
   try {
+    res.set("Cache-Control", "no-store");
     const { data, error } = await userSupabase.rpc("upsert_user_recent_search", {
       p_query: query,
       p_entity_type: entityType,
@@ -438,6 +440,7 @@ router.delete("/recent/:id", piAuth, async (req, res) => {
   }
 
   try {
+    res.set("Cache-Control", "no-store");
     const { error } = await userSupabase.from("user_recent_searches").delete().eq("id", id);
 
     if (error) {
