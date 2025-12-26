@@ -1,5 +1,6 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Request } from "express";
+import jwt from "jsonwebtoken";
 
 import env from "../environments";
 
@@ -52,8 +53,26 @@ export function getUserSupabaseClient(req: Request): UserSupabaseResult {
 
   const accessToken = readAccessToken(req);
   const piUserId = readPiUserId(req);
+  let mintedToken: string | null = null;
 
   if (!accessToken && !piUserId) {
+    return { client: null, status: 401, error: "supabase_auth_required" };
+  }
+
+  if (!accessToken && piUserId && env.supabase_jwt_secret) {
+    try {
+      mintedToken = jwt.sign(
+        { sub: piUserId, role: "authenticated", aud: "authenticated" },
+        env.supabase_jwt_secret,
+        { expiresIn: "15m" }
+      );
+    } catch {
+      // fall through; will still require a token
+    }
+  }
+
+  const bearer = accessToken || mintedToken;
+  if (!bearer) {
     return { client: null, status: 401, error: "supabase_auth_required" };
   }
 
@@ -61,9 +80,7 @@ export function getUserSupabaseClient(req: Request): UserSupabaseResult {
     apikey: env.supabase_anon_key,
   };
 
-  if (accessToken) {
-    headers.Authorization = `Bearer ${accessToken}`;
-  }
+  headers.Authorization = `Bearer ${bearer}`;
 
   if (piUserId) {
     headers["x-pi-user-id"] = piUserId;

@@ -23,6 +23,7 @@ interface Environment {
   supabase_url: string;
   supabase_service_role_key: string;
   supabase_anon_key: string;
+  supabase_jwt_secret: string;
   supabase_playlists_bucket: string;
   frontend_url: string;
   enable_run_jobs: boolean;
@@ -38,6 +39,7 @@ const env: Environment = {
   supabase_url: process.env.SUPABASE_URL || '',
   supabase_service_role_key: process.env.SUPABASE_SERVICE_ROLE_KEY || '',
   supabase_anon_key: process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_PUBLISHABLE_KEY || '',
+  supabase_jwt_secret: process.env.SUPABASE_JWT_SECRET || '',
   supabase_playlists_bucket: process.env.SUPABASE_PLAYLISTS_BUCKET || 'playlists-covers',
   frontend_url: process.env.FRONTEND_URL || 'http://localhost:3314',
   enable_run_jobs: (process.env.ENABLE_RUN_JOBS || 'true').toLowerCase() !== 'false',
