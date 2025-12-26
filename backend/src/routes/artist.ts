@@ -311,6 +311,40 @@ async function loadArtistMediaByChannelId(youtube_channel_id: string, artistName
     const banner = normalizeNullableString((data as any)?.banner_url);
     const outId = normalizeNullableString((data as any)?.youtube_channel_id) ?? id;
 
+    if (thumb) {
+      return {
+        artist_name: artistName,
+        youtube_channel_id: outId,
+        thumbnail_url: thumb,
+        banner_url: banner,
+      };
+    }
+
+    // Fallback: fetch fresh channel metadata to hydrate thumbnails when missing.
+    try {
+      const validation = await validateYouTubeChannelId(id);
+      if (validation.status === "valid") {
+        const freshThumb = normalizeNullableString(validation.thumbnailUrl);
+        const freshBanner = normalizeNullableString((validation.channel as any)?.brandingSettings?.image?.bannerExternalUrl);
+
+        if (freshThumb || freshBanner) {
+          await supabase
+            .from("artists")
+            .update({ thumbnail_url: freshThumb ?? null, banner_url: freshBanner ?? null })
+            .eq("youtube_channel_id", id);
+
+          return {
+            artist_name: artistName,
+            youtube_channel_id: outId,
+            thumbnail_url: freshThumb ?? null,
+            banner_url: freshBanner ?? null,
+          };
+        }
+      }
+    } catch {
+      // best-effort, ignore
+    }
+
     return {
       artist_name: artistName,
       youtube_channel_id: outId,

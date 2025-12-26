@@ -9,6 +9,7 @@ import supabase, {
   type SearchPlaylistRow,
   type SearchTrackRow,
 } from "../services/supabaseClient";
+import { validateYouTubeChannelId } from "../services/artistResolver";
 import { spotifySearch, SpotifyRateLimitedError } from "../services/spotifyClient";
 import { buildSuggestCacheKey, cacheSuggest, getCachedSuggest } from "../services/suggestCache";
 import { youtubeSearchMixed, YouTubeQuotaExceededError } from "../services/youtubeClient";
@@ -215,10 +216,12 @@ async function runSupabaseSearch(
 
   const merged = mergePlaylists(playlistsByTitle, playlistsByArtist).slice(0, playlistLimit);
 
-  const artistChannels = artistRows
+  const artistChannelsRaw = artistRows
     .map(mapArtistChannelRow)
     .filter((x): x is LocalArtistChannel => Boolean(x))
     .slice(0, artistLimit);
+
+  const artistChannels = await hydrateArtistThumbnails(artistChannelsRaw);
 
   return {
     tracks: trackRows.map(mapTrackRow).slice(0, trackLimit),
@@ -227,6 +230,29 @@ async function runSupabaseSearch(
     mergedPlaylists: merged,
     artist_channels: artistChannels,
   };
+}
+
+async function hydrateArtistThumbnails(channels: LocalArtistChannel[]): Promise<LocalArtistChannel[]> {
+  if (!supabase) return channels;
+
+  const needThumb = channels.filter((c) => !c.thumbnailUrl).slice(0, 5);
+  if (needThumb.length === 0) return channels;
+
+  const updates = new Map<string, string>();
+
+  for (const ch of needThumb) {
+    try {
+      const validation = await validateYouTubeChannelId(ch.channelId);
+      if (validation.status === "valid" && validation.thumbnailUrl) {
+        updates.set(ch.channelId, validation.thumbnailUrl);
+        await supabase.from("artists").update({ thumbnail_url: validation.thumbnailUrl }).eq("youtube_channel_id", ch.channelId);
+      }
+    } catch {
+      // best-effort; ignore failures
+    }
+  }
+
+  return channels.map((c) => (updates.has(c.channelId) ? { ...c, thumbnailUrl: updates.get(c.channelId)! } : c));
 }
 
 // YouTube helpers
