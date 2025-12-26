@@ -7,7 +7,7 @@ import { randomUUID } from 'crypto';
 import env from '../environments';
 import supabase from '../services/supabaseClient';
 import { fetchChannelDetails, fetchChannelPlaylists, type ChannelPlaylist } from '../services/youtubeChannelService';
-import { normalizeArtistKey } from '../utils/artistKey';
+import { canonicalArtistName, normalizeArtistKey } from '../utils/artistKey';
 
 const TIMEZONE = 'Europe/Budapest';
 const JOB_TABLE = 'refresh_jobs';
@@ -432,9 +432,11 @@ function mergeBatchResults(target: BatchResult, addition: BatchResult): void {
 async function upsertArtistFromChannel(channel: { id: string; title: string; thumbnailUrl?: string | null; bannerUrl?: string | null; subscribers?: number | null; views?: number | null; country?: string | null }): Promise<void> {
   if (!supabase) throw new Error('Supabase client unavailable');
 
+  const canonicalName = canonicalArtistName(channel.title);
+
   const payload = {
-    artist: channel.title,
-    artist_key: normalizeArtistKey(channel.title),
+    artist: canonicalName,
+    artist_key: normalizeArtistKey(canonicalName),
     youtube_channel_id: channel.id,
     thumbnail_url: channel.thumbnailUrl ?? null,
     banner_url: channel.bannerUrl ?? null,
@@ -966,7 +968,8 @@ function buildArtistUpsertsFromItems(youtubeItems: YouTubePlaylistItem[], playli
     const channelId = item.videoOwnerChannelId ?? playlist.channel_id;
     if (!channelId) throw new Error(`Missing youtube channel id for playlist item ${item.videoId} in playlist ${playlist.id}`);
 
-    const artistName = item.channelTitle ?? playlist.channel_title ?? 'Unknown Artist';
+    const artistNameRaw = item.channelTitle ?? playlist.channel_title ?? 'Unknown Artist';
+    const artistName = canonicalArtistName(artistNameRaw);
     const thumbnail = item.thumbnailUrl ?? null;
 
     const existing = artistMap.get(channelId);

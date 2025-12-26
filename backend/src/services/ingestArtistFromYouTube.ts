@@ -1,5 +1,6 @@
 import supabase from "./supabaseClient";
 import { deriveArtistKey, findYoutubeChannelMappingByArtistName, validateYouTubeChannelId } from "./artistResolver";
+import { canonicalArtistName } from "../utils/artistKey";
 import { youtubeFetchArtistPlaylists } from "./youtubeFetchArtistPlaylists";
 import { youtubeBatchFetchPlaylists } from "./youtubeBatchFetchPlaylists";
 import { ingestArtistFromYouTubeSearch } from "./ingestArtistFromYouTubeSearch";
@@ -48,11 +49,6 @@ function pickBestThumbnailUrl(thumbnails: any): string | null {
   );
 }
 
-function stripTopicSuffix(name: string): string {
-  const cleaned = normalizeString(name);
-  return cleaned.replace(/\s*-\s*topic$/i, "").trim();
-}
-
 async function findExistingArtist(opts: { artist_key: string; youtube_channel_id: string }): Promise<string | null> {
   if (!supabase) return null;
   const { artist_key, youtube_channel_id } = opts;
@@ -82,7 +78,7 @@ type ArtistsUpsertRow = {
 
 function buildArtistRow(opts: { artistName: string; youtube_channel_id: string; channel: any }): ArtistsUpsertRow | null {
   const youtube_channel_id = normalizeString(opts.youtube_channel_id);
-  const baseName = stripTopicSuffix(opts.artistName);
+  const baseName = canonicalArtistName(opts.artistName);
   const artist = normalizeString(baseName);
   const artist_key = deriveArtistKey(artist);
   if (!youtube_channel_id || !artist || !artist_key) return null;
@@ -142,13 +138,7 @@ export async function ingestArtistFromYouTubeByChannelId(
     if (validation.status !== "valid") return null;
 
     const providedName = normalizeString(input.artistName) || normalizeString(validation.channelTitle) || youtube_channel_id;
-    const baseName = stripTopicSuffix(providedName);
-
-    // Block Topic channels explicitly.
-    if (/\s*-\s*topic$/i.test(providedName)) {
-      console.info("[ingestArtistFromYouTubeByChannelId] skip topic channel", { youtube_channel_id, title: providedName });
-      return null;
-    }
+    const baseName = canonicalArtistName(providedName);
 
     const artistRow = buildArtistRow({ artistName: baseName, youtube_channel_id, channel: validation.channel });
     if (!artistRow) return null;

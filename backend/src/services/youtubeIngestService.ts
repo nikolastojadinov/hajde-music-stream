@@ -1,6 +1,7 @@
 import supabase from "./supabaseClient";
 import env from "../environments";
 import { deriveArtistKey } from "./artistResolver";
+import { canonicalArtistName } from "../utils/artistKey";
 
 const LOG_PREFIX = "[ingest]";
 const YT_BASE = "https://www.googleapis.com/youtube/v3";
@@ -169,7 +170,8 @@ export async function ingestArtistFromYouTubeByChannelId(params: IngestParams): 
     const channel = await fetchChannel(youtube_channel_id);
     if (!channel) return null;
 
-    const artistName = providedArtistName || channel.title || youtube_channel_id;
+    const rawArtistName = providedArtistName || channel.title || youtube_channel_id;
+    const artistName = canonicalArtistName(rawArtistName);
     const artist_key = deriveArtistKey(artistName);
     if (!artist_key) return null;
 

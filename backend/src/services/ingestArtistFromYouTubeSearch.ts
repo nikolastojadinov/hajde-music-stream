@@ -1,6 +1,7 @@
 import supabase from "./supabaseClient";
 import { youtubeSearchMixed } from "./youtubeClient";
 import { upsertYoutubeChannelMapping } from "./artistResolver";
+import { canonicalArtistName } from "../utils/artistKey";
 import { youtubeFetchPlaylistTracks } from "./youtubeFetchPlaylistTracks";
 import { isOlakPlaylistId } from "../utils/olak";
 
@@ -55,7 +56,7 @@ export async function ingestArtistFromYouTubeSearch(
   try {
     if (!supabase) return null;
 
-    const artistName = normalizeString(input.artistName);
+    const artistName = canonicalArtistName(normalizeString(input.artistName));
     if (!artistName) return null;
 
     const storeChannelId = normalizeNullableString(input.store_channel_id_override);

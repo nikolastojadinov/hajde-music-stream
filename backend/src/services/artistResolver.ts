@@ -1,5 +1,6 @@
 import supabase from "./supabaseClient";
 import { logApiUsage } from "./apiUsageLogger";
+import { canonicalArtistName, normalizeArtistKey } from "../utils/artistKey";
 
 const YOUTUBE_CHANNELS_ENDPOINT = "https://www.googleapis.com/youtube/v3/channels";
 const QUOTA_COST_CHANNELS_LIST = 1;
@@ -26,23 +27,10 @@ function pickBestThumbnailUrl(thumbnails: any): string | null {
   );
 }
 
-function normalizeArtistKey(artistName: string): string {
-  const raw = typeof artistName === "string" ? artistName : "";
-
-  const cleaned = raw
-    .trim()
-    .toLowerCase()
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9\s]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  return cleaned.replace(/\s/g, "-");
-}
-
 export function deriveArtistKey(artistName: string): string {
-  return normalizeArtistKey(artistName);
+  // Always canonicalize so topic suffixes never affect identity.
+  const canonical = canonicalArtistName(artistName);
+  return normalizeArtistKey(canonical);
 }
 
 export type YoutubeChannelMapping = {
