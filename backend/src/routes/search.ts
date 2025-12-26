@@ -384,6 +384,8 @@ async function persistYouTubeMixedResults(opts: {
 // Response builder
 
 function buildSearchResponse(q: string, result: LocalSearchResult, artistIngested: boolean, ingestStarted: boolean, artistName: string | null) {
+  const primaryArtist = result.artist_channels[0] ?? null;
+
   return {
     q,
     tracks: result.tracks,
@@ -395,7 +397,13 @@ function buildSearchResponse(q: string, result: LocalSearchResult, artistIngeste
     artist_ingested: artistIngested,
     ingest_started: ingestStarted,
     artist_name: artistName,
-    artist: null,
+    artist: primaryArtist
+      ? {
+          name: primaryArtist.title,
+          thumbnail_url: primaryArtist.thumbnailUrl,
+          youtube_channel_id: primaryArtist.channelId,
+        }
+      : null,
   };
 }
 

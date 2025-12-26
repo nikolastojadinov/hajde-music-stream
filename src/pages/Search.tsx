@@ -447,7 +447,8 @@ export default function Search() {
     Boolean(resolved) &&
     normalizeQuery(query).length > 0 &&
     resultsSongs.length === 0 &&
-    resultsPlaylists.local.length === 0;
+    resultsPlaylists.local.length === 0 &&
+    !resolvedArtistName;
 
   const showResolveError = Boolean(error) && showResults && !resolveLoading;
 
