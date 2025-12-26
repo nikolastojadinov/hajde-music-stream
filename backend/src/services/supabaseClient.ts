@@ -2,6 +2,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 import env from '../environments';
 import { logApiUsage } from './apiUsageLogger';
+import { canonicalArtistName, normalizeArtistKey } from '../utils/artistKey';
 
 export type SearchTrackRow = {
   id: string;
@@ -367,6 +368,8 @@ export async function searchArtistChannelsForQuery(q: string): Promise<SearchArt
   const query = normalizeQuery(q);
   if (!supabase || query.length < 2) return [];
 
+  const key = normalizeArtistKey(canonicalArtistName(query));
+
   let status: 'ok' | 'error' = 'ok';
   let errorCode: string | null = null;
   let errorMessage: string | null = null;
@@ -374,6 +377,9 @@ export async function searchArtistChannelsForQuery(q: string): Promise<SearchArt
   try {
     const likePattern = `%${escapeLikePatternLiteral(query)}%`;
     const orFilters = [`artist.ilike.${likePattern}`];
+    if (key) {
+      orFilters.push(`artist_key.eq.${key}`);
+    }
     // If user pasted a channel id, try to match it directly to avoid re-ingest.
     if (query.length > 10) {
       orFilters.push(`youtube_channel_id.eq.${escapeSqlStringLiteral(query)}`);
