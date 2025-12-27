@@ -127,6 +127,7 @@ export default function Search() {
   const [suggestOpen, setSuggestOpen] = useState(false);
 
   const [resolved, setResolved] = useState<SearchResolveResponse | null>(null);
+  const resolveCacheRef = useRef<Map<string, SearchResolveResponse>>(new Map());
   const [resolveLoading, setResolveLoading] = useState(false);
 
   const [recentSearches, setRecentSearches] = useState<RecentSearchItem[]>([]);
@@ -459,6 +460,7 @@ export default function Search() {
       const payload = { q, mode, sync: true };
       const next = await searchResolve(payload, { signal: controller.signal });
       if (!controller.signal.aborted) {
+        resolveCacheRef.current.set(q.toLowerCase(), next);
         setResolved(next);
       }
     } catch (e: any) {
@@ -487,6 +489,11 @@ export default function Search() {
       setRelatedArtists(null);
     }
 
+    const cached = resolveCacheRef.current.get(nextQuery.toLowerCase());
+    if (cached) {
+      setResolved(cached);
+    }
+
     await runResolve(nextQuery, nextMode);
 
     const entityType: RecentSearchItem["entity_type"] =
@@ -510,6 +517,11 @@ export default function Search() {
     setQuery(normalized);
     setSuggestOpen(false);
     setRelatedArtists(null);
+
+    const cached = resolveCacheRef.current.get(normalized.toLowerCase());
+    if (cached) {
+      setResolved(cached);
+    }
 
     await runResolve(normalized, "generic");
     void persistRecentSearch({ query: normalized, entity_type: item.entity_type, entity_id: item.entity_id });

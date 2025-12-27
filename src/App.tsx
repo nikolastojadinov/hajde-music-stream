@@ -1,5 +1,6 @@
 // CLEANUP DIRECTIVE: Restore SPA routing, including playlist create/edit pages.
 import type { ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import Footer from "@/components/Footer";
@@ -49,13 +50,36 @@ const AuthGate = ({ children }: AuthGateProps) => {
 };
 
 const GlobalAuthOverlay = () => {
-  const { authenticating } = usePi();
+  const { authenticating, logout } = usePi();
   const { t } = useLanguage();
+  const [stuck, setStuck] = useState(false);
+
+  useEffect(() => {
+    if (!authenticating) {
+      setStuck(false);
+      return;
+    }
+
+    const timer = setTimeout(() => setStuck(true), 12000);
+    return () => clearTimeout(timer);
+  }, [authenticating]);
+
   if (!authenticating) return null;
 
   return (
     <div className="fixed inset-0 z-[3000] flex items-center justify-center bg-black text-white">
-      <p className="text-lg font-semibold animate-pulse">{t("pi_authentication")}</p>
+      <div className="flex flex-col items-center gap-3">
+        <p className="text-lg font-semibold animate-pulse">{t("pi_authentication")}</p>
+        {stuck ? (
+          <button
+            type="button"
+            className="rounded bg-white px-4 py-2 text-sm font-medium text-black shadow-md transition hover:opacity-90"
+            onClick={logout}
+          >
+            Try again
+          </button>
+        ) : null}
+      </div>
     </div>
   );
 };
