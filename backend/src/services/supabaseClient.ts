@@ -293,10 +293,13 @@ export async function searchPlaylistsDualForQuery(q: string, options?: { limit?:
     const queryLiteral = `'${escapeSqlStringLiteral(query)}'`;
     const likePatternLiteral = `'%${escapeLikePatternLiteral(query)}%'`;
 
-    // For artist queries, use exact match on artist field to get better results
-    const artistWhereClause = prioritizeArtistMatch
-      ? `lower(t.artist) = lower(${queryLiteral})`
-      : `t.artist ilike ${likePatternLiteral} escape '\\\\'`;
+      // Match playlists by tracks where either the artist OR the track title matches the query.
+      // For artist-focused queries, keep an exact artist match to avoid noisy results, but still allow track-title hits.
+      const artistMatch = prioritizeArtistMatch
+        ? `lower(t.artist) = lower(${queryLiteral})`
+        : `t.artist ilike ${likePatternLiteral} escape '\\'`;
+
+      const trackTitleMatch = `t.title ilike ${likePatternLiteral} escape '\\'`;
 
     // For artist queries, prioritize artist_matches with the full limit
     // For generic queries, split the limit between both types
@@ -322,7 +325,7 @@ export async function searchPlaylistsDualForQuery(q: string, options?: { limit?:
         from tracks t
         join playlist_tracks pt on pt.track_id = t.id
         join playlists p on p.id = pt.playlist_id
-        where ${artistWhereClause}
+        where (${artistMatch} or ${trackTitleMatch})
         order by p.title asc
         limit ${artistMatchLimit}
       )
