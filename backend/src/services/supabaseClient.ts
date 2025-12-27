@@ -369,6 +369,7 @@ export async function searchArtistChannelsForQuery(q: string): Promise<SearchArt
   if (!supabase || query.length < 2) return [];
 
   const key = normalizeArtistKey(canonicalArtistName(query));
+  const canonical = canonicalArtistName(query);
 
   let status: 'ok' | 'error' = 'ok';
   let errorCode: string | null = null;
@@ -376,9 +377,13 @@ export async function searchArtistChannelsForQuery(q: string): Promise<SearchArt
 
   try {
     const likePattern = `%${escapeLikePatternLiteral(query)}%`;
+    const canonicalLike = canonical && canonical !== query ? `%${escapeLikePatternLiteral(canonical)}%` : null;
     const orFilters = [`artist.ilike.${likePattern}`];
     if (key) {
       orFilters.push(`artist_key.eq.${key}`);
+    }
+    if (canonicalLike) {
+      orFilters.push(`artist.ilike.${canonicalLike}`);
     }
     // If user pasted a channel id, try to match it directly to avoid re-ingest.
     if (query.length > 10) {

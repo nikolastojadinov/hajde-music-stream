@@ -355,16 +355,6 @@ export default function Search() {
     }
   }
 
-  const handleSubmit = async () => {
-    const normalized = normalizeQuery(query);
-    if (!normalized) return;
-
-    setSuggestOpen(false);
-    setRelatedArtists(null);
-    await runResolve(normalized, "generic");
-    void persistRecentSearch({ query: normalized, entity_type: "generic" });
-  };
-
   const handleSuggestionClick = async (s: Suggestion) => {
     const nextMode: SearchResolveMode =
       s.type === "artist" ? "artist" : s.type === "track" ? "track" : s.type === "album" ? "album" : "generic";
@@ -409,6 +399,15 @@ export default function Search() {
     await runResolve(normalized, "generic");
     void persistRecentSearch({ query: normalized, entity_type: item.entity_type, entity_id: item.entity_id });
   };
+
+  const selectFirstSuggestion = useCallback(async () => {
+    const first = flatSuggestions[0];
+    if (!first) {
+      setError("Pick a suggestion to search");
+      return;
+    }
+    await handleSuggestionClick(first);
+  }, [flatSuggestions, handleSuggestionClick]);
 
   const relatedArtistsKey = useMemo(() => (relatedArtists ? relatedArtists.join("|") : ""), [relatedArtists]);
 
@@ -497,7 +496,7 @@ export default function Search() {
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          void handleSubmit();
+          void selectFirstSuggestion();
         }}
         className="mb-6"
       >
@@ -531,9 +530,7 @@ export default function Search() {
               ) : null}
             </div>
 
-            <Button type="submit" className="h-12">
-              Search
-            </Button>
+            {/* Search button removed: flow relies on suggestions */}
           </div>
 
           {showDropdown ? (
@@ -721,7 +718,7 @@ export default function Search() {
           {resolveLoading ? (
             <LoadingSkeleton type="search" />
           ) : showResolveError ? (
-            <ErrorState title="Search failed" subtitle="Please try again" onRetry={() => void handleSubmit()} />
+            <ErrorState title="Search failed" subtitle="Please try again" onRetry={() => void selectFirstSuggestion()} />
           ) : isEmptyResults ? (
             <EmptyState title="No results found" subtitle="Try a different artist, song, or playlist" />
           ) : resolved ? (
