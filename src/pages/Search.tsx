@@ -423,6 +423,27 @@ export default function Search() {
     return { local: localPlaylists };
   }, [resolved]);
 
+  const interleavedResults = useMemo(() => {
+    const songs = resultsSongs;
+    const playlists = resultsPlaylists.local;
+    const out: Array<{ kind: "song"; song: SongResult } | { kind: "playlist"; playlist: typeof playlists[number] }> = [];
+    let si = 0;
+    let pi = 0;
+    while (si < songs.length || pi < playlists.length) {
+      if (si < songs.length) {
+        const chunk = songs.slice(si, si + 2);
+        for (const s of chunk) out.push({ kind: "song", song: s });
+        si += 2;
+      }
+      if (pi < playlists.length) {
+        const chunk = playlists.slice(pi, pi + 2);
+        for (const p of chunk) out.push({ kind: "playlist", playlist: p });
+        pi += 2;
+      }
+    }
+    return out;
+  }, [resultsPlaylists.local, resultsSongs]);
+
   async function runResolve(nextQuery: string, mode: SearchResolveMode) {
     const q = normalizeQuery(nextQuery);
     if (!q) return;
@@ -821,45 +842,33 @@ export default function Search() {
                 ) : null}
               </section>
 
-              {resultsSongs.length > 0 ? (
-                <section className="mb-10">
+              {interleavedResults.length > 0 ? (
+                <section className="space-y-2">
                   <h2 className="flex items-center gap-2 text-xl font-bold mb-4">
-                    <Music className="w-5 h-5" /> Songs
+                    <Music className="w-5 h-5" /> Songs & Playlists
                   </h2>
 
-                  <div className="space-y-2">
-                    {resultsSongs.map((s) => (
+                  {interleavedResults.map((item, idx) =>
+                    item.kind === "song" ? (
                       <button
-                        key={s.key}
+                        key={`song-${item.song.key}-${idx}`}
                         type="button"
-                        onClick={() => playTrack(s.youtubeId, s.title, s.artist, s.trackId)}
+                        onClick={() => playTrack(item.song.youtubeId, item.song.title, item.song.artist, item.song.trackId)}
                         className="block w-full text-left rounded-lg border border-border bg-card/30 px-3 py-3 hover:bg-card/50 transition-colors"
                       >
-                        <div className="font-medium truncate">{s.title}</div>
-                        <div className="text-sm text-muted-foreground truncate">{s.artist}</div>
+                        <div className="font-medium truncate">{item.song.title}</div>
+                        <div className="text-sm text-muted-foreground truncate">{item.song.artist}</div>
                       </button>
-                    ))}
-                  </div>
-                </section>
-              ) : null}
-
-              {resultsPlaylists.local.length > 0 ? (
-                <section>
-                  <h2 className="flex items-center gap-2 text-xl font-bold mb-4">
-                    <ListMusic className="w-5 h-5" /> Playlists
-                  </h2>
-
-                  <div className="space-y-2">
-                    {resultsPlaylists.local.map((p) => (
+                    ) : (
                       <Link
-                        key={p.id}
-                        to={`/playlist/${p.id}`}
+                        key={`playlist-${item.playlist.id}-${idx}`}
+                        to={`/playlist/${item.playlist.id}`}
                         className="block w-full rounded-lg border border-border bg-card/30 px-3 py-3 hover:bg-card/50 transition-colors"
                       >
-                        <div className="font-medium truncate">{p.title}</div>
+                        <div className="font-medium truncate">{item.playlist.title}</div>
                       </Link>
-                    ))}
-                  </div>
+                    )
+                  )}
                 </section>
               ) : null}
             </div>
