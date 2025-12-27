@@ -14,6 +14,7 @@ type PiContextValue = {
   authenticating: boolean;
   isPiBrowser: boolean;
   authLog: string[];
+  authError: string | null;
   setUserFromPi: (next: PiUser | null) => void;
   clearPiUser: () => void;
   login: () => Promise<void>;
@@ -32,6 +33,7 @@ const PiContext = createContext<PiContextValue>({
   authenticating: false,
   isPiBrowser: false,
   authLog: [],
+  authError: null,
   setUserFromPi: () => undefined,
   clearPiUser: () => undefined,
   login: async () => undefined,
@@ -161,6 +163,7 @@ const PiStateProvider = ({ children }: { children: ReactNode }) => {
       authenticating: auth.loading,
       isPiBrowser,
       authLog: auth.debugLog ?? [],
+      authError: auth.lastError ?? null,
       setUserFromPi,
       clearPiUser,
       login: auth.login,

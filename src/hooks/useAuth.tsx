@@ -17,6 +17,7 @@ type AuthContextValue = {
   isLoading: boolean;
   error: string | null;
   debugLog: string[];
+  lastError: string | null;
   signIn: () => Promise<void>;
   login: () => Promise<void>;
   logout: () => Promise<void>;
@@ -41,7 +42,7 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 async function postAuthResult(authResult: AuthResult): Promise<AuthUser> {
   const maxRetries = 2;
-  const timeout = 45_000;
+  const timeout = 10_000;
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
@@ -49,7 +50,10 @@ async function postAuthResult(authResult: AuthResult): Promise<AuthUser> {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeout);
 
-      const response = await fetch(`${BACKEND_URL}/pi/auth`, {
+      const url = `${BACKEND_URL}/pi/auth`;
+      console.info(`[Auth] /pi/auth attempt ${attempt + 1} -> ${url}`);
+
+      const response = await fetch(url, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -100,6 +104,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [debugLog, setDebugLog] = useState<string[]>([]);
+  const [lastError, setLastError] = useState<string | null>(null);
   const [welcomeVisible, setWelcomeVisible] = useState(false);
   const [goPremiumVisible, setGoPremiumVisible] = useState(false);
   const pendingGoPremium = useRef(false);
@@ -202,10 +207,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (isAuthenticating) return;
 
     console.info("[Auth] Login start: invoking Pi.authenticate");
-    logDebug("[Auth] Login start: invoking Pi.authenticate");
+    logDebug(`[Auth] Login start: invoking Pi.authenticate (backend=${BACKEND_URL})`);
 
     setIsAuthenticating(true);
     setError(null);
+    setLastError(null);
     clearWelcomeTimer();
     clearAuthTimeout();
     setWelcomeVisible(false);
@@ -230,6 +236,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const authResult = await Promise.race([authPromise, timeoutPromise]);
       logDebug("[Auth] Pi.authenticate resolved");
 
+      logDebug("[Auth] Calling /pi/auth");
       const profile = await postAuthResult(authResult);
       logDebug(`[Auth] Backend /pi/auth success uid=${profile.uid}`);
       setAuthUser(profile);
@@ -268,6 +275,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const message = err instanceof Error ? err.message : "Authentication failed";
       const cancelled = message.toLowerCase().includes("cancel");
       setError(cancelled ? null : message);
+      setLastError(cancelled ? null : message);
       if (!cancelled) {
         logDebug(`[Auth] Login failed: ${message}`);
       }
@@ -313,6 +321,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     isLoading: isAuthenticating,
     error,
     debugLog,
+    lastError,
     signIn: login,
     login,
     logout,
@@ -325,7 +334,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     goPremiumVisible,
     dismissGoPremium,
     refreshUser,
-  }), [user, setUser, isAuthenticating, error, debugLog, login, logout, createPayment, isProcessingPayment, paymentError, welcomeVisible, dismissWelcome, goPremiumVisible, dismissGoPremium, refreshUser]);
+  }), [user, setUser, isAuthenticating, error, debugLog, lastError, login, logout, createPayment, isProcessingPayment, paymentError, welcomeVisible, dismissWelcome, goPremiumVisible, dismissGoPremium, refreshUser]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
