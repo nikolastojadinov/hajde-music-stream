@@ -34,7 +34,7 @@ const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:8000";
 const PI_SCOPE = ["username", "payments"];
 let piInitialized = false;
 const WELCOME_DISMISS_DELAY = 3200;
-const AUTH_TIMEOUT_MS = 15000;
+const AUTH_TIMEOUT_MS = 12000;
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
@@ -197,24 +197,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setGoPremiumVisible(false);
     pendingGoPremium.current = false;
 
-    authTimeoutRef.current = window.setTimeout(() => {
-      console.warn("[Auth] Authentication timed out");
-      setIsAuthenticating(false);
-      setAuthUser(null);
-      setError("Authentication timed out. Please try again.");
-      setWelcomeVisible(false);
-      setGoPremiumVisible(false);
-      pendingGoPremium.current = false;
-    }, AUTH_TIMEOUT_MS);
-
     try {
       if (typeof window === "undefined" || !window.Pi) {
         throw new Error("Pi SDK not available");
       }
 
-      const authResult = await window.Pi.authenticate(PI_SCOPE, async (payment) => {
+      const authPromise = window.Pi.authenticate(PI_SCOPE, async (payment) => {
         console.log("[Auth] Found incomplete payment", payment);
       });
+
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        authTimeoutRef.current = window.setTimeout(() => {
+          reject(new Error("Authentication timed out. Please try again."));
+        }, AUTH_TIMEOUT_MS);
+      });
+
+      const authResult = await Promise.race([authPromise, timeoutPromise]);
 
       const profile = await postAuthResult(authResult);
       setAuthUser(profile);
