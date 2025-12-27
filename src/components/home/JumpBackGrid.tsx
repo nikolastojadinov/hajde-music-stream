@@ -30,26 +30,14 @@ const JumpBackGrid = () => {
   const { user } = usePi();
   const navigate = useNavigate();
 
-  const getRandomPlaylistsFallback = async (): Promise<RecentPlaylist[]> => {
-    const { data: fallbackData } = await externalSupabase
-      .from("playlists")
-      .select("id, title, cover_url")
-      .limit(6);
-
-    return ((fallbackData || []) as PlaylistData[]).map((playlist) => ({
-      ...playlist,
-      view_count: 0,
-      last_viewed_at: new Date().toISOString(),
-    }));
-  };
+  const isLoggedIn = Boolean(user?.uid);
 
   const { data: playlists, isLoading } = useQuery({
     queryKey: ["recent-playlists", user?.uid],
+    enabled: isLoggedIn,
     queryFn: async () => {
       const userId = user?.uid;
-      if (!userId) {
-        return getRandomPlaylistsFallback();
-      }
+      if (!userId) return [];
 
       const url = withBackendOrigin(`/api/playlist-views/top?user_id=${encodeURIComponent(userId)}&limit=6`);
       const response = await fetch(url, {
@@ -59,7 +47,7 @@ const JumpBackGrid = () => {
 
       if (!response.ok) {
         console.error("Error fetching recent playlists:", response.status);
-        return getRandomPlaylistsFallback();
+        return [];
       }
 
       const payload = await response.json().catch(() => null);
@@ -76,7 +64,7 @@ const JumpBackGrid = () => {
         : [];
 
       if (!backendPlaylists.length) {
-        return getRandomPlaylistsFallback();
+        return [];
       }
 
       const merged = backendPlaylists.map((item) => {
@@ -90,32 +78,11 @@ const JumpBackGrid = () => {
         } satisfies RecentPlaylist;
       });
 
-      const validMerged = merged.filter((item) => item.id);
-
-      if (validMerged.length < 6) {
-        const existingIds = validMerged.map((item) => item.id);
-        const needed = 6 - validMerged.length;
-
-        const { data: randomData } = await externalSupabase
-          .from("playlists")
-          .select("id, title, cover_url")
-          .not("id", "in", `(${existingIds.join(",")})`)
-          .limit(needed);
-
-        if (randomData && randomData.length > 0) {
-          const randomPlaylists = (randomData as PlaylistData[]).map((playlist) => ({
-            ...playlist,
-            view_count: 0,
-            last_viewed_at: new Date().toISOString(),
-          }));
-          validMerged.push(...randomPlaylists);
-        }
-      }
-
-      return validMerged;
+      return merged.filter((item) => item.id);
     },
-    enabled: true,
   });
+
+  if (!isLoggedIn) return null;
 
   const gridPlaylists = useMemo(() => (playlists ? playlists.slice(0, 6) : []), [playlists]);
 
