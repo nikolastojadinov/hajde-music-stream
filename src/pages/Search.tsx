@@ -413,6 +413,11 @@ export default function Search() {
 
   const resolvedArtistName = useMemo(() => getResolvedArtistName(resolved), [resolved]);
 
+  const primarySelectedArtist = useMemo(() => {
+    const first = selectedTrackArtists && selectedTrackArtists.length > 0 ? selectedTrackArtists[0] : null;
+    return first ? first.trim() || null : null;
+  }, [selectedTrackArtists]);
+
   const resolvedArtistThumb = useMemo(() => {
     const url = resolved?.artist?.thumbnail_url;
     return typeof url === "string" && url.trim() ? url.trim() : null;
@@ -421,11 +426,6 @@ export default function Search() {
   const displayArtistName = useMemo(() => {
     return resolvedArtistName || primarySelectedArtist || null;
   }, [primarySelectedArtist, resolvedArtistName]);
-
-  const primarySelectedArtist = useMemo(() => {
-    const first = selectedTrackArtists && selectedTrackArtists.length > 0 ? selectedTrackArtists[0] : null;
-    return first ? first.trim() || null : null;
-  }, [selectedTrackArtists]);
 
   const resultsSongs = useMemo(() => {
     const trackCandidates: any[] = Array.isArray((resolved as any)?.tracks)
