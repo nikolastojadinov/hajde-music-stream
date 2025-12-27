@@ -42,6 +42,7 @@ type SongResult = {
   artist: string;
   youtubeId: string;
   trackId: string;
+  imageUrl?: string | null;
 };
 
 function recentEntityLabel(type: RecentSearchItem["entity_type"]): string {
@@ -156,6 +157,26 @@ export default function Search() {
   const normalizedLength = normalizedQuery.length;
   const filteredRecentSearches = useMemo(() => {
     if (!recentSearches || recentSearches.length === 0) return [] as RecentSearchItem[];
+  const interleavedResults = useMemo(() => {
+    const songs = resultsSongs;
+    const playlists = resultsPlaylists.local;
+    const out: Array<{ kind: "song"; song: SongResult } | { kind: "playlist"; playlist: typeof playlists[number] }> = [];
+    let si = 0;
+    let pi = 0;
+    while (si < songs.length || pi < playlists.length) {
+      if (si < songs.length) {
+        const chunk = songs.slice(si, si + 2);
+        for (const s of chunk) out.push({ kind: "song", song: s });
+        si += 2;
+      }
+      if (pi < playlists.length) {
+        const chunk = playlists.slice(pi, pi + 2);
+        for (const p of chunk) out.push({ kind: "playlist", playlist: p });
+        pi += 2;
+      }
+    }
+    return out;
+  }, [resultsPlaylists.local, resultsSongs]);
     if (!normalizedQuery) return recentSearches;
     const q = normalizedQuery.toLowerCase();
     return recentSearches.filter((item) => item.query.toLowerCase().includes(q));
@@ -423,6 +444,8 @@ export default function Search() {
         const { artistFromTitle, titleWithoutArtist } = parseArtistAndTitle(rawTitle);
         const displayArtist = deriveDisplayArtist(resolvedArtistName, artistFromTitle, primarySelectedArtist);
         const cleanTitle = titleWithoutArtist || rawTitle || "Unknown title";
+        const imageUrlCandidate = typeof t?.coverUrl === "string" ? t.coverUrl : (t as any)?.cover_url;
+        const imageUrl = imageUrlCandidate && imageUrlCandidate.trim().length > 0 ? imageUrlCandidate.trim() : null;
 
         return {
           key: `local:${trackId}`,
@@ -430,6 +453,7 @@ export default function Search() {
           artist: displayArtist,
           youtubeId,
           trackId,
+          imageUrl,
         } as SongResult;
       })
       .filter(Boolean) as SongResult[];
@@ -883,6 +907,7 @@ export default function Search() {
                   {interleavedResults.map((item, idx) => {
                     if (item.kind === "song") {
                       const artist = item.song.artist || "Unknown artist";
+                      const thumb = item.song.imageUrl || null;
                       return (
                         <button
                           key={`song-${item.song.key}-${idx}`}
@@ -890,21 +915,44 @@ export default function Search() {
                           onClick={() => playTrack(item.song.youtubeId, item.song.title, item.song.artist, item.song.trackId)}
                           className="block w-full text-left rounded-lg border border-border bg-card/30 px-3 py-3 hover:bg-card/50 transition-colors"
                         >
-                          <div className="font-medium truncate">{item.song.title}</div>
-                          <div className="text-sm text-muted-foreground truncate">Song • {artist}</div>
+                          <div className="flex items-center gap-3">
+                            <div className="h-12 w-12 rounded-lg bg-muted flex items-center justify-center overflow-hidden">
+                              {thumb ? (
+                                <img src={thumb} alt={item.song.title} className="h-full w-full object-cover" loading="lazy" />
+                              ) : (
+                                <Music className="h-5 w-5 text-muted-foreground" />
+                              )}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="font-medium truncate">{item.song.title}</div>
+                              <div className="text-sm text-muted-foreground truncate">Song • {artist}</div>
+                            </div>
+                          </div>
                         </button>
                       );
                     }
 
                     const playlistArtist = displayArtistName || "Various artists";
+                    const cover = (item.playlist as any)?.cover_url ?? (item.playlist as any)?.coverUrl ?? null;
                     return (
                       <Link
                         key={`playlist-${item.playlist.id}-${idx}`}
                         to={`/playlist/${item.playlist.id}`}
                         className="block w-full rounded-lg border border-border bg-card/30 px-3 py-3 hover:bg-card/50 transition-colors"
                       >
-                        <div className="font-medium truncate">{item.playlist.title}</div>
-                        <div className="text-sm text-muted-foreground truncate">Playlist • {playlistArtist}</div>
+                        <div className="flex items-center gap-3">
+                          <div className="h-12 w-12 rounded-lg bg-muted flex items-center justify-center overflow-hidden">
+                            {cover ? (
+                              <img src={cover} alt={item.playlist.title} className="h-full w-full object-cover" loading="lazy" />
+                            ) : (
+                              <ListMusic className="h-5 w-5 text-muted-foreground" />
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="font-medium truncate">{item.playlist.title}</div>
+                            <div className="text-sm text-muted-foreground truncate">Playlist • {playlistArtist}</div>
+                          </div>
+                        </div>
                       </Link>
                     );
                   })}
