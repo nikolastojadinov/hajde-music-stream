@@ -21,7 +21,7 @@ import {
   upsertRecentSearch,
   type RecentSearchItem,
 } from "@/lib/api/search";
-import { prefetchArtistByKey } from "@/lib/api/artist";
+import { fetchArtistByKey, prefetchArtistByKey } from "@/lib/api/artist";
 import { deriveArtistKey } from "@/lib/artistKey";
 
 type Suggestion = {
@@ -129,6 +129,7 @@ export default function Search() {
   const [recentSearches, setRecentSearches] = useState<RecentSearchItem[]>([]);
   const [recentLoading, setRecentLoading] = useState(false);
   const [recentError, setRecentError] = useState<string | null>(null);
+  const [recentArtistThumbs, setRecentArtistThumbs] = useState<Record<string, string | null>>({});
 
   const [relatedArtists, setRelatedArtists] = useState<string[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -304,6 +305,41 @@ export default function Search() {
     () => filteredRecentSearches.filter((r) => r.entity_type === "playlist").slice(0, 20),
     [filteredRecentSearches]
   );
+
+  useEffect(() => {
+    // Prefetch artist thumbs for shelf (best-effort)
+    const uniqueKeys = new Map<string, string>();
+    for (const item of recentArtistsForShelf) {
+      const key = deriveArtistKey(item.query);
+      if (key) uniqueKeys.set(item.query, key);
+    }
+    if (uniqueKeys.size === 0) return;
+
+    const already = new Set(Object.keys(recentArtistThumbs));
+    const toFetch = Array.from(uniqueKeys.entries()).filter(([query]) => !already.has(query));
+    if (toFetch.length === 0) return;
+
+    let cancelled = false;
+    (async () => {
+      const updates: Record<string, string | null> = {};
+      for (const [query, key] of toFetch) {
+        try {
+          const res = await fetchArtistByKey(key).catch(() => null);
+          const thumb = res?.artist?.thumbnail_url ?? res?.artist?.banner_url ?? null;
+          updates[query] = typeof thumb === "string" && thumb.trim() ? thumb.trim() : null;
+        } catch {
+          updates[query] = null;
+        }
+      }
+      if (!cancelled && Object.keys(updates).length > 0) {
+        setRecentArtistThumbs((prev) => ({ ...prev, ...updates }));
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [recentArtistsForShelf, recentArtistThumbs]);
 
   const resolvedArtistName = useMemo(() => getResolvedArtistName(resolved), [resolved]);
 
@@ -648,11 +684,19 @@ export default function Search() {
               <button
                 key={item.id}
                 type="button"
-                onClick={() => void handleRecentClick(item)}
+                onClick={() => {
+                  const key = deriveArtistKey(item.query);
+                  if (!key) return;
+                  navigate(`/artist/${encodeURIComponent(key)}`);
+                }}
                 className="shrink-0 w-16 text-center"
               >
                 <div className="mx-auto h-12 w-12 rounded-full bg-muted flex items-center justify-center overflow-hidden">
-                  <span className="text-sm font-semibold text-muted-foreground">{firstLetter(item.query)}</span>
+                  {recentArtistThumbs[item.query] ? (
+                    <img src={recentArtistThumbs[item.query] as string} alt={item.query} className="h-full w-full object-cover" loading="lazy" />
+                  ) : (
+                    <span className="text-sm font-semibold text-muted-foreground">{firstLetter(item.query)}</span>
+                  )}
                 </div>
                 <div className="mt-2 text-xs font-medium truncate">{item.query}</div>
               </button>
