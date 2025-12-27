@@ -82,12 +82,26 @@ async function postAuthResult(authResult: AuthResult): Promise<AuthUser> {
 
       const raw = await response.text();
       console.info("[Auth] /pi/auth body length", raw?.length ?? 0);
-      const data = JSON.parse(raw || "{}");
+
+      let data: any;
+      try {
+        data = JSON.parse(raw || "{}");
+      } catch (parseErr) {
+        console.error("[Auth] Failed to parse /pi/auth body", parseErr);
+        throw new Error("Invalid auth response (parse error)");
+      }
+
+      const userPayload = data?.user;
+      if (!userPayload?.uid) {
+        console.error("[Auth] Missing user in /pi/auth response", data);
+        throw new Error("Invalid auth response (missing user)");
+      }
+
       return {
-        uid: data.user.uid,
-        username: data.user.username,
-        premium: Boolean(data.user.premium),
-        premium_until: data.user.premium_until ?? null,
+        uid: userPayload.uid,
+        username: userPayload.username,
+        premium: Boolean(userPayload.premium),
+        premium_until: userPayload.premium_until ?? null,
       };
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
