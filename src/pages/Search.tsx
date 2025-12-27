@@ -848,27 +848,34 @@ export default function Search() {
                     <Music className="w-5 h-5" /> Songs & Playlists
                   </h2>
 
-                  {interleavedResults.map((item, idx) =>
-                    item.kind === "song" ? (
-                      <button
-                        key={`song-${item.song.key}-${idx}`}
-                        type="button"
-                        onClick={() => playTrack(item.song.youtubeId, item.song.title, item.song.artist, item.song.trackId)}
-                        className="block w-full text-left rounded-lg border border-border bg-card/30 px-3 py-3 hover:bg-card/50 transition-colors"
-                      >
-                        <div className="font-medium truncate">{item.song.title}</div>
-                        <div className="text-sm text-muted-foreground truncate">{item.song.artist}</div>
-                      </button>
-                    ) : (
+                  {interleavedResults.map((item, idx) => {
+                    if (item.kind === "song") {
+                      const artist = item.song.artist || "Unknown artist";
+                      return (
+                        <button
+                          key={`song-${item.song.key}-${idx}`}
+                          type="button"
+                          onClick={() => playTrack(item.song.youtubeId, item.song.title, item.song.artist, item.song.trackId)}
+                          className="block w-full text-left rounded-lg border border-border bg-card/30 px-3 py-3 hover:bg-card/50 transition-colors"
+                        >
+                          <div className="font-medium truncate">{item.song.title}</div>
+                          <div className="text-sm text-muted-foreground truncate">Song • {artist}</div>
+                        </button>
+                      );
+                    }
+
+                    const playlistArtist = resolvedArtistName || "Various artists";
+                    return (
                       <Link
                         key={`playlist-${item.playlist.id}-${idx}`}
                         to={`/playlist/${item.playlist.id}`}
                         className="block w-full rounded-lg border border-border bg-card/30 px-3 py-3 hover:bg-card/50 transition-colors"
                       >
                         <div className="font-medium truncate">{item.playlist.title}</div>
+                        <div className="text-sm text-muted-foreground truncate">Playlist • {playlistArtist}</div>
                       </Link>
-                    )
-                  )}
+                    );
+                  })}
                 </section>
               ) : null}
             </div>
