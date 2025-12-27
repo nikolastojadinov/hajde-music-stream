@@ -5,6 +5,7 @@ import supabase from '../services/supabaseClient';
 import { executePrepareJob } from './prepareBatch1';
 import { executeRunJob } from '../jobs/runBatch';
 import { executePostBatchJob } from '../jobs/postBatch';
+import { JobStatus, JobType, RefreshJobRow } from '../types/jobs';
 import env from '../environments';
 
 const SCHEDULER_DISABLED = process.env.SCHEDULER_DISABLED === 'true';
@@ -13,19 +14,6 @@ let loggedDisabled = false;
 const TIMEZONE = 'Europe/Budapest';
 const CRON_EXPRESSION = '* * * * *';
 const JOB_TABLE = 'refresh_jobs';
-
-type JobStatus = 'pending' | 'running' | 'done' | 'error';
-type JobType = 'prepare' | 'run' | 'postbatch';
-
-type RefreshJobRow = {
-  id: string;
-  slot_index: number;
-  type: JobType;
-  scheduled_at: string;
-  day_key: string;
-  status: JobStatus;
-  payload: Record<string, unknown> | null;
-};
 
 function logDisabledOnce(): void {
   if (loggedDisabled) return;

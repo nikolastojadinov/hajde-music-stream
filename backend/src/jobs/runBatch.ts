@@ -8,6 +8,7 @@ import env from '../environments';
 import supabase from '../services/supabaseClient';
 import { fetchChannelDetails, fetchChannelPlaylists, type ChannelPlaylist } from '../services/youtubeChannelService';
 import { canonicalArtistName, normalizeArtistKey } from '../utils/artistKey';
+import { JobStatus, JobType, RefreshJobRow } from '../types/jobs';
 import { PlaylistIngestTarget } from '../services/postBatchPlaylistTrackIngest';
 
 const TIMEZONE = 'Europe/Budapest';
@@ -29,19 +30,7 @@ const MIX_PREFIX = 'RD';
 const BATCH_DIR = path.resolve(__dirname, '../../tmp/refresh_batches');
 const DIAG_PREFIX = '[diag][runBatch]';
 
-export type JobStatus = 'pending' | 'running' | 'done' | 'error';
-export type JobType = 'prepare' | 'run';
 type RefreshMode = 'ingest' | 'refresh';
-
-export type RefreshJobRow = {
-  id: string;
-  slot_index: number;
-  type: JobType;
-  scheduled_at: string;
-  day_key: string;
-  status: JobStatus;
-  payload: Record<string, unknown> | null;
-};
 
 type PlaylistRow = {
   id: string;

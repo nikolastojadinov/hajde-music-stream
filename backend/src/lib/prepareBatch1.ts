@@ -5,24 +5,13 @@ import path from 'path';
 import { promises as fs } from 'fs';
 import { DateTime } from 'luxon';
 import supabase from '../services/supabaseClient';
+import { RefreshJobRow } from '../types/jobs';
 
 const TIMEZONE = 'Europe/Budapest';
 const CHANNEL_LIMIT = 200;
 const BATCH_DIR = path.resolve(__dirname, '../../tmp/refresh_batches');
 const JOB_TABLE = 'refresh_jobs';
-
-type JobStatus = 'pending' | 'running' | 'done' | 'error';
-type JobType = 'prepare' | 'run';
-
-type RefreshJobRow = {
-  id: string;
-  slot_index: number;
-  type: JobType;
-  scheduled_at: string;
-  day_key: string;
-  status: JobStatus;
-  payload: Record<string, unknown> | null;
-};
+// Removed redundant type aliases
 
 type SeedChannelRow = {
   channel_id: string;
