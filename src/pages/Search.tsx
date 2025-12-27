@@ -157,7 +157,7 @@ export default function Search() {
   const showRecentsDropdown = suggestOpen && filteredRecentSearches.length > 0;
   const showSuggestDropdown = suggestOpen;
   const showDropdown = showRecentsDropdown || showSuggestDropdown;
-  const showRecent = Boolean(userId) && normalizedLength === 0;
+  const showRecent = false;
 
   const refreshRecentSearches = useCallback(async () => {
     if (!userId) {
@@ -778,100 +778,11 @@ export default function Search() {
         </section>
       ) : null}
 
-          {showRecent ? (
-            <section className="space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <h2 className="text-xl font-bold">Recent searches</h2>
-                {recentLoading ? <span className="text-xs text-muted-foreground">Loading…</span> : null}
-                {!recentLoading && recentError ? <span className="text-xs text-destructive">{recentError}</span> : null}
-              </div>
-
-              {!recentLoading && recentSearches.length === 0 ? (
-                <div className="rounded-lg border border-dashed border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
-                  No recent searches yet. Try searching to see them here.
-                </div>
-              ) : null}
-
-              <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-                {recentSearches.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => void handleRecentClick(item)}
-                    className="group flex items-center justify-between gap-3 rounded-lg border border-border bg-card/40 px-3 py-3 text-left hover:bg-card/60"
-                  >
-                    <div className="flex flex-1 items-center gap-3 min-w-0">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted text-muted-foreground">
-                        {item.entity_type === "artist" ? (
-                          <User className="h-5 w-5" />
-                        ) : item.entity_type === "song" ? (
-                          <Music className="h-5 w-5" />
-                        ) : item.entity_type === "playlist" ? (
-                          <ListMusic className="h-5 w-5" />
-                        ) : item.entity_type === "album" ? (
-                          <Disc3 className="h-5 w-5" />
-                        ) : (
-                          <SearchIcon className="h-5 w-5" />
-                        )}
-                      </div>
-
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate font-semibold">{item.query}</div>
-                        <div className="text-xs text-muted-foreground">
-                          {recentEntityLabel(item.entity_type)} • Used {item.use_count}x
-                        </div>
-                      </div>
-                    </div>
-
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 opacity-0 transition-opacity group-hover:opacity-100"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        void handleDeleteRecent(item.id);
-                      }}
-                      aria-label="Remove recent search"
-                    >
-                      <X className="h-4 w-4 text-muted-foreground" />
-                    </Button>
-                  </button>
-                ))}
-              </div>
-            </section>
-          ) : null}
+          {/* recent searches grid removed from page body; recents only live inside dropdown */}
 
       {showResults ? (
         <div>
-          {relatedArtists && relatedArtists.length > 0 ? (
-            <section className="mb-10">
-              <h2 className="flex items-center gap-2 text-xl font-bold mb-4">
-                <User className="w-5 h-5" /> Artists
-              </h2>
-
-              <div className="flex gap-4 overflow-x-auto pb-2">
-                {relatedArtists.map((name) => (
-                  <button
-                    key={name}
-                    type="button"
-                    onClick={() => handleArtistClick(name)}
-                    onMouseEnter={() => prefetchArtist(name)}
-                    onTouchStart={() => prefetchArtist(name)}
-                    className="shrink-0 w-20 text-center"
-                  >
-                    <div className="mx-auto w-14 h-14 rounded-full bg-muted overflow-hidden flex items-center justify-center">
-                      <span className="text-sm font-semibold text-muted-foreground">{firstLetter(name)}</span>
-                    </div>
-                    <div className="mt-2 text-xs font-medium truncate">{name}</div>
-                    <div className="mt-1 text-[10px] text-muted-foreground inline-flex items-center justify-center gap-1">
-                      <User className="w-3 h-3" /> <span>Artist</span>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </section>
-          ) : null}
+          {/* related artists list suppressed; only show resolved artist/playlist/song results below */}
 
           {resolveLoading ? (
             <LoadingSkeleton type="search" />
