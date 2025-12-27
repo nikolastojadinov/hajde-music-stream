@@ -40,6 +40,19 @@ const AUTH_TIMEOUT_MS = 12000;
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
+async function sendClientLog(entry: { level?: string; message: string; context?: any }) {
+  try {
+    await fetch(`${BACKEND_URL}/client-log`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(entry),
+      credentials: "include",
+    });
+  } catch (err) {
+    console.warn("[ClientLog] send failed", err);
+  }
+}
+
 async function postAuthResult(authResult: AuthResult): Promise<AuthUser> {
   const maxRetries = 2;
   const timeout = 8_000;
@@ -199,6 +212,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       (window as any).__AUTH_LOG__ = next;
       return next;
     });
+    void sendClientLog({ level: "info", message, context: { source: "auth" } });
   }, []);
 
   const dismissWelcome = useCallback(() => {
@@ -304,6 +318,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLastError(cancelled ? null : message);
       if (!cancelled) {
         logDebug(`[Auth] Login failed: ${message}`);
+        void sendClientLog({ level: "error", message, context: { stage: "login", error: message } });
       }
       setAuthUser(null);
     } finally {

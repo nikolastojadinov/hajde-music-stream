@@ -137,11 +137,23 @@ export default function App() {
   useEffect(() => {
     const handleError = (event: ErrorEvent) => {
       setFatalError({ message: event.message || "Unexpected error", detail: event?.error?.stack });
+      void fetch(`${import.meta.env.VITE_BACKEND_URL || "http://localhost:8000"}/client-log`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ level: "error", message: event.message, context: { stack: event?.error?.stack } }),
+        credentials: "include",
+      }).catch(() => {});
     };
     const handleRejection = (event: PromiseRejectionEvent) => {
       const reason = event?.reason;
       const message = reason?.message || String(reason) || "Unhandled rejection";
       setFatalError({ message, detail: reason?.stack });
+      void fetch(`${import.meta.env.VITE_BACKEND_URL || "http://localhost:8000"}/client-log`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ level: "error", message, context: { stack: reason?.stack } }),
+        credentials: "include",
+      }).catch(() => {});
     };
     window.addEventListener("error", handleError);
     window.addEventListener("unhandledrejection", handleRejection);

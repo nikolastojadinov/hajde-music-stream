@@ -30,6 +30,7 @@ import { piAuth } from './middleware/piAuth';
 
 import searchRouter from './routes/search';
 import artistRouter from './routes/artist';
+import clientLogRouter from './routes/clientLog';
 
 declare global {
   namespace Express {
@@ -188,6 +189,7 @@ app.use('/api/artist', artistRouter);
 // Pi Network routes under /pi:
 app.use('/pi', piAuthRouter);
 app.use('/pi/payments', piPaymentsRouter);
+app.use('/client-log', clientLogRouter);
 
 // Public playlist stats endpoints
 app.get('/api/playlists/:id/public-stats', getPublicPlaylistStats);
