@@ -16,10 +16,16 @@ const router = express.Router();
  * Validates and upserts user into Supabase
  */
 router.post('/auth', async (req: Request, res: Response) => {
-  console.log('[Pi Auth] Received authentication request');
+  const startedAt = new Date().toISOString();
+  console.log('[Pi Auth] Received authentication request', { startedAt });
   
   try {
     const authResult = req.body;
+
+    console.log('[Pi Auth] Incoming payload keys', authResult ? Object.keys(authResult) : null);
+    if (authResult?.user?.uid) {
+      console.log('[Pi Auth] Incoming user', { uid: authResult.user.uid, username: authResult.user.username });
+    }
 
     // Validate Pi authentication
     const { valid, payload } = validatePiAuth(authResult);
@@ -107,7 +113,7 @@ router.post('/auth', async (req: Request, res: Response) => {
     });
 
     // Return sanitized user profile
-    res.json({
+    const responsePayload = {
       success: true,
       user: {
         uid: userData.wallet,
@@ -115,7 +121,10 @@ router.post('/auth', async (req: Request, res: Response) => {
         premium: userData.premium_until ? new Date(userData.premium_until) > new Date() : false,
         premium_until: userData.premium_until,
       }
-    });
+    };
+
+    console.log('[Pi Auth] Responding success', { uid: responsePayload.user.uid, premium: responsePayload.user.premium, startedAt, finishedAt: new Date().toISOString() });
+    res.json(responsePayload);
 
   } catch (error: any) {
     console.error('[Pi Auth ERROR]', error);
