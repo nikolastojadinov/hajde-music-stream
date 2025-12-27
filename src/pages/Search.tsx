@@ -418,14 +418,12 @@ export default function Search() {
     return first ? first.trim() || null : null;
   }, [selectedTrackArtists]);
 
-  const resolvedArtistThumb = useMemo(() => {
+  const resolvedArtistThumb = (() => {
     const url = resolved?.artist?.thumbnail_url;
     return typeof url === "string" && url.trim() ? url.trim() : null;
-  }, [resolved]);
+  })();
 
-  const displayArtistName = useMemo(() => {
-    return resolvedArtistName || primarySelectedArtist || null;
-  }, [primarySelectedArtist, resolvedArtistName]);
+  const displayArtistName = resolvedArtistName || primarySelectedArtist || null;
 
   const resultsSongs = useMemo(() => {
     const trackCandidates: any[] = Array.isArray((resolved as any)?.tracks)
