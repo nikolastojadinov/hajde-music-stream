@@ -142,8 +142,15 @@ export default function Search() {
 
   const normalizedQuery = useMemo(() => normalizeQuery(query), [query]);
   const normalizedLength = normalizedQuery.length;
-  const showRecentsDropdown = suggestOpen && normalizedLength < 2 && recentSearches.length > 0;
-  const showSuggestDropdown = suggestOpen && normalizedLength >= 2;
+  const filteredRecentSearches = useMemo(() => {
+    if (!recentSearches || recentSearches.length === 0) return [] as RecentSearchItem[];
+    if (!normalizedQuery) return recentSearches;
+    const q = normalizedQuery.toLowerCase();
+    return recentSearches.filter((item) => item.query.toLowerCase().includes(q));
+  }, [normalizedQuery, recentSearches]);
+
+  const showRecentsDropdown = suggestOpen && filteredRecentSearches.length > 0;
+  const showSuggestDropdown = suggestOpen;
   const showDropdown = showRecentsDropdown || showSuggestDropdown;
   const showRecent = Boolean(userId) && normalizedLength === 0;
 
@@ -287,6 +294,16 @@ export default function Search() {
   }, [suggestions]);
 
   const suggestIsFallback = suggestions?.source === "local_fallback";
+
+  const recentArtistsForShelf = useMemo(
+    () => filteredRecentSearches.filter((r) => r.entity_type === "artist").slice(0, 10),
+    [filteredRecentSearches]
+  );
+
+  const recentPlaylistsForShelf = useMemo(
+    () => filteredRecentSearches.filter((r) => r.entity_type === "playlist").slice(0, 20),
+    [filteredRecentSearches]
+  );
 
   const resolvedArtistName = useMemo(() => getResolvedArtistName(resolved), [resolved]);
 
@@ -539,11 +556,11 @@ export default function Search() {
               style={{ WebkitOverflowScrolling: "touch" }}
             >
               <div className="max-h-[60vh] overflow-y-auto overscroll-contain touch-pan-y space-y-3">
-                {showRecentsDropdown ? (
+                  {showRecentsDropdown ? (
                   <div>
                     <div className="px-2 pb-2 text-xs text-muted-foreground">Recent searches</div>
                     <div className="space-y-1">
-                      {recentSearches.map((item) => (
+                        {filteredRecentSearches.map((item) => (
                         <button
                           key={item.id}
                           type="button"
@@ -619,6 +636,58 @@ export default function Search() {
           ) : null}
         </div>
       </form>
+
+      {recentArtistsForShelf.length > 0 ? (
+        <section className="mb-6">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold text-muted-foreground">Recently searched artists</h2>
+            <span className="text-xs text-muted-foreground">{recentArtistsForShelf.length} items</span>
+          </div>
+          <div className="flex gap-3 overflow-x-auto pb-1">
+            {recentArtistsForShelf.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => void handleRecentClick(item)}
+                className="shrink-0 w-16 text-center"
+              >
+                <div className="mx-auto h-12 w-12 rounded-full bg-muted flex items-center justify-center overflow-hidden">
+                  <span className="text-sm font-semibold text-muted-foreground">{firstLetter(item.query)}</span>
+                </div>
+                <div className="mt-2 text-xs font-medium truncate">{item.query}</div>
+              </button>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {recentPlaylistsForShelf.length > 0 ? (
+        <section className="mb-8 space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-muted-foreground">Recently viewed playlists</h2>
+            <span className="text-xs text-muted-foreground">{recentPlaylistsForShelf.length} items</span>
+          </div>
+
+          <div className="space-y-2">
+            {recentPlaylistsForShelf.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => void handleRecentClick(item)}
+                className="flex w-full items-center gap-3 rounded-lg border border-border bg-card/40 px-3 py-3 text-left hover:bg-card/60"
+              >
+                <div className="h-12 w-12 rounded-lg bg-muted flex items-center justify-center overflow-hidden">
+                  <ListMusic className="h-5 w-5 text-muted-foreground" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="font-semibold truncate">{item.query}</div>
+                  <div className="text-xs text-muted-foreground">Playlist</div>
+                </div>
+              </button>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
           {showRecent ? (
             <section className="space-y-3">
