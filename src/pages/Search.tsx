@@ -714,7 +714,7 @@ export default function Search() {
         </div>
       </form>
 
-      {recentArtistsForShelf.length > 0 ? (
+      {!showResults && recentArtistsForShelf.length > 0 ? (
         <section className="mb-6">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-semibold text-muted-foreground">Recently searched artists</h2>
@@ -746,7 +746,7 @@ export default function Search() {
         </section>
       ) : null}
 
-      {recentPlaylistsForShelf.length > 0 ? (
+      {!showResults && recentPlaylistsForShelf.length > 0 ? (
         <section className="mb-8 space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold text-muted-foreground">Recently viewed playlists</h2>
