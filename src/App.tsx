@@ -126,10 +126,12 @@ const GlobalErrorOverlay = ({ error }: { error: FatalError }) => {
   );
 };
 
-class HomeErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
+type HomeBoundaryState = { hasError: boolean; message?: string; stack?: string };
+
+class HomeErrorBoundary extends Component<{ children: ReactNode }, HomeBoundaryState> {
   constructor(props: { children: ReactNode }) {
     super(props);
-    this.state = { hasError: false };
+    this.state = { hasError: false, message: undefined, stack: undefined };
   }
 
   static getDerivedStateFromError() {
@@ -137,7 +139,19 @@ class HomeErrorBoundary extends Component<{ children: ReactNode }, { hasError: b
   }
 
   componentDidCatch(error: any, info: any) {
-    void sendClientLog({ level: "error", message: "[Home] render error", context: { error: String(error), info } });
+    const message = error?.message ? String(error.message) : String(error);
+    const stack = error?.stack ? String(error.stack) : undefined;
+    this.setState({ message, stack });
+    console.error("[HomeErrorBoundary]", error, info);
+    void sendClientLog({
+      level: "error",
+      message: "[Home] render error",
+      context: {
+        error: message,
+        stack,
+        componentStack: info?.componentStack,
+      },
+    });
   }
 
   render() {
@@ -146,6 +160,11 @@ class HomeErrorBoundary extends Component<{ children: ReactNode }, { hasError: b
         <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
           <p className="text-lg font-semibold">Nešto je pošlo po zlu na početnoj.</p>
           <p className="text-sm text-muted-foreground">Osveži stranicu ili idi na Search.</p>
+          {this.state.message ? (
+            <p className="text-xs text-muted-foreground/80">
+              Detalj: {this.state.message}
+            </p>
+          ) : null}
           <div className="flex gap-2">
             <a
               href="/"
