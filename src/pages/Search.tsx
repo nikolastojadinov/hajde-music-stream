@@ -22,6 +22,9 @@ import {
   type RecentSearchItem,
 } from "@/lib/api/search";
 import { fetchArtistByKey, prefetchArtistByKey } from "@/lib/api/artist";
+import { useQuery } from "@tanstack/react-query";
+import { withBackendOrigin } from "@/lib/backendUrl";
+import { externalSupabase } from "@/lib/externalSupabase";
 import { deriveArtistKey } from "@/lib/artistKey";
 
 type Suggestion = {
@@ -130,6 +133,7 @@ export default function Search() {
   const [recentLoading, setRecentLoading] = useState(false);
   const [recentError, setRecentError] = useState<string | null>(null);
   const [recentArtistThumbs, setRecentArtistThumbs] = useState<Record<string, string | null>>({});
+  const [recentPlaylistError, setRecentPlaylistError] = useState<string | null>(null);
 
   const [relatedArtists, setRelatedArtists] = useState<string[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -301,10 +305,47 @@ export default function Search() {
     [filteredRecentSearches]
   );
 
-  const recentPlaylistsForShelf = useMemo(
-    () => filteredRecentSearches.filter((r) => r.entity_type === "playlist").slice(0, 20),
-    [filteredRecentSearches]
-  );
+  type RecentPlaylist = { id: string; title: string; cover_url: string | null; last_viewed_at?: string };
+
+  const { data: recentPlaylistsForShelf = [], isLoading: recentPlaylistsLoading } = useQuery<RecentPlaylist[], Error>({
+    queryKey: ["recent-playlists-search", userId],
+    enabled: Boolean(userId),
+    queryFn: async () => {
+      const uid = userId;
+      if (!uid) return [];
+
+      const url = withBackendOrigin(`/api/playlist-views/top?user_id=${encodeURIComponent(uid)}&limit=20`);
+      const response = await fetch(url, { credentials: "include", headers: { "Content-Type": "application/json" } });
+      if (!response.ok) {
+        setRecentPlaylistError("Failed to load recent playlists");
+        return [];
+      }
+
+      const payload = await response.json().catch(() => null);
+      type BackendPlaylistItem = {
+        playlist_id?: string;
+        playlists?: { id?: string; title?: string; cover_url?: string | null };
+        playlist?: { id?: string; title?: string; cover_url?: string | null };
+        last_viewed_at?: string;
+      };
+
+      const items: BackendPlaylistItem[] = Array.isArray(payload?.playlists) ? (payload!.playlists as BackendPlaylistItem[]) : [];
+      return items
+        .map((item) => {
+          const pl = item.playlists || item.playlist || {};
+          const id = pl.id || item.playlist_id || "";
+          if (!id) return null;
+          return {
+            id,
+            title: pl.title || "Unknown playlist",
+            cover_url: pl.cover_url ?? null,
+            last_viewed_at: item.last_viewed_at,
+          } satisfies RecentPlaylist;
+        })
+        .filter((p): p is RecentPlaylist => Boolean(p))
+        .slice(0, 20);
+    },
+  });
 
   useEffect(() => {
     // Prefetch artist thumbs for shelf (best-effort)
@@ -717,14 +758,18 @@ export default function Search() {
               <button
                 key={item.id}
                 type="button"
-                onClick={() => void handleRecentClick(item)}
+                onClick={() => navigate(`/playlist/${item.id}`)}
                 className="flex w-full items-center gap-3 rounded-lg border border-border bg-card/40 px-3 py-3 text-left hover:bg-card/60"
               >
                 <div className="h-12 w-12 rounded-lg bg-muted flex items-center justify-center overflow-hidden">
-                  <ListMusic className="h-5 w-5 text-muted-foreground" />
+                  {item.cover_url ? (
+                    <img src={item.cover_url} alt={item.title} className="h-full w-full object-cover" loading="lazy" />
+                  ) : (
+                    <ListMusic className="h-5 w-5 text-muted-foreground" />
+                  )}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="font-semibold truncate">{item.query}</div>
+                  <div className="font-semibold truncate">{item.title}</div>
                   <div className="text-xs text-muted-foreground">Playlist</div>
                 </div>
               </button>
