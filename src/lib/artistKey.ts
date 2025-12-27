@@ -1,14 +1,15 @@
 export function deriveArtistKey(input: string): string {
   const raw = typeof input === "string" ? input : "";
 
-  const cleaned = raw
-    .trim()
+  const canonical = raw.trim().replace(/\s*-\s*topic$/i, "").trim();
+
+  const normalized = canonical
     .toLowerCase()
     .normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9\s]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .replace(/-+/g, "-");
 
-  return cleaned.replace(/\s/g, "-");
+  return normalized;
 }
