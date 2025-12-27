@@ -8,6 +8,7 @@ import env from '../environments';
 import supabase from '../services/supabaseClient';
 import { fetchChannelDetails, fetchChannelPlaylists, type ChannelPlaylist } from '../services/youtubeChannelService';
 import { canonicalArtistName, normalizeArtistKey } from '../utils/artistKey';
+import { PlaylistIngestTarget } from '../services/postBatchPlaylistTrackIngest';
 
 const TIMEZONE = 'Europe/Budapest';
 const JOB_TABLE = 'refresh_jobs';
@@ -142,6 +143,7 @@ type BatchResult = {
   skippedCount: number;
   errors: Array<{ playlistId: string; message: string }>;
   diagnostics: Record<string, PlaylistRefreshDiagnostics>;
+  playlistTargets: PlaylistIngestTarget[];
 };
 
 type BatchFileEntry = {
@@ -253,6 +255,7 @@ export async function executeRunJob(job: RefreshJobRow): Promise<void> {
       success: result.successCount,
       failure: result.failureCount,
       skipped: result.skippedCount,
+      playlistTargets: result.playlistTargets.length,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
@@ -278,6 +281,7 @@ async function runBatchRefresh(job: RefreshJobRow): Promise<BatchResult> {
     skippedCount: 0,
     errors: [],
     diagnostics: {},
+    playlistTargets: [],
   };
 
   if (channelIds.length > 0) {
@@ -296,10 +300,11 @@ async function runBatchRefresh(job: RefreshJobRow): Promise<BatchResult> {
       success: aggregate.successCount,
       failure: aggregate.failureCount,
       skipped: aggregate.skippedCount,
+      playlistTargets: aggregate.playlistTargets.length,
     },
   });
 
-  return aggregate;
+  return { ...aggregate, playlistTargets: dedupePlaylistTargets(aggregate.playlistTargets) };
 }
 
 async function runChannelBatch(channelIds: string[], job: RefreshJobRow, refreshSessionId: string): Promise<BatchResult> {
@@ -310,6 +315,7 @@ async function runChannelBatch(channelIds: string[], job: RefreshJobRow, refresh
     skippedCount: 0,
     errors: [],
     diagnostics: {},
+    playlistTargets: [],
   };
 
   for (const channelId of channelIds) {
@@ -328,11 +334,6 @@ async function runChannelBatch(channelIds: string[], job: RefreshJobRow, refresh
       result.playlistCount += playlistRows.length;
 
       for (const playlist of playlistRows) {
-        if (isMixPlaylist(playlist.external_id)) {
-          result.skippedCount += 1;
-          continue;
-        }
-
         const diagnostics: PlaylistRefreshDiagnostics = {
           partial_refresh: false,
           fetched_pages: 0,
@@ -340,23 +341,24 @@ async function runChannelBatch(channelIds: string[], job: RefreshJobRow, refresh
           total_available: null,
         };
 
-        try {
-          const skipped = await refreshSinglePlaylist(playlist, diagnostics, { mode: 'ingest' });
-          result.diagnostics[playlist.id] = { ...diagnostics };
-          if (skipped) result.skippedCount += 1;
-          else result.successCount += 1;
-        } catch (error) {
+        if (!playlist.external_id || !isValidYouTubePlaylistId(playlist.external_id)) {
+          diagnostics.reason = 'invalid-playlist';
           result.diagnostics[playlist.id] = { ...diagnostics };
           result.failureCount += 1;
-          const message = error instanceof Error ? error.message : 'Unknown playlist refresh error';
-          result.errors.push({ playlistId: playlist.id, message });
-          console.error('[runBatch] Playlist refresh failed', {
-            playlistId: playlist.id,
-            youtubePlaylistId: playlist.external_id,
-            message,
-            channelId,
-          });
+          result.errors.push({ playlistId: playlist.id, message: 'Playlist missing or invalid external_id' });
+          continue;
         }
+
+        if (isMixPlaylist(playlist.external_id)) {
+          diagnostics.reason = 'mix-playlist';
+          result.diagnostics[playlist.id] = { ...diagnostics };
+          result.skippedCount += 1;
+          continue;
+        }
+
+        result.playlistTargets.push({ playlist_id: playlist.id, external_playlist_id: playlist.external_id });
+        result.diagnostics[playlist.id] = { ...diagnostics };
+        result.successCount += 1;
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown channel error';
@@ -379,6 +381,7 @@ async function runPlaylistBatch(playlistIds: string[], refreshSessionId: string)
     skippedCount: mixSkipped,
     errors: [],
     diagnostics: {},
+    playlistTargets: [],
   };
 
   for (const playlist of playlists) {
@@ -389,23 +392,24 @@ async function runPlaylistBatch(playlistIds: string[], refreshSessionId: string)
       total_available: null,
     };
 
-    try {
-      const skipped = await refreshSinglePlaylist(playlist, diagnostics, { mode: 'refresh' });
-      result.diagnostics[playlist.id] = { ...diagnostics };
-      if (skipped) result.skippedCount += 1;
-      else result.successCount += 1;
-    } catch (error) {
+    if (!playlist.external_id || !isValidYouTubePlaylistId(playlist.external_id)) {
+      diagnostics.reason = 'invalid-playlist';
       result.diagnostics[playlist.id] = { ...diagnostics };
       result.failureCount += 1;
-      const message = error instanceof Error ? error.message : 'Unknown playlist refresh error';
-      result.errors.push({ playlistId: playlist.id, message });
-      console.error('[runBatch] Playlist refresh failed', {
-        playlistId: playlist.id,
-        youtubePlaylistId: playlist.external_id,
-        message,
-        refreshSessionId,
-      });
+      result.errors.push({ playlistId: playlist.id, message: 'Playlist missing or invalid external_id' });
+      continue;
     }
+
+    if (isMixPlaylist(playlist.external_id)) {
+      diagnostics.reason = 'mix-playlist';
+      result.diagnostics[playlist.id] = { ...diagnostics };
+      result.skippedCount += 1;
+      continue;
+    }
+
+    result.playlistTargets.push({ playlist_id: playlist.id, external_playlist_id: playlist.external_id });
+    result.diagnostics[playlist.id] = { ...diagnostics };
+    result.successCount += 1;
   }
 
   diagLog('runPlaylistBatch.complete', {
@@ -415,6 +419,7 @@ async function runPlaylistBatch(playlistIds: string[], refreshSessionId: string)
     success: result.successCount,
     failure: result.failureCount,
     skipped: result.skippedCount,
+    playlistTargets: result.playlistTargets.length,
   });
 
   return result;
@@ -427,6 +432,21 @@ function mergeBatchResults(target: BatchResult, addition: BatchResult): void {
   target.skippedCount += addition.skippedCount;
   target.errors.push(...addition.errors);
   target.diagnostics = { ...target.diagnostics, ...addition.diagnostics };
+  target.playlistTargets.push(...addition.playlistTargets);
+}
+
+function dedupePlaylistTargets(targets: PlaylistIngestTarget[]): PlaylistIngestTarget[] {
+  const map = new Map<string, PlaylistIngestTarget>();
+
+  for (const raw of targets) {
+    const playlist_id = raw?.playlist_id?.trim();
+    const external_playlist_id = raw?.external_playlist_id?.trim();
+    if (!playlist_id || !external_playlist_id) continue;
+    if (map.has(playlist_id)) continue;
+    map.set(playlist_id, { playlist_id, external_playlist_id });
+  }
+
+  return Array.from(map.values());
 }
 
 async function upsertArtistFromChannel(channel: { id: string; title: string; thumbnailUrl?: string | null; bannerUrl?: string | null; subscribers?: number | null; views?: number | null; country?: string | null }): Promise<void> {

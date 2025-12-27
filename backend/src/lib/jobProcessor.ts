@@ -4,6 +4,7 @@ import supabase from '../services/supabaseClient';
 
 import { executePrepareJob } from './prepareBatch1';
 import { executeRunJob } from '../jobs/runBatch';
+import { executePostBatchJob } from '../jobs/postBatch';
 import env from '../environments';
 
 const SCHEDULER_DISABLED = process.env.SCHEDULER_DISABLED === 'true';
@@ -14,7 +15,7 @@ const CRON_EXPRESSION = '* * * * *';
 const JOB_TABLE = 'refresh_jobs';
 
 type JobStatus = 'pending' | 'running' | 'done' | 'error';
-type JobType = 'prepare' | 'run';
+type JobType = 'prepare' | 'run' | 'postbatch';
 
 type RefreshJobRow = {
   id: string;
@@ -127,6 +128,8 @@ async function handleJob(job: RefreshJobRow): Promise<void> {
       }
 
       await executeRunJob(job);
+    } else if (job.type === 'postbatch') {
+      await executePostBatchJob(job);
     } else {
       throw new Error(`Unsupported job type ${job.type}`);
     }
