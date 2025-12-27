@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Disc3, ListMusic, Music, Search as SearchIcon, User, X } from "lucide-react";
+import { Disc3, History, ListMusic, Music, Search as SearchIcon, User, X } from "lucide-react";
 import debounce from "lodash.debounce";
 
 import { Button } from "@/components/ui/button";
@@ -140,6 +140,13 @@ export default function Search() {
   const tickingRef = useRef(false);
   const userId = user?.uid ?? null;
 
+  const normalizedQuery = useMemo(() => normalizeQuery(query), [query]);
+  const normalizedLength = normalizedQuery.length;
+  const showRecentsDropdown = suggestOpen && normalizedLength < 2 && recentSearches.length > 0;
+  const showSuggestDropdown = suggestOpen && normalizedLength >= 2;
+  const showDropdown = showRecentsDropdown || showSuggestDropdown;
+  const showRecent = Boolean(userId) && normalizedLength === 0;
+
   const refreshRecentSearches = useCallback(async () => {
     if (!userId) {
       setRecentSearches([]);
@@ -257,9 +264,7 @@ export default function Search() {
   }, [refreshRecentSearches]);
 
   useEffect(() => {
-    const q = normalizeQuery(query);
-
-    if (q.length < 2) {
+    if (normalizedLength < 2) {
       debouncedSearchSuggest.cancel();
       suggestAbortRef.current?.abort();
       setSuggestions(null);
@@ -267,8 +272,8 @@ export default function Search() {
       return;
     }
 
-    debouncedSearchSuggest(q);
-  }, [query, debouncedSearchSuggest]);
+    debouncedSearchSuggest(normalizedQuery);
+  }, [normalizedLength, normalizedQuery, debouncedSearchSuggest]);
 
   const flatSuggestions: Suggestion[] = useMemo(() => {
     if (!suggestions) return [];
@@ -417,8 +422,6 @@ export default function Search() {
     }
   }, [relatedArtists, relatedArtistsKey]);
 
-  const showSuggestBox = suggestOpen && normalizeQuery(query).length >= 2;
-  const showRecent = Boolean(userId) && normalizeQuery(query).length === 0;
   const showResults = Boolean(resolved) || resolveLoading;
 
   const handleArtistClick = (artistName: string) => {
@@ -445,7 +448,7 @@ export default function Search() {
   const isEmptyResults =
     !resolveLoading &&
     Boolean(resolved) &&
-    normalizeQuery(query).length > 0 &&
+    normalizedLength > 0 &&
     resultsSongs.length === 0 &&
     resultsPlaylists.local.length === 0 &&
     !resolvedArtistName;
@@ -514,7 +517,7 @@ export default function Search() {
                 className="pl-12 pr-10 h-12"
               />
 
-              {normalizeQuery(query).length > 0 ? (
+              {normalizedLength > 0 ? (
                 <Button
                   type="button"
                   variant="ghost"
@@ -533,57 +536,87 @@ export default function Search() {
             </Button>
           </div>
 
-          {showSuggestBox ? (
+          {showDropdown ? (
             <div
               className="absolute z-20 mt-2 w-full rounded-lg border border-border bg-card/95 backdrop-blur p-2"
               style={{ WebkitOverflowScrolling: "touch" }}
             >
-              {suggestIsFallback ? (
-                <div className="px-2 pb-2 text-xs text-muted-foreground">Showing local suggestions (Spotify unavailable).</div>
-              ) : null}
-
-              {suggestLoading ? <div className="px-2 py-2 text-sm text-muted-foreground">Searching...</div> : null}
-
-              {!suggestLoading && error && !showResults ? (
-                <div className="px-2 py-2 text-sm text-muted-foreground">{error}</div>
-              ) : null}
-
-              {!suggestLoading && !error && flatSuggestions.length === 0 ? (
-                <div className="px-2 py-2 text-sm text-muted-foreground">No suggestions.</div>
-              ) : null}
-
-              <div className="max-h-[60vh] overflow-y-auto overscroll-contain touch-pan-y">
-                {flatSuggestions.map((s) => (
-                  <button
-                    key={`${s.type}:${s.id}`}
-                    type="button"
-                    onClick={() => void handleSuggestionClick(s)}
-                    className="w-full text-left flex items-center gap-3 rounded-md px-2 py-2 hover:bg-accent"
-                  >
-                    <div
-                      className={`w-8 h-8 bg-muted overflow-hidden shrink-0 ${s.type === "artist" ? "rounded-full" : "rounded"}`}
-                    >
-                      <div className="w-full h-full flex items-center justify-center">
-                        {s.imageUrl ? (
-                          <img src={s.imageUrl} alt={s.name} className="w-full h-full object-cover" loading="lazy" />
-                        ) : s.type === "artist" ? (
-                          <User className="w-4 h-4 text-muted-foreground" />
-                        ) : s.type === "track" ? (
-                          <Music className="w-4 h-4 text-muted-foreground" />
-                        ) : (
-                          <ListMusic className="w-4 h-4 text-muted-foreground" />
-                        )}
-                      </div>
+              <div className="max-h-[60vh] overflow-y-auto overscroll-contain touch-pan-y space-y-3">
+                {showRecentsDropdown ? (
+                  <div>
+                    <div className="px-2 pb-2 text-xs text-muted-foreground">Recent searches</div>
+                    <div className="space-y-1">
+                      {recentSearches.map((item) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => void handleRecentClick(item)}
+                          className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-left hover:bg-accent"
+                        >
+                          <History className="h-4 w-4 text-muted-foreground" />
+                          <div className="min-w-0">
+                            <div className="font-medium truncate">{item.query}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {recentEntityLabel(item.entity_type)} • Used {item.use_count}x
+                            </div>
+                          </div>
+                        </button>
+                      ))}
                     </div>
+                  </div>
+                ) : null}
 
-                    <div className="min-w-0 flex-1">
-                      <div className="font-medium truncate">{s.name}</div>
-                      <div className="text-xs text-muted-foreground truncate">
-                        {s.type === "track" ? (s.subtitle ? `Song • ${s.subtitle}` : "Song") : suggestionTypeLabel(s.type)}
-                      </div>
+                {showSuggestDropdown ? (
+                  <div className="space-y-2">
+                    {suggestIsFallback ? (
+                      <div className="px-2 pb-2 text-xs text-muted-foreground">Showing local suggestions (Spotify unavailable).</div>
+                    ) : null}
+
+                    {suggestLoading ? <div className="px-2 py-2 text-sm text-muted-foreground">Searching...</div> : null}
+
+                    {!suggestLoading && error && !showResults ? (
+                      <div className="px-2 py-2 text-sm text-muted-foreground">{error}</div>
+                    ) : null}
+
+                    {!suggestLoading && !error && flatSuggestions.length === 0 ? (
+                      <div className="px-2 py-2 text-sm text-muted-foreground">No suggestions.</div>
+                    ) : null}
+
+                    <div className="space-y-1">
+                      {flatSuggestions.map((s) => (
+                        <button
+                          key={`${s.type}:${s.id}`}
+                          type="button"
+                          onClick={() => void handleSuggestionClick(s)}
+                          className="w-full text-left flex items-center gap-3 rounded-md px-2 py-2 hover:bg-accent"
+                        >
+                          <div
+                            className={`w-8 h-8 bg-muted overflow-hidden shrink-0 ${s.type === "artist" ? "rounded-full" : "rounded"}`}
+                          >
+                            <div className="w-full h-full flex items-center justify-center">
+                              {s.imageUrl ? (
+                                <img src={s.imageUrl} alt={s.name} className="w-full h-full object-cover" loading="lazy" />
+                              ) : s.type === "artist" ? (
+                                <User className="w-4 h-4 text-muted-foreground" />
+                              ) : s.type === "track" ? (
+                                <Music className="w-4 h-4 text-muted-foreground" />
+                              ) : (
+                                <ListMusic className="w-4 h-4 text-muted-foreground" />
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="min-w-0 flex-1">
+                            <div className="font-medium truncate">{s.name}</div>
+                            <div className="text-xs text-muted-foreground truncate">
+                              {s.type === "track" ? (s.subtitle ? `Song • ${s.subtitle}` : "Song") : suggestionTypeLabel(s.type)}
+                            </div>
+                          </div>
+                        </button>
+                      ))}
                     </div>
-                  </button>
-                ))}
+                  </div>
+                ) : null}
               </div>
             </div>
           ) : null}
