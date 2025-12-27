@@ -397,6 +397,10 @@ export default function Search() {
     return typeof url === "string" && url.trim() ? url.trim() : null;
   }, [resolved]);
 
+  const displayArtistName = useMemo(() => {
+    return resolvedArtistName || primarySelectedArtist || null;
+  }, [primarySelectedArtist, resolvedArtistName]);
+
   const primarySelectedArtist = useMemo(() => {
     const first = selectedTrackArtists && selectedTrackArtists.length > 0 ? selectedTrackArtists[0] : null;
     return first ? first.trim() || null : null;
@@ -842,25 +846,25 @@ export default function Search() {
           ) : resolved ? (
             <div>
               <section className="mb-8 min-h-[104px]">
-                {resolvedArtistName ? (
+                {displayArtistName ? (
                   <div>
                     <div className="mb-2 text-xs text-muted-foreground">Artist</div>
                     <div className="flex gap-4 overflow-x-auto pb-2">
                       <button
                         type="button"
-                        onClick={() => handleArtistClick(resolvedArtistName)}
-                        onMouseEnter={() => prefetchArtist(resolvedArtistName)}
-                        onTouchStart={() => prefetchArtist(resolvedArtistName)}
+                        onClick={() => handleArtistClick(displayArtistName)}
+                        onMouseEnter={() => prefetchArtist(displayArtistName)}
+                        onTouchStart={() => prefetchArtist(displayArtistName)}
                         className="shrink-0 w-20 text-center"
                       >
                         <div className="mx-auto w-14 h-14 rounded-full bg-muted overflow-hidden flex items-center justify-center">
                           {resolvedArtistThumb ? (
-                            <img src={resolvedArtistThumb} alt={resolvedArtistName} className="w-full h-full object-cover" loading="lazy" />
+                            <img src={resolvedArtistThumb} alt={displayArtistName} className="w-full h-full object-cover" loading="lazy" />
                           ) : (
-                            <span className="text-sm font-semibold text-muted-foreground">{firstLetter(resolvedArtistName)}</span>
+                            <span className="text-sm font-semibold text-muted-foreground">{firstLetter(displayArtistName)}</span>
                           )}
                         </div>
-                        <div className="mt-2 text-xs font-medium truncate">{resolvedArtistName}</div>
+                        <div className="mt-2 text-xs font-medium truncate">{displayArtistName}</div>
                         <div className="mt-1 text-[10px] text-muted-foreground inline-flex items-center justify-center gap-1">
                           <User className="w-3 h-3" /> <span>Artist</span>
                         </div>
@@ -892,7 +896,7 @@ export default function Search() {
                       );
                     }
 
-                    const playlistArtist = resolvedArtistName || "Various artists";
+                    const playlistArtist = displayArtistName || "Various artists";
                     return (
                       <Link
                         key={`playlist-${item.playlist.id}-${idx}`}
