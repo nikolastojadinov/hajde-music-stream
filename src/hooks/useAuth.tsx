@@ -42,7 +42,7 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 async function postAuthResult(authResult: AuthResult): Promise<AuthUser> {
   const maxRetries = 2;
-  const timeout = 10_000;
+  const timeout = 8_000;
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
@@ -65,13 +65,24 @@ async function postAuthResult(authResult: AuthResult): Promise<AuthUser> {
 
       clearTimeout(timer);
 
+      console.info(`[Auth] /pi/auth response status=${response.status}`);
+
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        const details = errorData?.details || errorData?.error || response.statusText;
+        const text = await response.text().catch(() => "");
+        console.warn("[Auth] /pi/auth !ok payload", text);
+        let details = "";
+        try {
+          const parsed = JSON.parse(text || "{}") as any;
+          details = (parsed?.details || parsed?.error || parsed?.message || "").toString();
+        } catch (_err) {
+          details = response.statusText;
+        }
         throw new Error(details || "Authentication failed");
       }
 
-      const data = await response.json();
+      const raw = await response.text();
+      console.info("[Auth] /pi/auth body length", raw?.length ?? 0);
+      const data = JSON.parse(raw || "{}");
       return {
         uid: data.user.uid,
         username: data.user.username,
@@ -80,6 +91,7 @@ async function postAuthResult(authResult: AuthResult): Promise<AuthUser> {
       };
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
+      console.error(`[Auth] /pi/auth attempt ${attempt + 1} failed`, lastError?.message);
       if (attempt === maxRetries) {
         throw lastError;
       }
