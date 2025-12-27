@@ -124,6 +124,7 @@ const PiStateProvider = ({ children }: { children: ReactNode }) => {
     if (!piUserStore) {
       const hydratedUser = readPiUserFromWindow();
       if (hydratedUser) {
+        console.info("[PiContext] Hydrated user from window", hydratedUser);
         setUserFromPi(hydratedUser);
       } else {
         clearPiUser();
@@ -135,6 +136,7 @@ const PiStateProvider = ({ children }: { children: ReactNode }) => {
 
   useEffect(() => {
     if (auth.user) {
+      console.info("[PiContext] Auth user available", auth.user.uid);
       setUserFromPi({
         uid: auth.user.uid,
         username: auth.user.username ?? null,
@@ -146,6 +148,7 @@ const PiStateProvider = ({ children }: { children: ReactNode }) => {
 
     if (!hydrating) {
       clearPiUser();
+      console.info("[PiContext] Auth user missing after hydrate; cleared Pi user");
     }
   }, [auth.user, hydrating]);
 

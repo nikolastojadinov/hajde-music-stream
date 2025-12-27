@@ -70,6 +70,7 @@ const GlobalAuthOverlay = () => {
     <div className="fixed inset-0 z-[3000] flex items-center justify-center bg-black text-white">
       <div className="flex flex-col items-center gap-3">
         <p className="text-lg font-semibold animate-pulse">{t("pi_authentication")}</p>
+        <p className="text-xs text-white/70">If this stays long, check Pi Browser console for [Auth]/[PiContext] logs.</p>
         {stuck ? (
           <button
             type="button"

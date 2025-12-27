@@ -189,6 +189,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = useCallback(async () => {
     if (isAuthenticating) return;
 
+    console.info("[Auth] Login start: invoking Pi.authenticate");
+
     setIsAuthenticating(true);
     setError(null);
     clearWelcomeTimer();
@@ -213,8 +215,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
 
       const authResult = await Promise.race([authPromise, timeoutPromise]);
+      console.info("[Auth] Pi.authenticate resolved", authResult ? { hasUser: Boolean((authResult as any)?.user) } : null);
 
       const profile = await postAuthResult(authResult);
+      console.info("[Auth] Backend /pi/auth success", { uid: profile.uid, username: profile.username });
       setAuthUser(profile);
 
       const premiumUntilDate = profile.premium_until ? new Date(profile.premium_until) : null;
@@ -257,6 +261,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setAuthUser(null);
     } finally {
       clearAuthTimeout();
+      console.info("[Auth] Login flow finished; authenticating flag cleared");
       setIsAuthenticating(false);
     }
   }, [isAuthenticating, clearWelcomeTimer, dismissWelcome]);
