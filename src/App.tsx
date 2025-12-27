@@ -17,6 +17,7 @@ import { LanguageProvider, useLanguage } from "@/contexts/LanguageContext";
 import { PiProvider, usePi } from "@/contexts/PiContext";
 import { PlayerProvider } from "@/contexts/PlayerContext";
 import { PremiumDialogProvider } from "@/contexts/PremiumDialogContext";
+import { useEffect, useState } from "react";
 
 import Artist from "@/pages/Artist";
 import CreatePlaylist from "@/pages/CreatePlaylist";
@@ -33,6 +34,21 @@ import Search from "@/pages/Search";
 import Terms from "@/pages/Terms";
 
 const queryClient = new QueryClient();
+
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:8000";
+
+async function sendClientLog(entry: { level?: string; message: string; context?: any }) {
+  try {
+    await fetch(`${BACKEND_URL}/client-log`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(entry),
+      credentials: "include",
+    });
+  } catch (err) {
+    console.warn("[ClientLog] send failed", err);
+  }
+}
 
 type AuthGateProps = {
   children: ReactNode;
@@ -133,6 +149,7 @@ const AppRoutes = () => {
 
 export default function App() {
   const [fatalError, setFatalError] = useState<FatalError>(null);
+  const { user, loading } = usePi();
 
   useEffect(() => {
     const handleError = (event: ErrorEvent) => {
@@ -162,6 +179,15 @@ export default function App() {
       window.removeEventListener("unhandledrejection", handleRejection);
     };
   }, []);
+
+  useEffect(() => {
+    (window as any).__APP_ALIVE = true;
+    void sendClientLog({ level: "info", message: "[App] Shell mounted", context: { uid: user?.uid ?? null } });
+  }, [user?.uid]);
+
+  useEffect(() => {
+    void sendClientLog({ level: "info", message: "[App] Auth state", context: { loading, uid: user?.uid ?? null } });
+  }, [loading, user?.uid]);
 
   return (
     <QueryClientProvider client={queryClient}>

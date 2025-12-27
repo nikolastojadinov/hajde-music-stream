@@ -279,6 +279,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       logDebug("[Auth] Calling /pi/auth");
       const profile = await postAuthResult(authResult);
       logDebug(`[Auth] Backend /pi/auth success uid=${profile.uid}`);
+      void sendClientLog({ level: "info", message: "[Auth] Post-auth profile ready", context: { uid: profile.uid } });
       setAuthUser(profile);
 
       const premiumUntilDate = profile.premium_until ? new Date(profile.premium_until) : null;
@@ -306,6 +307,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       welcomeTimeoutRef.current = window.setTimeout(() => {
         dismissWelcome();
       }, WELCOME_DISMISS_DELAY);
+
+      // Post-auth watchdog: if the app shell doesn't mark itself alive soon, reload to recover from blank screen.
+      window.setTimeout(() => {
+        const appAlive = (window as any).__APP_ALIVE;
+        if (!appAlive) {
+          void sendClientLog({ level: "error", message: "[Auth] App shell not alive after auth; forcing reload", context: { uid: profile.uid } });
+          window.location.reload();
+        }
+      }, 5000);
     } catch (err) {
       clearWelcomeTimer();
       clearAuthTimeout();
