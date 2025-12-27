@@ -186,11 +186,68 @@ class HomeErrorBoundary extends Component<{ children: ReactNode }, HomeBoundaryS
   }
 }
 
+type SearchBoundaryState = { hasError: boolean; message?: string; stack?: string };
+
+class SearchErrorBoundary extends Component<{ children: ReactNode }, SearchBoundaryState> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false, message: undefined, stack: undefined };
+  }
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: any, info: any) {
+    const message = error?.message ? String(error.message) : String(error);
+    const stack = error?.stack ? String(error.stack) : undefined;
+    this.setState({ message, stack });
+    console.error("[SearchErrorBoundary]", error, info);
+    void sendClientLog({
+      level: "error",
+      message: "[Search] render error",
+      context: {
+        error: message,
+        stack,
+        componentStack: info?.componentStack,
+      },
+    });
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
+          <p className="text-lg font-semibold">Nešto je pošlo po zlu na pretrazi.</p>
+          {this.state.message ? (
+            <p className="text-xs text-muted-foreground/80">Detalj: {this.state.message}</p>
+          ) : null}
+          <div className="flex gap-2">
+            <a
+              href="/search"
+              className="rounded bg-primary px-4 py-2 text-white hover:opacity-90"
+            >
+              Osveži pretragu
+            </a>
+            <a
+              href="/"
+              className="rounded border border-border px-4 py-2 text-sm hover:bg-accent"
+            >
+              Home
+            </a>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 const AppRoutes = () => {
   return (
     <Routes>
       <Route path="/" element={<HomeErrorBoundary><Home /></HomeErrorBoundary>} />
-      <Route path="/search" element={<Search />} />
+      <Route path="/search" element={<SearchErrorBoundary><Search /></SearchErrorBoundary>} />
       <Route path="/library" element={<Library />} />
       <Route path="/artist/:artistKey" element={<Artist />} />
       <Route path="/playlist/:id" element={<Playlist />} />
