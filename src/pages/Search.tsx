@@ -144,6 +144,7 @@ export default function Search() {
 
   const [relatedArtists, setRelatedArtists] = useState<string[] | null>(null);
   const [selectedTrackArtists, setSelectedTrackArtists] = useState<string[] | null>(null);
+  const [artistImageUrl, setArtistImageUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const suggestAbortRef = useRef<AbortController | null>(null);
@@ -240,6 +241,7 @@ export default function Search() {
     setResolveLoading(false);
     setRelatedArtists(null);
     setSelectedTrackArtists(null);
+    setArtistImageUrl(null);
     setError(null);
 
     requestAnimationFrame(() => {
@@ -398,13 +400,6 @@ export default function Search() {
     return first ? first.trim() || null : null;
   }, [selectedTrackArtists]);
 
-  const resolvedArtistThumb = (() => {
-    const url = resolved?.artist?.thumbnail_url;
-    return typeof url === "string" && url.trim() ? url.trim() : null;
-  })();
-
-  const displayArtistName = resolvedArtistName || primarySelectedArtist || null;
-
   const resultsSongs = useMemo(() => {
     const trackCandidates: any[] = Array.isArray((resolved as any)?.tracks)
       ? ((resolved as any).tracks as any[])
@@ -436,6 +431,22 @@ export default function Search() {
       })
       .filter(Boolean) as SongResult[];
   }, [primarySelectedArtist, resolved, resolvedArtistName]);
+
+  const resolvedArtistThumb = useMemo(() => {
+    const direct = (() => {
+      const url = resolved?.artist?.thumbnail_url;
+      return typeof url === "string" && url.trim() ? url.trim() : null;
+    })();
+
+    const songThumb = (() => {
+      const candidate = resultsSongs[0]?.imageUrl;
+      return typeof candidate === "string" && candidate.trim() ? candidate.trim() : null;
+    })();
+
+    return direct || artistImageUrl || songThumb || null;
+  }, [artistImageUrl, resolved, resultsSongs]);
+
+  const displayArtistName = resolvedArtistName || primarySelectedArtist || null;
 
   const resultsPlaylists = useMemo(() => {
     const localPlaylists = resolved?.local?.playlists || [];
@@ -505,9 +516,11 @@ export default function Search() {
       const nextArtists = artists.length > 0 ? artists : null;
       setRelatedArtists(nextArtists);
       setSelectedTrackArtists(nextArtists);
+      setArtistImageUrl(null);
     } else {
       setRelatedArtists(null);
       setSelectedTrackArtists(null);
+      setArtistImageUrl(s.type === "artist" ? (s.imageUrl?.trim() || null) : null);
     }
 
     const cached = resolveCacheRef.current.get(nextQuery.toLowerCase());
@@ -539,6 +552,7 @@ export default function Search() {
     setSuggestOpen(false);
     setRelatedArtists(null);
     setSelectedTrackArtists(null);
+    setArtistImageUrl(null);
 
     const cached = resolveCacheRef.current.get(normalized.toLowerCase());
     if (cached) {

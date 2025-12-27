@@ -87,16 +87,6 @@ const GlobalAuthOverlay = () => {
         <p className="text-lg font-semibold animate-pulse">
           {authenticating ? t("pi_authentication") : "Finishing auth..."}
         </p>
-        <p className="text-xs text-white/70">If this stays long, check Pi Browser console for [Auth]/[PiContext] logs.</p>
-        {authLog?.length ? (
-          <div className="mt-2 max-h-36 w-[min(320px,80vw)] overflow-y-auto rounded bg-white/10 p-2 text-left text-[11px] leading-snug">
-            {authLog.slice(-8).map((line, idx) => (
-              <div key={idx} className="text-white/90">
-                {line}
-              </div>
-            ))}
-          </div>
-        ) : null}
         {authError ? <p className="text-xs text-red-300">{authError}</p> : null}
         {stuck ? (
           <button
