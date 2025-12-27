@@ -1,6 +1,6 @@
 // CLEANUP DIRECTIVE: Restore SPA routing, including playlist create/edit pages.
 import type { ReactNode } from "react";
-import { useEffect, useState } from "react";
+import { Component, useEffect, useState } from "react";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import Footer from "@/components/Footer";
@@ -17,7 +17,6 @@ import { LanguageProvider, useLanguage } from "@/contexts/LanguageContext";
 import { PiProvider, usePi } from "@/contexts/PiContext";
 import { PlayerProvider } from "@/contexts/PlayerContext";
 import { PremiumDialogProvider } from "@/contexts/PremiumDialogContext";
-import { Component, useEffect, useState } from "react";
 
 import Artist from "@/pages/Artist";
 import CreatePlaylist from "@/pages/CreatePlaylist";
@@ -244,7 +243,6 @@ export default function App() {
                   <GlobalErrorOverlay error={fatalError} />
 
                   <BrowserRouter>
-                    <PostAuthRedirect />
                     <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
                       <div className="hidden flex-1 overflow-hidden pt-16 md:flex">
                         <Sidebar />
