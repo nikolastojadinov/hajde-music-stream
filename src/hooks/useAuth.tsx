@@ -34,6 +34,7 @@ const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:8000";
 const PI_SCOPE = ["username", "payments"];
 let piInitialized = false;
 const WELCOME_DISMISS_DELAY = 3200;
+const AUTH_TIMEOUT_MS = 15000;
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
@@ -101,6 +102,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [goPremiumVisible, setGoPremiumVisible] = useState(false);
   const pendingGoPremium = useRef(false);
   const welcomeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const authTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { isProcessing: isProcessingPayment, error: paymentError, createPayment: createPiPayment } = usePiPayments();
 
@@ -150,6 +152,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const clearAuthTimeout = useCallback(() => {
+    if (authTimeoutRef.current) {
+      clearTimeout(authTimeoutRef.current);
+      authTimeoutRef.current = null;
+    }
+  }, []);
+
   const dismissWelcome = useCallback(() => {
     clearWelcomeTimer();
     setWelcomeVisible(false);
@@ -160,6 +169,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback(async () => {
     clearWelcomeTimer();
+    clearAuthTimeout();
     setAuthUser(null);
     setError(null);
     setWelcomeVisible(false);
@@ -182,9 +192,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setIsAuthenticating(true);
     setError(null);
     clearWelcomeTimer();
+    clearAuthTimeout();
     setWelcomeVisible(false);
     setGoPremiumVisible(false);
     pendingGoPremium.current = false;
+
+    authTimeoutRef.current = window.setTimeout(() => {
+      console.warn("[Auth] Authentication timed out");
+      setIsAuthenticating(false);
+      setAuthUser(null);
+      setError("Authentication timed out. Please try again.");
+      setWelcomeVisible(false);
+      setGoPremiumVisible(false);
+      pendingGoPremium.current = false;
+    }, AUTH_TIMEOUT_MS);
 
     try {
       if (typeof window === "undefined" || !window.Pi) {
@@ -225,6 +246,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }, WELCOME_DISMISS_DELAY);
     } catch (err) {
       clearWelcomeTimer();
+      clearAuthTimeout();
       setWelcomeVisible(false);
       setGoPremiumVisible(false);
       pendingGoPremium.current = false;
@@ -236,6 +258,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       setAuthUser(null);
     } finally {
+      clearAuthTimeout();
       setIsAuthenticating(false);
     }
   }, [isAuthenticating, clearWelcomeTimer, dismissWelcome]);
@@ -263,8 +286,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     return () => {
       clearWelcomeTimer();
+      clearAuthTimeout();
     };
-  }, [clearWelcomeTimer]);
+  }, [clearWelcomeTimer, clearAuthTimeout]);
 
   const value = useMemo<AuthContextValue>(() => ({
     user,
