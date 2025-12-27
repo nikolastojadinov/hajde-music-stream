@@ -157,26 +157,6 @@ export default function Search() {
   const normalizedLength = normalizedQuery.length;
   const filteredRecentSearches = useMemo(() => {
     if (!recentSearches || recentSearches.length === 0) return [] as RecentSearchItem[];
-  const interleavedResults = useMemo(() => {
-    const songs = resultsSongs;
-    const playlists = resultsPlaylists.local;
-    const out: Array<{ kind: "song"; song: SongResult } | { kind: "playlist"; playlist: typeof playlists[number] }> = [];
-    let si = 0;
-    let pi = 0;
-    while (si < songs.length || pi < playlists.length) {
-      if (si < songs.length) {
-        const chunk = songs.slice(si, si + 2);
-        for (const s of chunk) out.push({ kind: "song", song: s });
-        si += 2;
-      }
-      if (pi < playlists.length) {
-        const chunk = playlists.slice(pi, pi + 2);
-        for (const p of chunk) out.push({ kind: "playlist", playlist: p });
-        pi += 2;
-      }
-    }
-    return out;
-  }, [resultsPlaylists.local, resultsSongs]);
     if (!normalizedQuery) return recentSearches;
     const q = normalizedQuery.toLowerCase();
     return recentSearches.filter((item) => item.query.toLowerCase().includes(q));
