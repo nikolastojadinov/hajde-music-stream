@@ -109,8 +109,13 @@ function parseArtistAndTitle(rawTitle: string): { artistFromTitle: string | null
   return { artistFromTitle: null, titleWithoutArtist: cleaned || safeTitle };
 }
 
-function deriveDisplayArtist(resolvedArtistName: string | null, artistFromTitle: string | null): string {
+function deriveDisplayArtist(
+  resolvedArtistName: string | null,
+  artistFromTitle: string | null,
+  suggestedArtist: string | null,
+): string {
   if (resolvedArtistName) return resolvedArtistName;
+  if (suggestedArtist) return suggestedArtist;
   if (artistFromTitle) return artistFromTitle;
   return "Unknown artist";
 }
@@ -137,6 +142,7 @@ export default function Search() {
   const [recentPlaylistError, setRecentPlaylistError] = useState<string | null>(null);
 
   const [relatedArtists, setRelatedArtists] = useState<string[] | null>(null);
+  const [selectedTrackArtists, setSelectedTrackArtists] = useState<string[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const suggestAbortRef = useRef<AbortController | null>(null);
@@ -232,6 +238,7 @@ export default function Search() {
     setResolved(null);
     setResolveLoading(false);
     setRelatedArtists(null);
+    setSelectedTrackArtists(null);
     setError(null);
 
     requestAnimationFrame(() => {
@@ -390,6 +397,11 @@ export default function Search() {
     return typeof url === "string" && url.trim() ? url.trim() : null;
   }, [resolved]);
 
+  const primarySelectedArtist = useMemo(() => {
+    const first = selectedTrackArtists && selectedTrackArtists.length > 0 ? selectedTrackArtists[0] : null;
+    return first ? first.trim() || null : null;
+  }, [selectedTrackArtists]);
+
   const resultsSongs = useMemo(() => {
     const trackCandidates: any[] = Array.isArray((resolved as any)?.tracks)
       ? ((resolved as any).tracks as any[])
@@ -405,7 +417,7 @@ export default function Search() {
         const trackId = typeof t?.id === "string" ? t.id : youtubeId;
         const rawTitle = typeof t?.title === "string" ? t.title : "";
         const { artistFromTitle, titleWithoutArtist } = parseArtistAndTitle(rawTitle);
-        const displayArtist = deriveDisplayArtist(resolvedArtistName, artistFromTitle);
+        const displayArtist = deriveDisplayArtist(resolvedArtistName, artistFromTitle, primarySelectedArtist);
         const cleanTitle = titleWithoutArtist || rawTitle || "Unknown title";
 
         return {
@@ -417,7 +429,7 @@ export default function Search() {
         } as SongResult;
       })
       .filter(Boolean) as SongResult[];
-  }, [resolved, resolvedArtistName]);
+  }, [primarySelectedArtist, resolved, resolvedArtistName]);
 
   const resultsPlaylists = useMemo(() => {
     const localPlaylists = resolved?.local?.playlists || [];
@@ -484,9 +496,12 @@ export default function Search() {
 
     if (s.type === "track") {
       const artists = Array.isArray(s.artists) && s.artists.length > 0 ? s.artists : s.subtitle ? [s.subtitle] : [];
-      setRelatedArtists(artists.length > 0 ? artists : null);
+      const nextArtists = artists.length > 0 ? artists : null;
+      setRelatedArtists(nextArtists);
+      setSelectedTrackArtists(nextArtists);
     } else {
       setRelatedArtists(null);
+      setSelectedTrackArtists(null);
     }
 
     const cached = resolveCacheRef.current.get(nextQuery.toLowerCase());
@@ -517,6 +532,7 @@ export default function Search() {
     setQuery(normalized);
     setSuggestOpen(false);
     setRelatedArtists(null);
+    setSelectedTrackArtists(null);
 
     const cached = resolveCacheRef.current.get(normalized.toLowerCase());
     if (cached) {
