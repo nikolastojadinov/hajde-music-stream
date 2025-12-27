@@ -82,9 +82,9 @@ const JumpBackGrid = () => {
     },
   });
 
-  if (!isLoggedIn) return null;
-
   const gridPlaylists = useMemo(() => (playlists ? playlists.slice(0, 6) : []), [playlists]);
+
+  if (!isLoggedIn) return null;
 
   if (isLoading) {
     return (
