@@ -1,7 +1,7 @@
 // CLEANUP DIRECTIVE: Restore SPA routing, including playlist create/edit pages.
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
-import { BrowserRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import Footer from "@/components/Footer";
 import FullscreenPlayer from "@/components/FullscreenPlayer";
@@ -17,7 +17,7 @@ import { LanguageProvider, useLanguage } from "@/contexts/LanguageContext";
 import { PiProvider, usePi } from "@/contexts/PiContext";
 import { PlayerProvider } from "@/contexts/PlayerContext";
 import { PremiumDialogProvider } from "@/contexts/PremiumDialogContext";
-import { useEffect, useState } from "react";
+import { Component, useEffect, useState } from "react";
 
 import Artist from "@/pages/Artist";
 import CreatePlaylist from "@/pages/CreatePlaylist";
@@ -127,24 +127,51 @@ const GlobalErrorOverlay = ({ error }: { error: FatalError }) => {
   );
 };
 
-const PostAuthRedirect = () => {
-  const { user } = usePi();
-  const location = useLocation();
-  const navigate = useNavigate();
+class HomeErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
 
-  useEffect(() => {
-    if (user && location.pathname === "/") {
-      navigate("/library", { replace: true });
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: any, info: any) {
+    void sendClientLog({ level: "error", message: "[Home] render error", context: { error: String(error), info } });
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
+          <p className="text-lg font-semibold">Nešto je pošlo po zlu na početnoj.</p>
+          <p className="text-sm text-muted-foreground">Osveži stranicu ili idi na Search.</p>
+          <div className="flex gap-2">
+            <a
+              href="/"
+              className="rounded bg-primary px-4 py-2 text-white hover:opacity-90"
+            >
+              Osveži
+            </a>
+            <a
+              href="/search"
+              className="rounded border border-border px-4 py-2 text-sm hover:bg-accent"
+            >
+              Search
+            </a>
+          </div>
+        </div>
+      );
     }
-  }, [user, location.pathname, navigate]);
-
-  return null;
-};
+    return this.props.children;
+  }
+}
 
 const AppRoutes = () => {
   return (
     <Routes>
-      <Route path="/" element={<Home />} />
+      <Route path="/" element={<HomeErrorBoundary><Home /></HomeErrorBoundary>} />
       <Route path="/search" element={<Search />} />
       <Route path="/library" element={<Library />} />
       <Route path="/artist/:artistKey" element={<Artist />} />
