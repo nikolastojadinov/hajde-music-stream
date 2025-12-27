@@ -97,6 +97,20 @@ const GlobalAuthOverlay = () => {
   );
 };
 
+type FatalError = { message: string; detail?: string } | null;
+
+const GlobalErrorOverlay = ({ error }: { error: FatalError }) => {
+  if (!error) return null;
+  return (
+    <div className="fixed inset-0 z-[4000] flex flex-col items-center justify-center gap-3 bg-black text-white px-4 text-center">
+      <p className="text-lg font-semibold">Something went wrong</p>
+      <p className="text-sm text-white/80 whitespace-pre-line">{error.message}</p>
+      {error.detail ? <p className="text-xs text-white/60 whitespace-pre-line">{error.detail}</p> : null}
+      <p className="text-xs text-white/50">If this persists, reload the page.</p>
+    </div>
+  );
+};
+
 const AppRoutes = () => {
   return (
     <Routes>
@@ -118,6 +132,25 @@ const AppRoutes = () => {
 };
 
 export default function App() {
+  const [fatalError, setFatalError] = useState<FatalError>(null);
+
+  useEffect(() => {
+    const handleError = (event: ErrorEvent) => {
+      setFatalError({ message: event.message || "Unexpected error", detail: event?.error?.stack });
+    };
+    const handleRejection = (event: PromiseRejectionEvent) => {
+      const reason = event?.reason;
+      const message = reason?.message || String(reason) || "Unhandled rejection";
+      setFatalError({ message, detail: reason?.stack });
+    };
+    window.addEventListener("error", handleError);
+    window.addEventListener("unhandledrejection", handleRejection);
+    return () => {
+      window.removeEventListener("error", handleError);
+      window.removeEventListener("unhandledrejection", handleRejection);
+    };
+  }, []);
+
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
@@ -129,6 +162,7 @@ export default function App() {
                   <Toaster />
                   <Sonner />
                   <GlobalAuthOverlay />
+                  <GlobalErrorOverlay error={fatalError} />
 
                   <BrowserRouter>
                     <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
