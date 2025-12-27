@@ -50,7 +50,7 @@ const AuthGate = ({ children }: AuthGateProps) => {
 };
 
 const GlobalAuthOverlay = () => {
-  const { authenticating, logout } = usePi();
+  const { authenticating, logout, authLog } = usePi();
   const { t } = useLanguage();
   const [stuck, setStuck] = useState(false);
 
@@ -68,9 +68,18 @@ const GlobalAuthOverlay = () => {
 
   return (
     <div className="fixed inset-0 z-[3000] flex items-center justify-center bg-black text-white">
-      <div className="flex flex-col items-center gap-3">
+      <div className="flex flex-col items-center gap-3 px-4 text-center">
         <p className="text-lg font-semibold animate-pulse">{t("pi_authentication")}</p>
         <p className="text-xs text-white/70">If this stays long, check Pi Browser console for [Auth]/[PiContext] logs.</p>
+        {authLog?.length ? (
+          <div className="mt-2 max-h-36 w-[min(320px,80vw)] overflow-y-auto rounded bg-white/10 p-2 text-left text-[11px] leading-snug">
+            {authLog.slice(-8).map((line, idx) => (
+              <div key={idx} className="text-white/90">
+                {line}
+              </div>
+            ))}
+          </div>
+        ) : null}
         {stuck ? (
           <button
             type="button"

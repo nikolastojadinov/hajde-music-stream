@@ -16,6 +16,7 @@ type AuthContextValue = {
   loading: boolean;
   isLoading: boolean;
   error: string | null;
+  debugLog: string[];
   signIn: () => Promise<void>;
   login: () => Promise<void>;
   logout: () => Promise<void>;
@@ -98,6 +99,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setAuthUser] = useState<AuthUser | null>(null);
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [debugLog, setDebugLog] = useState<string[]>([]);
   const [welcomeVisible, setWelcomeVisible] = useState(false);
   const [goPremiumVisible, setGoPremiumVisible] = useState(false);
   const pendingGoPremium = useRef(false);
@@ -159,6 +161,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const logDebug = useCallback((message: string) => {
+    console.info(message);
+    setDebugLog((prev) => {
+      const next = [...prev, message].slice(-25);
+      (window as any).__AUTH_LOG__ = next;
+      return next;
+    });
+  }, []);
+
   const dismissWelcome = useCallback(() => {
     clearWelcomeTimer();
     setWelcomeVisible(false);
@@ -170,6 +181,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = useCallback(async () => {
     clearWelcomeTimer();
     clearAuthTimeout();
+    logDebug("[Auth] Logout invoked; clearing state");
     setAuthUser(null);
     setError(null);
     setWelcomeVisible(false);
@@ -190,6 +202,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (isAuthenticating) return;
 
     console.info("[Auth] Login start: invoking Pi.authenticate");
+    logDebug("[Auth] Login start: invoking Pi.authenticate");
 
     setIsAuthenticating(true);
     setError(null);
@@ -215,10 +228,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
 
       const authResult = await Promise.race([authPromise, timeoutPromise]);
-      console.info("[Auth] Pi.authenticate resolved", authResult ? { hasUser: Boolean((authResult as any)?.user) } : null);
+      logDebug("[Auth] Pi.authenticate resolved");
 
       const profile = await postAuthResult(authResult);
-      console.info("[Auth] Backend /pi/auth success", { uid: profile.uid, username: profile.username });
+      logDebug(`[Auth] Backend /pi/auth success uid=${profile.uid}`);
       setAuthUser(profile);
 
       const premiumUntilDate = profile.premium_until ? new Date(profile.premium_until) : null;
@@ -256,12 +269,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const cancelled = message.toLowerCase().includes("cancel");
       setError(cancelled ? null : message);
       if (!cancelled) {
-        console.error("[Auth] Login failed", message);
+        logDebug(`[Auth] Login failed: ${message}`);
       }
       setAuthUser(null);
     } finally {
       clearAuthTimeout();
-      console.info("[Auth] Login flow finished; authenticating flag cleared");
+      logDebug("[Auth] Login flow finished; authenticating flag cleared");
       setIsAuthenticating(false);
     }
   }, [isAuthenticating, clearWelcomeTimer, dismissWelcome]);
@@ -299,6 +312,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     loading: isAuthenticating,
     isLoading: isAuthenticating,
     error,
+    debugLog,
     signIn: login,
     login,
     logout,
@@ -311,7 +325,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     goPremiumVisible,
     dismissGoPremium,
     refreshUser,
-  }), [user, setUser, isAuthenticating, error, login, logout, createPayment, isProcessingPayment, paymentError, welcomeVisible, dismissWelcome, goPremiumVisible, dismissGoPremium, refreshUser]);
+  }), [user, setUser, isAuthenticating, error, debugLog, login, logout, createPayment, isProcessingPayment, paymentError, welcomeVisible, dismissWelcome, goPremiumVisible, dismissGoPremium, refreshUser]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
