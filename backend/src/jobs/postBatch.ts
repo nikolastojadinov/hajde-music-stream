@@ -20,11 +20,13 @@ function normalizeString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function isMixPlaylist(externalId: string): boolean {
+function isMixPlaylist(externalId: string | null | undefined): boolean {
+  if (!externalId) return false;
   return externalId.startsWith(MIX_PREFIX);
 }
 
-function isChannelId(externalId: string): boolean {
+function isChannelId(externalId: string | null | undefined): boolean {
+  if (!externalId) return false;
   return externalId.startsWith(CHANNEL_PREFIX);
 }
 
@@ -123,7 +125,7 @@ export async function executePostBatchJob(
     const targets = targetsFromPayload(job.payload);
 
     if (targets.length === 0) {
-      console.log('[postBatch] No valid playlist targets after filtering', {
+      console.warn('[postBatch] No valid playlist targets after filtering', {
         jobId: job.id,
       });
 
