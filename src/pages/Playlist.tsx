@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { usePlayer } from "@/contexts/PlayerContext";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useExternalPlaylist } from "@/hooks/useExternalPlaylist";
+import EmptyState from "@/components/ui/EmptyState";
 import useLikes from "@/hooks/useLikes";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { usePi } from "@/contexts/PiContext";
@@ -129,7 +130,11 @@ const Playlist = () => {
   }
 
   if (error || !playlist) {
-    return null;
+    return (
+      <div className="flex-1 overflow-y-auto pb-32 flex justify-center pt-20 px-4">
+        <EmptyState title={t("playlist_unavailable") || "Playlist unavailable"} subtitle={t("try_again_later") || "Please try again later."} />
+      </div>
+    );
   }
 
   return (
@@ -185,51 +190,55 @@ const Playlist = () => {
 
       {/* ===== TRACK LIST ===== */}
       <div className="px-4 mt-8 space-y-2">
-        {playlist.tracks.map((track, index) => {
-          const isCurrent = currentTrackId === track.id;
-          return (
-            <div
-              key={track.id}
-              onClick={() => handlePlayTrack(track, index)}
-              className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer hover:bg-white/5 ${
-                isCurrent ? "bg-white/10" : ""
-              }`}
-            >
-              <div className="w-12 h-12 rounded overflow-hidden bg-card relative">
-                <img
-                  src={track.cover_url || playlist.cover_url || "/placeholder.svg"}
-                  alt={track.title}
-                  className="w-full h-full object-cover"
-                />
-                {isCurrent && (
-                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        togglePlay();
-                      }}
-                    >
-                      {isPlaying ? <Pause /> : <Play />}
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              <div className="flex-1 min-w-0">
-                <div className="font-medium truncate">{track.title}</div>
-                <div className="text-sm text-muted-foreground truncate">
-                  {track.artist}
+        {playlist.tracks.length === 0 ? (
+          <EmptyState title={t("no_tracks_available") || "No tracks available"} subtitle={t("playlist_empty") || "This playlist does not contain any tracks."} />
+        ) : (
+          playlist.tracks.map((track, index) => {
+            const isCurrent = currentTrackId === track.id;
+            return (
+              <div
+                key={track.id}
+                onClick={() => handlePlayTrack(track, index)}
+                className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer hover:bg-white/5 ${
+                  isCurrent ? "bg-white/10" : ""
+                }`}
+              >
+                <div className="w-12 h-12 rounded overflow-hidden bg-card relative">
+                  <img
+                    src={track.cover_url || playlist.cover_url || "/placeholder.svg"}
+                    alt={track.title}
+                    className="w-full h-full object-cover"
+                  />
+                  {isCurrent && (
+                    <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          togglePlay();
+                        }}
+                      >
+                        {isPlaying ? <Pause /> : <Play />}
+                      </button>
+                    </div>
+                  )}
                 </div>
-              </div>
 
-              <AddToPlaylistButton
-                trackId={track.id}
-                trackTitle={track.title}
-                variant="ghost"
-              />
-            </div>
-          );
-        })}
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium truncate">{track.title}</div>
+                  <div className="text-sm text-muted-foreground truncate">
+                    {track.artist}
+                  </div>
+                </div>
+
+                <AddToPlaylistButton
+                  trackId={track.id}
+                  trackTitle={track.title}
+                  variant="ghost"
+                />
+              </div>
+            );
+          })
+        )}
       </div>
 
       <div className="absolute left-2 top-2 z-10">

@@ -15,6 +15,7 @@ import { initDailyRefreshScheduler } from './lib/dailyRefreshScheduler';
 import { initJobProcessor } from './lib/jobProcessor';
 import { getPublicPlaylistStats, registerPlaylistView } from './handlers/playlists/stats';
 import { refreshPlaylistTracks } from './handlers/playlists/refresh';
+import { getPublicPlaylist } from './handlers/playlists/public';
 import categoriesRouter from './routes/categories';
 import studioPlaylistsRouter from './routes/studioPlaylists';
 import usersRouter from './routes/users';
@@ -185,6 +186,9 @@ app.use('/api/search', searchRouter);
 
 // On-demand artist hydration + local bundle
 app.use('/api/artist', artistRouter);
+
+// Public playlist details (used by SPA playlist pages)
+app.get('/api/playlists/:id', getPublicPlaylist);
 
 // Pi Network routes under /pi:
 app.use('/pi', piAuthRouter);

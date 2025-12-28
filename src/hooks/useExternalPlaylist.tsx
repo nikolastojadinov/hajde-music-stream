@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { externalSupabase } from '@/lib/externalSupabase';
+import { withBackendOrigin } from '@/lib/backendUrl';
 
 export interface Track {
   id: string;
@@ -31,86 +31,39 @@ export const useExternalPlaylist = (playlistId: string) => {
         throw new Error('Playlist ID is required');
       }
 
-      console.log('🔍 Fetching playlist:', playlistId);
+      const url = withBackendOrigin(`/api/playlists/${playlistId}`);
+      const res = await fetch(url, { credentials: 'include' });
 
-      const { data: playlistData, error: playlistError } =
-        await externalSupabase
-          .from('playlists')
-          .select('*')
-          .eq('id', playlistId)
-          .single();
-
-      if (playlistError || !playlistData) {
+      if (res.status === 404) {
         throw new Error('Playlist not found');
       }
 
-      let tracks: Track[] = [];
+      if (!res.ok) {
+        throw new Error('Failed to load playlist');
+      }
 
-      // ✅ METHOD 1 (ostaje ista)
-      const { data: playlistTracks } = await externalSupabase
-        .from('playlist_tracks')
-        .select(`
-          position,
-          tracks (
-            id,
-            title,
-            artist,
-            cover_url,
-            duration,
-            external_id
-          )
-        `)
-        .eq('playlist_id', playlistId)
-        .order('position', { ascending: true });
+      const json = await res.json();
 
-      if (playlistTracks && playlistTracks.length > 0) {
-        tracks = playlistTracks
-          .map((pt: any) => {
-            // 🔴 JEDINA BITNA ZAŠTITA
-            if (!pt.tracks) return null;
-
-            return {
-              id: pt.tracks.id,
-              title: pt.tracks.title,
-              artist: pt.tracks.artist,
-              external_id: pt.tracks.external_id,
-              duration: pt.tracks.duration,
-              cover_url: pt.tracks.cover_url,
+      const tracks: Track[] = Array.isArray(json?.tracks)
+        ? json.tracks
+            .map((t: any) => ({
+              id: String(t?.id ?? ''),
+              title: String(t?.title ?? ''),
+              artist: String(t?.artist ?? ''),
+              external_id: t?.external_id ? String(t.external_id) : '',
+              duration: typeof t?.duration === 'number' && Number.isFinite(t.duration) ? t.duration : null,
+              cover_url: t?.cover_url ?? null,
               playlist_id: playlistId,
-            };
-          })
-          .filter((t): t is Track => t !== null);
-      }
-
-      // METHOD 2 (ostaje ista)
-      if (tracks.length === 0) {
-        const { data: directTracks } = await externalSupabase
-          .from('tracks')
-          .select('id, title, artist, cover_url, duration, external_id')
-          .eq('playlist_id', playlistId)
-          .order('created_at', { ascending: true });
-
-        if (directTracks && directTracks.length > 0) {
-          tracks = directTracks.map((t: any) => ({
-            id: t.id,
-            title: t.title,
-            artist: t.artist,
-            external_id: t.external_id,
-            duration: t.duration,
-            cover_url: t.cover_url,
-            playlist_id: playlistId,
-          }));
-        }
-      }
-
-      console.log(`🎵 Final track count: ${tracks.length}`);
+            }))
+            .filter((t) => t.id && t.title)
+        : [];
 
       return {
-        id: playlistData.id,
-        title: playlistData.title,
-        description: playlistData.description,
-        category: playlistData.category,
-        cover_url: playlistData.cover_url || null,
+        id: String(json?.id ?? playlistId),
+        title: json?.title ?? '',
+        description: json?.description ?? null,
+        category: json?.category ?? null,
+        cover_url: json?.cover_url ?? null,
         tracks,
       };
     },
