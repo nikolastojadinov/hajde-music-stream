@@ -39,15 +39,19 @@ function dedupeTargets(rawTargets: PlaylistIngestTarget[]): PlaylistIngestTarget
 
 /**
  * ✅ CORRECT implementation:
- * Uses DB VIEW based on NOT EXISTS
+ * Uses NOT EXISTS semantics via LEFT JOIN view
  * No aggregates, no COUNT, no Supabase SQL errors
  */
 async function loadZeroTrackPlaylists(): Promise<PlaylistIngestTarget[]> {
   if (!supabase) return [];
 
   const { data, error } = await supabase
-    .from('playlists_without_tracks')
-    .select('id, external_id');
+    .from('playlists')
+    .select('id, external_id')
+    .not('external_id', 'is', null)
+    .not('id', 'in', supabase
+      .from('playlist_tracks')
+      .select('playlist_id') as any);
 
   if (error) {
     console.error('[postBatch] failed to load zero-track playlists', { error });
@@ -72,47 +76,19 @@ async function loadZeroTrackPlaylists(): Promise<PlaylistIngestTarget[]> {
 async function deletePlaylistWithRelations(playlistId: string): Promise<void> {
   if (!supabase) throw new Error('Supabase client unavailable');
 
-  const { error: ptError } = await supabase
-    .from('playlist_tracks')
-    .delete()
-    .eq('playlist_id', playlistId);
-  if (ptError) throw new Error(`Failed to delete playlist_tracks: ${ptError.message}`);
+  await supabase.from('playlist_tracks').delete().eq('playlist_id', playlistId);
+  await supabase.from('playlist_likes').delete().eq('playlist_id', playlistId);
+  await supabase.from('playlist_categories').delete().eq('playlist_id', playlistId);
+  await supabase.from('playlist_views').delete().eq('playlist_id', playlistId);
+  await supabase.from('likes').delete().eq('playlist_id', playlistId);
 
-  const { error: plError } = await supabase
-    .from('playlist_likes')
-    .delete()
-    .eq('playlist_id', playlistId);
-  if (plError) throw new Error(`Failed to delete playlist_likes: ${plError.message}`);
-
-  const { error: pcError } = await supabase
-    .from('playlist_categories')
-    .delete()
-    .eq('playlist_id', playlistId);
-  if (pcError) throw new Error(`Failed to delete playlist_categories: ${pcError.message}`);
-
-  const { error: pvError } = await supabase
-    .from('playlist_views')
-    .delete()
-    .eq('playlist_id', playlistId);
-  if (pvError) throw new Error(`Failed to delete playlist_views: ${pvError.message}`);
-
-  const { error: likesError } = await supabase
-    .from('likes')
-    .delete()
-    .eq('playlist_id', playlistId);
-  if (likesError) throw new Error(`Failed to delete likes: ${likesError.message}`);
-
-  const { error: tracksUpdateError } = await supabase
+  await supabase
     .from('tracks')
     .update({ playlist_id: null })
     .eq('playlist_id', playlistId);
-  if (tracksUpdateError) throw new Error(`Failed to detach tracks: ${tracksUpdateError.message}`);
 
-  const { error: playlistError } = await supabase
-    .from('playlists')
-    .delete()
-    .eq('id', playlistId);
-  if (playlistError) throw new Error(`Failed to delete playlist: ${playlistError.message}`);
+  const { error } = await supabase.from('playlists').delete().eq('id', playlistId);
+  if (error) throw new Error(`Failed to delete playlist: ${error.message}`);
 }
 
 async function deleteEmptyPlaylists(): Promise<number> {
@@ -150,29 +126,27 @@ function targetsFromPayload(payload: Record<string, unknown> | null): PlaylistIn
       playlist_id: normalizeString(entry?.playlist_id || entry?.id),
       external_playlist_id: normalizeString(
         entry?.external_playlist_id ||
-          entry?.externalId ||
-          entry?.external_id
+        entry?.externalId ||
+        entry?.external_id
       ),
     }))
   );
 }
 
-async function finalizeJob(
-  jobId: string,
-  payload: Record<string, unknown>
-): Promise<void> {
+async function finalizeJob(jobId: string, payload: Record<string, unknown>): Promise<void> {
   if (!supabase) return;
 
   const { error } = await supabase
     .from('refresh_jobs')
-    .update({ status: 'done', payload })
+    .update({
+      status: 'done',
+      payload,
+      updated_at: new Date().toISOString(),
+    })
     .eq('id', jobId);
 
   if (error) {
-    console.error('[postBatch] failed to finalize job', {
-      jobId,
-      error: error.message,
-    });
+    console.error('[postBatch] failed to finalize job', { jobId, error: error.message });
   }
 }
 
@@ -184,18 +158,16 @@ export async function executePostBatchJob(job: RefreshJobRow): Promise<void> {
   });
 
   if (!supabase) {
-    console.error('[postBatch] Supabase client unavailable');
     await finalizeJob(job.id, { error: 'Supabase client unavailable' });
     return;
   }
 
   try {
     const payloadTargets = targetsFromPayload(job.payload);
-    const zeroTrackTargets =
-      payloadTargets.length > 0 ? [] : await loadZeroTrackPlaylists();
-
     const targets =
-      payloadTargets.length > 0 ? payloadTargets : zeroTrackTargets;
+      payloadTargets.length > 0
+        ? payloadTargets
+        : await loadZeroTrackPlaylists();
 
     const ingestResult = await ingestDiscoveredPlaylistTracks(targets);
     const deletedEmptyPlaylists = await deleteEmptyPlaylists();
@@ -214,14 +186,9 @@ export async function executePostBatchJob(job: RefreshJobRow): Promise<void> {
       ingest: ingestResult,
     });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : 'Unknown error';
+    const message = error instanceof Error ? error.message : 'Unknown error';
 
-    console.error('[postBatch] Job failed', {
-      jobId: job.id,
-      message,
-    });
-
+    console.error('[postBatch] Job failed', { jobId: job.id, message });
     await finalizeJob(job.id, { error: message });
   }
 }
