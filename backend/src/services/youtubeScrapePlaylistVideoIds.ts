@@ -42,6 +42,16 @@ export async function youtubeScrapePlaylistVideoIds(
         "X-YouTube-Client-Version": "2.20201021.03.00",
       },
     },
+    {
+      // music.youtube.com sometimes bypasses consent while keeping the same playlist contents.
+      url: `https://music.youtube.com/playlist?list=${encodeURIComponent(playlistId)}&hl=en&gl=US`,
+      headers: {
+        Accept: "text/html,application/xhtml+xml,application/json",
+        "Accept-Language": "en-US,en;q=0.9",
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) HajdeMusicIngest/1.0",
+        Cookie: "CONSENT=YES+1; SOCS=CAESHAgBEhIaZ29vZ2xlLmNvbS9jb25zZW50L2Jhc2ljLzIiDFNvaURtdXhSNVQ1ag==; PREF=f1=50000000&hl=en",
+      },
+    },
   ];
 
   for (const attempt of attempts) {

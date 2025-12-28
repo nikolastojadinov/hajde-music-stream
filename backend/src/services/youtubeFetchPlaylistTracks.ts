@@ -541,6 +541,7 @@ export async function youtubeFetchPlaylistTracks(input: YoutubeFetchPlaylistTrac
       // Edge case: playlistItems.list can return 0 even for playlists that appear to have videos.
       // Fallback: scrape the playlist page and continue. Keep it bounded to avoid huge scrapes.
       const scrapeMax = maxTracks !== null ? maxTracks : 200;
+      usedScrapeFallback = true;
       const scraped = await youtubeScrapePlaylistVideoIds(external_playlist_id, { max: scrapeMax });
       if (scraped.length === 0) {
         console.info(`${LOG_PREFIX} DONE empty_playlist_items`, {
@@ -553,11 +554,11 @@ export async function youtubeFetchPlaylistTracks(input: YoutubeFetchPlaylistTrac
           playlistItemsAfterMaxCount,
           scrapeAttempted: true,
           scrapeMax,
+          scrape_empty: true,
         });
-        return 0;
+        return null;
       }
 
-      usedScrapeFallback = true;
       console.info(`${LOG_PREFIX} playlistItems.list returned 0; using scrape fallback`, {
         playlist_id,
         external_playlist_id,
