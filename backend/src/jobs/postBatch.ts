@@ -1,5 +1,5 @@
 // backend/src/jobs/postBatch.ts
-// FULL REWRITE — postBatch is a pure executor (NO detection, NO deletes, NO heuristics)
+// FULL REWRITE — postBatch pulls playlistTargets FROM run job payload (same day + slot)
 
 import supabase from '../services/supabaseClient';
 import {
@@ -20,13 +20,11 @@ function normalizeString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function isMixPlaylist(externalId: string | null | undefined): boolean {
-  if (!externalId) return false;
+function isMixPlaylist(externalId: string): boolean {
   return externalId.startsWith(MIX_PREFIX);
 }
 
-function isChannelId(externalId: string | null | undefined): boolean {
-  if (!externalId) return false;
+function isChannelId(externalId: string): boolean {
   return externalId.startsWith(CHANNEL_PREFIX);
 }
 
@@ -35,15 +33,11 @@ function dedupeTargets(
 ): PlaylistIngestTarget[] {
   const map = new Map<string, PlaylistIngestTarget>();
 
-  for (const raw of Array.isArray(rawTargets) ? rawTargets : []) {
-    const playlist_id = normalizeString((raw as any)?.playlist_id);
-    const external_playlist_id = normalizeString(
-      (raw as any)?.external_playlist_id
-    );
+  for (const raw of rawTargets) {
+    const playlist_id = normalizeString(raw.playlist_id);
+    const external_playlist_id = normalizeString(raw.external_playlist_id);
 
     if (!playlist_id || !external_playlist_id) continue;
-
-    // HARD FILTERS — NO EXCEPTIONS
     if (isMixPlaylist(external_playlist_id)) continue;
     if (isChannelId(external_playlist_id)) continue;
 
@@ -56,42 +50,49 @@ function dedupeTargets(
 }
 
 /* -------------------------------------------------------------------------- */
-/* payload handling                                                           */
+/* load targets from RUN job                                                   */
 /* -------------------------------------------------------------------------- */
 
-function targetsFromPayload(
-  payload: Record<string, unknown> | null
-): PlaylistIngestTarget[] {
-  if (!payload) return [];
+async function loadTargetsFromRunJob(
+  dayKey: string,
+  slotIndex: number
+): Promise<PlaylistIngestTarget[]> {
+  const { data, error } = await supabase
+    .from('refresh_jobs')
+    .select('payload')
+    .eq('type', 'run')
+    .eq('day_key', dayKey)
+    .eq('slot_index', slotIndex)
+    .eq('status', 'done')
+    .limit(1)
+    .maybeSingle();
 
-  const list =
-    (payload as any)?.playlistTargets ||
-    (payload as any)?.playlistIds ||
-    [];
+  if (error || !data?.payload) {
+    console.error('[postBatch] Failed to load run job payload', error);
+    return [];
+  }
 
-  if (!Array.isArray(list)) return [];
+  const rawTargets = Array.isArray((data.payload as any)?.playlistTargets)
+    ? (data.payload as any).playlistTargets
+    : [];
 
   return dedupeTargets(
-    list.map((entry: any) => ({
-      playlist_id: normalizeString(entry?.playlist_id || entry?.id),
-      external_playlist_id: normalizeString(
-        entry?.external_playlist_id ||
-          entry?.externalId ||
-          entry?.external_id
-      ),
+    rawTargets.map((t: any) => ({
+      playlist_id: normalizeString(t.playlist_id),
+      external_playlist_id: normalizeString(t.external_playlist_id),
     }))
   );
 }
 
 /* -------------------------------------------------------------------------- */
-/* job finalize                                                               */
+/* finalize                                                                   */
 /* -------------------------------------------------------------------------- */
 
 async function finalizeJob(
   jobId: string,
   payload: Record<string, unknown>
 ): Promise<void> {
-  const { error } = await supabase
+  await supabase
     .from('refresh_jobs')
     .update({
       status: 'done',
@@ -99,69 +100,52 @@ async function finalizeJob(
       updated_at: new Date().toISOString(),
     })
     .eq('id', jobId);
-
-  if (error) {
-    console.error('[postBatch] failed to finalize job', {
-      jobId,
-      error: error.message,
-    });
-  }
 }
 
 /* -------------------------------------------------------------------------- */
-/* main executor                                                              */
+/* main                                                                       */
 /* -------------------------------------------------------------------------- */
 
 export async function executePostBatchJob(
   job: RefreshJobRow
 ): Promise<void> {
-  console.log('[postBatch] Starting job', {
+  console.log('[postBatch] Starting', {
     jobId: job.id,
+    day: job.day_key,
     slot: job.slot_index,
-    scheduledAt: job.scheduled_at,
   });
 
   try {
-    const targets = targetsFromPayload(job.payload);
+    const targets = await loadTargetsFromRunJob(
+      job.day_key,
+      job.slot_index
+    );
 
     if (targets.length === 0) {
-      console.warn('[postBatch] No valid playlist targets after filtering', {
-        jobId: job.id,
-      });
-
       await finalizeJob(job.id, {
         timezone: TIMEZONE,
         targets_requested: 0,
-        reason: 'no valid playlistTargets after filtering',
+        reason: 'no playlistTargets found in run job payload',
       });
       return;
     }
 
-    const ingestResult =
-      await ingestDiscoveredPlaylistTracks(targets);
+    const ingest = await ingestDiscoveredPlaylistTracks(targets);
 
     await finalizeJob(job.id, {
       timezone: TIMEZONE,
       targets_requested: targets.length,
-      ingest: ingestResult,
+      ingest,
     });
 
-    console.log('[postBatch] Job completed', {
-      jobId: job.id,
+    console.log('[postBatch] Completed', {
       targets: targets.length,
-      ingest: ingestResult,
+      ingest,
     });
-  } catch (error) {
-    const message =
-      error instanceof Error ? error.message : 'Unknown error';
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('[postBatch] Failed', message);
 
-    console.error('[postBatch] Job failed', {
-      jobId: job.id,
-      message,
-    });
-
-    await finalizeJob(job.id, {
-      error: message,
-    });
+    await finalizeJob(job.id, { error: message });
   }
 }
