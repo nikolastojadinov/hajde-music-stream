@@ -496,6 +496,11 @@ export async function youtubeFetchPlaylistTracks(input: YoutubeFetchPlaylistTrac
           etag: null,
           items: innertubeIds.map((videoId, idx) => ({ videoId, position: idx })),
         };
+      } else {
+        console.info(`${LOG_PREFIX} playlistItems.list failed; WEB_REMIX innertube fallback empty`, {
+          playlist_id,
+          external_playlist_id,
+        });
       }
     }
 
@@ -575,6 +580,12 @@ export async function youtubeFetchPlaylistTracks(input: YoutubeFetchPlaylistTrac
           fallbackMax,
         });
         playlistItems = innertubeIds.map((videoId, idx) => ({ videoId, position: idx }));
+      } else {
+        console.info(`${LOG_PREFIX} playlistItems.list returned 0; WEB_REMIX innertube fallback empty`, {
+          playlist_id,
+          external_playlist_id,
+          fallbackMax,
+        });
       }
     }
 
