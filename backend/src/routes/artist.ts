@@ -171,6 +171,32 @@ async function getCachedArtist(key: string): Promise<CachedArtistPayload | null>
   return null;
 }
 
+async function isCachedPayloadFresh(payload: CachedArtistPayload): Promise<boolean> {
+  if (!supabase) return true;
+  const playlistIds = Array.isArray(payload.body?.playlists)
+    ? payload.body.playlists.map((p) => normalizeString((p as any)?.id)).filter(Boolean)
+    : [];
+  if (playlistIds.length === 0) return true;
+
+  try {
+    const { count, error } = await supabase
+      .from("playlists")
+      .select("id", { head: true, count: "exact" })
+      .in("id", playlistIds as any);
+
+    if (error) {
+      console.warn(LOG_PREFIX, "cache freshness check failed", { code: error.code, message: error.message });
+      return false;
+    }
+
+    const found = typeof count === "number" ? count : 0;
+    return found === playlistIds.length;
+  } catch (err: any) {
+    console.warn(LOG_PREFIX, "cache freshness unexpected error", { message: err?.message ? String(err.message) : "unknown" });
+    return false;
+  }
+}
+
 async function findYoutubeChannelByArtistNameExact(artistName: string): Promise<YoutubeChannelsRow | null> {
   if (!supabase) return null;
 
@@ -741,7 +767,8 @@ router.get("/", async (req, res) => {
   try {
     const key = cacheKeyForIdentifier(identifier);
     const cached = key ? await getCachedArtist(key) : null;
-    if (cached) {
+    const cacheFresh = cached ? await isCachedPayloadFresh(cached) : false;
+    if (cached && cacheFresh) {
       const inm = typeof req.headers["if-none-match"] === "string" ? req.headers["if-none-match"] : "";
       res.setHeader("ETag", cached.etag);
       res.setHeader("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
@@ -789,7 +816,8 @@ router.get("/:artistName", async (req, res) => {
   try {
     const key = cacheKeyForIdentifier(artistName);
     const cached = key ? await getCachedArtist(key) : null;
-    if (cached) {
+    const cacheFresh = cached ? await isCachedPayloadFresh(cached) : false;
+    if (cached && cacheFresh) {
       const inm = typeof req.headers["if-none-match"] === "string" ? req.headers["if-none-match"] : "";
       res.setHeader("ETag", cached.etag);
       res.setHeader("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
