@@ -192,15 +192,19 @@ export default function Artist() {
         {displayPlaylists.length === 0 ? (
           <EmptyState title="No playlists" subtitle="Nothing to show" />
         ) : (
-          <ScrollArea>
-            <div className="flex space-x-4 pb-4">
+          <ScrollArea className="w-full whitespace-nowrap">
+            <div className="flex gap-3 md:gap-4 pb-4">
               {displayPlaylists.map(p => (
-                <PlaylistCard
+                <div
                   key={p.id}
-                  id={p.id}
-                  title={p.title}
-                  imageUrl={p.cover_url || "/placeholder.svg"}
-                />
+                  className="w-[130px] md:w-[140px] flex-shrink-0"
+                >
+                  <PlaylistCard
+                    id={p.id}
+                    title={p.title}
+                    imageUrl={p.cover_url || "/placeholder.svg"}
+                  />
+                </div>
               ))}
             </div>
             <ScrollBar orientation="horizontal" />
