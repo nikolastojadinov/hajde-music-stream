@@ -70,7 +70,8 @@ async function fetchInnertubeConfigFrom(url: string): Promise<InnertubeConfig | 
   try {
     const response = await fetch(url, {
       method: "GET",
-      redirect: "follow",
+      // Prevent infinite consent redirects; treat non-200 as failure and let caller log.
+      redirect: "manual",
       headers: {
         Accept: "text/html,application/xhtml+xml",
         "Accept-Language": "en-US,en;q=0.9",
@@ -79,10 +80,11 @@ async function fetchInnertubeConfigFrom(url: string): Promise<InnertubeConfig | 
       },
     });
 
-    if (!response.ok) {
+    if (response.type === "opaqueredirect" || response.status >= 300) {
       console.info("[youtubeInnertubeBrowsePlaylist] config_fetch_http_error", {
         url,
         status: response.status,
+        redirected: response.type,
       });
       return null;
     }
@@ -166,7 +168,7 @@ export async function youtubeInnertubeBrowsePlaylistVideoIds(
         "X-Goog-Visitor-Id": config.visitorData || "",
       },
       body: JSON.stringify(payload),
-    });
+      });
 
     if (!response.ok) {
       console.info("[youtubeInnertubeBrowsePlaylist] browse_http_error", {
