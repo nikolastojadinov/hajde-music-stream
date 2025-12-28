@@ -1,5 +1,6 @@
 // backend/src/jobs/postBatch.ts
 // FINAL — postBatch strictly consumes RUN job payload
+// Aligned with runBatch: NO channel / topic filtering here
 
 import supabase from '../services/supabaseClient';
 import {
@@ -10,7 +11,6 @@ import { RefreshJobRow } from '../types/jobs';
 
 const TIMEZONE = 'Europe/Budapest';
 const MIX_PREFIX = 'RD';
-const CHANNEL_PREFIX = 'UC';
 
 /* -------------------------------------------------------------------------- */
 /* utils                                                                      */
@@ -20,11 +20,8 @@ function normalizeString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function isInvalidExternalId(externalId: string): boolean {
-  return (
-    externalId.startsWith(MIX_PREFIX) ||
-    externalId.startsWith(CHANNEL_PREFIX)
-  );
+function isMixPlaylist(externalId: string): boolean {
+  return externalId.startsWith(MIX_PREFIX);
 }
 
 function dedupeTargets(
@@ -37,7 +34,9 @@ function dedupeTargets(
     const external_playlist_id = normalizeString(raw.external_playlist_id);
 
     if (!playlist_id || !external_playlist_id) continue;
-    if (isInvalidExternalId(external_playlist_id)) continue;
+
+    // ONLY filter mix playlists — nothing else
+    if (isMixPlaylist(external_playlist_id)) continue;
 
     if (!map.has(playlist_id)) {
       map.set(playlist_id, { playlist_id, external_playlist_id });
