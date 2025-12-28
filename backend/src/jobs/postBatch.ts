@@ -10,6 +10,7 @@ import { RefreshJobRow } from '../types/jobs';
 
 const TIMEZONE = 'Europe/Budapest';
 const MIX_PREFIX = 'RD';
+const CHANNEL_PREFIX = 'UC';
 
 /* -------------------------------------------------------------------------- */
 /* utils                                                                      */
@@ -19,8 +20,12 @@ function normalizeString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function isMixPlaylist(externalId: string | null | undefined): boolean {
-  return Boolean(externalId && externalId.startsWith(MIX_PREFIX));
+function isMixPlaylist(externalId: string): boolean {
+  return externalId.startsWith(MIX_PREFIX);
+}
+
+function isChannelId(externalId: string): boolean {
+  return externalId.startsWith(CHANNEL_PREFIX);
 }
 
 function dedupeTargets(
@@ -35,7 +40,10 @@ function dedupeTargets(
     );
 
     if (!playlist_id || !external_playlist_id) continue;
+
+    // HARD FILTERS — NO EXCEPTIONS
     if (isMixPlaylist(external_playlist_id)) continue;
+    if (isChannelId(external_playlist_id)) continue;
 
     if (!map.has(playlist_id)) {
       map.set(playlist_id, { playlist_id, external_playlist_id });
@@ -81,8 +89,6 @@ async function finalizeJob(
   jobId: string,
   payload: Record<string, unknown>
 ): Promise<void> {
-  if (!supabase) return;
-
   const { error } = await supabase
     .from('refresh_jobs')
     .update({
@@ -113,26 +119,18 @@ export async function executePostBatchJob(
     scheduledAt: job.scheduled_at,
   });
 
-  if (!supabase) {
-    await finalizeJob(job.id, {
-      error: 'Supabase client unavailable',
-    });
-    return;
-  }
-
   try {
     const targets = targetsFromPayload(job.payload);
 
-    // Nothing to do — this is VALID and EXPECTED
     if (targets.length === 0) {
-      console.log('[postBatch] No targets provided — skipping ingest', {
+      console.log('[postBatch] No valid playlist targets after filtering', {
         jobId: job.id,
       });
 
       await finalizeJob(job.id, {
         timezone: TIMEZONE,
         targets_requested: 0,
-        reason: 'no playlistTargets in payload',
+        reason: 'no valid playlistTargets after filtering',
       });
       return;
     }
@@ -160,6 +158,8 @@ export async function executePostBatchJob(
       message,
     });
 
-    await finalizeJob(job.id, { error: message });
+    await finalizeJob(job.id, {
+      error: message,
+    });
   }
 }
