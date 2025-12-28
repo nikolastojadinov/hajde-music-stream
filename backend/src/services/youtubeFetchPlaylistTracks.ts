@@ -1,6 +1,7 @@
 import supabase from "./supabaseClient";
 import { logApiUsage } from "./apiUsageLogger";
 import { youtubeScrapePlaylistVideoIds } from "./youtubeScrapePlaylistVideoIds";
+import { youtubeInnertubeBrowsePlaylistVideoIds } from "./youtubeInnertubeBrowsePlaylist";
 
 const YOUTUBE_API_BASE = "https://www.googleapis.com/youtube/v3";
 const QUOTA_COST_PLAYLIST_ITEMS_LIST = 1;
@@ -474,8 +475,30 @@ export async function youtubeFetchPlaylistTracks(input: YoutubeFetchPlaylistTrac
     if (!playlist_id || !external_playlist_id) return null;
 
     let usedScrapeFallback = false;
+    let usedInnertubeFallback = false;
 
     let playlistItemsResult = await fetchPlaylistItemsAll(external_playlist_id, input.if_none_match ?? null);
+    if (!playlistItemsResult) {
+      const innertubeIds = await youtubeInnertubeBrowsePlaylistVideoIds(external_playlist_id, {
+        max: input.max_tracks ?? null,
+      });
+
+      if (innertubeIds.length > 0) {
+        usedInnertubeFallback = true;
+        console.info(`${LOG_PREFIX} playlistItems.list failed; using WEB_REMIX innertube fallback`, {
+          playlist_id,
+          external_playlist_id,
+          innertube_ids: innertubeIds.length,
+        });
+
+        playlistItemsResult = {
+          state: 'fetched',
+          etag: null,
+          items: innertubeIds.map((videoId, idx) => ({ videoId, position: idx })),
+        };
+      }
+    }
+
     if (!playlistItemsResult) {
       // Some Topic auto-generated album playlists (OLAK5uy...) can intermittently fail playlistItems.list.
       // Fallback: scrape the playlist page and continue.
@@ -524,6 +547,7 @@ export async function youtubeFetchPlaylistTracks(input: YoutubeFetchPlaylistTrac
         durationMs: Date.now() - startedAt,
         etag: playlistItemsResult.etag,
         usedScrapeFallback,
+        usedInnertubeFallback,
       });
       return 0;
     }
@@ -539,7 +563,22 @@ export async function youtubeFetchPlaylistTracks(input: YoutubeFetchPlaylistTrac
     const playlistItemsAfterMaxCount = playlistItems.length;
     if (playlistItems.length === 0) {
       // Edge case: playlistItems.list can return 0 even for playlists that appear to have videos.
-      // Fallback: scrape the playlist page and continue. Keep it bounded to avoid huge scrapes.
+      // Try innertube WEB_REMIX browse, then scrape HTML as a last resort.
+      const fallbackMax = maxTracks !== null ? maxTracks : 200;
+      const innertubeIds = await youtubeInnertubeBrowsePlaylistVideoIds(external_playlist_id, { max: fallbackMax });
+      if (innertubeIds.length > 0) {
+        usedInnertubeFallback = true;
+        console.info(`${LOG_PREFIX} playlistItems.list returned 0; using WEB_REMIX innertube fallback`, {
+          playlist_id,
+          external_playlist_id,
+          innertube_ids: innertubeIds.length,
+          fallbackMax,
+        });
+        playlistItems = innertubeIds.map((videoId, idx) => ({ videoId, position: idx }));
+      }
+    }
+
+    if (playlistItems.length === 0) {
       const scrapeMax = maxTracks !== null ? maxTracks : 200;
       usedScrapeFallback = true;
       const scraped = await youtubeScrapePlaylistVideoIds(external_playlist_id, { max: scrapeMax });
@@ -550,6 +589,7 @@ export async function youtubeFetchPlaylistTracks(input: YoutubeFetchPlaylistTrac
           durationMs: Date.now() - startedAt,
           etag: playlistItemsResult.etag,
           usedScrapeFallback,
+          usedInnertubeFallback,
           playlistItemsFetchedCount,
           playlistItemsAfterMaxCount,
           scrapeAttempted: true,
@@ -720,6 +760,7 @@ export async function youtubeFetchPlaylistTracks(input: YoutubeFetchPlaylistTrac
         durationMs: Date.now() - startedAt,
         etag: playlistItemsResult.etag,
         usedScrapeFallback,
+        usedInnertubeFallback,
         playlistItemsFetchedCount,
         playlistItemsAfterMaxCount,
         requested_video_ids: videoIds.length,
@@ -758,6 +799,7 @@ export async function youtubeFetchPlaylistTracks(input: YoutubeFetchPlaylistTrac
       durationMs: Date.now() - startedAt,
       etag: playlistItemsResult.etag,
       usedScrapeFallback,
+      usedInnertubeFallback,
       playlistItemsFetchedCount,
       playlistItemsAfterMaxCount,
       requested_video_ids: videoIds.length,
