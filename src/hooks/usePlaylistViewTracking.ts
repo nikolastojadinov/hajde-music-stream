@@ -2,8 +2,8 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { usePi } from "@/contexts/PiContext";
 import { useCallback, useEffect } from "react";
 import { dedupeEvent } from "@/lib/requestDeduper";
+import { withBackendOrigin } from "@/lib/backendUrl";
 
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:3001";
 const TRACKING_ENABLED = (import.meta.env.VITE_ENABLE_PLAYLIST_TRACKING ?? "true") !== "false";
 const trackedPlaylistsSession = new Set<string>();
 
@@ -22,11 +22,14 @@ export const usePlaylistViewTracking = () => {
         return null;
       }
 
-      const response = await fetch(`${BACKEND_URL}/api/playlist-views/track`, {
+      const trackUrl = withBackendOrigin(`/api/playlist-views/track`);
+
+      const response = await fetch(trackUrl, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
+        credentials: "include",
         body: JSON.stringify({
           user_id: user.uid,
           playlist_id: playlistId,
