@@ -168,14 +168,12 @@ const Playlist = () => {
         </p>
 
         <div className="flex justify-center items-center gap-4 mt-6">
-          <Button
-            size="lg"
-            className="rounded-full bg-gradient-to-r from-[#FF4FB7] to-[#A855F7] text-[#0B0814] shadow-lg shadow-[#FF4FB7]/25 hover:scale-105 transition"
-            onClick={handlePlayPlaylist}
-          >
-            <Play className="w-5 h-5 mr-2 fill-current" />
-            {t("play_all")}
-          </Button>
+          <button className="pm-cta-pill" onClick={handlePlayPlaylist}>
+            <span className="pm-cta-pill-inner">
+              <Play className="w-5 h-5 mr-1 stroke-[2.2] text-[#FFD77A]" />
+              {t("play_all")}
+            </span>
+          </button>
 
           <button
             onClick={handleToggleLike}

@@ -1,4 +1,4 @@
-import { Heart, ListMusic, Pencil } from "lucide-react";
+import { Heart, ListMusic, Pencil, Plus } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import PlaylistCard from "@/components/PlaylistCard";
 import TrackCard from "@/components/TrackCard";
@@ -61,9 +61,12 @@ const Library = () => {
           <p>{t("no_playlists_created")}</p>
           <button
             onClick={() => navigate("/create")}
-            className="mt-4 px-5 py-2 rounded-full bg-primary text-primary-foreground text-sm font-semibold"
+            className="mt-4 pm-cta-pill pm-cta-pill--subtle"
           >
-            {t("create_playlist_btn")}
+            <span className="pm-cta-pill-inner">
+              <Plus className="h-4 w-4 stroke-[2.2] text-[#FFD77A]" />
+              {t("create_playlist_btn")}
+            </span>
           </button>
         </div>
       );
@@ -155,9 +158,12 @@ const Library = () => {
             <h2 className="text-2xl font-semibold">{t("my_playlists")}</h2>
             <Link
               to="/create"
-              className="inline-flex items-center justify-center rounded-full border border-primary/60 px-4 py-2 text-sm font-semibold text-primary hover:bg-primary/10"
+              className="pm-cta-pill pm-cta-pill--subtle"
             >
-              + {t("create_playlist_btn")}
+              <span className="pm-cta-pill-inner">
+                <Plus className="h-4 w-4 stroke-[2.2] text-[#FFD77A]" />
+                {t("create_playlist_btn")}
+              </span>
             </Link>
           </div>
           {myPlaylistsContent}

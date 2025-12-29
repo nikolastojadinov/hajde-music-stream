@@ -25,15 +25,12 @@ const Footer = () => {
               <Link
                 key={item.path}
                 to={item.path}
-                className="relative -mt-6 flex h-14 w-14 items-center justify-center rounded-full text-[#0B0814] shadow-[0_0_28px_rgba(255,79,183,0.35)] hover:shadow-[0_0_34px_rgba(255,79,183,0.45)] ring-4 ring-black/25 transition-transform hover:scale-105 active:scale-95 border border-white/10"
-                style={{
-                  backgroundImage:
-                    "radial-gradient(circle at 50% 42%, #FF74C7 0%, #FF4FB7 38%, #A855F7 76%, #6C2BD9 100%)",
-                }}
+                className="relative -mt-5 pm-cta-circle"
                 aria-label={item.name}
               >
-                <item.icon className="h-6 w-6 stroke-[2.25]" />
-                <div className="absolute inset-0 rounded-full shadow-[inset_0_0_14px_rgba(255,255,255,0.08)]" aria-hidden />
+                <span className="pm-cta-circle-inner">
+                  <item.icon className="h-6 w-6 stroke-[2.2] text-[#FFD77A]" />
+                </span>
               </Link>
             );
           }

@@ -11,7 +11,7 @@ import {
   type ReactNode,
 } from "react";
 import { toast } from "sonner";
-import { Check, ChevronDown, Circle, CircleDot, Loader2, Upload, X } from "lucide-react";
+import { Check, ChevronDown, Circle, CircleDot, Loader2, Upload, X, Plus } from "lucide-react";
 import { externalSupabase } from "@/lib/externalSupabase";
 import { withBackendOrigin } from "@/lib/backendUrl";
 import { fetchWithPiAuth } from "@/lib/fetcher";
@@ -546,21 +546,20 @@ const PlaylistForm = ({ mode, userId, initialData, onSubmit, afterCoverSlot, rem
           <p className="text-sm text-white/60">
             Public playlists appear in Search. Private ones stay yours until you share the link.
           </p>
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-yellow-300 via-yellow-400 to-orange-400 px-6 py-3 font-semibold text-black shadow-lg shadow-yellow-500/40 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {isSubmitting ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                {mode === "create" ? "Creating..." : "Saving..."}
-              </>
-            ) : mode === "create" ? (
-              "Create playlist"
-            ) : (
-              "Save changes"
-            )}
+          <button type="submit" disabled={isSubmitting} className="pm-cta-pill">
+            <span className="pm-cta-pill-inner">
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin text-[#FFD77A]" />
+                  {mode === "create" ? "Creating..." : "Saving..."}
+                </>
+              ) : (
+                <>
+                  <Plus className="h-4 w-4 stroke-[2.2] text-[#FFD77A]" />
+                  {mode === "create" ? "Create playlist" : "Save changes"}
+                </>
+              )}
+            </span>
           </button>
         </div>
       </section>
