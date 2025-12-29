@@ -3,6 +3,10 @@ import supabase from "../../services/supabaseClient";
 import { youtubeFetchPlaylistTracks } from "../../services/youtubeFetchPlaylistTracks";
 
 const LOG_PREFIX = "[PlaylistRefresh]";
+// Short in-process cooldown to collapse duplicate clicks while a refresh is completing.
+const LOCAL_COOLDOWN_MS = 30_000;
+// Cross-request throttle so multiple users don't hammer the same playlist and burn quota.
+const PLAYLIST_THROTTLE_MS = 45 * 60 * 1000;
 
 type RefreshEntry = {
   promise: Promise<number | null> | null;
@@ -43,15 +47,12 @@ export async function refreshPlaylistTracks(req: Request, res: Response) {
 
   if (!supabase) return res.status(500).json({ error: "supabase_not_initialized" });
 
-  // Keep a short cooldown so clicking around doesn't hammer YouTube.
-  const ttlMs = 30_000;
-
   const startedAt = Date.now();
 
   try {
     const { data: playlist, error: playlistError } = await supabase
       .from("playlists")
-      .select("id, external_id, last_etag")
+      .select("id, external_id, last_etag, last_refreshed_on")
       .eq("id", playlistId)
       .maybeSingle();
 
@@ -61,6 +62,8 @@ export async function refreshPlaylistTracks(req: Request, res: Response) {
 
     const externalId = normalizeString((playlist as any)?.external_id);
     const lastEtag = normalizeString((playlist as any)?.last_etag);
+    const lastRefreshedOnRaw = (playlist as any)?.last_refreshed_on;
+    const lastRefreshedOnMs = lastRefreshedOnRaw ? Date.parse(lastRefreshedOnRaw) : null;
 
     if (!externalId) {
       return res.status(404).json({ error: "playlist_external_id_missing" });
@@ -75,6 +78,7 @@ export async function refreshPlaylistTracks(req: Request, res: Response) {
       hasAnyTracks,
       trackCount: typeof trackCount === "number" ? trackCount : null,
       hasLastEtag: Boolean(lastEtag),
+      lastRefreshedOn: lastRefreshedOnRaw ?? null,
     });
 
     const key = playlistId;
@@ -89,12 +93,24 @@ export async function refreshPlaylistTracks(req: Request, res: Response) {
       return res.json({ ok: true, playlist_id: playlistId, status: "inflight" });
     }
 
+    if (lastRefreshedOnMs && Number.isFinite(lastRefreshedOnMs)) {
+      const throttleAgeMs = Date.now() - lastRefreshedOnMs;
+      if (throttleAgeMs < PLAYLIST_THROTTLE_MS) {
+        console.info(LOG_PREFIX, "THROTTLED", {
+          playlist_id: playlistId,
+          ageMs: throttleAgeMs,
+          throttleMs: PLAYLIST_THROTTLE_MS,
+        });
+        return res.json({ ok: true, playlist_id: playlistId, status: "throttled", ageMs: throttleAgeMs, throttleMs: PLAYLIST_THROTTLE_MS });
+      }
+    }
+
     const last = entry.lastCompletedAt ?? entry.lastFailedAt ?? 0;
     const ageMs = last > 0 ? Date.now() - last : null;
 
-    if (ttlMs > 0 && ageMs !== null && ageMs < ttlMs) {
-      console.info(LOG_PREFIX, "COOLDOWN", { playlist_id: playlistId, ageMs, ttlMs });
-      return res.json({ ok: true, playlist_id: playlistId, status: "cooldown", ageMs, ttlMs });
+    if (LOCAL_COOLDOWN_MS > 0 && ageMs !== null && ageMs < LOCAL_COOLDOWN_MS) {
+      console.info(LOG_PREFIX, "COOLDOWN", { playlist_id: playlistId, ageMs, ttlMs: LOCAL_COOLDOWN_MS });
+      return res.json({ ok: true, playlist_id: playlistId, status: "cooldown", ageMs, ttlMs: LOCAL_COOLDOWN_MS });
     }
 
     entry.startedAt = Date.now();
@@ -104,7 +120,8 @@ export async function refreshPlaylistTracks(req: Request, res: Response) {
       // If we already have tracks, allow a cheap 304 path.
       // If we have 0 tracks, force a fetch so we can populate from scratch.
       if_none_match: hasAnyTracks && lastEtag ? lastEtag : null,
-      replace_existing: true,
+      // Once there is at least one track, avoid destructive replace to save quota.
+      replace_existing: !hasAnyTracks,
     });
 
     refreshMap.set(key, entry);

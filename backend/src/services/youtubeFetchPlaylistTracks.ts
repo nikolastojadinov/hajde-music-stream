@@ -125,6 +125,22 @@ function parseIso8601DurationSeconds(value: unknown): number | null {
   return Math.max(0, hours * 3600 + minutes * 60 + seconds);
 }
 
+async function persistRefreshMetadata(playlist_id: string, etag: string | null): Promise<void> {
+  if (!supabase) return;
+
+  const update: Record<string, any> = {
+    last_refreshed_on: new Date().toISOString(),
+  };
+
+  if (etag) update.last_etag = etag;
+
+  try {
+    await supabase.from("playlists").update(update).eq("id", playlist_id);
+  } catch {
+    // Schema may omit these columns in some environments; ignore errors.
+  }
+}
+
 async function fetchPlaylistItemsAll(
   external_playlist_id: string,
   ifNoneMatch?: string | null
@@ -532,20 +548,10 @@ export async function youtubeFetchPlaylistTracks(input: YoutubeFetchPlaylistTrac
       }
     }
 
-    // Best-effort: persist ETag/refresh timestamp on the playlist row when available.
-    if (playlistItemsResult.etag) {
-      const now = new Date().toISOString();
-      const { error: updateError } = await supabase
-        .from('playlists')
-        .update({ last_etag: playlistItemsResult.etag, last_refreshed_on: now })
-        .eq('id', playlist_id);
-      if (updateError) {
-        // Non-fatal; some environments may not expose these columns.
-        void updateError;
-      }
-    }
+    const refreshEtag = playlistItemsResult.etag ?? null;
 
     if (playlistItemsResult.state === 'unchanged') {
+      await persistRefreshMetadata(playlist_id, refreshEtag);
       console.info(`${LOG_PREFIX} DONE unchanged`, {
         playlist_id,
         external_playlist_id,
@@ -562,7 +568,10 @@ export async function youtubeFetchPlaylistTracks(input: YoutubeFetchPlaylistTrac
     const maxTracksRaw = input.max_tracks;
     const maxTracks = typeof maxTracksRaw === "number" && Number.isFinite(maxTracksRaw) ? Math.max(0, Math.trunc(maxTracksRaw)) : null;
     if (maxTracks !== null) {
-      if (maxTracks === 0) return 0;
+      if (maxTracks === 0) {
+        await persistRefreshMetadata(playlist_id, refreshEtag);
+        return 0;
+      }
       playlistItems = playlistItems.slice(0, maxTracks);
     }
     const playlistItemsAfterMaxCount = playlistItems.length;
@@ -662,6 +671,7 @@ export async function youtubeFetchPlaylistTracks(input: YoutubeFetchPlaylistTrac
     }
     const desiredTrackRows = Array.from(desiredTrackRowsMap.values());
     if (desiredTrackRows.length === 0) {
+      await persistRefreshMetadata(playlist_id, refreshEtag);
       console.info(`${LOG_PREFIX} DONE no_usable_video_details`, {
         playlist_id,
         external_playlist_id,
@@ -710,7 +720,10 @@ export async function youtubeFetchPlaylistTracks(input: YoutubeFetchPlaylistTrac
       if (!existing || row.position < existing.position) linkDedupe.set(row.track_id, row);
     }
     const desiredLinks = Array.from(linkDedupe.values()).sort((a, b) => a.position - b.position);
-    if (desiredLinks.length === 0) return insertedTracksCount;
+    if (desiredLinks.length === 0) {
+      await persistRefreshMetadata(playlist_id, refreshEtag);
+      return insertedTracksCount;
+    }
 
     const replaceExisting = Boolean(input.replace_existing);
     if (replaceExisting) {
@@ -736,6 +749,7 @@ export async function youtubeFetchPlaylistTracks(input: YoutubeFetchPlaylistTrac
       // skip destructive replace to reduce DB churn.
       if (deletedExisting !== null && desiredLinks.length === deletedExisting && insertedTracksCount === 0) {
         console.log("No changes in playlist data, skipping replace_existing.");
+        await persistRefreshMetadata(playlist_id, refreshEtag);
         return 0;
       }
 
@@ -765,6 +779,7 @@ export async function youtubeFetchPlaylistTracks(input: YoutubeFetchPlaylistTrac
         deleted_existing: deletedExisting,
       });
 
+      await persistRefreshMetadata(playlist_id, refreshEtag);
       console.info(`${LOG_PREFIX} DONE`, {
         playlist_id,
         external_playlist_id,
@@ -794,7 +809,10 @@ export async function youtubeFetchPlaylistTracks(input: YoutubeFetchPlaylistTrac
     if (!existingPlaylistTrackIds) return null;
 
     const newLinks = desiredLinks.filter((r) => !existingPlaylistTrackIds.has(r.track_id));
-    if (newLinks.length === 0) return insertedTracksCount;
+    if (newLinks.length === 0) {
+      await persistRefreshMetadata(playlist_id, refreshEtag);
+      return insertedTracksCount;
+    }
 
     for (const chunk of chunkArray(newLinks, INSERT_CHUNK_SIZE)) {
       const { error } = await supabase.from("playlist_tracks").insert(chunk);
@@ -804,6 +822,7 @@ export async function youtubeFetchPlaylistTracks(input: YoutubeFetchPlaylistTrac
       }
     }
 
+    await persistRefreshMetadata(playlist_id, refreshEtag);
     console.info(`${LOG_PREFIX} DONE`, {
       playlist_id,
       external_playlist_id,
