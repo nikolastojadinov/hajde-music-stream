@@ -48,8 +48,8 @@ const MiniPlayer = () => {
   return (
     <div className="fixed bottom-20 md:bottom-0 left-0 right-0 z-30 px-3 md:px-4">
       <div className="mx-auto max-w-screen-2xl">
-        <div className="relative rounded-2xl bg-gradient-to-r from-[#F5C26B]/35 to-[#7B3FE4]/35 p-[1px] shadow-[0_20px_60px_rgba(0,0,0,0.45)]">
-          <div className="relative rounded-[1rem] bg-[rgba(20,14,30,0.75)] backdrop-blur-[16px] border border-white/10">
+          <div className="relative rounded-2xl bg-gradient-to-r from-[#F5C26B]/35 to-[#7B3FE4]/35 p-[1px] shadow-[0_20px_60px_rgba(0,0,0,0.45)]">
+          <div className="relative rounded-[1rem] bg-[rgba(20,14,30,0.75)] backdrop-blur-[16px] border border-white/10 overflow-hidden">
             <div className="absolute bottom-2 right-3 z-20 md:hidden">
               <AddToPlaylistButton
                 trackId={currentTrackId ?? undefined}
@@ -75,7 +75,7 @@ const MiniPlayer = () => {
             <div className="flex items-center justify-between gap-2 px-4 pt-3 pb-3">
               <div className="flex items-center gap-2 flex-1 min-w-0">
                 <div
-                  className={`${isMobile ? "w-[110px] h-[110px]" : "w-[200px] h-[200px]"} flex-shrink-0 rounded-xl bg-[rgba(20,14,30,0.65)] shadow-[0_18px_32px_rgba(0,0,0,0.45)] border border-white/10`}
+                  className={`${isMobile ? "w-[110px] h-[110px]" : "w-[200px] h-[200px]"} flex-shrink-0 rounded-xl bg-[rgba(20,14,30,0.65)] shadow-[0_18px_32px_rgba(0,0,0,0.45)] border border-white/10 overflow-hidden`}
                 />
                 <div className="min-w-0 flex-1 hidden md:block">
                   <p className="font-semibold text-[#F6C66D] truncate drop-shadow-sm">{currentVideoTitle || "Purple Dreams"}</p>
@@ -90,7 +90,7 @@ const MiniPlayer = () => {
 
                 <button
                   onClick={togglePlay}
-                  className="relative w-14 h-14 rounded-full flex items-center justify-center text-[#0B0814] shadow-[0_12px_28px_rgba(240,140,255,0.35)] hover:scale-105 active:scale-95 transition-transform ring-2 ring-[#F5C26B] bg-[radial-gradient(circle_at_30%_30%,#F08CFF,#7B3FE4)]"
+                  className="relative w-14 h-14 rounded-full flex items-center justify-center text-[#0B0814] shadow-[0_12px_28px_rgba(240,140,255,0.35)] hover:scale-105 active:scale-95 transition-transform border-2 border-[#F5C26B] bg-[radial-gradient(circle,#F08CFF_0%,#7B3FE4_70%)]"
                 >
                   {isPlaying ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6 fill-current ml-0.5" />}
                 </button>

@@ -55,7 +55,7 @@ const FullscreenPlayer = () => {
 
   // Fullscreen Player UI (bez player iframe-a - on je u YouTubePlayerContainer)
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-[radial-gradient(circle_at_50%_25%,rgba(124,58,237,0.25),transparent_38%),linear-gradient(180deg,#0a0812,#05030b)] backdrop-blur-2xl text-[#F3F1FF]">
+    <div className="fixed inset-0 z-50 flex flex-col bg-[radial-gradient(circle_at_50%_25%,rgba(124,58,237,0.25),transparent_38%),linear-gradient(180deg,#0a0812,#05030b)] backdrop-blur-2xl text-[#F3F1FF] overflow-hidden">
       <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 bg-[rgba(20,14,30,0.6)]">
         <button onClick={() => setIsFullscreen(false)} className="h-10 w-10 rounded-full border border-white/15 text-[#CFA85B] hover:text-[#F6C66D] shadow-[0_6px_18px_rgba(0,0,0,0.35)]">
           <ChevronDown className="w-6 h-6 mx-auto" />
@@ -65,9 +65,11 @@ const FullscreenPlayer = () => {
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 pb-10 pt-6 flex flex-col items-center">
-        <div className="w-full max-w-5xl rounded-2xl bg-gradient-to-br from-[#F5C26B]/35 to-[#7B3FE4]/35 p-[1.5px] shadow-[0_24px_70px_rgba(0,0,0,0.55)]" style={{ aspectRatio: "16/9", minHeight: "300px", maxHeight: "70vh" }}>
-          <div className="h-full w-full rounded-[18px] bg-[rgba(20,14,30,0.78)] border border-white/12 shadow-[0_18px_36px_rgba(0,0,0,0.45)]" />
+      <div className="flex-1 overflow-hidden px-4 pb-10 pt-6 flex flex-col items-center">
+        <div className="w-full max-w-5xl" style={{ maxHeight: "70vh" }}>
+          <div className="rounded-2xl bg-gradient-to-br from-[#F5C26B]/35 to-[#7B3FE4]/35 p-[1.5px] shadow-[0_24px_70px_rgba(0,0,0,0.55)]" style={{ aspectRatio: "16/9" }}>
+            <div className="h-full w-full rounded-[18px] bg-[rgba(20,14,30,0.78)] border border-white/12 shadow-[0_18px_36px_rgba(0,0,0,0.45)]" />
+          </div>
         </div>
 
         <div className="w-full max-w-xl text-center mt-8">
@@ -98,7 +100,7 @@ const FullscreenPlayer = () => {
           </button>
           <button
             onClick={togglePlay}
-            className="h-16 w-16 rounded-full flex items-center justify-center text-[#0B0814] shadow-[0_18px_36px_rgba(240,140,255,0.4)] hover:scale-105 active:scale-95 transition-transform ring-2 ring-[#F5C26B] bg-[radial-gradient(circle_at_30%_30%,#F08CFF,#7B3FE4)]"
+            className="h-16 w-16 rounded-full flex items-center justify-center text-[#0B0814] shadow-[0_18px_36px_rgba(240,140,255,0.4)] hover:scale-105 active:scale-95 transition-transform border-2 border-[#F5C26B] bg-[radial-gradient(circle,#F08CFF_0%,#7B3FE4_70%)]"
           >
             {isPlaying ? <Pause className="w-8 h-8 mx-auto" /> : <Play className="w-8 h-8 mx-auto fill-current ml-0.5" />}
           </button>
@@ -113,7 +115,7 @@ const FullscreenPlayer = () => {
               trackId={currentTrackId ?? undefined}
               trackTitle={currentVideoTitle}
               variant="ghost"
-              triggerClassName="text-[#F5C26B] hover:text-[#F08CFF]"
+              triggerClassName="h-11 w-11 rounded-full border-2 border-[#F5C26B] bg-[radial-gradient(circle,#F08CFF_0%,#7B3FE4_70%)] text-[#0B0814] shadow-[0_12px_28px_rgba(240,140,255,0.35)] hover:scale-105 active:scale-95 transition"
             />
             <button
               onClick={handleToggleLike}

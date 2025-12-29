@@ -52,6 +52,7 @@ export const YouTubePlayerContainer = () => {
         width: 'min(960px, 90vw)',
         aspectRatio: '16 / 9',
         maxWidth: '100%',
+        overflow: 'hidden',
       }}
     >
       {/* Fullscreen dedicated wrapper - ensures iframe visibility */}
@@ -61,11 +62,21 @@ export const YouTubePlayerContainer = () => {
           position: 'relative',
           width: '100%',
           height: '100%',
-          backgroundColor: '#000',
-          borderRadius: '0.75rem',
+          background: 'linear-gradient(135deg, rgba(245,194,107,0.35), rgba(123,63,228,0.35))',
+          borderRadius: '14px',
+          padding: '1px',
           overflow: 'hidden',
         }}
       >
+        <div
+          style={{
+            position: 'absolute',
+            inset: '1px',
+            borderRadius: '13px',
+            background: 'rgba(20, 14, 30, 0.75)',
+            backdropFilter: 'blur(18px)',
+          }}
+        />
         <div
           id="yt-player"
           className="fullscreen-youtube-player"
@@ -74,7 +85,7 @@ export const YouTubePlayerContainer = () => {
             inset: 0,
             width: '100%',
             height: '100%',
-            borderRadius: '0.75rem',
+            borderRadius: '13px',
           }}
         />
       </div>
