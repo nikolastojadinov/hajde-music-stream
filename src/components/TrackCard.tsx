@@ -36,22 +36,22 @@ const TrackCard = ({ id, title, artist, imageUrl, youtubeId, duration, liked = f
 
   return (
     <div
-      className="group flex items-center gap-3 p-3 rounded-lg hover:bg-secondary/80 transition-all duration-300 cursor-pointer"
+      className="group flex items-center gap-3 p-4 rounded-[18px] border border-[rgba(255,255,255,0.08)] bg-[rgba(20,17,38,0.6)] backdrop-blur-xl shadow-[0_8px_24px_rgba(0,0,0,0.45)] hover:border-[rgba(246,198,109,0.45)] transition-all duration-300 cursor-pointer"
       onClick={handlePlayClick}
     >
-      <div className="relative w-14 h-14 rounded-lg overflow-hidden bg-muted flex-shrink-0">
+      <div className="relative w-14 h-14 rounded-[14px] overflow-hidden bg-[#0E0C16] border border-[rgba(255,255,255,0.08)] flex-shrink-0">
         {imageUrl ? (
           <img src={imageUrl} alt={title} className="w-full h-full object-cover" />
         ) : (
-          <div className="w-full h-full bg-gradient-to-br from-primary/20 to-primary/5" />
+          <div className="w-full h-full bg-gradient-to-br from-[#FF4FB7]/25 via-[#7C3AED]/10 to-[#0E0C16]" />
         )}
-        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-          <Play className="w-6 h-6 text-foreground fill-current" />
+        <div className="absolute inset-0 bg-black/45 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+          <Play className="w-6 h-6 text-[#F6C66D] fill-current drop-shadow-[0_0_10px_rgba(246,198,109,0.35)]" />
         </div>
       </div>
       <div className="flex-1 min-w-0">
-        <h3 className="font-semibold text-foreground truncate">{title}</h3>
-        <p className="text-sm text-muted-foreground truncate">{artist}</p>
+        <h3 className="font-semibold text-[#F6C66D] truncate">{title}</h3>
+        <p className="text-sm text-[#B7B2CC] truncate">{artist}</p>
       </div>
       
       <div className="flex items-center gap-2 flex-shrink-0">
@@ -76,7 +76,7 @@ const TrackCard = ({ id, title, artist, imageUrl, youtubeId, duration, liked = f
           />
         </button>
         {duration && (
-          <div className="text-sm text-muted-foreground">
+          <div className="text-sm text-[#B7B2CC]">
             {formatDuration(duration)}
           </div>
         )}

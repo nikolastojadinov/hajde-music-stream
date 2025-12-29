@@ -390,42 +390,49 @@ const PlaylistForm = ({ mode, userId, initialData, onSubmit, afterCoverSlot, rem
         <div className="flex flex-col gap-8 lg:flex-row">
           <div className="flex flex-col gap-4">
             <div
-              className="flex h-56 w-56 cursor-pointer flex-col items-center justify-center rounded-[22px] border border-dashed border-[rgba(246,198,109,0.25)] bg-[rgba(255,255,255,0.04)] text-center transition hover:border-[rgba(255,79,183,0.45)] hover:shadow-[0_0_24px_rgba(255,79,183,0.28)]"
+              className="group relative h-[320px] w-[320px] cursor-pointer"
               onClick={() => fileInputRef.current?.click()}
             >
-              {currentCover ? (
-                <div className="relative h-full w-full">
-                  <img src={currentCover} alt="Cover preview" className="h-full w-full rounded-[22px] object-cover" />
-                  {coverPreview ? (
-                    <button
-                      type="button"
-                      className="absolute right-3 top-3 rounded-full bg-black/70 p-2 text-white"
-                      onClick={(event: ReactMouseEvent<HTMLButtonElement>) => {
-                        event.stopPropagation();
-                        setCoverFile(null);
-                        setCoverPreview(null);
-                        setCoverUrl(initialData?.cover_url ?? null);
-                      }}
-                      aria-label="Remove selected cover"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  ) : null}
-                </div>
-              ) : (
-                <>
-                  <Upload className="mb-3 h-10 w-10 text-[#F6C66D]" />
-                  <p className="text-sm">Upload square cover</p>
-                  <span className="text-xs text-[#B7B2CC]">PNG • JPG • WEBP</span>
-                </>
-              )}
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/png,image/jpeg,image/webp"
-                onChange={handleFileChange}
-                className="hidden"
-              />
+              <div className="pointer-events-none absolute inset-0 rounded-[24px] bg-[conic-gradient(from_140deg,rgba(246,198,109,0.45),rgba(124,58,237,0.45),rgba(246,198,109,0.45))] opacity-90 shadow-[0_0_30px_rgba(124,58,237,0.25)] transition duration-300 group-hover:shadow-[0_0_38px_rgba(124,58,237,0.35)]" />
+              <div className="relative z-10 flex h-full w-full flex-col items-center justify-center rounded-[22px] border border-white/15 bg-[rgba(20,17,38,0.55)] backdrop-blur-xl text-center shadow-[0_20px_60px_rgba(0,0,0,0.45)] transition duration-300 group-hover:border-[rgba(246,198,109,0.6)] group-hover:shadow-[0_0_34px_rgba(124,58,237,0.32)]">
+                {currentCover ? (
+                  <div className="relative h-full w-full overflow-hidden rounded-[22px]">
+                    <img src={currentCover} alt="Cover preview" className="h-full w-full object-cover" />
+                    {coverPreview ? (
+                      <button
+                        type="button"
+                        className="absolute right-3 top-3 rounded-full bg-black/70 p-2 text-white"
+                        onClick={(event: ReactMouseEvent<HTMLButtonElement>) => {
+                          event.stopPropagation();
+                          setCoverFile(null);
+                          setCoverPreview(null);
+                          setCoverUrl(initialData?.cover_url ?? null);
+                        }}
+                        aria-label="Remove selected cover"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center gap-3 px-8 text-[#F3F1FF]">
+                    <div className="flex h-14 w-14 items-center justify-center rounded-full bg-white/5 shadow-[0_0_24px_rgba(246,198,109,0.25)]">
+                      <Upload className="h-7 w-7 text-[#F6C66D]" />
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-sm font-semibold">Upload square cover</p>
+                      <span className="text-xs text-[#B7B2CC]">PNG • JPG • WEBP</span>
+                    </div>
+                  </div>
+                )}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  onChange={handleFileChange}
+                  className="hidden"
+                />
+              </div>
             </div>
             {afterCoverSlot ? <div className="w-full lg:w-56">{afterCoverSlot}</div> : null}
           </div>
@@ -440,7 +447,7 @@ const PlaylistForm = ({ mode, userId, initialData, onSubmit, afterCoverSlot, rem
                 value={title}
                 onChange={(event) => setTitle(event.target.value)}
                 placeholder="Purple Midnight Energy"
-                className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-lg text-white outline-none focus:border-yellow-300 focus:ring-2 focus:ring-yellow-400/40"
+                className="w-full rounded-[16px] border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.05)] px-4 py-3 text-lg text-[#F3F1FF] placeholder:text-[#8B86A3] backdrop-blur-lg shadow-[0_14px_36px_rgba(0,0,0,0.35)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(255,79,183,0.55)]"
               />
             </div>
 
@@ -454,7 +461,7 @@ const PlaylistForm = ({ mode, userId, initialData, onSubmit, afterCoverSlot, rem
                 onChange={(event) => setDescription(event.target.value)}
                 placeholder="Tell your listeners what this playlist feels like..."
                 rows={4}
-                className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-base text-white outline-none focus:border-yellow-300 focus:ring-2 focus:ring-yellow-400/40"
+                className="w-full rounded-[16px] border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.05)] px-4 py-3 text-base text-[#F3F1FF] placeholder:text-[#8B86A3] backdrop-blur-lg shadow-[0_14px_36px_rgba(0,0,0,0.35)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(255,79,183,0.55)]"
               />
             </div>
 
@@ -469,10 +476,10 @@ const PlaylistForm = ({ mode, userId, initialData, onSubmit, afterCoverSlot, rem
                       key={String(option.id)}
                       type="button"
                       onClick={() => setIsPublic(option.id)}
-                      className={`w-full rounded-2xl border px-4 py-3 text-left transition ${
+                      className={`w-full rounded-[16px] border px-4 py-3 text-left transition backdrop-blur-lg shadow-[0_10px_28px_rgba(0,0,0,0.32)] ${
                         active
-                          ? "border-yellow-400/80 bg-yellow-400/10 text-white"
-                          : "border-white/15 bg-black/20 text-white/70 hover:border-white/40"
+                          ? "border-[rgba(246,198,109,0.7)] bg-[rgba(246,198,109,0.08)] text-[#F3F1FF] shadow-[0_0_26px_rgba(246,198,109,0.25)]"
+                          : "border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.05)] text-white/80 hover:border-[rgba(246,198,109,0.4)]"
                       }`}
                     >
                       <p className="font-semibold">{option.label}</p>
@@ -660,7 +667,7 @@ function CategoryDropdown({ group, options, loading, value, onChange }: Category
           ref={triggerRef}
           onClick={() => setOpen((prev) => !prev)}
           disabled={isDisabled}
-          className="flex w-full items-center justify-between rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-left text-white outline-none focus:border-yellow-300 focus:ring-2 focus:ring-yellow-400/40 disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex w-full items-center justify-between rounded-[16px] border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.05)] px-4 py-3 text-left text-[#F3F1FF] backdrop-blur-lg shadow-[0_12px_28px_rgba(0,0,0,0.32)] outline-none focus-visible:ring-2 focus-visible:ring-[rgba(255,79,183,0.55)] disabled:cursor-not-allowed disabled:opacity-50"
         >
           <span>{formatValue}</span>
           <ChevronDown className={`h-4 w-4 transition ${open ? "rotate-180" : ""}`} />
@@ -668,7 +675,7 @@ function CategoryDropdown({ group, options, loading, value, onChange }: Category
         {open ? (
           <div
             ref={panelRef}
-            className="absolute z-20 mt-2 max-h-64 w-full overflow-y-auto rounded-2xl border border-white/10 bg-[#120725] p-2 shadow-2xl"
+            className="absolute z-20 mt-2 max-h-64 w-full overflow-y-auto rounded-[16px] border border-[rgba(255,255,255,0.08)] bg-[rgba(20,17,38,0.95)] backdrop-blur-xl p-2 shadow-[0_20px_50px_rgba(0,0,0,0.45)]"
           >
             {options.length === 0 ? (
               <p className="py-4 text-center text-sm text-white/60">No categories yet</p>
@@ -682,7 +689,7 @@ function CategoryDropdown({ group, options, loading, value, onChange }: Category
                     <button
                       key={option.id}
                       type="button"
-                      className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm hover:bg-white/5"
+                      className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm text-[#F3F1FF] hover:bg-white/5"
                       onClick={() => (isMulti ? toggleMultiSelection(option.id) : selectSingle(option.id))}
                     >
                       {isMulti ? (
@@ -708,7 +715,7 @@ function CategoryDropdown({ group, options, loading, value, onChange }: Category
               <button
                 type="button"
                 onClick={clearSelection}
-                className="mt-2 w-full rounded-xl border border-white/10 px-3 py-2 text-center text-xs uppercase tracking-wide text-white/70 hover:bg-white/5"
+                className="mt-2 w-full rounded-xl border border-white/10 px-3 py-2 text-center text-xs uppercase tracking-wide text-white/70 hover:bg-white/10"
               >
                 Clear selection
               </button>
