@@ -46,73 +46,73 @@ const MiniPlayer = () => {
   if (!isPlayerVisible || isFullscreen) return null;
 
   return (
-    <div className="fixed bottom-20 md:bottom-0 left-0 right-0 z-30">
-      <div className="mx-auto max-w-5xl rounded-2xl border border-white/10 bg-[rgba(14,12,22,0.92)] backdrop-blur-2xl shadow-[0_10px_30px_rgba(0,0,0,0.55)] px-4 py-3 md:py-4">
-        <div className="flex items-center gap-3 md:gap-4">
-          <button
-            onClick={() => setIsFullscreen(true)}
-            className="hidden md:flex h-9 w-9 items-center justify-center rounded-full border border-white/10 text-[#CFA85B] hover:text-[#F6C66D] transition"
-            aria-label="Expand player"
-          >
-            <ChevronUp className="h-5 w-5" />
-          </button>
+    <div className="fixed bottom-20 md:bottom-0 left-0 right-0 bg-card/95 backdrop-blur-md border-t border-border z-30">
+      <div className="relative">
+        <div className="absolute bottom-2 right-3 z-20 md:hidden">
+          <AddToPlaylistButton
+            trackId={currentTrackId ?? undefined}
+            trackTitle={currentVideoTitle}
+            triggerClassName="bg-primary text-primary-foreground shadow-lg hover:bg-primary/90"
+          />
+        </div>
 
-          <div className="flex flex-1 items-center gap-3 min-w-0">
-            <div className="h-[64px] w-[64px] md:h-[72px] md:w-[72px] rounded-[14px] bg-white/5 border border-white/10 overflow-hidden flex-shrink-0" />
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold text-[#F3F1FF] truncate">{currentVideoTitle || "Purple Midnight Energy"}</p>
-              <p className="text-xs text-[#8B86A3] truncate">{currentVideoArtist || "Unknown artist"}</p>
-              <div className="mt-2 h-1.5 rounded-full bg-white/10">
-                <div className="h-full w-2/5 rounded-full bg-[#FF4FB7]" />
-              </div>
+        <button
+          onClick={() => setIsFullscreen(true)}
+          className="absolute top-2 left-1/2 -translate-x-1/2 text-muted-foreground hover:text-foreground transition-colors z-10"
+        >
+          <ChevronUp className="w-5 h-5" />
+        </button>
+
+        <button
+          onClick={handleClose}
+          className="absolute top-2 right-2 text-muted-foreground hover:text-foreground transition-colors z-10"
+        >
+          <X className="w-5 h-5" />
+        </button>
+
+        <div className="flex items-center justify-between gap-2 max-w-screen-2xl mx-auto px-4 pt-3 py-1.5">
+          <div className="flex items-center gap-2 flex-1 min-w-0">
+            <div className={`${isMobile ? "w-[110px] h-[110px]" : "w-[200px] h-[200px]"} flex-shrink-0 bg-secondary/20 rounded-lg`} />
+            <div className="min-w-0 flex-1 hidden md:block">
+              <p className="font-semibold text-foreground truncate">{currentVideoTitle || "Purple Dreams"}</p>
+              <p className="text-sm text-muted-foreground truncate">{currentVideoArtist || "Electronic Beats"}</p>
             </div>
           </div>
 
-          <div className="flex items-center justify-center gap-3 md:gap-4">
-            <button onClick={skipBackward} className="text-[#CFA85B] hover:text-[#F6C66D] transition">
-              <SkipBack className="h-6 w-6" />
+          <div className="flex items-center gap-4 flex-1 justify-center">
+            <button onClick={skipBackward} className="text-foreground hover:text-primary transition-colors">
+              <SkipBack className="w-6 h-6" />
             </button>
+
             <button
               onClick={togglePlay}
-              className="h-14 w-14 rounded-full bg-gradient-to-r from-[#FF4FB7] to-[#A855F7] text-[#0B0814] shadow-lg shadow-[#FF4FB7]/30 transition-transform hover:scale-105 active:scale-95"
+              className="w-12 h-12 bg-primary rounded-full flex items-center justify-center text-background hover:scale-105 transition-transform"
             >
-              {isPlaying ? <Pause className="h-7 w-7" /> : <Play className="h-7 w-7 fill-current ml-0.5" />}
+              {isPlaying ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6 fill-current ml-0.5" />}
             </button>
-            <button onClick={skipForward} className="text-[#CFA85B] hover:text-[#F6C66D] transition">
-              <SkipForward className="h-6 w-6" />
+
+            <button onClick={skipForward} className="text-foreground hover:text-primary transition-colors">
+              <SkipForward className="w-6 h-6" />
             </button>
+
             <button
               onClick={handleToggleLike}
               disabled={likeDisabled}
-              className={`transition ${isCurrentTrackLiked ? "text-[#FF4FB7]" : "text-[#CFA85B] hover:text-[#F6C66D]"} ${likeDisabled ? "opacity-50 cursor-not-allowed" : ""}`}
-              aria-label={isCurrentTrackLiked ? "Unlike song" : "Like song"}
+              className={`transition-colors ${isCurrentTrackLiked ? "text-primary" : "text-muted-foreground hover:text-primary"} ${likeDisabled ? "opacity-50 cursor-not-allowed" : ""}`}
             >
-              <Heart className={`h-6 w-6 ${isCurrentTrackLiked ? "fill-current" : ""}`} />
+              <Heart className={`w-6 h-6 ${isCurrentTrackLiked ? "fill-current" : ""}`} />
             </button>
+          </div>
+
+          <div className="hidden md:flex items-center gap-2 flex-1 justify-end">
             <AddToPlaylistButton
               trackId={currentTrackId ?? undefined}
               trackTitle={currentVideoTitle}
               variant="ghost"
-              triggerClassName="hidden md:inline-flex text-[#CFA85B] hover:text-[#F6C66D]"
+              triggerClassName="text-muted-foreground hover:text-primary"
             />
-            <div className="hidden md:flex items-center gap-2 w-28">
-              <Volume2 className="h-5 w-5 text-[#8B86A3]" />
-              <Slider value={[volume]} max={100} step={1} className="w-full" onValueChange={handleVolumeChange} />
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 md:hidden">
-            <button onClick={() => setIsFullscreen(true)} className="h-9 w-9 rounded-full border border-white/10 text-[#CFA85B] hover:text-[#F6C66D]" aria-label="Expand">
-              <ChevronUp className="h-5 w-5 mx-auto" />
-            </button>
-            <button onClick={handleClose} className="h-9 w-9 rounded-full border border-white/10 text-[#8B86A3] hover:text-[#F3F1FF]" aria-label="Close">
-              <X className="h-5 w-5 mx-auto" />
-            </button>
-            <AddToPlaylistButton
-              trackId={currentTrackId ?? undefined}
-              trackTitle={currentVideoTitle}
-              triggerClassName="h-9 px-3 rounded-full bg-white/5 border border-white/10 text-xs text-[#F3F1FF]"
-            />
+            <Volume2 className="w-5 h-5 text-muted-foreground" />
+            <Slider value={[volume]} max={100} step={1} className="w-24" onValueChange={handleVolumeChange} />
           </div>
         </div>
       </div>
