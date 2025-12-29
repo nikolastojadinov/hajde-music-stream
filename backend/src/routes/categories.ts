@@ -44,12 +44,10 @@ const buildEmptyPayload = (): CategoryResponsePayload =>
     return acc;
   }, {} as CategoryResponsePayload);
 
-// Simple in-memory cache to avoid duplicate hits from rapid double-mounts
-const categoriesCache: { payload: CategoryResponsePayload | null; ts: number } = {
-  payload: null,
-  ts: 0,
-};
-const CATEGORIES_TTL_MS = 2000;
+// Simple in-memory cache to absorb short bursts
+const categoriesCache = new Map<string, { payload: CategoryResponsePayload; ts: number }>();
+const CATEGORIES_TTL_MS = 4000;
+const CATEGORIES_CACHE_KEY = 'api/categories';
 
 const normalizeCategory = (row: CategoryRow): CategoryResponseItem => {
   const fallbackGroup = 'genre' as CategoryGroup;
@@ -74,8 +72,9 @@ router.get('/', async (req: Request, res: Response) => {
   }
 
   const now = Date.now();
-  if (categoriesCache.payload && now - categoriesCache.ts < CATEGORIES_TTL_MS) {
-    return res.status(200).json(categoriesCache.payload);
+  const cached = categoriesCache.get(CATEGORIES_CACHE_KEY);
+  if (cached && now - cached.ts < CATEGORIES_TTL_MS) {
+    return res.status(200).json(cached.payload);
   }
 
   try {
@@ -95,8 +94,7 @@ router.get('/', async (req: Request, res: Response) => {
       payload[normalized.group_type].push(normalized);
     });
 
-    categoriesCache.payload = payload;
-    categoriesCache.ts = now;
+    categoriesCache.set(CATEGORIES_CACHE_KEY, { payload, ts: now });
 
     return res.status(200).json(payload);
   } catch (err) {

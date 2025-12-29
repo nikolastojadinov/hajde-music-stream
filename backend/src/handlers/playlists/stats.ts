@@ -7,10 +7,12 @@ interface PublicStatsResponse {
 }
 
 const statsCache = new Map<string, { payload: PublicStatsResponse; ts: number }>();
-const STATS_TTL_MS = 2000;
+const STATS_TTL_MS = 4000;
 const viewDeduper = new Map<string, number>();
 const VIEW_TTL_MS = 4000;
 const TEN_SECONDS_MS = 10_000;
+
+const getStatsCacheKey = (playlistId: string) => `public_stats:${playlistId}`;
 
 function getRequestUserId(req: Request): string | null {
   if (req.currentUser?.uid) {
@@ -55,7 +57,8 @@ async function mapWalletToInternalUserId(wallet: string): Promise<string | null>
 }
 
 async function fetchPlaylistStats(playlistId: string): Promise<PublicStatsResponse> {
-  const cached = statsCache.get(playlistId);
+  const cacheKey = getStatsCacheKey(playlistId);
+  const cached = statsCache.get(cacheKey);
   const now = Date.now();
   if (cached && now - cached.ts < STATS_TTL_MS) {
     return cached.payload;
@@ -76,7 +79,7 @@ async function fetchPlaylistStats(playlistId: string): Promise<PublicStatsRespon
     views: data?.public_view_count ?? 0,
   };
 
-  statsCache.set(playlistId, { payload, ts: now });
+  statsCache.set(cacheKey, { payload, ts: now });
   return payload;
 }
 
@@ -130,7 +133,7 @@ export async function registerPlaylistView(req: Request, res: Response) {
     const lastView = viewDeduper.get(dedupeKey) ?? 0;
     if (now - lastView < VIEW_TTL_MS) {
       console.info('[registerPlaylistView] view deduplicated', { user_id: internalUserId, playlist_id: playlistId, reason: 'recent_window' });
-      const cachedStats = statsCache.get(playlistId)?.payload;
+      const cachedStats = statsCache.get(getStatsCacheKey(playlistId))?.payload;
       if (cachedStats) {
         return res.json({ ok: true, stats: cachedStats, deduped: true });
       }
