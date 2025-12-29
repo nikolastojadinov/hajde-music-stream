@@ -51,7 +51,7 @@ const CreatePlaylist = () => {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-[#050109] via-[#0d0519] to-[#030106] text-white">
+      <div className="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_50%_20%,rgba(124,58,237,0.18),transparent_40%),linear-gradient(180deg,#07060B,#0B0814)] text-[#F3F1FF]">
         <Loader2 className="h-8 w-8 animate-spin" />
       </div>
     );
@@ -59,9 +59,9 @@ const CreatePlaylist = () => {
 
   if (!isPi) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-b from-[#050109] via-[#0d0519] to-[#030106] px-8 text-center text-white">
-        <h1 className="mb-4 text-3xl font-bold">Pi Browser Required</h1>
-        <p className="mb-8 max-w-lg text-white/80">
+      <div className="flex min-h-screen flex-col items-center justify-center bg-[radial-gradient(circle_at_50%_20%,rgba(124,58,237,0.18),transparent_40%),linear-gradient(180deg,#07060B,#0B0814)] px-8 text-center text-[#F3F1FF]">
+        <h1 className="mb-4 text-3xl font-bold text-[#F6C66D]">Pi Browser Required</h1>
+        <p className="mb-8 max-w-lg text-[#B7B2CC]">
           This feature requires the Pi Browser environment.  
           Please open this app inside Pi Browser to continue.
         </p>
@@ -78,8 +78,8 @@ const CreatePlaylist = () => {
 
   if (!user) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-b from-[#050109] via-[#0d0519] to-[#030106] px-6 text-center text-white">
-        <p className="text-lg text-white/70">
+      <div className="flex min-h-screen flex-col items-center justify-center bg-[radial-gradient(circle_at_50%_20%,rgba(124,58,237,0.18),transparent_40%),linear-gradient(180deg,#07060B,#0B0814)] px-6 text-center text-[#F3F1FF]">
+        <p className="text-lg text-[#B7B2CC]">
           Please sign in to create a playlist.
         </p>
       </div>
@@ -87,14 +87,12 @@ const CreatePlaylist = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-[#050109] via-[#0d0519] to-[#030106] px-6 py-16 text-white">
-      <div className="mx-auto w-full max-w-5xl space-y-8">
-        <div>
-          <p className="text-sm uppercase tracking-[0.3em] text-white/50">
-            PurpleMusic Studio
-          </p>
-          <h1 className="text-4xl font-bold">Create a playlist</h1>
-          <p className="mt-2 text-white/70">
+    <div className="min-h-screen bg-[radial-gradient(circle_at_50%_20%,rgba(124,58,237,0.18),transparent_40%),linear-gradient(180deg,#07060B,#0B0814)] px-6 py-16 text-[#F3F1FF]">
+      <div className="mx-auto w-full max-w-5xl space-y-10">
+        <div className="space-y-3">
+          <p className="text-xs uppercase tracking-[0.32em] text-[#8B86A3]">PurpleMusic Studio</p>
+          <h1 className="text-[34px] font-bold text-[#F6C66D] leading-tight">Create a playlist</h1>
+          <p className="text-sm text-[#B7B2CC]">
             Shape the vibe, set a cover, pin a region, and tag genres/themes so others can find your sound faster.
           </p>
         </div>

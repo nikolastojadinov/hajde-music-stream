@@ -55,81 +55,76 @@ const FullscreenPlayer = () => {
 
   // Fullscreen Player UI (bez player iframe-a - on je u YouTubePlayerContainer)
   return (
-    <div className="fixed inset-0 bg-background z-50 flex flex-col">
-      {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-border">
-        <button onClick={() => setIsFullscreen(false)} className="text-foreground hover:text-primary transition-colors">
-          <ChevronDown className="w-6 h-6" />
+    <div className="fixed inset-0 z-50 flex flex-col bg-[radial-gradient(circle_at_50%_20%,rgba(124,58,237,0.18),transparent_40%),linear-gradient(180deg,#07060B,#0B0814)] backdrop-blur-xl text-[#F3F1FF]">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+        <button onClick={() => setIsFullscreen(false)} className="h-10 w-10 rounded-full border border-white/10 text-[#CFA85B] hover:text-[#F6C66D]">
+          <ChevronDown className="w-6 h-6 mx-auto" />
         </button>
-        <button onClick={handleClose} className="text-muted-foreground hover:text-foreground transition-colors">
-          <X className="w-6 h-6" />
+        <button onClick={handleClose} className="h-10 w-10 rounded-full border border-white/10 text-[#8B86A3] hover:text-[#F3F1FF]">
+          <X className="w-6 h-6 mx-auto" />
         </button>
       </div>
 
-      {/* Content - stacked vertically, not centered */}
-      <div className="flex-1 flex flex-col items-center overflow-y-auto p-4 pt-8">
-        {/* YouTube Player space - YouTubePlayerContainer renders here as fixed element */}
-        {/* Reserve space for the video player at top */}
+      <div className="flex-1 overflow-y-auto px-4 pb-10 pt-6 flex flex-col items-center">
         <div
-          className="w-full max-w-4xl mb-8"
-          style={{
-            aspectRatio: "16/9",
-            minHeight: "300px",
-            maxHeight: "70vh",
-          }}
+          className="w-full max-w-5xl rounded-2xl border border-white/10 bg-white/5 backdrop-blur-lg shadow-[0_10px_30px_rgba(0,0,0,0.45)]"
+          style={{ aspectRatio: "16/9", minHeight: "300px", maxHeight: "70vh" }}
         />
 
-        <div className="w-full max-w-md text-center mb-6">
-          <h2 className="text-2xl font-bold mb-1 text-foreground">{currentVideoTitle}</h2>
-          <p className="text-muted-foreground">{currentVideoArtist}</p>
+        <div className="w-full max-w-xl text-center mt-8">
+          <h2 className="text-[28px] font-bold text-[#F6C66D] mb-2 leading-tight">{currentVideoTitle}</h2>
+          <p className="text-sm text-[#B7B2CC]">{currentVideoArtist}</p>
         </div>
 
-        {/* Progress Bar */}
-        <div className="w-full max-w-md mb-6">
-          <Slider value={[progressPercentage]} max={100} step={0.1} className="mb-2" onValueChange={handleProgressChange} />
-          <div className="flex justify-between text-sm text-muted-foreground">
+        <div className="w-full max-w-xl mt-6">
+          <Slider
+            value={[progressPercentage]}
+            max={100}
+            step={0.1}
+            className="mb-3"
+            onValueChange={handleProgressChange}
+          />
+          <div className="flex justify-between text-xs text-[#8B86A3]">
             <span>{formatTime(currentTime)}</span>
             <span>{formatTime(duration)}</span>
           </div>
         </div>
 
-        {/* Controls */}
-        <div className="flex items-center gap-6 mb-6">
-          <button onClick={skipBackward} className="text-foreground hover:text-primary transition-colors">
-            <SkipBack className="w-7 h-7" />
+        <div className="mt-8 flex items-center gap-6">
+          <button onClick={skipBackward} className="h-12 w-12 rounded-full border border-white/10 text-[#CFA85B] hover:text-[#F6C66D]">
+            <SkipBack className="w-6 h-6 mx-auto" />
           </button>
           <button
             onClick={togglePlay}
-            className="w-14 h-14 bg-primary rounded-full flex items-center justify-center text-background hover:scale-105 transition-transform"
+            className="h-16 w-16 rounded-full bg-gradient-to-r from-[#FF4FB7] to-[#A855F7] text-[#0B0814] shadow-lg shadow-[#FF4FB7]/30 hover:scale-105 active:scale-95 transition"
           >
-            {isPlaying ? <Pause className="w-7 h-7" /> : <Play className="w-7 h-7 fill-current ml-1" />}
+            {isPlaying ? <Pause className="w-8 h-8 mx-auto" /> : <Play className="w-8 h-8 mx-auto fill-current ml-0.5" />}
           </button>
-          <button onClick={skipForward} className="text-foreground hover:text-primary transition-colors">
-            <SkipForward className="w-7 h-7" />
+          <button onClick={skipForward} className="h-12 w-12 rounded-full border border-white/10 text-[#CFA85B] hover:text-[#F6C66D]">
+            <SkipForward className="w-6 h-6 mx-auto" />
           </button>
         </div>
 
-        {/* Volume & Actions */}
-        <div className="w-full max-w-md flex items-center justify-between">
-          <div className="flex items-center gap-2">
+        <div className="mt-8 w-full max-w-xl flex items-center justify-between">
+          <div className="flex items-center gap-3">
             <AddToPlaylistButton
               trackId={currentTrackId ?? undefined}
               trackTitle={currentVideoTitle}
               variant="ghost"
-              triggerClassName="text-muted-foreground hover:text-primary"
+              triggerClassName="text-[#CFA85B] hover:text-[#F6C66D]"
             />
             <button
               onClick={handleToggleLike}
               disabled={likeDisabled}
-              className={`transition-colors ${isCurrentTrackLiked ? "text-primary" : "text-muted-foreground hover:text-primary"} ${likeDisabled ? "opacity-50 cursor-not-allowed" : ""}`}
+              className={`transition ${isCurrentTrackLiked ? "text-[#FF4FB7]" : "text-[#CFA85B] hover:text-[#F6C66D]"} ${likeDisabled ? "opacity-50 cursor-not-allowed" : ""}`}
               aria-label={isCurrentTrackLiked ? "Unlike song" : "Like song"}
             >
-              <Heart className={`w-6 h-6 ${isCurrentTrackLiked ? "fill-current" : ""}`} />
+              <Heart className={`w-7 h-7 ${isCurrentTrackLiked ? "fill-current" : ""}`} />
             </button>
           </div>
-          <div className="flex items-center gap-3">
-            <Volume2 className="w-5 h-5 text-muted-foreground" />
-            <Slider value={[volume]} max={100} step={1} className="w-32" onValueChange={handleVolumeChange} />
+          <div className="flex items-center gap-3 w-40">
+            <Volume2 className="w-5 h-5 text-[#8B86A3]" />
+            <Slider value={[volume]} max={100} step={1} className="w-full" onValueChange={handleVolumeChange} />
           </div>
         </div>
       </div>

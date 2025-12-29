@@ -138,48 +138,52 @@ const Playlist = () => {
   }
 
   return (
-    <div className="relative flex-1 overflow-y-auto pb-32">
+    <div className="relative flex-1 overflow-y-auto pb-32 bg-[radial-gradient(circle_at_50%_20%,rgba(124,58,237,0.12),transparent_42%),linear-gradient(180deg,#07060B,#0B0814)]">
       {/* ===== HEADER ===== */}
-      <div className="pt-6 px-4 text-center">
-        <div className="flex justify-center mb-4">
+      <div className="pt-8 px-4 text-center">
+        <div className="flex justify-center mb-5">
           <img
             src={playlist.cover_url || "/placeholder.svg"}
             alt={playlist.title}
-            className="w-48 h-48 rounded-xl object-cover"
+            className="w-56 h-56 rounded-[22px] object-cover shadow-[0_10px_30px_rgba(0,0,0,0.45)] border border-white/10"
           />
         </div>
 
         <h1
-          className="font-black text-[26px] leading-tight line-clamp-2"
+          className="font-black text-[30px] leading-tight line-clamp-2 text-[#F6C66D]"
           style={{
             fontSize:
               playlist.title.length > 60
-                ? "22px"
-                : playlist.title.length > 40
                 ? "24px"
-                : "26px",
+                : playlist.title.length > 40
+                ? "26px"
+                : "30px",
           }}
         >
           {playlist.title}
         </h1>
 
-        <p className="text-sm text-muted-foreground mt-1">
+        <p className="text-sm text-[#8B86A3] mt-1">
           {playlist.tracks.length} {t("songs")}
         </p>
 
-        <div className="flex justify-center items-center gap-4 mt-5">
-          <Button size="lg" className="rounded-full" onClick={handlePlayPlaylist}>
+        <div className="flex justify-center items-center gap-4 mt-6">
+          <Button
+            size="lg"
+            className="rounded-full bg-gradient-to-r from-[#FF4FB7] to-[#A855F7] text-[#0B0814] shadow-lg shadow-[#FF4FB7]/25 hover:scale-105 transition"
+            onClick={handlePlayPlaylist}
+          >
             <Play className="w-5 h-5 mr-2 fill-current" />
             {t("play_all")}
           </Button>
 
           <button
             onClick={handleToggleLike}
-            className="w-12 h-12 rounded-full bg-secondary flex items-center justify-center"
+            className="w-12 h-12 rounded-full border border-white/10 bg-white/5 flex items-center justify-center transition hover:border-[#FF4FB7]/40"
           >
             <Heart
               className={`w-6 h-6 ${
-                isLiked ? "fill-primary text-primary" : "text-muted-foreground"
+                isLiked ? "fill-[#FF4FB7] text-[#FF4FB7]" : "text-[#CFA85B]"
               }`}
             />
           </button>
@@ -199,8 +203,8 @@ const Playlist = () => {
               <div
                 key={track.id}
                 onClick={() => handlePlayTrack(track, index)}
-                className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer hover:bg-white/5 ${
-                  isCurrent ? "bg-white/10" : ""
+                className={`flex items-center gap-3 p-3 rounded-[16px] cursor-pointer border border-white/5 bg-white/5 hover:bg-white/10 transition ${
+                  isCurrent ? "border-[#FF4FB7]/50 bg-[#FF4FB7]/5" : ""
                 }`}
               >
                 <div className="w-12 h-12 rounded overflow-hidden bg-card relative">

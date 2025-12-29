@@ -80,11 +80,11 @@ const Home = () => {
         {/* Mobile Search Bar */}
         <div className="mb-4 md:hidden animate-fade-in">
           <div className="relative">
-            <SearchIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+            <SearchIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[#F6C66D]" />
             <Input
               type="text"
               placeholder={t("search_placeholder")}
-              className="pl-12 h-12 bg-card border-border text-foreground placeholder:text-muted-foreground"
+              className="pl-12 h-12 rounded-[16px] bg-[rgba(255,255,255,0.06)] border border-[rgba(255,255,255,0.08)] text-foreground placeholder:text-[#8B86A3]"
               onFocus={() => navigate("/search")}
             />
           </div>

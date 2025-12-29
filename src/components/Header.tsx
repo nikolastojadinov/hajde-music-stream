@@ -176,15 +176,15 @@ const Header = () => {
   };
 
   return (
-    <header className="fixed top-0 left-0 right-0 h-16 bg-background/80 backdrop-blur-md border-b border-border/50 z-50">
+    <header className="fixed top-0 left-0 right-0 z-50 h-16 bg-[rgba(7,6,11,0.9)] backdrop-blur-2xl border-b border-white/10 shadow-[0_10px_30px_rgba(0,0,0,0.55)]">
       <div className="h-full px-4 md:px-6 flex items-center justify-between gap-4">
-        <Link to="/" className="flex items-center gap-2 md:gap-3 group">
-          <img
-            src={appLogo}
-            alt="PurpleBeats Logo"
-            className="w-[42px] h-[42px] md:w-[52px] md:h-[52px] rounded-lg group-hover:scale-105 transition-transform"
-          />
-          <span className="text-lg md:text-xl font-bold text-foreground">PurpleMusic</span>
+        <Link to="/" className="flex items-center gap-3 group">
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#141126] border border-white/10 shadow-inner">
+            <img src={appLogo} alt="PurpleMusic" className="h-7 w-7" />
+          </div>
+          <span className="text-xl font-bold text-[#F6C66D] tracking-tight group-hover:drop-shadow-[0_0_10px_rgba(246,198,109,0.35)]">
+            PurpleMusic
+          </span>
         </Link>
 
         <div className="flex items-center gap-3">
@@ -218,32 +218,35 @@ const Header = () => {
           <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
             <DropdownMenuTrigger asChild>
               <button
-                className="w-10 h-10 bg-secondary hover:bg-secondary/80 rounded-full flex items-center justify-center transition-all hover:scale-105"
+                className="w-11 h-11 bg-[#141126] border border-white/10 rounded-full flex items-center justify-center text-[#F6C66D] transition-all hover:scale-105 hover:shadow-[0_0_15px_rgba(246,198,109,0.25)]"
                 aria-label="Profile menu"
               >
                 <User className="w-5 h-5" />
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-60 bg-card border-border">
-              <DropdownMenuItem className="cursor-default py-3" onSelect={event => event.preventDefault()}>
+            <DropdownMenuContent
+              align="end"
+              className="w-64 bg-[rgba(20,17,38,0.92)] backdrop-blur-xl border border-white/10 shadow-[0_10px_30px_rgba(0,0,0,0.55)] rounded-2xl"
+            >
+              <DropdownMenuItem className="cursor-default py-3" onSelect={(event) => event.preventDefault()}>
                 <User className="w-4 h-4 mr-3" />
                 <div className="flex flex-col">
                   <span className="text-xs text-muted-foreground">{t("my_account")}</span>
                   <span className="font-semibold text-foreground">{displayName}</span>
                 </div>
               </DropdownMenuItem>
-              <DropdownMenuSeparator />
+              <DropdownMenuSeparator className="bg-white/10" />
 
               <DropdownMenuSub open={languageOpen} onOpenChange={setLanguageOpen}>
                 <DropdownMenuSubTrigger>
                   <Globe className="w-4 h-4 mr-3" />
                   <span>{t("language")}</span>
                 </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent className="bg-card border-border max-h-64 overflow-y-auto">
-                  {languages.map(lang => (
+                <DropdownMenuSubContent className="bg-[rgba(20,17,38,0.92)] backdrop-blur-xl border border-white/10 max-h-64 overflow-y-auto rounded-xl">
+                  {languages.map((lang) => (
                     <DropdownMenuItem
                       key={lang.code}
-                      onSelect={event => {
+                      onSelect={(event) => {
                         event.preventDefault();
                         setLanguage(lang.code);
                         setLanguageOpen(false);
@@ -257,9 +260,16 @@ const Header = () => {
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
 
-              <DropdownMenuSeparator />
+              <Link to="/library">
+                <DropdownMenuItem className="cursor-pointer py-3 hover:bg-[#7C3AED]/15">
+                  <Pi className="w-4 h-4 mr-3" />
+                  <span>{t("library")}</span>
+                </DropdownMenuItem>
+              </Link>
+
+              <DropdownMenuSeparator className="bg-white/10" />
               {isGuest && (
-                <DropdownMenuItem className="py-3 opacity-40 pointer-events-none select-none border border-amber-500/20">
+                <DropdownMenuItem className="py-3 opacity-60 pointer-events-none select-none border border-amber-500/20">
                   <Crown className="w-4 h-4 mr-3" />
                   <span className="text-foreground font-semibold">{t("go_premium")}</span>
                 </DropdownMenuItem>
@@ -267,14 +277,14 @@ const Header = () => {
               {!isGuest && !user?.premium && (
                 <DropdownMenuItem
                   onClick={openPremiumDialog}
-                  className="cursor-pointer py-3 bg-gradient-to-r from-amber-500/10 to-yellow-600/10 hover:from-amber-500/20 hover:to-yellow-600/20 border border-amber-500/20"
+                  className="cursor-pointer py-3 bg-gradient-to-r from-amber-500/10 to-yellow-600/10 hover:from-amber-500/20 hover:to-yellow-600/20 border border-amber-500/25"
                 >
                   <Crown className="w-4 h-4 mr-3" />
                   <span className="text-foreground font-semibold">{t("go_premium")}</span>
                 </DropdownMenuItem>
               )}
               {user?.premium && (
-                <div className="rounded-lg border border-green-500/20 bg-gradient-to-r from-green-500/10 to-emerald-600/10 px-3 py-3">
+                <div className="rounded-xl border border-green-500/25 bg-gradient-to-r from-green-500/10 to-emerald-600/10 px-3 py-3">
                   <div className="flex items-center gap-3">
                     <div className="w-8 h-8 rounded-full bg-green-500/20 flex items-center justify-center text-green-400">
                       <Crown className="w-4 h-4" />
@@ -291,21 +301,21 @@ const Header = () => {
                 </div>
               )}
 
-              <DropdownMenuSeparator />
+              <DropdownMenuSeparator className="bg-white/10" />
               <Link to="/privacy">
-                <DropdownMenuItem className="cursor-pointer py-3">
+                <DropdownMenuItem className="cursor-pointer py-3 hover:bg-[#7C3AED]/15">
                   <Shield className="w-4 h-4 mr-3" />
                   <span>{t("privacy_policy")}</span>
                 </DropdownMenuItem>
               </Link>
               <Link to="/terms">
-                <DropdownMenuItem className="cursor-pointer py-3">
+                <DropdownMenuItem className="cursor-pointer py-3 hover:bg-[#7C3AED]/15">
                   <FileText className="w-4 h-4 mr-3" />
                   <span>{t("terms_of_service")}</span>
                 </DropdownMenuItem>
               </Link>
               <Link to="/license">
-                <DropdownMenuItem className="cursor-pointer py-3">
+                <DropdownMenuItem className="cursor-pointer py-3 hover:bg-[#7C3AED]/15">
                   <FileText className="w-4 h-4 mr-3" />
                   <span>{t("license")}</span>
                 </DropdownMenuItem>
@@ -313,8 +323,8 @@ const Header = () => {
 
               {!isGuest && (
                 <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={logout} className="cursor-pointer py-3 text-red-400">
+                  <DropdownMenuSeparator className="bg-white/10" />
+                  <DropdownMenuItem onClick={logout} className="cursor-pointer py-3 text-red-400 hover:bg-red-500/10">
                     <LogOut className="w-4 h-4 mr-3" />
                     <span>{t("sign_out")}</span>
                   </DropdownMenuItem>

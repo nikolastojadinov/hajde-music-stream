@@ -666,7 +666,7 @@ export default function Search() {
         <div>
           <div className="flex gap-2">
             <div className="relative flex-1">
-              <SearchIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+              <SearchIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[#F6C66D]" />
               <Input
                 ref={inputRef}
                 value={query}
@@ -676,7 +676,7 @@ export default function Search() {
                 }}
                 onFocus={() => setSuggestOpen(true)}
                 placeholder="Search songs, artists or playlists"
-                className="pl-12 pr-10 h-12"
+                className="pl-12 pr-10 h-12 rounded-[16px] bg-[rgba(255,255,255,0.06)] border border-[rgba(255,255,255,0.08)] text-foreground placeholder:text-[#8B86A3] shadow-[0_10px_30px_rgba(0,0,0,0.35)]"
               />
 
               {normalizedLength > 0 ? (
@@ -686,7 +686,7 @@ export default function Search() {
                   size="icon"
                   onClick={clearQuery}
                   aria-label="Clear search"
-                  className="absolute right-1 top-1/2 -translate-y-1/2 h-10 w-10"
+                  className="absolute right-1 top-1/2 -translate-y-1/2 h-10 w-10 text-[#B7B2CC] hover:text-[#F3F1FF]"
                 >
                   <X className="h-4 w-4 text-muted-foreground" />
                 </Button>

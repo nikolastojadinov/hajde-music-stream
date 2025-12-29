@@ -386,16 +386,16 @@ const PlaylistForm = ({ mode, userId, initialData, onSubmit, afterCoverSlot, rem
 
   return (
     <form onSubmit={handleSubmit} className="space-y-10">
-      <section className="rounded-3xl border border-white/10 bg-white/5 p-8 text-white shadow-[0_20px_60px_rgba(0,0,0,0.4)]">
+      <section className="rounded-[18px] border border-white/10 bg-[rgba(20,17,38,0.55)] backdrop-blur-xl p-8 text-[#F3F1FF] shadow-[0_20px_60px_rgba(0,0,0,0.45)]">
         <div className="flex flex-col gap-8 lg:flex-row">
           <div className="flex flex-col gap-4">
             <div
-              className="flex h-56 w-56 cursor-pointer flex-col items-center justify-center rounded-3xl border border-dashed border-white/30 bg-black/30 text-center transition hover:border-yellow-300/70"
+              className="flex h-56 w-56 cursor-pointer flex-col items-center justify-center rounded-[22px] border border-dashed border-[rgba(246,198,109,0.25)] bg-[rgba(255,255,255,0.04)] text-center transition hover:border-[rgba(255,79,183,0.45)] hover:shadow-[0_0_24px_rgba(255,79,183,0.28)]"
               onClick={() => fileInputRef.current?.click()}
             >
               {currentCover ? (
                 <div className="relative h-full w-full">
-                  <img src={currentCover} alt="Cover preview" className="h-full w-full rounded-3xl object-cover" />
+                  <img src={currentCover} alt="Cover preview" className="h-full w-full rounded-[22px] object-cover" />
                   {coverPreview ? (
                     <button
                       type="button"
@@ -414,9 +414,9 @@ const PlaylistForm = ({ mode, userId, initialData, onSubmit, afterCoverSlot, rem
                 </div>
               ) : (
                 <>
-                  <Upload className="mb-3 h-10 w-10 text-yellow-300" />
+                  <Upload className="mb-3 h-10 w-10 text-[#F6C66D]" />
                   <p className="text-sm">Upload square cover</p>
-                  <span className="text-xs text-white/60">PNG • JPG • WEBP</span>
+                  <span className="text-xs text-[#B7B2CC]">PNG • JPG • WEBP</span>
                 </>
               )}
               <input
