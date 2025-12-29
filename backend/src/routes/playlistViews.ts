@@ -33,6 +33,7 @@ router.post('/track', async (req, res) => {
     const now = Date.now();
     const dedupeKey = `${user_id}:${playlist_id}`;
     if (isDuplicateTrackView(dedupeKey, now)) {
+      console.info('[playlistViews] view deduplicated', { user_id, playlist_id, reason: 'recent_window' });
       return res.json({ success: true, skipped: true, reason: 'duplicate_recent_view' });
     }
 
@@ -48,8 +49,11 @@ router.post('/track', async (req, res) => {
     }
 
     if (dedupeError && dedupeError.code === '23505') {
+      console.info('[playlistViews] view deduplicated', { user_id, playlist_id, reason: 'sql_bucket' });
       return res.json({ success: true, skipped: true, reason: 'deduped_bucket' });
     }
+
+    console.info('[playlistViews] view accepted', { user_id, playlist_id, bucket });
 
     const { data, error } = await supabase!
       .rpc('upsert_playlist_view', {

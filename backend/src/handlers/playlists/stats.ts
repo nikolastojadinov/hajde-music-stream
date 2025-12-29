@@ -129,6 +129,7 @@ export async function registerPlaylistView(req: Request, res: Response) {
     const dedupeKey = `${internalUserId}:${playlistId}`;
     const lastView = viewDeduper.get(dedupeKey) ?? 0;
     if (now - lastView < VIEW_TTL_MS) {
+      console.info('[registerPlaylistView] view deduplicated', { user_id: internalUserId, playlist_id: playlistId, reason: 'recent_window' });
       const cachedStats = statsCache.get(playlistId)?.payload;
       if (cachedStats) {
         return res.json({ ok: true, stats: cachedStats, deduped: true });
@@ -150,9 +151,12 @@ export async function registerPlaylistView(req: Request, res: Response) {
     }
 
     if (dedupeError && dedupeError.code === '23505') {
+      console.info('[registerPlaylistView] view deduplicated', { user_id: internalUserId, playlist_id: playlistId, reason: 'sql_bucket' });
       const stats = await fetchPlaylistStats(playlistId);
       return res.json({ ok: true, stats, deduped: true });
     }
+
+    console.info('[registerPlaylistView] view accepted', { user_id: internalUserId, playlist_id: playlistId, bucket });
 
     const { error: upsertError } = await supabase
       .from('playlist_views')
