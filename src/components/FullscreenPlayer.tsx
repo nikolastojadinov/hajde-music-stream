@@ -66,7 +66,12 @@ const FullscreenPlayer = () => {
       </div>
 
       <div className="flex-1 overflow-hidden px-4 pb-10 pt-6 flex flex-col items-center">
-        <div className="w-full max-w-5xl pointer-events-none" style={{ aspectRatio: "16 / 9" }} />
+        <div
+          id="yt-player-slot-fullscreen"
+          className="w-full max-w-5xl pointer-events-none"
+          style={{ aspectRatio: "16 / 9" }}
+          aria-hidden
+        />
 
         <div className="w-full max-w-xl text-center mt-8">
           <h2 className="text-[28px] font-bold text-[#F6C66D] mb-2 leading-tight drop-shadow-[0_4px_18px_rgba(245,194,107,0.35)]">{currentVideoTitle}</h2>

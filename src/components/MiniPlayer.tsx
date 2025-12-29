@@ -75,7 +75,9 @@ const MiniPlayer = () => {
             <div className="flex items-center justify-between gap-2 px-4 pt-3 pb-3">
               <div className="flex items-center gap-2 flex-1 min-w-0">
                 <div
-                  className={`${isMobile ? "w-[110px] h-[110px]" : "w-[200px] h-[200px]"} flex-shrink-0 rounded-xl bg-[rgba(20,14,30,0.65)] shadow-[0_18px_32px_rgba(0,0,0,0.45)] border border-white/10 overflow-hidden`}
+                  id="yt-player-slot-mini"
+                  className={`${isMobile ? "w-[110px] h-[110px]" : "w-[200px] h-[200px]"} flex-shrink-0 rounded-xl bg-[rgba(20,14,30,0.65)] shadow-[0_18px_32px_rgba(0,0,0,0.45)] border border-white/10 overflow-hidden pointer-events-none`}
+                  aria-hidden
                 />
                 <div className="min-w-0 flex-1 hidden md:block">
                   <p className="font-semibold text-[#F6C66D] truncate drop-shadow-sm">{currentVideoTitle || "Purple Dreams"}</p>
