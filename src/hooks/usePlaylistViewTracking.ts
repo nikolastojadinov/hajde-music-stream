@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { usePi } from "@/contexts/PiContext";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect } from "react";
+import { dedupeEvent } from "@/lib/requestDeduper";
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:3001";
 const TRACKING_ENABLED = (import.meta.env.VITE_ENABLE_PLAYLIST_TRACKING ?? "true") !== "false";
@@ -9,7 +10,6 @@ const trackedPlaylistsSession = new Set<string>();
 export const usePlaylistViewTracking = () => {
   const { user } = usePi();
   const queryClient = useQueryClient();
-  const lastTrackedPlaylistId = useRef<string | null>(null);
 
   const trackViewMutation = useMutation({
     mutationFn: async (playlistId: string) => {
@@ -55,19 +55,28 @@ export const usePlaylistViewTracking = () => {
       }
 
       const sessionKey = `${user.uid}:${playlistId}`;
-      if (lastTrackedPlaylistId.current === playlistId || trackedPlaylistsSession.has(sessionKey)) {
+      if (trackedPlaylistsSession.has(sessionKey)) {
         return;
       }
 
-      lastTrackedPlaylistId.current = playlistId;
       trackedPlaylistsSession.add(sessionKey);
-      trackViewMutation.mutate(playlistId);
+      const eventPromise = dedupeEvent(
+        `POST:track-view:${sessionKey}`,
+        5000,
+        async () => trackViewMutation.mutateAsync(playlistId)
+      );
+
+      if (eventPromise) {
+        eventPromise.catch(() => {
+          /* handled by mutation onError */
+        });
+      }
     },
     [trackViewMutation, user?.uid]
   );
 
   useEffect(() => {
-    lastTrackedPlaylistId.current = null;
+    trackedPlaylistsSession.clear();
   }, [user?.uid]);
 
   return {

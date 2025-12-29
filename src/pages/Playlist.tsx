@@ -15,6 +15,7 @@ import { withBackendOrigin } from "@/lib/backendUrl";
 import { usePlaylistViewTracking } from "@/hooks/usePlaylistViewTracking";
 import AddToPlaylistButton from "@/components/AddToPlaylistButton";
 import { useQueryClient } from "@tanstack/react-query";
+import { dedupeEvent } from "@/lib/requestDeduper";
 
 const Playlist = () => {
   const { id } = useParams<{ id: string }>();
@@ -24,7 +25,6 @@ const Playlist = () => {
   const [currentTrackId, setCurrentTrackId] = useState<string | null>(null);
   const { mutate } = useSWRConfig();
   const { user } = usePi();
-  const lastLoggedViewId = useRef<string | null>(null);
   const { trackView } = usePlaylistViewTracking();
   const navigate = useNavigate();
   const location = useLocation();
@@ -71,37 +71,45 @@ const Playlist = () => {
   useEffect(() => {
     if (!id || !user?.uid || !viewUrl) return;
     const sessionKey = `${user.uid}:${id}`;
-    if (lastLoggedViewId.current === id || viewedSession.current.has(sessionKey)) return;
+    if (viewedSession.current.has(sessionKey)) return;
 
-    lastLoggedViewId.current = id;
     viewedSession.current.add(sessionKey);
 
-    fetch(viewUrl, {
-      method: "POST",
-      credentials: "include",
-      headers: {
-        "X-Pi-User-Id": user.uid,
-        "X-Pi-Username": user.username ?? "",
-        "X-Pi-Premium": user.premium ? "true" : "false",
-        "X-Pi-Premium-Until": user.premium_until ?? "",
-      },
-    })
-      .then(async (res) => {
+    const viewPromise = dedupeEvent(
+      `POST:public-view:${sessionKey}`,
+      5000,
+      async () => {
+        const res = await fetch(viewUrl, {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            "X-Pi-User-Id": user.uid,
+            "X-Pi-Username": user.username ?? "",
+            "X-Pi-Premium": user.premium ? "true" : "false",
+            "X-Pi-Premium-Until": user.premium_until ?? "",
+          },
+        });
+
         if (!res.ok) return null;
         try {
           return (await res.json()) as { stats?: { likes?: number; views?: number } } | null;
         } catch (_) {
           return null;
         }
-      })
-      .then((payload) => {
-        if (statsKey && payload?.stats) {
-          mutate(statsKey, payload.stats, false);
-        }
-      })
-      .catch(() => {
-        /* silent */
-      });
+      }
+    );
+
+    if (viewPromise) {
+      viewPromise
+        .then((payload) => {
+          if (statsKey && payload?.stats) {
+            mutate(statsKey, payload.stats, false);
+          }
+        })
+        .catch(() => {
+          /* silent */
+        });
+    }
   }, [id, user, viewUrl, statsKey, mutate]);
 
   const handlePlayPlaylist = () => {

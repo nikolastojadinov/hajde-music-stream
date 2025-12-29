@@ -15,6 +15,7 @@ import { Check, ChevronDown, Circle, CircleDot, Loader2, Upload, X, Plus } from 
 import { externalSupabase } from "@/lib/externalSupabase";
 import { withBackendOrigin } from "@/lib/backendUrl";
 import { fetchWithPiAuth } from "@/lib/fetcher";
+import { dedupeRequest } from "@/lib/requestDeduper";
 
 const COVER_BUCKET = import.meta.env.VITE_SUPABASE_PLAYLISTS_BUCKET || "playlists-covers";
 const MAX_COVER_BYTES = 1024 * 1024; // 1MB
@@ -42,8 +43,6 @@ const EMPTY_CATEGORY_BUCKETS: CategoryBuckets = {
   popularity: [],
   special: [],
 };
-
-let categoriesPromise: Promise<Partial<CategoryBuckets>> | null = null;
 
 const readImageDimensions = (file: File): Promise<{ width: number; height: number }> =>
   new Promise((resolve, reject) => {
@@ -197,26 +196,23 @@ const PlaylistForm = ({ mode, userId, initialData, onSubmit, afterCoverSlot, rem
       setCategoriesError(null);
 
       try {
-        if (!categoriesPromise) {
-          const categoriesUrl = withBackendOrigin("/api/categories");
-          console.log("[PlaylistForm] Fetching categories from", categoriesUrl);
-          if (!categoriesUrl) {
-            throw new Error("Missing backend URL");
-          }
-          categoriesPromise = fetch(categoriesUrl, { credentials: "include" })
-            .then((response) => {
-              if (!response.ok) {
-                throw new Error(`Failed to fetch categories (${response.status})`);
-              }
-              return response.json() as Promise<Partial<CategoryBuckets>>;
-            })
-            .catch((error) => {
-              categoriesPromise = null;
-              throw error;
-            });
+        const categoriesUrl = withBackendOrigin("/api/categories");
+        if (!categoriesUrl) {
+          throw new Error("Missing backend URL");
         }
 
-        const payload = await categoriesPromise;
+        const payload = await dedupeRequest<Partial<CategoryBuckets>>(
+          `GET:${categoriesUrl}`,
+          async () => {
+            console.log("[PlaylistForm] Fetching categories from", categoriesUrl);
+            const response = await fetch(categoriesUrl, { credentials: "include" });
+            if (!response.ok) {
+              throw new Error(`Failed to fetch categories (${response.status})`);
+            }
+            return (await response.json()) as Partial<CategoryBuckets>;
+          },
+          { ttlMs: 4000, cache: true }
+        );
         if (!isMounted) return;
         setCategories({
           region: payload?.region ?? [],

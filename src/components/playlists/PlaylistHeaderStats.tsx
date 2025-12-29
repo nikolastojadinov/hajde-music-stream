@@ -1,6 +1,7 @@
 import { FiHeart, FiEye } from 'react-icons/fi';
 import useSWR from 'swr';
 import { withBackendOrigin } from '@/lib/backendUrl';
+import { dedupeRequest } from '@/lib/requestDeduper';
 
 interface PlaylistHeaderStatsProps {
   playlistId: string;
@@ -11,19 +12,26 @@ interface PublicStatsResponse {
   views: number;
 }
 
-const fetcher = async (url: string): Promise<PublicStatsResponse> => {
-  const response = await fetch(url, { credentials: 'include' });
+const STATS_CACHE_TTL_MS = 4000;
 
-  if (response.status === 401) {
-    return { likes: 0, views: 0 };
-  }
+const fetcher = async (url: string): Promise<PublicStatsResponse> =>
+  dedupeRequest<PublicStatsResponse>(
+    `GET:${url}`,
+    async () => {
+      const response = await fetch(url, { credentials: 'include' });
 
-  if (!response.ok) {
-    throw new Error('Failed to load playlist stats');
-  }
+      if (response.status === 401) {
+        return { likes: 0, views: 0 };
+      }
 
-  return response.json();
-};
+      if (!response.ok) {
+        throw new Error('Failed to load playlist stats');
+      }
+
+      return response.json();
+    },
+    { ttlMs: STATS_CACHE_TTL_MS, cache: true }
+  );
 
 const buildStatsUrl = (playlistId: string) => withBackendOrigin(`/api/playlists/${playlistId}/public-stats`);
 
