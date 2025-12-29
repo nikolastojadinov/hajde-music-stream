@@ -10,6 +10,7 @@ const statsCache = new Map<string, { payload: PublicStatsResponse; ts: number }>
 const STATS_TTL_MS = 2000;
 const viewDeduper = new Map<string, number>();
 const VIEW_TTL_MS = 4000;
+const TEN_SECONDS_MS = 10_000;
 
 function getRequestUserId(req: Request): string | null {
   if (req.currentUser?.uid) {
@@ -123,8 +124,9 @@ export async function registerPlaylistView(req: Request, res: Response) {
       return res.status(500).json({ error: 'viewer_internal_id_missing' });
     }
 
-    const dedupeKey = `${internalUserId}:${playlistId}`;
     const now = Date.now();
+
+    const dedupeKey = `${internalUserId}:${playlistId}`;
     const lastView = viewDeduper.get(dedupeKey) ?? 0;
     if (now - lastView < VIEW_TTL_MS) {
       const cachedStats = statsCache.get(playlistId)?.payload;
@@ -132,6 +134,22 @@ export async function registerPlaylistView(req: Request, res: Response) {
         return res.json({ ok: true, stats: cachedStats, deduped: true });
       }
       // fall through to fetch stats without upsert
+      const stats = await fetchPlaylistStats(playlistId);
+      return res.json({ ok: true, stats, deduped: true });
+    }
+
+    // SQL-level dedupe guard per 10s bucket
+    const bucket = new Date(Math.floor(now / TEN_SECONDS_MS) * TEN_SECONDS_MS).toISOString();
+    const { error: dedupeError } = await supabase
+      .from('view_dedupe')
+      .insert({ view_type: 'playlist_public', user_id: internalUserId, playlist_id: playlistId, bucket_start: bucket });
+
+    if (dedupeError && dedupeError.code !== '23505') {
+      console.error('[registerPlaylistView] Dedupe insert failed', dedupeError);
+      return res.status(500).json({ error: 'view_insert_failed' });
+    }
+
+    if (dedupeError && dedupeError.code === '23505') {
       const stats = await fetchPlaylistStats(playlistId);
       return res.json({ ok: true, stats, deduped: true });
     }

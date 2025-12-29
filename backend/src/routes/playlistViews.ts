@@ -6,6 +6,10 @@ const router = Router();
 const recentTrackViews = new Map<string, number>();
 const TRACK_TTL_MS = 4000;
 
+const TEN_SECONDS_MS = 10_000;
+
+const bucketStart = (now: number) => new Date(Math.floor(now / TEN_SECONDS_MS) * TEN_SECONDS_MS).toISOString();
+
 function isDuplicateTrackView(key: string, now: number) {
   const last = recentTrackViews.get(key) ?? 0;
   if (now - last < TRACK_TTL_MS) return true;
@@ -30,6 +34,21 @@ router.post('/track', async (req, res) => {
     const dedupeKey = `${user_id}:${playlist_id}`;
     if (isDuplicateTrackView(dedupeKey, now)) {
       return res.json({ success: true, skipped: true, reason: 'duplicate_recent_view' });
+    }
+
+    // SQL-level dedupe guard (idempotent per 10s bucket)
+    const bucket = bucketStart(now);
+    const { error: dedupeError } = await supabase!
+      .from('view_dedupe')
+      .insert({ view_type: 'track', user_id, playlist_id, bucket_start: bucket });
+
+    if (dedupeError && dedupeError.code !== '23505') {
+      console.error('[playlistViews] Dedupe insert failed', dedupeError);
+      return res.status(500).json({ error: 'Failed to track playlist view (dedupe)' });
+    }
+
+    if (dedupeError && dedupeError.code === '23505') {
+      return res.json({ success: true, skipped: true, reason: 'deduped_bucket' });
     }
 
     const { data, error } = await supabase!
