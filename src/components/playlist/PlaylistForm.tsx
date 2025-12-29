@@ -396,9 +396,9 @@ const PlaylistForm = ({ mode, userId, initialData, onSubmit, afterCoverSlot, rem
     <form onSubmit={handleSubmit} className="space-y-10">
       <section className="rounded-[18px] border border-white/10 bg-[rgba(20,17,38,0.55)] backdrop-blur-xl p-8 text-[#F3F1FF] shadow-[0_20px_60px_rgba(0,0,0,0.45)]">
         <div className="flex flex-col gap-8 lg:flex-row">
-          <div className="flex flex-col gap-4">
+          <div className="flex flex-col items-center lg:items-start gap-4">
             <div
-              className="group relative h-[320px] w-[320px] cursor-pointer"
+              className="group relative h-[260px] w-[260px] md:h-[280px] md:w-[280px] cursor-pointer"
               onClick={() => fileInputRef.current?.click()}
             >
               <div className="pointer-events-none absolute inset-0 rounded-[24px] bg-[conic-gradient(from_140deg,rgba(246,198,109,0.45),rgba(124,58,237,0.45),rgba(246,198,109,0.45))] opacity-90 shadow-[0_0_30px_rgba(124,58,237,0.25)] transition duration-300 group-hover:shadow-[0_0_38px_rgba(124,58,237,0.35)]" />
@@ -424,7 +424,7 @@ const PlaylistForm = ({ mode, userId, initialData, onSubmit, afterCoverSlot, rem
                   </div>
                 ) : (
                   <div className="flex flex-col items-center justify-center gap-3 px-8 text-[#F3F1FF]">
-                    <div className="flex h-14 w-14 items-center justify-center rounded-full bg-white/5 shadow-[0_0_24px_rgba(246,198,109,0.25)]">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white/5 shadow-[0_0_24px_rgba(246,198,109,0.25)]">
                       <Upload className="h-7 w-7 text-[#F6C66D]" />
                     </div>
                     <div className="space-y-1">

@@ -10,10 +10,7 @@ export const YouTubePlayerContainer = () => {
   // Mini player - mobile optimized with scale, desktop 200x200
   // Uses id="yt-player" for YouTube API initialization
   if (!isFullscreen) {
-    // Mobile: wrapper 110px (scaled down from 200px with 0.55 scale)
-    // Desktop: wrapper 200px (no scaling)
     const wrapperSize = isMobile ? '110px' : '200px';
-    const playerTransform = isMobile ? 'scale(0.55)' : undefined;
 
     return (
       <div
@@ -25,19 +22,17 @@ export const YouTubePlayerContainer = () => {
           left: '16px',
           width: wrapperSize,
           height: wrapperSize,
-          overflow: isMobile ? 'visible' : 'hidden',
+          overflow: 'hidden',
+          borderRadius: '12px',
         }}
       >
-        <div 
-          id="yt-player" 
-          style={{ 
-            width: '200px',
-            height: '200px',
-            ...(playerTransform && { 
-              transform: playerTransform,
-              transformOrigin: 'top left'
-            })
-          }} 
+        <div
+          id="yt-player"
+          style={{
+            width: wrapperSize,
+            height: wrapperSize,
+            borderRadius: '12px',
+          }}
         />
       </div>
     );
@@ -51,36 +46,36 @@ export const YouTubePlayerContainer = () => {
       className="fullscreen-player fixed transition-all duration-300 ease-in-out"
       style={{
         zIndex: 55,
-        top: '80px',
+        top: '96px',
         left: '50%',
         transform: 'translateX(-50%)',
-        width: 'min(896px, 90vw)',
+        width: 'min(960px, 90vw)',
+        aspectRatio: '16 / 9',
         maxWidth: '100%',
       }}
     >
       {/* Fullscreen dedicated wrapper - ensures iframe visibility */}
-      <div 
+      <div
         className="youtube-wrapper fullscreen-yt-wrapper"
-        style={{ 
+        style={{
           position: 'relative',
           width: '100%',
-          minHeight: '220px',
+          height: '100%',
           backgroundColor: '#000',
-          borderRadius: '0.5rem',
-          overflow: 'visible',
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
+          borderRadius: '0.75rem',
+          overflow: 'hidden',
         }}
       >
-        <div 
-          id="yt-player" 
+        <div
+          id="yt-player"
           className="fullscreen-youtube-player"
-          style={{ 
+          style={{
+            position: 'absolute',
+            inset: 0,
             width: '100%',
             height: '100%',
-            minHeight: '220px',
-          }} 
+            borderRadius: '0.75rem',
+          }}
         />
       </div>
     </div>
