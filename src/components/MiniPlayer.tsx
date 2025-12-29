@@ -48,11 +48,19 @@ const MiniPlayer = () => {
   return (
     <div className="fixed bottom-20 md:bottom-0 left-0 right-0 z-30 px-3 md:px-4">
       <div className="mx-auto max-w-screen-2xl">
-        <div className="relative rounded-3xl bg-[radial-gradient(circle_at_15%_20%,rgba(245,194,107,0.22),transparent_42%),radial-gradient(circle_at_82%_8%,rgba(123,63,228,0.26),transparent_44%)] p-[1px] shadow-[0_20px_60px_rgba(0,0,0,0.55)]">
-          <div className="relative rounded-[1.1rem] bg-[rgba(8,6,14,0.88)] backdrop-blur-[18px] border border-white/8 overflow-hidden">
+          <div className="relative rounded-2xl bg-gradient-to-r from-[#F5C26B]/35 to-[#7B3FE4]/35 p-[1px] shadow-[0_20px_60px_rgba(0,0,0,0.45)]">
+          <div className="relative rounded-[1rem] bg-[rgba(20,14,30,0.75)] backdrop-blur-[16px] border border-white/10 overflow-hidden">
+            <div className="absolute bottom-2 right-3 z-20 md:hidden">
+              <AddToPlaylistButton
+                trackId={currentTrackId ?? undefined}
+                trackTitle={currentVideoTitle}
+                triggerClassName="pm-cta-button pm-cta-button--sm text-[#0B0814]"
+              />
+            </div>
+
             <button
               onClick={() => setIsFullscreen(true)}
-              className="absolute top-2 left-1/2 -translate-x-1/2 text-[#F5C26B] hover:text-[#ffd78a] transition-colors z-10 drop-shadow-[0_0_10px_rgba(245,194,107,0.25)]"
+              className="absolute top-2 left-1/2 -translate-x-1/2 text-[#CFA85B] hover:text-[#F6C66D] transition-colors z-10"
             >
               <ChevronUp className="w-5 h-5" />
             </button>
@@ -64,20 +72,20 @@ const MiniPlayer = () => {
               <X className="w-5 h-5" />
             </button>
 
-            <div className="flex items-center justify-between gap-3 px-4 pt-4 pb-3">
-              <div className="flex items-center gap-3 flex-1 min-w-0">
+            <div className="flex items-center justify-between gap-2 px-4 pt-3 pb-3">
+              <div className="flex items-center gap-2 flex-1 min-w-0">
                 <div
-                  className={`${isMobile ? "w-[110px] h-[110px]" : "w-[200px] h-[200px]"} flex-shrink-0 rounded-2xl bg-[radial-gradient(circle_at_50%_20%,rgba(245,194,107,0.12),transparent_46%),radial-gradient(circle_at_80%_10%,rgba(123,63,228,0.18),transparent_46%),rgba(10,8,18,0.9)] border border-white/10 shadow-[0_18px_32px_rgba(0,0,0,0.5),0_0_22px_rgba(245,194,107,0.2)] overflow-hidden`}
+                  className={`${isMobile ? "w-[110px] h-[110px]" : "w-[200px] h-[200px]"} flex-shrink-0 rounded-xl bg-[rgba(20,14,30,0.65)] shadow-[0_18px_32px_rgba(0,0,0,0.45)] border border-white/10 overflow-hidden`}
                 />
                 <div className="min-w-0 flex-1 hidden md:block">
-                  <p className="font-semibold text-[#F5C26B] truncate drop-shadow-[0_4px_16px_rgba(245,194,107,0.28)]">{currentVideoTitle || "Purple Dreams"}</p>
-                  <p className="text-sm text-[#C8C2DD] truncate">{currentVideoArtist || "Electronic Beats"}</p>
+                  <p className="font-semibold text-[#F6C66D] truncate drop-shadow-sm">{currentVideoTitle || "Purple Dreams"}</p>
+                  <p className="text-sm text-[#B7B2CC] truncate">{currentVideoArtist || "Electronic Beats"}</p>
                 </div>
               </div>
 
-              <div className="flex items-center gap-4 flex-1 justify-center text-[#F5C26B]">
-                <button onClick={skipBackward} className="h-11 w-11 rounded-full border border-[#F5C26B]/30 bg-white/5 hover:border-[#F5C26B]/60 hover:text-[#ffd78a] transition-colors shadow-[0_10px_26px_rgba(0,0,0,0.5)]">
-                  <SkipBack className="w-6 h-6 mx-auto" />
+              <div className="flex items-center gap-4 flex-1 justify-center">
+                <button onClick={skipBackward} className="text-[#F5C26B] hover:text-[#F08CFF] transition-colors">
+                  <SkipBack className="w-6 h-6" />
                 </button>
 
                 <button
@@ -87,36 +95,35 @@ const MiniPlayer = () => {
                   {isPlaying ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6 fill-current ml-0.5" />}
                 </button>
 
-                <button onClick={skipForward} className="h-11 w-11 rounded-full border border-[#F5C26B]/30 bg-white/5 hover:border-[#F5C26B]/60 hover:text-[#ffd78a] transition-colors shadow-[0_10px_26px_rgba(0,0,0,0.5)]">
-                  <SkipForward className="w-6 h-6 mx-auto" />
+                <button onClick={skipForward} className="text-[#F5C26B] hover:text-[#F08CFF] transition-colors">
+                  <SkipForward className="w-6 h-6" />
                 </button>
-
-                <AddToPlaylistButton
-                  trackId={currentTrackId ?? undefined}
-                  trackTitle={currentVideoTitle}
-                  variant="ghost"
-                  triggerClassName="pm-cta-button pm-cta-button--sm flex items-center justify-center"
-                />
 
                 <button
                   onClick={handleToggleLike}
                   disabled={likeDisabled}
-                  className={`transition-colors ${isCurrentTrackLiked ? "text-[#F5C26B]" : "text-[#F5C26B] hover:text-[#ffd78a]"} ${likeDisabled ? "opacity-50 cursor-not-allowed" : ""}`}
+                  className={`transition-colors ${isCurrentTrackLiked ? "text-[#F08CFF]" : "text-[#F5C26B] hover:text-[#F08CFF]"} ${likeDisabled ? "opacity-50 cursor-not-allowed" : ""}`}
                 >
                   <Heart className={`w-6 h-6 ${isCurrentTrackLiked ? "fill-current" : ""}`} />
                 </button>
               </div>
 
-              <div className="hidden md:flex items-center gap-3 flex-1 justify-end text-[#C8C2DD]">
-                <Volume2 className="w-5 h-5" />
+              <div className="hidden md:flex items-center gap-2 flex-1 justify-end">
+                <AddToPlaylistButton
+                  trackId={currentTrackId ?? undefined}
+                  trackTitle={currentVideoTitle}
+                  variant="ghost"
+                  triggerClassName="pm-cta-button pm-cta-button--sm text-[#0B0814]"
+                />
+                <Volume2 className="w-5 h-5 text-[#B7B2CC]" />
                 <Slider
                   value={[volume]}
                   max={100}
                   step={1}
-                  className="w-28"
-                  trackClassName="bg-[#130d1f]/80"
-                  rangeClassName="bg-[linear-gradient(90deg,#F5C26B,#7B3FE4)]"
-                  thumbClassName="h-4 w-4 bg-[#0c0814] border-[1.5px] border-[#F5C26B] shadow-[0_0_8px_rgba(245,194,107,0.35)]"
+                  className="w-24 premium-slider"
+                  trackClassName="bg-[#1d1230]"
+                  rangeClassName="bg-gradient-to-r from-[#F5C26B] to-[#F08CFF]"
+                  thumbClassName="h-4 w-4 bg-[#7B3FE4] border-2 border-[#F5C26B]"
                   onValueChange={handleVolumeChange}
                 />
               </div>
