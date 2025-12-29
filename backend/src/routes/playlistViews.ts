@@ -3,6 +3,16 @@ import supabase from '../services/supabaseClient';
 
 const router = Router();
 
+const recentTrackViews = new Map<string, number>();
+const TRACK_TTL_MS = 4000;
+
+function isDuplicateTrackView(key: string, now: number) {
+  const last = recentTrackViews.get(key) ?? 0;
+  if (now - last < TRACK_TTL_MS) return true;
+  recentTrackViews.set(key, now);
+  return false;
+}
+
 /**
  * Track playlist view/click
  * POST /api/playlist-views/track
@@ -14,6 +24,12 @@ router.post('/track', async (req, res) => {
 
     if (!user_id || !playlist_id) {
       return res.status(400).json({ error: 'user_id and playlist_id are required' });
+    }
+
+    const now = Date.now();
+    const dedupeKey = `${user_id}:${playlist_id}`;
+    if (isDuplicateTrackView(dedupeKey, now)) {
+      return res.json({ success: true, skipped: true, reason: 'duplicate_recent_view' });
     }
 
     const { data, error } = await supabase!

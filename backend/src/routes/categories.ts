@@ -44,6 +44,13 @@ const buildEmptyPayload = (): CategoryResponsePayload =>
     return acc;
   }, {} as CategoryResponsePayload);
 
+// Simple in-memory cache to avoid duplicate hits from rapid double-mounts
+const categoriesCache: { payload: CategoryResponsePayload | null; ts: number } = {
+  payload: null,
+  ts: 0,
+};
+const CATEGORIES_TTL_MS = 2000;
+
 const normalizeCategory = (row: CategoryRow): CategoryResponseItem => {
   const fallbackGroup = 'genre' as CategoryGroup;
   const rawGroup = row.group_type ?? fallbackGroup;
@@ -66,6 +73,11 @@ router.get('/', async (req: Request, res: Response) => {
     return res.status(500).json({ error: 'Supabase client is not configured.' });
   }
 
+  const now = Date.now();
+  if (categoriesCache.payload && now - categoriesCache.ts < CATEGORIES_TTL_MS) {
+    return res.status(200).json(categoriesCache.payload);
+  }
+
   try {
     const { data, error } = await supabase
       .from('categories')
@@ -82,6 +94,9 @@ router.get('/', async (req: Request, res: Response) => {
       const normalized = normalizeCategory(row as CategoryRow);
       payload[normalized.group_type].push(normalized);
     });
+
+    categoriesCache.payload = payload;
+    categoriesCache.ts = now;
 
     return res.status(200).json(payload);
   } catch (err) {

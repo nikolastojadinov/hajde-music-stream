@@ -6,6 +6,11 @@ interface PublicStatsResponse {
   views: number;
 }
 
+const statsCache = new Map<string, { payload: PublicStatsResponse; ts: number }>();
+const STATS_TTL_MS = 2000;
+const viewDeduper = new Map<string, number>();
+const VIEW_TTL_MS = 4000;
+
 function getRequestUserId(req: Request): string | null {
   if (req.currentUser?.uid) {
     return req.currentUser.uid;
@@ -49,6 +54,12 @@ async function mapWalletToInternalUserId(wallet: string): Promise<string | null>
 }
 
 async function fetchPlaylistStats(playlistId: string): Promise<PublicStatsResponse> {
+  const cached = statsCache.get(playlistId);
+  const now = Date.now();
+  if (cached && now - cached.ts < STATS_TTL_MS) {
+    return cached.payload;
+  }
+
   const { data, error } = await supabase!
     .from('playlist_stats')
     .select('public_like_count, public_view_count')
@@ -59,10 +70,13 @@ async function fetchPlaylistStats(playlistId: string): Promise<PublicStatsRespon
     throw error;
   }
 
-  return {
+  const payload = {
     likes: data?.public_like_count ?? 0,
     views: data?.public_view_count ?? 0,
   };
+
+  statsCache.set(playlistId, { payload, ts: now });
+  return payload;
 }
 
 export async function getPublicPlaylistStats(req: Request, res: Response) {
@@ -109,6 +123,19 @@ export async function registerPlaylistView(req: Request, res: Response) {
       return res.status(500).json({ error: 'viewer_internal_id_missing' });
     }
 
+    const dedupeKey = `${internalUserId}:${playlistId}`;
+    const now = Date.now();
+    const lastView = viewDeduper.get(dedupeKey) ?? 0;
+    if (now - lastView < VIEW_TTL_MS) {
+      const cachedStats = statsCache.get(playlistId)?.payload;
+      if (cachedStats) {
+        return res.json({ ok: true, stats: cachedStats, deduped: true });
+      }
+      // fall through to fetch stats without upsert
+      const stats = await fetchPlaylistStats(playlistId);
+      return res.json({ ok: true, stats, deduped: true });
+    }
+
     const { error: upsertError } = await supabase
       .from('playlist_views')
       .upsert(
@@ -126,6 +153,8 @@ export async function registerPlaylistView(req: Request, res: Response) {
     if (upsertError) {
       throw upsertError;
     }
+
+    viewDeduper.set(dedupeKey, now);
 
     const stats = await fetchPlaylistStats(playlistId);
 

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef } from "react";
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:3001";
 const TRACKING_ENABLED = (import.meta.env.VITE_ENABLE_PLAYLIST_TRACKING ?? "true") !== "false";
+const trackedPlaylistsSession = new Set<string>();
 
 export const usePlaylistViewTracking = () => {
   const { user } = usePi();
@@ -53,11 +54,13 @@ export const usePlaylistViewTracking = () => {
         return;
       }
 
-      if (lastTrackedPlaylistId.current === playlistId) {
+      const sessionKey = `${user.uid}:${playlistId}`;
+      if (lastTrackedPlaylistId.current === playlistId || trackedPlaylistsSession.has(sessionKey)) {
         return;
       }
 
       lastTrackedPlaylistId.current = playlistId;
+      trackedPlaylistsSession.add(sessionKey);
       trackViewMutation.mutate(playlistId);
     },
     [trackViewMutation, user?.uid]

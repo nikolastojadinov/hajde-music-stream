@@ -30,7 +30,13 @@ const buildStatsUrl = (playlistId: string) => withBackendOrigin(`/api/playlists/
 export function PlaylistHeaderStats({ playlistId }: PlaylistHeaderStatsProps) {
   const { data } = useSWR<PublicStatsResponse>(
     playlistId ? buildStatsUrl(playlistId) : null,
-    fetcher
+    fetcher,
+    {
+      dedupingInterval: 5000,
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+      revalidateIfStale: false,
+    }
   );
 
   const likes = data?.likes ?? 0;

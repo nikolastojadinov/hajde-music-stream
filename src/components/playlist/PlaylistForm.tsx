@@ -43,6 +43,8 @@ const EMPTY_CATEGORY_BUCKETS: CategoryBuckets = {
   special: [],
 };
 
+let categoriesPromise: Promise<Partial<CategoryBuckets>> | null = null;
+
 const readImageDimensions = (file: File): Promise<{ width: number; height: number }> =>
   new Promise((resolve, reject) => {
     const image = new Image();
@@ -195,24 +197,34 @@ const PlaylistForm = ({ mode, userId, initialData, onSubmit, afterCoverSlot, rem
       setCategoriesError(null);
 
       try {
-        const categoriesUrl = withBackendOrigin("/api/categories");
-        console.log("[PlaylistForm] Fetching categories from", categoriesUrl);
-        if (!categoriesUrl) {
-          throw new Error("Missing backend URL");
+        if (!categoriesPromise) {
+          const categoriesUrl = withBackendOrigin("/api/categories");
+          console.log("[PlaylistForm] Fetching categories from", categoriesUrl);
+          if (!categoriesUrl) {
+            throw new Error("Missing backend URL");
+          }
+          categoriesPromise = fetch(categoriesUrl, { credentials: "include" })
+            .then((response) => {
+              if (!response.ok) {
+                throw new Error(`Failed to fetch categories (${response.status})`);
+              }
+              return response.json() as Promise<Partial<CategoryBuckets>>;
+            })
+            .catch((error) => {
+              categoriesPromise = null;
+              throw error;
+            });
         }
-        const response = await fetch(categoriesUrl, { credentials: "include" });
-        if (!response.ok) {
-          throw new Error(`Failed to fetch categories (${response.status})`);
-        }
-        const payload = (await response.json()) as Partial<CategoryBuckets>;
+
+        const payload = await categoriesPromise;
         if (!isMounted) return;
         setCategories({
-          region: payload.region ?? [],
-          era: payload.era ?? [],
-          genre: payload.genre ?? [],
-          theme: payload.theme ?? [],
-          popularity: payload.popularity ?? [],
-          special: payload.special ?? [],
+          region: payload?.region ?? [],
+          era: payload?.era ?? [],
+          genre: payload?.genre ?? [],
+          theme: payload?.theme ?? [],
+          popularity: payload?.popularity ?? [],
+          special: payload?.special ?? [],
         });
       } catch (error) {
         console.error("[PlaylistForm] Unable to load categories", error);

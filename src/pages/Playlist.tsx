@@ -33,6 +33,7 @@ const Playlist = () => {
 
   const { data: playlist, isLoading, error } = useExternalPlaylist(id || "");
   const isLiked = id ? isPlaylistLiked(id) : false;
+  const viewedSession = useRef<Set<string>>(new Set());
 
   const statsKey = useMemo(
     () => (id ? withBackendOrigin(`/api/playlists/${id}/public-stats`) : null),
@@ -68,8 +69,12 @@ const Playlist = () => {
   }, [id, location.state, queryClient]);
 
   useEffect(() => {
-    if (!id || !user?.uid || lastLoggedViewId.current === id || !viewUrl) return;
+    if (!id || !user?.uid || !viewUrl) return;
+    const sessionKey = `${user.uid}:${id}`;
+    if (lastLoggedViewId.current === id || viewedSession.current.has(sessionKey)) return;
+
     lastLoggedViewId.current = id;
+    viewedSession.current.add(sessionKey);
 
     fetch(viewUrl, {
       method: "POST",
@@ -80,9 +85,23 @@ const Playlist = () => {
         "X-Pi-Premium": user.premium ? "true" : "false",
         "X-Pi-Premium-Until": user.premium_until ?? "",
       },
-    }).then(() => {
-      if (statsKey) mutate(statsKey);
-    });
+    })
+      .then(async (res) => {
+        if (!res.ok) return null;
+        try {
+          return (await res.json()) as { stats?: { likes?: number; views?: number } } | null;
+        } catch (_) {
+          return null;
+        }
+      })
+      .then((payload) => {
+        if (statsKey && payload?.stats) {
+          mutate(statsKey, payload.stats, false);
+        }
+      })
+      .catch(() => {
+        /* silent */
+      });
   }, [id, user, viewUrl, statsKey, mutate]);
 
   const handlePlayPlaylist = () => {
