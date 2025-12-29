@@ -54,7 +54,7 @@ const MiniPlayer = () => {
               <AddToPlaylistButton
                 trackId={currentTrackId ?? undefined}
                 trackTitle={currentVideoTitle}
-                triggerClassName="text-[#F5C26B] hover:text-[#F08CFF]"
+                triggerClassName="pm-cta-button pm-cta-button--sm text-[#0B0814]"
               />
             </div>
 
@@ -90,7 +90,7 @@ const MiniPlayer = () => {
 
                 <button
                   onClick={togglePlay}
-                  className="relative w-14 h-14 rounded-full flex items-center justify-center text-[#0B0814] shadow-[0_12px_28px_rgba(240,140,255,0.35)] hover:scale-105 active:scale-95 transition-transform border-2 border-[#F5C26B] bg-[radial-gradient(circle,#F08CFF_0%,#7B3FE4_70%)]"
+                  className="pm-cta-button pm-cta-button--md flex items-center justify-center"
                 >
                   {isPlaying ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6 fill-current ml-0.5" />}
                 </button>
@@ -113,7 +113,7 @@ const MiniPlayer = () => {
                   trackId={currentTrackId ?? undefined}
                   trackTitle={currentVideoTitle}
                   variant="ghost"
-                  triggerClassName="text-[#F5C26B] hover:text-[#F08CFF]"
+                  triggerClassName="pm-cta-button pm-cta-button--sm text-[#0B0814]"
                 />
                 <Volume2 className="w-5 h-5 text-[#B7B2CC]" />
                 <Slider

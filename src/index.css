@@ -150,13 +150,23 @@ All colors MUST be HSL.
   .fullscreen-player .fullscreen-youtube-player iframe,
   .fullscreen-player #yt-player iframe {
     width: 100% !important;
-    height: auto !important;
-    max-height: 40vh !important;
-    min-height: 220px !important;
+    height: 100% !important;
+    max-height: none !important;
+    min-height: 0 !important;
     transform: none !important;
     display: block !important;
     border: none !important;
-    position: relative !important;
+    position: absolute !important;
+    inset: 0 !important;
+    border-radius: inherit !important;
+  }
+
+  #yt-player-wrapper-mini iframe {
+    width: 100% !important;
+    height: 100% !important;
+    border: none !important;
+    border-radius: inherit !important;
+    display: block !important;
   }
 }
 
@@ -171,6 +181,35 @@ All colors MUST be HSL.
     background: conic-gradient(from 180deg, #B8892E 0deg, #F6C66D 90deg, #FFD77A 180deg, #F6C66D 270deg, #B8892E 360deg);
     box-shadow: 0 0 12px rgba(246, 198, 109, 0.32), 0 0 26px rgba(184, 137, 46, 0.22);
     transition: transform 0.18s ease, box-shadow 0.18s ease;
+  }
+
+  .pm-cta-button {
+    position: relative;
+    border-radius: 9999px;
+    border: 2px solid #F5C26B;
+    background: radial-gradient(circle, #F08CFF 0%, #7B3FE4 70%);
+    box-shadow: 0 12px 28px rgba(240, 140, 255, 0.28), 0 0 18px rgba(245, 194, 107, 0.18);
+    color: #0B0814;
+    transition: transform 0.18s ease, box-shadow 0.18s ease;
+  }
+
+  .pm-cta-button:hover {
+    box-shadow: 0 14px 32px rgba(240, 140, 255, 0.34), 0 0 22px rgba(245, 194, 107, 0.22);
+    transform: translateY(-1px) scale(1.01);
+  }
+
+  .pm-cta-button:active {
+    transform: scale(0.98);
+  }
+
+  .pm-cta-button--md {
+    width: 64px;
+    height: 64px;
+  }
+
+  .pm-cta-button--sm {
+    width: 48px;
+    height: 48px;
   }
 
   .pm-cta-circle-inner {

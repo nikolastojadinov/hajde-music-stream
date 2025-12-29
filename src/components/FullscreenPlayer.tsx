@@ -98,9 +98,9 @@ const FullscreenPlayer = () => {
           <button onClick={skipBackward} className="h-12 w-12 rounded-full border border-white/15 text-[#F5C26B] hover:text-[#F08CFF] shadow-[0_10px_24px_rgba(0,0,0,0.35)]">
             <SkipBack className="w-6 h-6 mx-auto" />
           </button>
-          <button
-            onClick={togglePlay}
-            className="h-16 w-16 rounded-full flex items-center justify-center text-[#0B0814] shadow-[0_18px_36px_rgba(240,140,255,0.4)] hover:scale-105 active:scale-95 transition-transform border-2 border-[#F5C26B] bg-[radial-gradient(circle,#F08CFF_0%,#7B3FE4_70%)]"
+            <button
+              onClick={togglePlay}
+              className="pm-cta-button pm-cta-button--md flex items-center justify-center"
           >
             {isPlaying ? <Pause className="w-8 h-8 mx-auto" /> : <Play className="w-8 h-8 mx-auto fill-current ml-0.5" />}
           </button>
@@ -111,12 +111,12 @@ const FullscreenPlayer = () => {
 
         <div className="mt-8 w-full max-w-xl flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <AddToPlaylistButton
-              trackId={currentTrackId ?? undefined}
-              trackTitle={currentVideoTitle}
-              variant="ghost"
-              triggerClassName="h-11 w-11 rounded-full border-2 border-[#F5C26B] bg-[radial-gradient(circle,#F08CFF_0%,#7B3FE4_70%)] text-[#0B0814] shadow-[0_12px_28px_rgba(240,140,255,0.35)] hover:scale-105 active:scale-95 transition"
-            />
+              <AddToPlaylistButton
+                trackId={currentTrackId ?? undefined}
+                trackTitle={currentVideoTitle}
+                variant="ghost"
+                triggerClassName="pm-cta-button pm-cta-button--sm flex items-center justify-center text-[#0B0814]"
+              />
             <button
               onClick={handleToggleLike}
               disabled={likeDisabled}
