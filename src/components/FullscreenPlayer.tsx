@@ -66,11 +66,7 @@ const FullscreenPlayer = () => {
       </div>
 
       <div className="flex-1 overflow-hidden px-4 pb-10 pt-6 flex flex-col items-center">
-        <div className="w-full max-w-5xl" style={{ maxHeight: "70vh" }}>
-          <div className="rounded-2xl bg-gradient-to-br from-[#F5C26B]/35 to-[#7B3FE4]/35 p-[1.5px] shadow-[0_24px_70px_rgba(0,0,0,0.55)]" style={{ aspectRatio: "16/9" }}>
-            <div className="h-full w-full rounded-[18px] bg-[rgba(20,14,30,0.78)] border border-white/12 shadow-[0_18px_36px_rgba(0,0,0,0.45)]" />
-          </div>
-        </div>
+        <div className="w-full max-w-5xl pointer-events-none" style={{ aspectRatio: "16 / 9" }} />
 
         <div className="w-full max-w-xl text-center mt-8">
           <h2 className="text-[28px] font-bold text-[#F6C66D] mb-2 leading-tight drop-shadow-[0_4px_18px_rgba(245,194,107,0.35)]">{currentVideoTitle}</h2>

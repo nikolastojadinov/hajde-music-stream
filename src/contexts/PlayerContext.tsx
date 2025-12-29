@@ -349,22 +349,12 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const iframe = document.querySelector('#yt-player iframe') as HTMLIFrameElement;
       if (!iframe) return;
 
-      if (isFullscreen) {
-        // Fullscreen mode - iframe should fill the aspect ratio container
-        console.log('🎬 Resizing iframe to fullscreen mode');
-        // The CSS will handle sizing, but we trigger reflow
-        iframe.style.width = '100%';
-        iframe.style.height = '100%';
-      } else {
-        // Mini mode - iframe should be 200x200
-        console.log('🎬 Resizing iframe to mini mode');
-        iframe.style.width = '200px';
-        iframe.style.height = '200px';
-      }
+      // Keep iframe bound to its container; sizing handled via CSS
+      iframe.style.width = '100%';
+      iframe.style.height = '100%';
     };
 
-    // Delay to allow DOM to update
-    setTimeout(resizeIframe, 100);
+    setTimeout(resizeIframe, 80);
   }, [isFullscreen]);
 
   const togglePlay = () => {
@@ -453,6 +443,9 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       playerExists: !!playerRef.current,
       isPlayerVisible 
     });
+
+    // Default entry point is mini-player; only expand on explicit user action
+    setIsFullscreen(false);
     
     setCurrentVideoTitle(title);
     setCurrentVideoArtist(artist);

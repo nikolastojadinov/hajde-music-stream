@@ -398,7 +398,7 @@ const PlaylistForm = ({ mode, userId, initialData, onSubmit, afterCoverSlot, rem
         <div className="flex flex-col gap-8 lg:flex-row">
           <div className="flex flex-col items-center lg:items-start gap-4">
             <div
-              className="group relative h-[260px] w-[260px] md:h-[280px] md:w-[280px] cursor-pointer"
+              className="group relative h-[220px] w-[220px] sm:h-[240px] sm:w-[240px] md:h-[260px] md:w-[260px] max-w-[70vw] max-h-[70vw] cursor-pointer mx-auto"
               onClick={() => fileInputRef.current?.click()}
             >
               <div className="pointer-events-none absolute inset-0 rounded-[24px] bg-[conic-gradient(from_140deg,rgba(246,198,109,0.45),rgba(124,58,237,0.45),rgba(246,198,109,0.45))] opacity-90 shadow-[0_0_30px_rgba(124,58,237,0.25)] transition duration-300 group-hover:shadow-[0_0_38px_rgba(124,58,237,0.35)]" />
