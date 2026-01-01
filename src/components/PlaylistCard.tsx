@@ -17,35 +17,48 @@ const PlaylistCard = ({
   linkState,
 }: PlaylistCardProps) => {
   return (
-    <Link to={`/playlist/${id}`} state={linkState} className="block w-[160px] shrink-0">
-      <div className="rounded-2xl bg-[#12101D] overflow-hidden transition-transform duration-200 hover:scale-[1.03]">
-        
-        {/* COVER — EDGE TO EDGE, FIXED RATIO */}
-        <div className="relative w-full aspect-square bg-black">
+    <Link
+      to={`/playlist/${id}`}
+      state={linkState}
+      className="block min-w-[260px]"
+    >
+      <div
+        className="
+          flex
+          items-stretch
+          h-[72px]
+          rounded-xl
+          bg-[#1C1C1C]
+          overflow-hidden
+          transition-colors
+          hover:bg-[#2A2A2A]
+        "
+      >
+        {/* COVER — FULL HEIGHT, NO PADDING */}
+        <div className="w-[72px] h-full bg-black shrink-0">
           {imageUrl ? (
             <img
               src={imageUrl}
               alt={title}
-              className="absolute inset-0 w-full h-full object-cover object-center"
+              className="w-full h-full object-cover object-center"
               loading="lazy"
             />
           ) : (
-            <div className="absolute inset-0 flex items-center justify-center bg-[#1A1630]">
-              <Music className="w-10 h-10 text-[#CFA85B]" />
+            <div className="w-full h-full flex items-center justify-center bg-[#333]">
+              <Music className="w-6 h-6 text-[#CFA85B]" />
             </div>
           )}
         </div>
 
-        {/* TEXT AREA — MINIMAL */}
-        <div className="px-3 pt-2 pb-3">
-          <h3 className="text-sm font-semibold text-[#F6C66D] truncate">
+        {/* TEXT */}
+        <div className="flex flex-col justify-center px-3 overflow-hidden">
+          <span className="text-sm font-semibold text-white truncate">
             {title}
-          </h3>
-
+          </span>
           {description && (
-            <p className="mt-1 text-xs text-[#B7B2CC] line-clamp-2 leading-snug">
+            <span className="text-xs text-[#B3B3B3] truncate">
               {description}
-            </p>
+            </span>
           )}
         </div>
       </div>
