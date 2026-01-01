@@ -1,21 +1,18 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useParams, useNavigate, useLocation } from "react-router-dom";
+import { useEffect, useMemo } from "react";
+import { useParams, useNavigate } from "react-router-dom";
 import { Play, Heart, ArrowLeft } from "lucide-react";
+
 import { Button } from "@/components/ui/button";
-import { usePlayer } from "@/contexts/PlayerContext";
-import { Skeleton } from "@/components/ui/skeleton";
-import { useExternalPlaylist } from "@/hooks/useExternalPlaylist";
 import EmptyState from "@/components/ui/EmptyState";
+import { Skeleton } from "@/components/ui/skeleton";
+import AddToPlaylistButton from "@/components/AddToPlaylistButton";
+import { usePlayer } from "@/contexts/PlayerContext";
+import { useExternalPlaylist } from "@/hooks/useExternalPlaylist";
 import useLikes from "@/hooks/useLikes";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { usePi } from "@/contexts/PiContext";
 import { PlaylistHeaderStats } from "@/components/playlists/PlaylistHeaderStats";
-import { useSWRConfig } from "swr";
-import { withBackendOrigin } from "@/lib/backendUrl";
-import { usePlaylistViewTracking } from "@/hooks/usePlaylistViewTracking";
-import AddToPlaylistButton from "@/components/AddToPlaylistButton";
-import { useQueryClient } from "@tanstack/react-query";
-import { dedupeEvent } from "@/lib/requestDeduper";
+
+/* ===================== UTILS ===================== */
 
 const formatDuration = (value?: number | string) => {
   if (!value) return null;
@@ -25,62 +22,50 @@ const formatDuration = (value?: number | string) => {
   return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 };
 
+/* ===================== COMPONENT ===================== */
+
 const Playlist = () => {
   const { id } = useParams<{ id: string }>();
-  const { playPlaylist } = usePlayer();
-  const { isPlaylistLiked, togglePlaylistLike } = useLikes();
-  const { t } = useLanguage();
-  const [currentTrackId, setCurrentTrackId] = useState<string | null>(null);
-  const { mutate } = useSWRConfig();
-  const { user } = usePi();
-  const { trackView } = usePlaylistViewTracking();
   const navigate = useNavigate();
-  const location = useLocation();
-  const queryClient = useQueryClient();
-  const didArtistRefresh = useRef(false);
+  const { t } = useLanguage();
+
+  // ⬇️ IDENTIČNO KAO U Artist.tsx
+  const { playPlaylist, currentTrackId } = usePlayer();
 
   const { data: playlist, isLoading, error } = useExternalPlaylist(id || "");
+  const { isPlaylistLiked, togglePlaylistLike } = useLikes();
+
   const isLiked = id ? isPlaylistLiked(id) : false;
-  const viewedSession = useRef<Set<string>>(new Set());
 
-  const statsKey = useMemo(
-    () => (id ? withBackendOrigin(`/api/playlists/${id}/public-stats`) : null),
-    [id]
-  );
+  /* ===================== QUEUE ===================== */
 
-  useEffect(() => {
-    if (id && user?.uid) trackView(id);
-  }, [id, user?.uid, trackView]);
-
-  const handlePlayPlaylist = () => {
-    if (!playlist || playlist.tracks.length === 0) return;
-    const trackData = playlist.tracks.map((t) => ({
+  const playlistTracks = useMemo(() => {
+    if (!playlist?.tracks?.length) return [];
+    return playlist.tracks.map((t: any) => ({
       id: t.id,
-      external_id: t.external_id,
+      external_id: t.external_id ?? t.youtube_video_id,
       title: t.title,
       artist: t.artist,
     }));
-    playPlaylist(trackData, 0);
-    setCurrentTrackId(playlist.tracks[0].id);
+  }, [playlist]);
+
+  /* ===================== PLAY ===================== */
+
+  const handlePlayAll = () => {
+    if (!playlistTracks.length) return;
+    playPlaylist(playlistTracks, 0);
   };
 
-  const handlePlayTrack = (track: any, index: number) => {
-    if (!playlist) return;
-    const trackData = playlist.tracks.map((t) => ({
-      id: t.id,
-      external_id: t.external_id,
-      title: t.title,
-      artist: t.artist,
-    }));
-    playPlaylist(trackData, index);
-    setCurrentTrackId(track.id);
+  const handlePlayTrack = (_trackId: string, index: number) => {
+    playPlaylist(playlistTracks, index);
   };
 
   const handleToggleLike = async () => {
     if (!id) return;
     await togglePlaylistLike(id);
-    if (statsKey) mutate(statsKey);
   };
+
+  /* ===================== UI STATES ===================== */
 
   if (isLoading) {
     return (
@@ -98,8 +83,17 @@ const Playlist = () => {
     );
   }
 
+  /* ===================== UI ===================== */
+
   return (
     <div className="relative flex-1 overflow-y-auto pb-32 bg-[linear-gradient(180deg,#07060B,#0B0814)]">
+      {/* BACK */}
+      <div className="absolute left-2 top-2 z-10">
+        <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
+          <ArrowLeft className="h-5 w-5" />
+        </Button>
+      </div>
+
       {/* HEADER */}
       <div className="pt-8 px-4 text-center">
         <div className="flex justify-center mb-5">
@@ -119,7 +113,7 @@ const Playlist = () => {
         </p>
 
         <div className="flex justify-center items-center gap-4 mt-6">
-          <button className="pm-cta-pill" onClick={handlePlayPlaylist}>
+          <button className="pm-cta-pill" onClick={handlePlayAll}>
             <span className="pm-cta-pill-inner">
               <Play className="w-5 h-5 mr-1 text-[#FFD77A]" />
               {t("play_all")}
@@ -141,18 +135,18 @@ const Playlist = () => {
         </div>
       </div>
 
-      {/* TRACK LIST */}
+      {/* TRACK LIST — ISTO KAO ARTIST */}
       <div className="mt-8 space-y-2 px-2">
-        {playlist.tracks.map((track, index) => {
-          const isCurrent = currentTrackId === track.id;
+        {playlist.tracks.map((track: any, index: number) => {
+          const isActive = currentTrackId === track.id;
           const duration = formatDuration(track.duration);
 
           return (
             <div
               key={track.id}
-              onClick={() => handlePlayTrack(track, index)}
+              onClick={() => handlePlayTrack(track.id, index)}
               className={`flex items-center gap-3 h-[64px] pr-3 cursor-pointer border rounded-[10px] transition ${
-                isCurrent
+                isActive
                   ? "border-[#FF4FB7]/60 bg-[#FF4FB7]/10"
                   : "border-white/5 bg-white/5 hover:bg-white/10"
               }`}
@@ -164,7 +158,8 @@ const Playlist = () => {
                   alt={track.title}
                   className="absolute inset-0 w-full h-full object-cover scale-[1.15]"
                 />
-                {isCurrent && (
+
+                {isActive && (
                   <div className="absolute inset-0 ring-2 ring-[#FF4FB7]/60 animate-pulse" />
                 )}
               </div>
@@ -179,7 +174,7 @@ const Playlist = () => {
                 </div>
               </div>
 
-              {/* RIGHT ACTIONS */}
+              {/* ACTIONS */}
               <div className="flex items-center gap-3 shrink-0">
                 {duration && (
                   <span className="text-xs text-[#9A95B2] tabular-nums">
@@ -195,7 +190,6 @@ const Playlist = () => {
                   <Heart className="w-4 h-4 text-[#CFA85B]" />
                 </button>
 
-                {/* ✅ OVO JE JEDINA PROMENA */}
                 <AddToPlaylistButton
                   trackId={track.id}
                   trackTitle={track.title}
@@ -205,13 +199,6 @@ const Playlist = () => {
             </div>
           );
         })}
-      </div>
-
-      {/* BACK */}
-      <div className="absolute left-2 top-2 z-10">
-        <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
-          <ArrowLeft className="h-5 w-5" />
-        </Button>
       </div>
     </div>
   );
