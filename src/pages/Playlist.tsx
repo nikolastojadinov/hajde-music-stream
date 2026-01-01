@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
-import { Play, Pause, Heart, ArrowLeft } from "lucide-react";
+import { Play, Heart, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { usePlayer } from "@/contexts/PlayerContext";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -17,9 +17,21 @@ import AddToPlaylistButton from "@/components/AddToPlaylistButton";
 import { useQueryClient } from "@tanstack/react-query";
 import { dedupeEvent } from "@/lib/requestDeduper";
 
+const formatDuration = (value?: number | string) => {
+  if (!value) return null;
+
+  // ako je već string "4:30"
+  if (typeof value === "string") return value;
+
+  // ako su sekunde
+  const minutes = Math.floor(value / 60);
+  const seconds = value % 60;
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+};
+
 const Playlist = () => {
   const { id } = useParams<{ id: string }>();
-  const { playPlaylist, isPlaying, togglePlay } = usePlayer();
+  const { playPlaylist } = usePlayer();
   const { isPlaylistLiked, togglePlaylistLike } = useLikes();
   const { t } = useLanguage();
   const [currentTrackId, setCurrentTrackId] = useState<string | null>(null);
@@ -37,11 +49,6 @@ const Playlist = () => {
 
   const statsKey = useMemo(
     () => (id ? withBackendOrigin(`/api/playlists/${id}/public-stats`) : null),
-    [id]
-  );
-
-  const viewUrl = useMemo(
-    () => (id ? withBackendOrigin(`/api/playlists/${id}/public-view`) : null),
     [id]
   );
 
@@ -79,8 +86,6 @@ const Playlist = () => {
     if (statsKey) mutate(statsKey);
   };
 
-  const handleBack = () => navigate(-1);
-
   if (isLoading) {
     return (
       <div className="flex-1 overflow-y-auto pb-32 flex justify-center pt-20">
@@ -99,7 +104,7 @@ const Playlist = () => {
 
   return (
     <div className="relative flex-1 overflow-y-auto pb-32 bg-[linear-gradient(180deg,#07060B,#0B0814)]">
-      {/* HEADER – NEDIRNUT */}
+      {/* HEADER */}
       <div className="pt-8 px-4 text-center">
         <div className="flex justify-center mb-5">
           <img
@@ -144,12 +149,13 @@ const Playlist = () => {
       <div className="mt-8 space-y-2 px-2">
         {playlist.tracks.map((track, index) => {
           const isCurrent = currentTrackId === track.id;
+          const duration = formatDuration(track.duration);
 
           return (
             <div
               key={track.id}
               onClick={() => handlePlayTrack(track, index)}
-              className={`flex items-center gap-3 pr-3 h-[64px] cursor-pointer border rounded-[10px] transition ${
+              className={`flex items-center gap-3 h-[64px] pr-3 cursor-pointer border rounded-[10px] transition ${
                 isCurrent
                   ? "border-[#FF4FB7]/60 bg-[#FF4FB7]/10"
                   : "border-white/5 bg-white/5 hover:bg-white/10"
@@ -162,7 +168,6 @@ const Playlist = () => {
                   alt={track.title}
                   className="absolute inset-0 w-full h-full object-cover scale-[1.15]"
                 />
-
                 {isCurrent && (
                   <div className="absolute inset-0 ring-2 ring-[#FF4FB7]/60 animate-pulse" />
                 )}
@@ -178,12 +183,28 @@ const Playlist = () => {
                 </div>
               </div>
 
-              {/* ACTIONS (POSTOJEĆE) */}
-              <AddToPlaylistButton
-                trackId={track.id}
-                trackTitle={track.title}
-                variant="ghost"
-              />
+              {/* RIGHT ACTIONS */}
+              <div className="flex items-center gap-3 shrink-0">
+                {duration && (
+                  <span className="text-xs text-[#9A95B2] tabular-nums">
+                    {duration}
+                  </span>
+                )}
+
+                <button
+                  type="button"
+                  onClick={(e) => e.stopPropagation()}
+                  className="opacity-70 hover:opacity-100 transition"
+                >
+                  <Heart className="w-4 h-4 text-[#CFA85B]" />
+                </button>
+
+                <AddToPlaylistButton
+                  trackId={track.id}
+                  trackTitle={track.title}
+                  variant="ghost"
+                />
+              </div>
             </div>
           );
         })}
@@ -191,7 +212,7 @@ const Playlist = () => {
 
       {/* BACK */}
       <div className="absolute left-2 top-2 z-10">
-        <Button variant="ghost" size="icon" onClick={handleBack}>
+        <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
           <ArrowLeft className="h-5 w-5" />
         </Button>
       </div>
