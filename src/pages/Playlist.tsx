@@ -1,5 +1,5 @@
-import { useEffect, useMemo } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { Play, Heart, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { usePlayer } from "@/contexts/PlayerContext";
@@ -14,6 +14,8 @@ import { useSWRConfig } from "swr";
 import { withBackendOrigin } from "@/lib/backendUrl";
 import { usePlaylistViewTracking } from "@/hooks/usePlaylistViewTracking";
 import AddToPlaylistButton from "@/components/AddToPlaylistButton";
+import { useQueryClient } from "@tanstack/react-query";
+import { dedupeEvent } from "@/lib/requestDeduper";
 
 const formatDuration = (value?: number | string) => {
   if (!value) return null;
@@ -25,22 +27,21 @@ const formatDuration = (value?: number | string) => {
 
 const Playlist = () => {
   const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
-
-  const {
-    playPlaylist,
-    currentTrackId,
-    isPlaying,
-  } = usePlayer();
-
+  const { playPlaylist } = usePlayer();
   const { isPlaylistLiked, togglePlaylistLike } = useLikes();
   const { t } = useLanguage();
+  const [currentTrackId, setCurrentTrackId] = useState<string | null>(null);
   const { mutate } = useSWRConfig();
   const { user } = usePi();
   const { trackView } = usePlaylistViewTracking();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const queryClient = useQueryClient();
+  const didArtistRefresh = useRef(false);
 
   const { data: playlist, isLoading, error } = useExternalPlaylist(id || "");
   const isLiked = id ? isPlaylistLiked(id) : false;
+  const viewedSession = useRef<Set<string>>(new Set());
 
   const statsKey = useMemo(
     () => (id ? withBackendOrigin(`/api/playlists/${id}/public-stats`) : null),
@@ -53,30 +54,26 @@ const Playlist = () => {
 
   const handlePlayPlaylist = () => {
     if (!playlist || playlist.tracks.length === 0) return;
-
-    playPlaylist(
-      playlist.tracks.map((t) => ({
-        id: t.id,
-        external_id: t.external_id,
-        title: t.title,
-        artist: t.artist,
-      })),
-      0
-    );
+    const trackData = playlist.tracks.map((t) => ({
+      id: t.id,
+      external_id: t.external_id,
+      title: t.title,
+      artist: t.artist,
+    }));
+    playPlaylist(trackData, 0);
+    setCurrentTrackId(playlist.tracks[0].id);
   };
 
-  const handlePlayTrack = (index: number) => {
+  const handlePlayTrack = (track: any, index: number) => {
     if (!playlist) return;
-
-    playPlaylist(
-      playlist.tracks.map((t) => ({
-        id: t.id,
-        external_id: t.external_id,
-        title: t.title,
-        artist: t.artist,
-      })),
-      index
-    );
+    const trackData = playlist.tracks.map((t) => ({
+      id: t.id,
+      external_id: t.external_id,
+      title: t.title,
+      artist: t.artist,
+    }));
+    playPlaylist(trackData, index);
+    setCurrentTrackId(track.id);
   };
 
   const handleToggleLike = async () => {
@@ -147,15 +144,15 @@ const Playlist = () => {
       {/* TRACK LIST */}
       <div className="mt-8 space-y-2 px-2">
         {playlist.tracks.map((track, index) => {
-          const isActive = currentTrackId === track.id;
+          const isCurrent = currentTrackId === track.id;
           const duration = formatDuration(track.duration);
 
           return (
             <div
               key={track.id}
-              onClick={() => handlePlayTrack(index)}
-              className={`group flex items-center gap-3 h-[64px] pr-3 cursor-pointer border rounded-[10px] transition ${
-                isActive
+              onClick={() => handlePlayTrack(track, index)}
+              className={`flex items-center gap-3 h-[64px] pr-3 cursor-pointer border rounded-[10px] transition ${
+                isCurrent
                   ? "border-[#FF4FB7]/60 bg-[#FF4FB7]/10"
                   : "border-white/5 bg-white/5 hover:bg-white/10"
               }`}
@@ -167,15 +164,8 @@ const Playlist = () => {
                   alt={track.title}
                   className="absolute inset-0 w-full h-full object-cover scale-[1.15]"
                 />
-
-                {isActive && isPlaying && (
-                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-                    <div className="flex gap-[2px]">
-                      <span className="pm-eq-bar" />
-                      <span className="pm-eq-bar delay-1" />
-                      <span className="pm-eq-bar delay-2" />
-                    </div>
-                  </div>
+                {isCurrent && (
+                  <div className="absolute inset-0 ring-2 ring-[#FF4FB7]/60 animate-pulse" />
                 )}
               </div>
 
@@ -189,7 +179,7 @@ const Playlist = () => {
                 </div>
               </div>
 
-              {/* ACTIONS */}
+              {/* RIGHT ACTIONS */}
               <div className="flex items-center gap-3 shrink-0">
                 {duration && (
                   <span className="text-xs text-[#9A95B2] tabular-nums">
@@ -197,5 +187,34 @@ const Playlist = () => {
                   </span>
                 )}
 
+                <button
+                  type="button"
+                  onClick={(e) => e.stopPropagation()}
+                  className="opacity-70 hover:opacity-100 transition"
+                >
+                  <Heart className="w-4 h-4 text-[#CFA85B]" />
+                </button>
+
+                {/* ✅ OVO JE JEDINA PROMENA */}
                 <AddToPlaylistButton
                   trackId={track.id}
+                  trackTitle={track.title}
+                  variant="ghost"
+                />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* BACK */}
+      <div className="absolute left-2 top-2 z-10">
+        <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
+          <ArrowLeft className="h-5 w-5" />
+        </Button>
+      </div>
+    </div>
+  );
+};
+
+export default Playlist;
