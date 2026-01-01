@@ -22,27 +22,16 @@ const PlaylistCard = ({
       state={linkState}
       className="group block"
     >
-      <div className="rounded-[18px] border border-[rgba(255,255,255,0.08)] bg-[rgba(20,17,38,0.6)] p-4 backdrop-blur-xl shadow-[0_8px_24px_rgba(0,0,0,0.45)] transition-all duration-300 hover:border-[rgba(246,198,109,0.45)] hover:shadow-[0_12px_30px_rgba(0,0,0,0.55)]">
+      <div className="rounded-[18px] border border-[rgba(255,255,255,0.08)] bg-[rgba(20,17,38,0.6)] backdrop-blur-xl shadow-[0_8px_24px_rgba(0,0,0,0.45)] transition-all duration-300 hover:border-[rgba(246,198,109,0.45)] hover:shadow-[0_12px_30px_rgba(0,0,0,0.55)] overflow-hidden">
 
-        {/* Playlist cover */}
-        <div className="relative mb-3 w-full aspect-square rounded-xl overflow-hidden bg-[#0E0C16]">
+        {/* COVER — FULL WIDTH, NO MARGINS */}
+        <div className="relative w-full aspect-square bg-[#0E0C16]">
           {imageUrl ? (
-            <>
-              {/* background fill (Spotify trick) */}
-              <img
-                src={imageUrl}
-                alt=""
-                aria-hidden
-                className="absolute inset-0 w-full h-full object-cover blur-xl scale-110 opacity-40"
-              />
-
-              {/* main image */}
-              <img
-                src={imageUrl}
-                alt={title}
-                className="relative z-10 w-full h-full object-contain"
-              />
-            </>
+            <img
+              src={imageUrl}
+              alt={title}
+              className="w-full h-full object-contain"
+            />
           ) : (
             <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-[#FF4FB7]/20 via-[#7C3AED]/10 to-[#0E0C16]">
               <Music className="w-8 h-8 text-[#CFA85B]" />
@@ -50,8 +39,8 @@ const PlaylistCard = ({
           )}
         </div>
 
-        {/* Text */}
-        <div className="space-y-1">
+        {/* TEXT AREA — HAS PADDING */}
+        <div className="p-4 space-y-1">
           <h3 className="font-semibold text-sm text-[#F6C66D] truncate leading-tight">
             {title}
           </h3>
@@ -59,6 +48,7 @@ const PlaylistCard = ({
             {description}
           </p>
         </div>
+
       </div>
     </Link>
   );
