@@ -18,14 +18,15 @@ const PlaylistCard = ({
 }: PlaylistCardProps) => {
   return (
     <Link to={`/playlist/${id}`} state={linkState} className="group block">
-      <div className="overflow-hidden rounded-[18px] border border-[rgba(255,255,255,0.08)] bg-[rgba(20,17,38,0.6)] backdrop-blur-xl shadow-[0_8px_24px_rgba(0,0,0,0.45)] transition-all duration-300 hover:border-[rgba(246,198,109,0.45)] hover:shadow-[0_12px_30px_rgba(0,0,0,0.55)]">
-        {/* COVER — full width, NO padding, fixed aspect */}
-        <div className="relative w-full aspect-square bg-black/30 overflow-hidden">
+      <div className="overflow-hidden rounded-xl border border-[rgba(255,255,255,0.08)] bg-[rgba(20,17,38,0.6)] backdrop-blur-xl shadow-[0_8px_24px_rgba(0,0,0,0.45)] transition-all duration-300 hover:border-[rgba(246,198,109,0.45)] hover:shadow-[0_12px_30px_rgba(0,0,0,0.55)]">
+        
+        {/* COVER — full width, fixed aspect, slightly zoomed */}
+        <div className="relative w-full aspect-square bg-black/30 overflow-hidden rounded-lg">
           {imageUrl ? (
             <img
               src={imageUrl}
               alt={title}
-              className="absolute inset-0 w-full h-full object-cover object-center"
+              className="absolute inset-0 w-full h-full object-cover object-center scale-[1.08]"
               loading="lazy"
               decoding="async"
             />
@@ -36,7 +37,7 @@ const PlaylistCard = ({
           )}
         </div>
 
-        {/* TEXT — fixed height so all cards stay equal */}
+        {/* TEXT — fixed height for equal cards */}
         <div className="px-4 pt-3 pb-4 h-[72px]">
           <h3 className="font-semibold text-sm text-[#F6C66D] truncate leading-tight">
             {title}
