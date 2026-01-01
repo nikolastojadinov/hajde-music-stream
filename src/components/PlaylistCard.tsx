@@ -18,15 +18,15 @@ const PlaylistCard = ({
 }: PlaylistCardProps) => {
   return (
     <Link to={`/playlist/${id}`} state={linkState} className="group block">
-      <div className="overflow-hidden rounded-md border border-[rgba(255,255,255,0.08)] bg-[rgba(20,17,38,0.6)] backdrop-blur-xl shadow-[0_8px_24px_rgba(0,0,0,0.45)] transition-all duration-300 hover:border-[rgba(246,198,109,0.45)] hover:shadow-[0_12px_30px_rgba(0,0,0,0.55)]">
+      <div className="overflow-hidden rounded-[6px] border border-[rgba(255,255,255,0.08)] bg-[rgba(20,17,38,0.6)] backdrop-blur-xl shadow-[0_8px_24px_rgba(0,0,0,0.45)] transition-all duration-300 hover:border-[rgba(246,198,109,0.45)] hover:shadow-[0_12px_30px_rgba(0,0,0,0.55)]">
         
-        {/* COVER — full width, fixed aspect, STRONG zoom */}
-        <div className="relative w-full aspect-square bg-black/30 overflow-hidden rounded-sm">
+        {/* COVER — full width, fixed aspect, STRONGER zoom */}
+        <div className="relative w-full aspect-square bg-black/30 overflow-hidden rounded-[4px]">
           {imageUrl ? (
             <img
               src={imageUrl}
               alt={title}
-              className="absolute inset-0 w-full h-full object-cover object-center scale-[1.2]"
+              className="absolute inset-0 w-full h-full object-cover object-center scale-[1.28]"
               loading="lazy"
               decoding="async"
             />
