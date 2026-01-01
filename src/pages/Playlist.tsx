@@ -49,75 +49,67 @@ const Playlist = () => {
     if (id && user?.uid) trackView(id);
   }, [id, user?.uid, trackView]);
 
-  useEffect(() => {
-    const fromArtist = Boolean((location.state as any)?.fromArtist);
-    if (!fromArtist || !id || didArtistRefresh.current) return;
-
-    didArtistRefresh.current = true;
-    fetch(withBackendOrigin(`/api/playlists/${id}/refresh`), {
-      method: "POST",
-      credentials: "include",
-    })
-      .then(() => queryClient.invalidateQueries({ queryKey: ["external-playlist", id] }))
-      .catch(() => {});
-  }, [id, location.state, queryClient]);
-
   const handlePlayPlaylist = () => {
     if (!playlist || playlist.tracks.length === 0) return;
-    playPlaylist(
-      playlist.tracks.map(t => ({
-        id: t.id,
-        external_id: t.external_id,
-        title: t.title,
-        artist: t.artist,
-      })),
-      0
-    );
+    const trackData = playlist.tracks.map((t) => ({
+      id: t.id,
+      external_id: t.external_id,
+      title: t.title,
+      artist: t.artist,
+    }));
+    playPlaylist(trackData, 0);
     setCurrentTrackId(playlist.tracks[0].id);
   };
 
   const handlePlayTrack = (track: any, index: number) => {
     if (!playlist) return;
-    playPlaylist(
-      playlist.tracks.map(t => ({
-        id: t.id,
-        external_id: t.external_id,
-        title: t.title,
-        artist: t.artist,
-      })),
-      index
-    );
+    const trackData = playlist.tracks.map((t) => ({
+      id: t.id,
+      external_id: t.external_id,
+      title: t.title,
+      artist: t.artist,
+    }));
+    playPlaylist(trackData, index);
     setCurrentTrackId(track.id);
+  };
+
+  const handleToggleLike = async () => {
+    if (!id) return;
+    await togglePlaylistLike(id);
+    if (statsKey) mutate(statsKey);
   };
 
   const handleBack = () => navigate(-1);
 
   if (isLoading) {
     return (
-      <div className="flex-1 flex justify-center pt-20">
-        <Skeleton className="w-48 h-48 rounded-md" />
+      <div className="flex-1 overflow-y-auto pb-32 flex justify-center pt-20">
+        <Skeleton className="w-48 h-48 rounded-xl" />
       </div>
     );
   }
 
   if (error || !playlist) {
     return (
-      <div className="flex-1 flex justify-center pt-20 px-4">
+      <div className="flex-1 overflow-y-auto pb-32 flex justify-center pt-20 px-4">
         <EmptyState title="Playlist unavailable" subtitle="Please try again later." />
       </div>
     );
   }
 
   return (
-    <div className="relative flex-1 overflow-y-auto pb-32 bg-gradient-to-b from-[#07060B] to-[#0B0814]">
-      {/* ===== HEADER ===== */}
+    <div className="relative flex-1 overflow-y-auto pb-32 bg-[linear-gradient(180deg,#07060B,#0B0814)]">
+      {/* HEADER – NEDIRNUT */}
       <div className="pt-8 px-4 text-center">
-        <img
-          src={playlist.cover_url || "/placeholder.svg"}
-          className="mx-auto w-56 h-56 rounded-md object-cover shadow-lg border border-white/10"
-        />
+        <div className="flex justify-center mb-5">
+          <img
+            src={playlist.cover_url || "/placeholder.svg"}
+            alt={playlist.title}
+            className="w-56 h-56 rounded-[14px] object-cover shadow-lg border border-white/10"
+          />
+        </div>
 
-        <h1 className="mt-5 font-black text-[28px] text-[#F6C66D] line-clamp-2">
+        <h1 className="font-black text-[30px] leading-tight text-[#F6C66D] line-clamp-2">
           {playlist.title}
         </h1>
 
@@ -125,29 +117,31 @@ const Playlist = () => {
           {playlist.tracks.length} {t("songs")}
         </p>
 
-        <div className="flex justify-center gap-4 mt-6">
+        <div className="flex justify-center items-center gap-4 mt-6">
           <button className="pm-cta-pill" onClick={handlePlayPlaylist}>
-            <Play className="w-5 h-5 mr-1 text-[#FFD77A]" />
-            {t("play_all")}
+            <span className="pm-cta-pill-inner">
+              <Play className="w-5 h-5 mr-1 text-[#FFD77A]" />
+              {t("play_all")}
+            </span>
           </button>
 
           <button
-            onClick={() => togglePlaylistLike(id!)}
-            className="w-11 h-11 rounded-full border border-white/10 bg-white/5"
+            onClick={handleToggleLike}
+            className="w-12 h-12 rounded-full border border-white/10 bg-white/5 flex items-center justify-center"
           >
             <Heart
-              className={`w-5 h-5 ${
+              className={`w-6 h-6 ${
                 isLiked ? "fill-[#FF4FB7] text-[#FF4FB7]" : "text-[#CFA85B]"
               }`}
             />
           </button>
 
-          <PlaylistHeaderStats playlistId={id!} />
+          {id && <PlaylistHeaderStats playlistId={id} />}
         </div>
       </div>
 
-      {/* ===== TRACKS ===== */}
-      <div className="mt-8 space-y-2">
+      {/* TRACK LIST */}
+      <div className="mt-8 space-y-2 px-2">
         {playlist.tracks.map((track, index) => {
           const isCurrent = currentTrackId === track.id;
 
@@ -155,45 +149,52 @@ const Playlist = () => {
             <div
               key={track.id}
               onClick={() => handlePlayTrack(track, index)}
-              className={`flex items-center gap-3 px-3 py-2 cursor-pointer border border-white/5 bg-white/5 hover:bg-white/10 transition
-                ${isCurrent ? "border-[#FF4FB7]/50 bg-[#FF4FB7]/10 animate-pulse-soft" : ""}
-              `}
+              className={`flex items-center gap-3 pr-3 h-[64px] cursor-pointer border rounded-[10px] transition ${
+                isCurrent
+                  ? "border-[#FF4FB7]/60 bg-[#FF4FB7]/10"
+                  : "border-white/5 bg-white/5 hover:bg-white/10"
+              }`}
             >
               {/* COVER */}
-              <div className="w-12 h-12 overflow-hidden rounded-md bg-black">
+              <div className="relative w-[56px] h-full overflow-hidden rounded-l-[8px]">
                 <img
-                  src={track.cover_url || playlist.cover_url}
-                  className="w-full h-full object-cover scale-[1.08]"
+                  src={track.cover_url || playlist.cover_url || "/placeholder.svg"}
+                  alt={track.title}
+                  className="absolute inset-0 w-full h-full object-cover scale-[1.15]"
                 />
+
+                {isCurrent && (
+                  <div className="absolute inset-0 ring-2 ring-[#FF4FB7]/60 animate-pulse" />
+                )}
               </div>
 
               {/* TEXT */}
               <div className="flex-1 min-w-0">
-                <div className="font-medium truncate">{track.title}</div>
-                <div className="text-sm text-muted-foreground truncate">
+                <div className="font-medium truncate text-[#F6C66D]">
+                  {track.title}
+                </div>
+                <div className="text-sm text-[#9A95B2] truncate">
                   {track.artist}
                 </div>
               </div>
 
-              {/* RIGHT ACTIONS */}
-              <div className="flex items-center gap-3 text-sm text-muted-foreground">
-                <span>{track.duration || "--:--"}</span>
-                <Heart className="w-4 h-4" />
-                <AddToPlaylistButton trackId={track.id} trackTitle={track.title} />
-              </div>
+              {/* ACTIONS (POSTOJEĆE) */}
+              <AddToPlaylistButton
+                trackId={track.id}
+                trackTitle={track.title}
+                variant="ghost"
+              />
             </div>
           );
         })}
       </div>
 
-      <Button
-        variant="ghost"
-        size="icon"
-        onClick={handleBack}
-        className="absolute left-2 top-2"
-      >
-        <ArrowLeft className="w-5 h-5" />
-      </Button>
+      {/* BACK */}
+      <div className="absolute left-2 top-2 z-10">
+        <Button variant="ghost" size="icon" onClick={handleBack}>
+          <ArrowLeft className="h-5 w-5" />
+        </Button>
+      </div>
     </div>
   );
 };
