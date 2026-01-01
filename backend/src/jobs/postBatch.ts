@@ -1,6 +1,7 @@
 // backend/src/jobs/postBatch.ts
-// FINAL — Lazy postBatch, mirrors first artist page open behavior
-// Consumes ONLY runBatch playlistTargets for the same day/slot
+// FINAL — postBatch strictly consumes RUN job payload
+// NO search, NO channel logic, NO discovery
+// Behavior matches first artist page open (lazy ingest)
 
 import supabase from '../services/supabaseClient';
 import {
@@ -11,7 +12,7 @@ import { RefreshJobRow } from '../types/jobs';
 
 const TIMEZONE = 'Europe/Budapest';
 const MIX_PREFIX = 'RD';
-const MAX_TRACKS_PER_PLAYLIST = 7;
+const LAZY_TRACK_LIMIT = 7;
 
 /* -------------------------------------------------------------------------- */
 /* utils                                                                      */
@@ -109,7 +110,7 @@ async function finalizeJob(
 export async function executePostBatchJob(
   job: RefreshJobRow,
 ): Promise<void> {
-  console.log('[postBatch] Starting lazy job', {
+  console.log('[postBatch] Starting job', {
     jobId: job.id,
     slot: job.slot_index,
     day_key: job.day_key,
@@ -122,34 +123,25 @@ export async function executePostBatchJob(
     );
 
     if (targets.length === 0) {
-      console.warn('[postBatch] No playlist targets from runBatch');
-      await finalizeJob(job.id, {
-        timezone: TIMEZONE,
-        targets_requested: 0,
-        ingest: { skipped: true },
-      });
-      return;
+      throw new Error('RUN job returned zero valid playlist targets');
     }
 
-    // 🔥 LAZY INGEST — EXACTLY LIKE FIRST ARTIST PAGE OPEN
+    // EXACT same behavior as first artist page open
     const ingestResult = await ingestDiscoveredPlaylistTracks(
       targets,
       {
-        max_tracks: MAX_TRACKS_PER_PLAYLIST,
-        replace_existing: false,
-        ingest_mode: 'lazy',
-        source: 'postBatch',
+        maxTotalTracks: LAZY_TRACK_LIMIT,
       },
     );
 
     await finalizeJob(job.id, {
       timezone: TIMEZONE,
       targets_requested: targets.length,
+      lazy_track_limit: LAZY_TRACK_LIMIT,
       ingest: ingestResult,
-      mode: 'lazy',
     });
 
-    console.log('[postBatch] Job completed (lazy)', {
+    console.log('[postBatch] Job completed', {
       jobId: job.id,
       targets: targets.length,
       ingest: ingestResult,
