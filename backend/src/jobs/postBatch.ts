@@ -1,6 +1,6 @@
 // backend/src/jobs/postBatch.ts
-// FINAL — postBatch strictly consumes RUN job payload
-// Aligned with runBatch: NO channel / topic filtering here
+// FINAL — Lazy postBatch, mirrors first artist page open behavior
+// Consumes ONLY runBatch playlistTargets for the same day/slot
 
 import supabase from '../services/supabaseClient';
 import {
@@ -11,6 +11,7 @@ import { RefreshJobRow } from '../types/jobs';
 
 const TIMEZONE = 'Europe/Budapest';
 const MIX_PREFIX = 'RD';
+const MAX_TRACKS_PER_PLAYLIST = 7;
 
 /* -------------------------------------------------------------------------- */
 /* utils                                                                      */
@@ -25,7 +26,7 @@ function isMixPlaylist(externalId: string): boolean {
 }
 
 function dedupeTargets(
-  rawTargets: PlaylistIngestTarget[]
+  rawTargets: PlaylistIngestTarget[],
 ): PlaylistIngestTarget[] {
   const map = new Map<string, PlaylistIngestTarget>();
 
@@ -34,8 +35,6 @@ function dedupeTargets(
     const external_playlist_id = normalizeString(raw.external_playlist_id);
 
     if (!playlist_id || !external_playlist_id) continue;
-
-    // ONLY filter mix playlists — nothing else
     if (isMixPlaylist(external_playlist_id)) continue;
 
     if (!map.has(playlist_id)) {
@@ -52,7 +51,7 @@ function dedupeTargets(
 
 async function loadRunJobTargets(
   dayKey: string,
-  slotIndex: number
+  slotIndex: number,
 ): Promise<PlaylistIngestTarget[]> {
   const { data, error } = await supabase
     .from('refresh_jobs')
@@ -79,9 +78,9 @@ async function loadRunJobTargets(
       external_playlist_id: normalizeString(
         entry.external_playlist_id ||
           entry.externalId ||
-          entry.external_id
+          entry.external_id,
       ),
-    }))
+    })),
   );
 }
 
@@ -91,7 +90,7 @@ async function loadRunJobTargets(
 
 async function finalizeJob(
   jobId: string,
-  payload: Record<string, unknown>
+  payload: Record<string, unknown>,
 ): Promise<void> {
   await supabase
     .from('refresh_jobs')
@@ -108,9 +107,9 @@ async function finalizeJob(
 /* -------------------------------------------------------------------------- */
 
 export async function executePostBatchJob(
-  job: RefreshJobRow
+  job: RefreshJobRow,
 ): Promise<void> {
-  console.log('[postBatch] Starting job', {
+  console.log('[postBatch] Starting lazy job', {
     jobId: job.id,
     slot: job.slot_index,
     day_key: job.day_key,
@@ -119,23 +118,38 @@ export async function executePostBatchJob(
   try {
     const targets = await loadRunJobTargets(
       job.day_key,
-      job.slot_index
+      job.slot_index,
     );
 
     if (targets.length === 0) {
-      throw new Error('RUN job returned zero valid playlist targets');
+      console.warn('[postBatch] No playlist targets from runBatch');
+      await finalizeJob(job.id, {
+        timezone: TIMEZONE,
+        targets_requested: 0,
+        ingest: { skipped: true },
+      });
+      return;
     }
 
-    const ingestResult =
-      await ingestDiscoveredPlaylistTracks(targets);
+    // 🔥 LAZY INGEST — EXACTLY LIKE FIRST ARTIST PAGE OPEN
+    const ingestResult = await ingestDiscoveredPlaylistTracks(
+      targets,
+      {
+        max_tracks: MAX_TRACKS_PER_PLAYLIST,
+        replace_existing: false,
+        ingest_mode: 'lazy',
+        source: 'postBatch',
+      },
+    );
 
     await finalizeJob(job.id, {
       timezone: TIMEZONE,
       targets_requested: targets.length,
       ingest: ingestResult,
+      mode: 'lazy',
     });
 
-    console.log('[postBatch] Job completed', {
+    console.log('[postBatch] Job completed (lazy)', {
       jobId: job.id,
       targets: targets.length,
       ingest: ingestResult,
