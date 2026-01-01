@@ -60,21 +60,15 @@ function formatCount(n: number): string {
 }
 
 function isOk(x: any): x is ArtistOkResponse {
-  return (
-    x &&
-    typeof x === "object" &&
-    x.status === "ok" &&
-    Array.isArray(x.playlists) &&
-    Array.isArray(x.tracks)
-  );
+  return x && x.status === "ok" && Array.isArray(x.playlists) && Array.isArray(x.tracks);
 }
 
 function isNotReady(x: any): x is ArtistNotReadyResponse {
-  return x && typeof x === "object" && x.status === "not_ready";
+  return x && x.status === "not_ready";
 }
 
 function isError(x: any): x is ArtistErrorResponse {
-  return x && typeof x === "object" && typeof x.error === "string";
+  return x && typeof x.error === "string";
 }
 
 function escapeRegex(value: string): string {
@@ -84,12 +78,9 @@ function escapeRegex(value: string): string {
 function cleanTrackTitle(rawTitle: string, canonicalArtistName: string): string {
   const title = normalizeString(rawTitle) || "Unknown title";
   const artist = normalizeString(canonicalArtistName);
-
   if (!artist) return title;
-
   const pattern = new RegExp(`^${escapeRegex(artist)}\\s*-\\s*`, "i");
-  const stripped = title.replace(pattern, "").trim();
-  return stripped || title;
+  return title.replace(pattern, "").trim() || title;
 }
 
 function isDisplayablePlaylist(p: ApiPlaylist): boolean {
@@ -103,8 +94,10 @@ function isDisplayablePlaylist(p: ApiPlaylist): boolean {
 
 export default function Artist() {
   const { artistKey: artistKeyParam } = useParams();
-  const { playPlaylist } = usePlayer();
   const navigate = useNavigate();
+
+  // ⬇️ BITNO: uzimamo GLOBALNI player state
+  const { playPlaylist, currentTrackId } = usePlayer();
 
   const artistKey = normalizeString(artistKeyParam);
 
@@ -118,12 +111,10 @@ export default function Artist() {
   const [artistMedia, setArtistMedia] = useState<{ thumbnail_url: string | null; banner_url: string | null } | null>(null);
   const [artistTitle, setArtistTitle] = useState<string>(artistKey);
 
-  /* === PLAY STATE (ISTO KAO PLAYLIST PAGE) === */
-  const [currentTrackId, setCurrentTrackId] = useState<string | null>(null);
-
-  const canonicalArtistName = useMemo(() => {
-    return normalizeString(artistTitle) || normalizeString(artistKey) || "Artist";
-  }, [artistTitle, artistKey]);
+  const canonicalArtistName = useMemo(
+    () => normalizeString(artistTitle) || normalizeString(artistKey) || "Artist",
+    [artistTitle, artistKey]
+  );
 
   const playlistTracks = useMemo(
     () =>
@@ -143,17 +134,15 @@ export default function Artist() {
     [playlists]
   );
 
-  /* === PLAY HANDLERS === */
+  /* ===================== PLAY ===================== */
 
   const handlePlayAll = () => {
     if (playlistTracks.length === 0) return;
     playPlaylist(playlistTracks, 0);
-    setCurrentTrackId(playlistTracks[0].id);
   };
 
-  const handlePlayTrack = (trackId: string, index: number) => {
+  const handlePlayTrack = (_trackId: string, index: number) => {
     playPlaylist(playlistTracks, index);
-    setCurrentTrackId(trackId);
   };
 
   const retry = () => {
@@ -161,9 +150,7 @@ export default function Artist() {
     setReloadNonce((x) => x + 1);
   };
 
-  const handleBack = () => {
-    navigate(-1);
-  };
+  const handleBack = () => navigate(-1);
 
   /* ===================== DATA LOAD ===================== */
 
@@ -211,11 +198,7 @@ export default function Artist() {
   /* ===================== UI ===================== */
 
   if (loading) {
-    return (
-      <div className="p-4 pb-32 flex justify-center">
-        <div className="text-muted-foreground">Učitavanje…</div>
-      </div>
-    );
+    return <div className="p-4 pb-32 text-center opacity-60">Učitavanje…</div>;
   }
 
   if (error) {
@@ -229,94 +212,87 @@ export default function Artist() {
   const displayInitial = canonicalArtistName[0]?.toUpperCase() ?? "?";
 
   return (
-    <div className="relative">
+    <div className="relative pb-32">
       <div className="absolute left-2 top-2 z-10">
         <Button variant="ghost" size="icon" onClick={handleBack}>
           <ArrowLeft className="h-5 w-5" />
         </Button>
       </div>
 
-      <div className="pb-32">
-        {/* HEADER */}
-        <div className="pt-6 px-4 text-center">
-          <div className="flex justify-center mb-4">
-            <div className="w-28 h-28 rounded-full overflow-hidden border">
-              {artistMedia?.thumbnail_url ? (
-                <img src={artistMedia.thumbnail_url} className="w-full h-full object-cover" />
-              ) : (
-                <div className="flex items-center justify-center h-full text-3xl">
-                  {displayInitial}
-                </div>
-              )}
-            </div>
-          </div>
-
-          <h1 className="font-black text-[26px] truncate">{canonicalArtistName}</h1>
-          <p className="text-sm opacity-70">
-            {formatCount(tracks.length)} tracks • {formatCount(displayPlaylists.length)} playlists
-          </p>
-
-          {/* PLAY ALL – ISTI KAO PLAYLIST PAGE */}
-          <div className="flex justify-center mt-5">
-            <button className="pm-cta-pill" onClick={handlePlayAll}>
-              <span className="pm-cta-pill-inner">
-                <Play className="w-5 h-5 mr-1" />
-                Play all
-              </span>
-            </button>
+      {/* HEADER */}
+      <div className="pt-6 px-4 text-center">
+        <div className="flex justify-center mb-4">
+          <div className="w-28 h-28 rounded-full overflow-hidden border">
+            {artistMedia?.thumbnail_url ? (
+              <img src={artistMedia.thumbnail_url} className="w-full h-full object-cover" />
+            ) : (
+              <div className="flex items-center justify-center h-full text-3xl">{displayInitial}</div>
+            )}
           </div>
         </div>
 
-        {/* PLAYLISTS */}
-        <section className="mt-8">
-          <div className="px-4 flex items-center gap-2 mb-4">
-            <ListMusic className="w-5 h-5" />
-            <h2 className="text-xl font-bold">Playlists</h2>
-          </div>
+        <h1 className="font-black text-[26px] truncate">{canonicalArtistName}</h1>
+        <p className="text-sm opacity-70">
+          {formatCount(tracks.length)} tracks • {formatCount(displayPlaylists.length)} playlists
+        </p>
 
-          <div className="px-4">
-            <ScrollArea>
-              <div className="flex space-x-4 pb-4">
-                {displayPlaylists.map((p) => (
-                  <div key={p.id} className="w-[140px]">
-                    <PlaylistCard
-                      id={p.id}
-                      title={p.title}
-                      imageUrl={p.cover_url || "/placeholder.svg"}
-                      description=""
-                    />
-                  </div>
-                ))}
+        <div className="flex justify-center mt-5">
+          <button className="pm-cta-pill" onClick={handlePlayAll}>
+            <span className="pm-cta-pill-inner">
+              <Play className="w-5 h-5 mr-1" />
+              Play all
+            </span>
+          </button>
+        </div>
+      </div>
+
+      {/* PLAYLISTS */}
+      <section className="mt-8 px-4">
+        <div className="flex items-center gap-2 mb-4">
+          <ListMusic className="w-5 h-5" />
+          <h2 className="text-xl font-bold">Playlists</h2>
+        </div>
+
+        <ScrollArea>
+          <div className="flex space-x-4 pb-4">
+            {displayPlaylists.map((p) => (
+              <div key={p.id} className="w-[140px]">
+                <PlaylistCard
+                  id={p.id}
+                  title={p.title}
+                  imageUrl={p.cover_url || "/placeholder.svg"}
+                  description=""
+                />
               </div>
-              <ScrollBar orientation="horizontal" />
-            </ScrollArea>
-          </div>
-        </section>
-
-        {/* TRACKS */}
-        <section className="mt-8">
-          <div className="px-4 flex items-center gap-2 mb-4">
-            <Music className="w-5 h-5" />
-            <h2 className="text-xl font-bold">Tracks</h2>
-          </div>
-
-          <div className="px-4 space-y-2">
-            {tracks.map((t, index) => (
-              <TrackCard
-                key={t.id}
-                id={t.id}
-                title={cleanTrackTitle(t.title, canonicalArtistName)}
-                artist={canonicalArtistName}
-                imageUrl={t.cover_url}
-                youtubeId={t.youtube_video_id}
-                duration={t.duration ?? null}
-                isActive={currentTrackId === t.id}
-                onPlay={() => handlePlayTrack(t.id, index)}
-              />
             ))}
           </div>
-        </section>
-      </div>
+          <ScrollBar orientation="horizontal" />
+        </ScrollArea>
+      </section>
+
+      {/* TRACKS */}
+      <section className="mt-8 px-4">
+        <div className="flex items-center gap-2 mb-4">
+          <Music className="w-5 h-5" />
+          <h2 className="text-xl font-bold">Tracks</h2>
+        </div>
+
+        <div className="space-y-2">
+          {tracks.map((t, index) => (
+            <TrackCard
+              key={t.id}
+              id={t.id}
+              title={cleanTrackTitle(t.title, canonicalArtistName)}
+              artist={canonicalArtistName}
+              imageUrl={t.cover_url}
+              youtubeId={t.youtube_video_id}
+              duration={t.duration ?? null}
+              isActive={currentTrackId === t.id}
+              onPlay={() => handlePlayTrack(t.id, index)}
+            />
+          ))}
+        </div>
+      </section>
     </div>
   );
 }
