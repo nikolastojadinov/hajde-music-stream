@@ -13,7 +13,8 @@ const SUPABASE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 type CacheEntry = { value: SuggestEnvelope; expiresAtMs: number };
 
 type PersistSuggestEntryParams = {
-  key: string;
+  query: string; // ✅ PLAIN normalized query
+  source: string;
   value: SuggestEnvelope;
   ttlSeconds?: number;
   meta?: Record<string, unknown>;
@@ -27,7 +28,7 @@ const memoryCache = new Map<string, CacheEntry>();
 let fileCacheLoaded = false;
 
 /* =========================
-   Normalization helpers
+   Normalization
 ========================= */
 
 export function normalizeQuery(q: string): string {
@@ -39,26 +40,16 @@ export function normalizeQuery(q: string): string {
     .replace(/\s+/g, " ");
 }
 
-export function buildSuggestCacheKey(userInput: string, source: string = "spotify"): string {
+/**
+ * Redis key only (allowed to contain source)
+ */
+export function buildSuggestCacheKey(
+  userInput: string,
+  source: string = "spotify"
+): string {
   const normalized = normalizeQuery(userInput);
   if (!normalized) return "";
   return `${source}:${normalized}`;
-}
-
-function extractSourceAndQuery(key: string): { source: string; query: string } {
-  const idx = key.indexOf(":");
-  if (idx === -1) return { source: "unknown", query: key };
-  return {
-    source: key.slice(0, idx),
-    query: key.slice(idx + 1),
-  };
-}
-
-function normalizeKey(key: string): string {
-  const { source, query } = extractSourceAndQuery(key);
-  const normalizedQuery = normalizeQuery(query);
-  if (!normalizedQuery) return "";
-  return `${source}:${normalizedQuery}`;
 }
 
 function nowMs(): number {
@@ -144,28 +135,26 @@ async function loadFileCache(): Promise<void> {
 }
 
 /* =========================
-   Supabase persist (FIXED)
+   Supabase persist (FINAL)
 ========================= */
 
 async function persistSuggestEntry({
-  key,
+  query,
+  source,
   value,
   ttlSeconds,
   meta,
 }: PersistSuggestEntryParams): Promise<void> {
   if (!supabase) return;
 
-  const { source, query } = extractSourceAndQuery(key);
-  const normalizedQuery = normalizeQuery(query);
-
   try {
     const { error } = await supabase
       .from("suggest_entries")
       .upsert(
         {
-          source,                 // spotify
-          query,                  // ✅ "paulo londra" (NO PREFIX)
-          normalized_query: normalizedQuery,
+          source,                   // spotify
+          query,                    // ✅ "paulo londra"
+          normalized_query: query,  // ✅ SAME
           results: value,
           ttl_seconds: ttlSeconds ?? null,
           meta: meta ?? {},
@@ -184,27 +173,30 @@ async function persistSuggestEntry({
    Public API
 ========================= */
 
-export async function getCachedSuggest(key: string): Promise<SuggestEnvelope | null> {
-  const normalizedKey = normalizeKey(key);
-  if (!normalizedKey) return null;
+export async function getCachedSuggest(
+  key: string
+): Promise<SuggestEnvelope | null> {
+  const idx = key.indexOf(":");
+  if (idx === -1) return null;
+
+  const source = key.slice(0, idx);
+  const query = normalizeQuery(key.slice(idx + 1));
+  if (!query) return null;
 
   const redis = await getRedis();
   if (redis) {
-    const raw = await redis.get(redisKey(normalizedKey));
+    const raw = await redis.get(redisKey(key));
     if (raw) return JSON.parse(raw);
   }
 
   await loadFileCache();
-  const entry = memoryCache.get(normalizedKey);
+  const entry = memoryCache.get(key);
   if (entry && entry.expiresAtMs > nowMs()) return entry.value;
-
-  const { source, query } = extractSourceAndQuery(normalizedKey);
-  const normalizedQuery = normalizeQuery(query);
 
   const { data } = await supabase
     .from("suggest_entries")
     .select("results, ts")
-    .eq("normalized_query", normalizedQuery)
+    .eq("query", query)
     .eq("source", source)
     .order("ts", { ascending: false })
     .limit(1)
@@ -212,31 +204,41 @@ export async function getCachedSuggest(key: string): Promise<SuggestEnvelope | n
 
   if (!data) return null;
 
-  if (Date.now() - new Date(data.ts).getTime() > SUPABASE_MAX_AGE_MS) return null;
+  if (Date.now() - new Date(data.ts).getTime() > SUPABASE_MAX_AGE_MS) {
+    return null;
+  }
 
   return data.results ?? null;
 }
 
-export async function cacheSuggest(key: string, value: SuggestEnvelope): Promise<void> {
-  const normalizedKey = normalizeKey(key);
-  if (!normalizedKey) return;
+export async function cacheSuggest(
+  key: string,
+  value: SuggestEnvelope
+): Promise<void> {
+  const idx = key.indexOf(":");
+  if (idx === -1) return;
+
+  const source = key.slice(0, idx);
+  const query = normalizeQuery(key.slice(idx + 1));
+  if (!query) return;
 
   const expiresAtMs = nowMs() + SUGGESTION_TTL_SECONDS * 1000;
 
   const redis = await getRedis();
   if (redis) {
     await redis.setex(
-      redisKey(normalizedKey),
+      redisKey(key),
       SUGGESTION_TTL_SECONDS,
       JSON.stringify(value)
     );
   }
 
-  memoryCache.set(normalizedKey, { value, expiresAtMs });
+  memoryCache.set(key, { value, expiresAtMs });
   pruneMemoryCache(nowMs());
 
   await persistSuggestEntry({
-    key: normalizedKey,
+    source,
+    query,
     value,
     ttlSeconds: SUGGESTION_TTL_SECONDS,
   });
