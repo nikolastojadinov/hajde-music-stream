@@ -24,7 +24,7 @@ interface PlaylistData {
 
 const GRID_CLASS = "grid grid-cols-2 gap-1.5";
 const CARD_CLASS = "flex h-14 w-full items-center gap-2 rounded-xl bg-[#1a1a1a] p-1";
-const THUMB_CLASS = "relative h-12 w-12 flex-shrink-0 overflow-hidden rounded-md bg-black/50";
+const THUMB_CLASS = "relative h-12 w-12 flex-shrink-0 overflow-hidden bg-black/50";
 
 const JumpBackGrid = () => {
   const { user } = usePi();
