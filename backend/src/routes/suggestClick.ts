@@ -27,15 +27,14 @@ export async function suggestClick(req: Request, res: Response) {
       return res.status(400).json({ error: "Invalid query" });
     }
 
-    const fullQueryKey = `${source}:${normalizedQuery}`;
-
     /**
-     * Atomic update:
-     * meta.clicks[itemKey] += 1
+     * IMPORTANT:
+     * - query je CIST (bez spotify:)
+     * - source se salje ODVOJENO
      */
     const { error } = await supabase.rpc("increment_suggest_click", {
       p_source: source,
-      p_query: fullQueryKey,
+      p_query: normalizedQuery,
       p_item_key: itemKey,
     });
 
