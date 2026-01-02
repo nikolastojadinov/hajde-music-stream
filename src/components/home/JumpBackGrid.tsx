@@ -24,7 +24,7 @@ interface PlaylistData {
 
 const GRID_CLASS = "grid grid-cols-2 gap-1.5";
 const CARD_CLASS = "flex h-14 w-full items-center gap-2 rounded-xl bg-[#1a1a1a] p-1";
-const THUMB_CLASS = "h-12 w-12 flex-shrink-0 rounded-md bg-black/40 flex items-center justify-center";
+const THUMB_CLASS = "relative h-12 w-12 flex-shrink-0 overflow-hidden rounded-md bg-black/50";
 
 const JumpBackGrid = () => {
   const { user } = usePi();
@@ -112,9 +112,9 @@ const JumpBackGrid = () => {
         >
           <div className={THUMB_CLASS}>
             {playlist.cover_url ? (
-              <img src={playlist.cover_url} alt={playlist.title} className="h-full w-full object-contain object-center" />
+              <img src={playlist.cover_url} alt={playlist.title} className="absolute inset-0 h-full w-full object-cover scale-[1.1]" />
             ) : (
-              <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-primary/20 to-primary/5">
+              <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-primary/20 to-primary/5">
                 <Music className="h-3.5 w-3.5 text-primary/30" />
               </div>
             )}

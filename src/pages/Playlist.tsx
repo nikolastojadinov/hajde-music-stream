@@ -11,6 +11,7 @@ import { useExternalPlaylist } from "@/hooks/useExternalPlaylist";
 import useLikes from "@/hooks/useLikes";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { PlaylistHeaderStats } from "@/components/playlists/PlaylistHeaderStats";
+import { usePlaylistViewTracking } from "@/hooks/usePlaylistViewTracking";
 
 /* ===================== UTILS ===================== */
 
@@ -31,11 +32,18 @@ const Playlist = () => {
 
   // ⬇️ IDENTIČNO KAO U Artist.tsx
   const { playPlaylist, currentTrackId } = usePlayer();
+  const { trackView } = usePlaylistViewTracking();
 
   const { data: playlist, isLoading, error } = useExternalPlaylist(id || "");
   const { isPlaylistLiked, togglePlaylistLike } = useLikes();
 
   const isLiked = id ? isPlaylistLiked(id) : false;
+
+  useEffect(() => {
+    if (playlist?.id) {
+      trackView(playlist.id);
+    }
+  }, [playlist?.id, trackView]);
 
   /* ===================== QUEUE ===================== */
 
