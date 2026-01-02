@@ -474,9 +474,9 @@ export default function Search() {
     return out;
   }, [resultsPlaylists.local, resultsSongs]);
 
-  async function runResolve(nextQuery: string, mode: SearchResolveMode): Promise<SearchResolveResponse | null> {
+  async function runResolve(nextQuery: string, mode: SearchResolveMode) {
     const q = normalizeQuery(nextQuery);
-    if (!q) return null;
+    if (!q) return;
 
     resolveAbortRef.current?.abort();
     const controller = new AbortController();
@@ -491,7 +491,6 @@ export default function Search() {
       if (!controller.signal.aborted) {
         resolveCacheRef.current.set(q.toLowerCase(), next);
         setResolved(next);
-        return next;
       }
     } catch (e: any) {
       if (controller.signal.aborted) return;
@@ -500,8 +499,6 @@ export default function Search() {
     } finally {
       if (!controller.signal.aborted) setResolveLoading(false);
     }
-
-    return null;
   }
 
   const handleSuggestionClick = async (s: Suggestion) => {
@@ -531,20 +528,7 @@ export default function Search() {
       setResolved(cached);
     }
 
-    if (s.type === "playlist") {
-      void persistRecentSearch({ query: nextQuery, entity_type: "playlist", entity_id: s.id });
-      navigate(`/playlist/${s.id}`);
-      return;
-    }
-
-    if (s.type === "artist") {
-      void persistRecentSearch({ query: nextQuery, entity_type: "artist", entity_id: s.id });
-      const key = deriveArtistKey(nextQuery);
-      if (key) navigate(`/artist/${encodeURIComponent(key)}`);
-      return;
-    }
-
-    const response = await runResolve(nextQuery, nextMode);
+    await runResolve(nextQuery, nextMode);
 
     const entityType: RecentSearchItem["entity_type"] =
       s.type === "artist"
@@ -558,32 +542,6 @@ export default function Search() {
               : "generic";
 
     void persistRecentSearch({ query: nextQuery, entity_type: entityType, entity_id: s.id });
-
-    if (s.type === "track") {
-      const trackCandidates = Array.isArray(response?.tracks)
-        ? response?.tracks
-        : Array.isArray(response?.local?.tracks)
-          ? response?.local?.tracks
-          : [];
-
-      const playable = trackCandidates.find((t) => {
-        const externalId = typeof t?.externalId === "string" ? t.externalId : null;
-        const fallbackId = typeof (t as any)?.youtube_id === "string" ? (t as any).youtube_id : null;
-        const id = externalId || fallbackId || t?.id;
-        return Boolean(id);
-      });
-
-      if (playable) {
-        const externalId = typeof playable.externalId === "string" ? playable.externalId : null;
-        const fallbackId = typeof (playable as any)?.youtube_id === "string" ? (playable as any).youtube_id : null;
-        const id = externalId || fallbackId || playable.id;
-        const title = playable.title || nextQuery;
-        const artist = playable.artist || (s.subtitle ? s.subtitle : s.artists?.join(", ") || "Unknown artist");
-        if (id) {
-          playTrack(id, title, artist, playable.id ?? id);
-        }
-      }
-    }
   };
 
   const handleRecentClick = async (item: RecentSearchItem) => {
@@ -601,41 +559,18 @@ export default function Search() {
       setResolved(cached);
     }
 
-    const response = await runResolve(normalized, "generic");
+    await runResolve(normalized, "generic");
     void persistRecentSearch({ query: normalized, entity_type: item.entity_type, entity_id: item.entity_id });
-    return response;
   };
-
-  const handleSubmitSearch = useCallback(async () => {
-    const normalized = normalizeQuery(query);
-    if (!normalized) {
-      setError("Enter a search query");
-      return;
-    }
-
-    setSuggestOpen(false);
-    setRelatedArtists(null);
-    setSelectedTrackArtists(null);
-    setArtistImageUrl(null);
-
-    const cached = resolveCacheRef.current.get(normalized.toLowerCase());
-    if (cached) {
-      setResolved(cached);
-    }
-
-    const response = await runResolve(normalized, "generic");
-    void persistRecentSearch({ query: normalized, entity_type: "generic", entity_id: null });
-    return response;
-  }, [query, persistRecentSearch, runResolve]);
 
   const selectFirstSuggestion = useCallback(async () => {
     const first = flatSuggestions[0];
-    if (first) {
-      await handleSuggestionClick(first);
+    if (!first) {
+      setError("Pick a suggestion to search");
       return;
     }
-    await handleSubmitSearch();
-  }, [flatSuggestions, handleSuggestionClick, handleSubmitSearch]);
+    await handleSuggestionClick(first);
+  }, [flatSuggestions, handleSuggestionClick]);
 
   const relatedArtistsKey = useMemo(() => (relatedArtists ? relatedArtists.join("|") : ""), [relatedArtists]);
 
@@ -724,7 +659,7 @@ export default function Search() {
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          void handleSubmitSearch();
+          void selectFirstSuggestion();
         }}
         className="mb-6"
       >
