@@ -543,16 +543,19 @@ router.get("/suggest", async (req, res) => {
 
   try {
     const result = await spotifySearch(q);
-    const suggestions: SuggestionItem[] = [];
+    const queryLower = q.toLowerCase();
+    const artistSuggestions: SuggestionItem[] = [];
+    const trackSuggestions: SuggestionItem[] = [];
+    const playlistSuggestions: SuggestionItem[] = [];
 
     for (const a of result.artists) {
-      suggestions.push({ type: "artist", id: a.id, name: a.name, imageUrl: a.imageUrl });
+      artistSuggestions.push({ type: "artist", id: a.id, name: a.name, imageUrl: a.imageUrl });
     }
 
     for (const t of result.tracks) {
       const artists = Array.isArray((t as any).artistNames) ? ((t as any).artistNames as string[]) : [];
       const subtitle = artists.length > 0 ? artists.join(", ") : (t as any).artistName || undefined;
-      suggestions.push({
+      trackSuggestions.push({
         type: "track",
         id: t.id,
         name: t.name,
@@ -563,11 +566,17 @@ router.get("/suggest", async (req, res) => {
     }
 
     for (const p of result.playlists) {
-      suggestions.push({ type: "playlist", id: p.id, name: p.name, imageUrl: p.imageUrl, subtitle: p.ownerName || undefined });
+      playlistSuggestions.push({ type: "playlist", id: p.id, name: p.name, imageUrl: p.imageUrl, subtitle: p.ownerName || undefined });
     }
 
-    for (const a of result.albums) {
-      suggestions.push({ type: "album", id: a.id, name: a.name, imageUrl: a.imageUrl, subtitle: a.artistName || undefined });
+    const hasTrackNameMatch = queryLower.length > 0 && result.tracks.some((t) => typeof t.name === "string" && t.name.toLowerCase().includes(queryLower));
+    const isTrackQuery = hasTrackNameMatch;
+
+    const suggestions: SuggestionItem[] = [];
+    if (isTrackQuery) {
+      suggestions.push(...trackSuggestions, ...playlistSuggestions, ...artistSuggestions);
+    } else {
+      suggestions.push(...artistSuggestions, ...trackSuggestions, ...playlistSuggestions);
     }
 
     const payload: SuggestEnvelope = { q, source: "spotify_suggest", suggestions: suggestions.slice(0, MAX_SUGGESTIONS) };
