@@ -1,3 +1,5 @@
+// backend/src/services/suggestCache.ts
+
 import fs from "fs/promises";
 import path from "path";
 import Redis from "ioredis";
@@ -7,14 +9,23 @@ import supabase from "../services/supabaseClient";
 
 const REDIS_KEY_PREFIX = "suggest:";
 const MEMORY_CACHE_MAX = 500;
-const FILE_CACHE_PATH = path.join(__dirname, "..", "..", "log", "suggest-cache.json");
+const FILE_CACHE_PATH = path.join(
+  __dirname,
+  "..",
+  "..",
+  "log",
+  "suggest-cache.json"
+);
 const SUPABASE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
-type CacheEntry = { value: SuggestEnvelope; expiresAtMs: number };
+type CacheEntry = {
+  value: SuggestEnvelope;
+  expiresAtMs: number;
+};
 
 type PersistSuggestEntryParams = {
-  query: string; // ✅ PLAIN normalized query
-  source: string;
+  source: string;          // spotify
+  query: string;           // plain normalized query (NO PREFIX)
   value: SuggestEnvelope;
   ttlSeconds?: number;
   meta?: Record<string, unknown>;
@@ -41,7 +52,8 @@ export function normalizeQuery(q: string): string {
 }
 
 /**
- * Redis key only (allowed to contain source)
+ * Cache key ONLY
+ * (allowed to contain source prefix)
  */
 export function buildSuggestCacheKey(
   userInput: string,
@@ -85,7 +97,9 @@ async function getRedis(): Promise<Redis | null> {
   if (!redisClient) return null;
 
   try {
-    if (redisClient.status === "wait") await redisClient.connect();
+    if (redisClient.status === "wait") {
+      await redisClient.connect();
+    }
     redisReady = true;
     return redisClient;
   } catch {
@@ -104,7 +118,9 @@ function redisKey(key: string): string {
 
 function pruneMemoryCache(now: number): void {
   for (const [k, v] of memoryCache.entries()) {
-    if (v.expiresAtMs <= now) memoryCache.delete(k);
+    if (v.expiresAtMs <= now) {
+      memoryCache.delete(k);
+    }
   }
 
   while (memoryCache.size > MEMORY_CACHE_MAX) {
@@ -131,7 +147,9 @@ async function loadFileCache(): Promise<void> {
         });
       }
     }
-  } catch {}
+  } catch {
+    // ignore
+  }
 }
 
 /* =========================
@@ -139,13 +157,22 @@ async function loadFileCache(): Promise<void> {
 ========================= */
 
 async function persistSuggestEntry({
-  query,
   source,
+  query,
   value,
   ttlSeconds,
   meta,
 }: PersistSuggestEntryParams): Promise<void> {
   if (!supabase) return;
+
+  // HARD GUARD — NEVER allow prefixed query into DB
+  if (query.includes(":")) {
+    console.error(
+      "[SuggestCache] BLOCKED invalid query (contains prefix):",
+      query
+    );
+    return;
+  }
 
   try {
     const { error } = await supabase
@@ -153,8 +180,8 @@ async function persistSuggestEntry({
       .upsert(
         {
           source,                   // spotify
-          query,                    // ✅ "paulo londra"
-          normalized_query: query,  // ✅ SAME
+          query,                    // clean query
+          normalized_query: query,  // same value
           results: value,
           ttl_seconds: ttlSeconds ?? null,
           meta: meta ?? {},
@@ -183,21 +210,26 @@ export async function getCachedSuggest(
   const query = normalizeQuery(key.slice(idx + 1));
   if (!query) return null;
 
+  // Redis
   const redis = await getRedis();
   if (redis) {
     const raw = await redis.get(redisKey(key));
     if (raw) return JSON.parse(raw);
   }
 
+  // Memory / file
   await loadFileCache();
   const entry = memoryCache.get(key);
-  if (entry && entry.expiresAtMs > nowMs()) return entry.value;
+  if (entry && entry.expiresAtMs > nowMs()) {
+    return entry.value;
+  }
 
+  // Supabase
   const { data } = await supabase
     .from("suggest_entries")
     .select("results, ts")
-    .eq("query", query)
     .eq("source", source)
+    .eq("query", query)
     .order("ts", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -224,6 +256,7 @@ export async function cacheSuggest(
 
   const expiresAtMs = nowMs() + SUGGESTION_TTL_SECONDS * 1000;
 
+  // Redis
   const redis = await getRedis();
   if (redis) {
     await redis.setex(
@@ -233,9 +266,11 @@ export async function cacheSuggest(
     );
   }
 
+  // Memory
   memoryCache.set(key, { value, expiresAtMs });
   pruneMemoryCache(nowMs());
 
+  // Supabase
   await persistSuggestEntry({
     source,
     query,
