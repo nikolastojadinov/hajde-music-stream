@@ -11,6 +11,7 @@ import { externalSupabase } from "@/lib/externalSupabase";
 interface RecentPlaylist {
   id: string;
   title: string;
+  description: string | null;
   cover_url: string | null;
   view_count: number;
   last_viewed_at: string;
@@ -19,6 +20,7 @@ interface RecentPlaylist {
 interface PlaylistData {
   id: string;
   title: string;
+  description?: string | null;
   cover_url: string | null;
 }
 
@@ -72,6 +74,7 @@ const JumpBackGrid = () => {
         return {
           id: playlist.id ?? item.playlist_id ?? "",
           title: playlist.title ?? "Unknown Playlist",
+          description: playlist.description ?? null,
           cover_url: playlist.cover_url ?? null,
           view_count: item.view_count ?? 0,
           last_viewed_at: item.last_viewed_at ?? new Date().toISOString(),
@@ -122,6 +125,9 @@ const JumpBackGrid = () => {
 
           <div className="min-w-0 flex-1">
             <p className="truncate text-[12px] font-medium leading-tight text-foreground">{playlist.title}</p>
+            {playlist.description ? (
+              <p className="truncate text-[10px] leading-tight text-[#B7B2CC]">{playlist.description}</p>
+            ) : null}
           </div>
         </button>
       ))}
