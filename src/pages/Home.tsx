@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import PlaylistCard from "@/components/PlaylistCard";
 import FeaturedForYou from "@/components/home/FeaturedForYou";
 import JumpBackGrid from "@/components/home/JumpBackGrid";
@@ -7,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { usePlaylists } from "@/hooks/usePlaylists";
+import { usePlaylistPublicStats } from "@/hooks/usePlaylistPublicStats";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
@@ -50,6 +52,18 @@ const Home = () => {
       return data ?? [];
     },
   });
+
+  const allHomePlaylistIds = useMemo(() => {
+    const ids: string[] = [];
+    bestOfRnBPlaylists?.forEach((p: any) => p?.id && ids.push(String(p.id)));
+    (recentPlaylists || []).forEach((p) => p?.id && ids.push(p.id));
+    (popularPlaylists || []).forEach((p) => p?.id && ids.push(p.id));
+    (moodPlaylists || []).forEach((p) => p?.id && ids.push(p.id));
+    (genrePlaylists || []).forEach((p) => p?.id && ids.push(p.id));
+    return ids;
+  }, [bestOfRnBPlaylists, recentPlaylists, popularPlaylists, moodPlaylists, genrePlaylists]);
+
+  const { data: statsMap = {} } = usePlaylistPublicStats(allHomePlaylistIds);
 
   const categories = [
     {
@@ -128,8 +142,8 @@ const Home = () => {
                           title={playlist.title ?? ""}
                           description=""
                           imageUrl={playlist.cover_url || "/placeholder.svg"}
-                          likeCount={undefined}
-                          viewCount={(playlist as any).view_count ?? (playlist as any).public_view_count}
+                          likeCount={statsMap[playlist.id]?.likes}
+                          viewCount={statsMap[playlist.id]?.views ?? (playlist as any).view_count ?? (playlist as any).public_view_count}
                         />
                       </div>
                     ))
@@ -165,8 +179,8 @@ const Home = () => {
                         title={playlist.title}
                         description={playlist.description || ""}
                         imageUrl={playlist.cover_url || "/placeholder.svg"}
-                        likeCount={playlist.like_count ?? playlist.public_like_count}
-                        viewCount={playlist.view_count ?? playlist.public_view_count}
+                        likeCount={statsMap[playlist.id]?.likes ?? playlist.like_count ?? playlist.public_like_count}
+                        viewCount={statsMap[playlist.id]?.views ?? playlist.view_count ?? playlist.public_view_count}
                       />
                     </div>
                   ))

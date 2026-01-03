@@ -1,8 +1,10 @@
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { externalSupabase } from "@/lib/externalSupabase";
 import PlaylistCard from "@/components/PlaylistCard";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
+import { usePlaylistPublicStats } from "@/hooks/usePlaylistPublicStats";
 
 interface Playlist {
   id: string;
@@ -39,6 +41,9 @@ const FeaturedForYou = () => {
       return data as Playlist[];
     },
   });
+
+  const playlistIds = useMemo(() => (playlists ?? []).map((p) => p.id).filter(Boolean), [playlists]);
+  const { data: statsMap = {} } = usePlaylistPublicStats(playlistIds);
 
   if (error) {
     return (
@@ -82,8 +87,8 @@ const FeaturedForYou = () => {
                     title={playlist.title}
                     description={playlist.description || ""}
                     imageUrl={playlist.cover_url || "/placeholder.svg"}
-                    likeCount={undefined}
-                    viewCount={playlist.view_count ?? playlist.public_view_count}
+                    likeCount={statsMap[playlist.id]?.likes}
+                    viewCount={statsMap[playlist.id]?.views ?? playlist.view_count ?? playlist.public_view_count}
                   />
                 </div>
               ))
