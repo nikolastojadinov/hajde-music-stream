@@ -3,26 +3,13 @@ import { useParams, useNavigate } from "react-router-dom";
 import { ListMusic, Music, Play, ArrowLeft } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import EmptyState from "@/components/ui/EmptyState";
 import ErrorState from "@/components/ui/ErrorState";
 import PlaylistCard from "@/components/PlaylistCard";
 import TrackCard from "@/components/TrackCard";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { usePlayer } from "@/contexts/PlayerContext";
-import { fetchArtistByKey } from "@/lib/api/artist";
-import { useEffect, useMemo, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
-import { ListMusic, Music, Play, ArrowLeft } from "lucide-react";
-
-import { Button } from "@/components/ui/button";
-import EmptyState from "@/components/ui/EmptyState";
-import ErrorState from "@/components/ui/ErrorState";
-import PlaylistCard from "@/components/PlaylistCard";
-import TrackCard from "@/components/TrackCard";
-import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
-import { usePlayer } from "@/contexts/PlayerContext";
-import { fetchArtistByKey } from "@/lib/api/artist";
 import { usePlaylistPublicStats } from "@/hooks/usePlaylistPublicStats";
+import { fetchArtistByKey } from "@/lib/api/artist";
 
 /* ===================== TYPES ===================== */
 
@@ -305,5 +292,4 @@ export default function Artist() {
       </section>
     </div>
   );
-}
 }
