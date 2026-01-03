@@ -103,7 +103,7 @@ const FullscreenPlayer = () => {
               onClick={togglePlay}
               className="pm-cta-button pm-cta-button--md flex items-center justify-center"
           >
-            {isPlaying ? <Pause className="w-8 h-8 mx-auto" /> : <Play className="w-8 h-8 mx-auto fill-current ml-0.5" />}
+            {isPlaying ? <Pause className="w-8 h-8" /> : <Play className="w-8 h-8" />}
           </button>
           <button onClick={skipForward} className="h-12 w-12 rounded-full border border-white/15 text-[#F5C26B] hover:text-[#F08CFF] shadow-[0_10px_24px_rgba(0,0,0,0.35)]">
             <SkipForward className="w-6 h-6 mx-auto" />
@@ -112,12 +112,13 @@ const FullscreenPlayer = () => {
 
         <div className="mt-8 w-full max-w-xl flex items-center justify-between">
           <div className="flex items-center gap-3">
-              <AddToPlaylistButton
-                trackId={currentTrackId ?? undefined}
-                trackTitle={currentVideoTitle}
-                variant="ghost"
-                triggerClassName="pm-cta-button pm-cta-button--sm flex items-center justify-center text-[#0B0814]"
-              />
+            <AddToPlaylistButton
+              trackId={currentTrackId ?? undefined}
+              trackTitle={currentVideoTitle}
+              variant="ghost"
+              iconSize={24}
+              triggerClassName="h-10 w-10 flex items-center justify-center text-[#F5C26B] hover:text-[#F08CFF] transition-colors"
+            />
             <button
               onClick={handleToggleLike}
               disabled={likeDisabled}

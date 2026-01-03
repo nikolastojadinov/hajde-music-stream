@@ -935,7 +935,10 @@ export default function Search() {
 
                     const playlistArtist = displayArtistName || "Various artists";
                     const cover = (item.playlist as any)?.cover_url ?? (item.playlist as any)?.coverUrl ?? null;
-                    const stats = resultStats[item.playlist.id] ?? { likes: 0, views: 0 };
+                    const description = (item.playlist as any)?.description ?? null;
+                    const stats = resultStats[item.playlist.id];
+                    const likes = typeof stats?.likes === "number" ? stats.likes : undefined;
+                    const views = typeof stats?.views === "number" ? stats.views : undefined;
                     return (
                       <Link
                         key={`playlist-${item.playlist.id}-${idx}`}
@@ -953,16 +956,21 @@ export default function Search() {
                           <div className="min-w-0 flex-1">
                             <div className="font-medium truncate">{item.playlist.title}</div>
                             <div className="text-sm text-muted-foreground truncate">Playlist • {playlistArtist}</div>
-                            <div className="mt-1 flex items-center justify-between text-[11px] text-muted-foreground">
-                              <span className="flex items-center gap-1">
-                                <Heart className="h-3 w-3" />
-                                <span>{stats.likes.toLocaleString()}</span>
-                              </span>
-                              <span className="flex items-center gap-1">
-                                <Eye className="h-3 w-3" />
-                                <span>{stats.views.toLocaleString()}</span>
-                              </span>
-                            </div>
+                            {description ? (
+                              <div className="text-[11px] text-[#B7B2CC] truncate">{description}</div>
+                            ) : null}
+                            {stats ? (
+                              <div className="mt-1 flex items-center justify-between text-[11px] text-muted-foreground">
+                                <span className="flex items-center gap-1">
+                                  <Heart className="h-3 w-3" />
+                                  <span>{(likes ?? 0).toLocaleString()}</span>
+                                </span>
+                                <span className="flex items-center gap-1">
+                                  <Eye className="h-3 w-3" />
+                                  <span>{(views ?? 0).toLocaleString()}</span>
+                                </span>
+                              </div>
+                            ) : null}
                           </div>
                         </div>
                       </Link>

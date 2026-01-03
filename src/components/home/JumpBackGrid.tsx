@@ -126,7 +126,7 @@ const JumpBackGrid = () => {
           <div className="min-w-0 flex-1">
             <p className="truncate text-[12px] font-medium leading-tight text-foreground">{playlist.title}</p>
             {playlist.description ? (
-              <p className="truncate text-[10px] leading-tight text-[#B7B2CC]">{playlist.description}</p>
+              <p className="truncate text-[11px] leading-tight text-[#B7B2CC]">{playlist.description}</p>
             ) : null}
           </div>
         </button>
