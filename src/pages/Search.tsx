@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Disc3, History, ListMusic, Music, Search as SearchIcon, User, X } from "lucide-react";
+import { Disc3, History, ListMusic, Music, Search as SearchIcon, User, X, Heart, Eye } from "lucide-react";
 import debounce from "lodash.debounce";
 
 import { Button } from "@/components/ui/button";
@@ -26,6 +26,7 @@ import { useQuery } from "@tanstack/react-query";
 import { withBackendOrigin } from "@/lib/backendUrl";
 import { externalSupabase } from "@/lib/externalSupabase";
 import { deriveArtistKey } from "@/lib/artistKey";
+import { usePlaylistPublicStats } from "@/hooks/usePlaylistPublicStats";
 
 type Suggestion = {
   type: "artist" | "track" | "playlist" | "album";
@@ -473,6 +474,14 @@ export default function Search() {
     }
     return out;
   }, [resultsPlaylists.local, resultsSongs]);
+
+  const playlistResultIds = useMemo(() => {
+    return interleavedResults
+      .filter((item): item is { kind: "playlist"; playlist: any } => item.kind === "playlist" && item.playlist?.id)
+      .map((item) => String(item.playlist.id));
+  }, [interleavedResults]);
+
+  const { data: resultStats = {} } = usePlaylistPublicStats(playlistResultIds);
 
   async function runResolve(nextQuery: string, mode: SearchResolveMode) {
     const q = normalizeQuery(nextQuery);
@@ -926,6 +935,7 @@ export default function Search() {
 
                     const playlistArtist = displayArtistName || "Various artists";
                     const cover = (item.playlist as any)?.cover_url ?? (item.playlist as any)?.coverUrl ?? null;
+                    const stats = resultStats[item.playlist.id] ?? { likes: 0, views: 0 };
                     return (
                       <Link
                         key={`playlist-${item.playlist.id}-${idx}`}
@@ -943,6 +953,16 @@ export default function Search() {
                           <div className="min-w-0 flex-1">
                             <div className="font-medium truncate">{item.playlist.title}</div>
                             <div className="text-sm text-muted-foreground truncate">Playlist • {playlistArtist}</div>
+                            <div className="mt-1 flex items-center justify-between text-[11px] text-muted-foreground">
+                              <span className="flex items-center gap-1">
+                                <Heart className="h-3 w-3" />
+                                <span>{stats.likes.toLocaleString()}</span>
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <Eye className="h-3 w-3" />
+                                <span>{stats.views.toLocaleString()}</span>
+                              </span>
+                            </div>
                           </div>
                         </div>
                       </Link>

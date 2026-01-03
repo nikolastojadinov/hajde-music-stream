@@ -10,6 +10,7 @@ import TrackCard from "@/components/TrackCard";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { usePlayer } from "@/contexts/PlayerContext";
 import { fetchArtistByKey } from "@/lib/api/artist";
+import { usePlaylistPublicStats } from "@/hooks/usePlaylistPublicStats";
 
 /* ===================== TYPES ===================== */
 
@@ -137,6 +138,9 @@ export default function Artist() {
     () => playlists.filter(isDisplayablePlaylist),
     [playlists]
   );
+
+  const playlistIds = useMemo(() => displayPlaylists.map((p) => p.id).filter(Boolean), [displayPlaylists]);
+  const { data: statsMap = {} } = usePlaylistPublicStats(playlistIds);
 
   /* ===================== PLAY ===================== */
 
@@ -266,8 +270,8 @@ export default function Artist() {
                   title={p.title}
                   imageUrl={p.cover_url || "/placeholder.svg"}
                   description=""
-                  likeCount={p.like_count ?? p.public_like_count}
-                  viewCount={p.view_count ?? p.public_view_count}
+                  likeCount={statsMap[p.id]?.likes ?? p.like_count ?? p.public_like_count}
+                  viewCount={statsMap[p.id]?.views ?? p.view_count ?? p.public_view_count}
                 />
               </div>
             ))}
