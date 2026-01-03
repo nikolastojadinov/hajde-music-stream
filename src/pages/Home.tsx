@@ -42,15 +42,49 @@ const Home = () => {
   } = useQuery({
     queryKey: ["best-of-rnb-playlists"],
     queryFn: async () => {
-      // Use the same external Supabase as "featured for you" so we get rich playlist descriptions.
-      const { data, error } = await externalSupabase
-        .from("playlists")
-        .select("id, title, description, cover_url, external_id, view_count, public_view_count")
-        .in("external_id", [...BEST_OF_RNB_PLAYLIST_IDS])
-        .order("title", { ascending: true });
+      const fields = "id, title, description, cover_url, external_id, view_count, public_view_count";
+      const ids = [...BEST_OF_RNB_PLAYLIST_IDS];
 
-      if (error) throw error;
-      return data ?? [];
+      let data: any[] = [];
+      let lastError: any = null;
+
+      // Try external Supabase first (richer descriptions like Featured).
+      try {
+        const { data: extData, error: extError } = await externalSupabase
+          .from("playlists")
+          .select(fields)
+          .in("external_id", ids)
+          .order("title", { ascending: true });
+
+        if (extError) throw extError;
+        data = extData ?? [];
+      } catch (err) {
+        lastError = err;
+      }
+
+      // Fallback to primary Supabase if external fails or returns nothing.
+      if (!data || data.length === 0) {
+        try {
+          const { data: primaryData, error: primaryError } = await supabase
+            .from("playlists")
+            .select(fields)
+            .in("external_id", ids)
+            .order("title", { ascending: true });
+
+          if (primaryError) throw primaryError;
+          data = primaryData ?? [];
+          lastError = null;
+        } catch (err) {
+          if (!lastError) lastError = err;
+        }
+      }
+
+      if (!data || data.length === 0) {
+        if (lastError) throw lastError;
+        return [];
+      }
+
+      return data;
     },
   });
 
