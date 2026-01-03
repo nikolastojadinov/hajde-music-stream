@@ -295,7 +295,9 @@ async function loadPlaylistsByChannelId(youtube_channel_id: string): Promise<any
 
   const { data, error } = await supabase
     .from("playlists")
-    .select("id, title, external_id, channel_id, cover_url, created_at, sync_status")
+    .select(
+      "id, title, description, external_id, channel_id, cover_url, created_at, sync_status, like_count, view_count, public_like_count, public_view_count"
+    )
     .eq("channel_id", id)
     .order("created_at", { ascending: false })
     .limit(ARTIST_PLAYLIST_LIMIT * 3);
@@ -413,7 +415,9 @@ async function loadPlaylistsViaPlaylistTracks(trackIds: string[]): Promise<any[]
   for (const chunk of chunkArray(playlistIdList, IN_CHUNK)) {
     const { data, error } = await supabase
       .from("playlists")
-      .select("id, title, external_id, channel_id, cover_url, created_at, sync_status")
+      .select(
+        "id, title, description, external_id, channel_id, cover_url, created_at, sync_status, like_count, view_count, public_like_count, public_view_count"
+      )
       .in("id", chunk);
     if (error) {
       console.warn(LOG_PREFIX, "playlists query failed", { code: error.code, message: error.message });
@@ -468,11 +472,16 @@ function mapPlaylistsForFrontend(rows: any[]): ApiPlaylist[] {
     out.push({
       id,
       title,
+      description: normalizeNullableString(p?.description) ?? null,
       youtube_playlist_id,
       cover_url: normalizeNullableString(p?.cover_url) ?? null,
       youtube_channel_id: normalizeNullableString(p?.channel_id) ?? undefined,
       source: normalizeNullableString(p?.sync_status) ?? undefined,
       created_at: normalizeNullableString(p?.created_at),
+      like_count: typeof p?.like_count === "number" ? p.like_count : null,
+      view_count: typeof p?.view_count === "number" ? p.view_count : null,
+      public_like_count: typeof p?.public_like_count === "number" ? p.public_like_count : null,
+      public_view_count: typeof p?.public_view_count === "number" ? p.public_view_count : null,
     });
   }
   return out;
