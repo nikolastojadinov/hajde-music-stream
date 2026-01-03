@@ -8,6 +8,10 @@ export interface Playlist {
   category: string | null;
   cover_url: string | null;
   created_at: string;
+  like_count?: number | null;
+  view_count?: number | null;
+  public_like_count?: number | null;
+  public_view_count?: number | null;
 }
 
 export const usePlaylists = (category?: string) => {

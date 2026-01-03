@@ -9,6 +9,10 @@ interface Playlist {
   title: string;
   description: string | null;
   cover_url: string | null;
+  like_count?: number | null;
+  view_count?: number | null;
+  public_like_count?: number | null;
+  public_view_count?: number | null;
 }
 
 const FeaturedForYou = () => {
@@ -28,7 +32,7 @@ const FeaturedForYou = () => {
 
       const { data, error } = await externalSupabase
         .from("playlists")
-        .select("id, title, description, cover_url")
+        .select("id, title, description, cover_url, like_count, view_count, public_like_count, public_view_count")
         .in("id", featuredIds);
 
       if (error) throw error;
@@ -78,6 +82,8 @@ const FeaturedForYou = () => {
                     title={playlist.title}
                     description={playlist.description || ""}
                     imageUrl={playlist.cover_url || "/placeholder.svg"}
+                    likeCount={playlist.like_count ?? playlist.public_like_count}
+                    viewCount={playlist.view_count ?? playlist.public_view_count}
                   />
                 </div>
               ))

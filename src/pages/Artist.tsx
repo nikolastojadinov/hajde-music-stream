@@ -21,6 +21,10 @@ type ApiPlaylist = {
   youtube_channel_id?: string;
   source?: string;
   created_at?: string | null;
+  like_count?: number | null;
+  view_count?: number | null;
+  public_like_count?: number | null;
+  public_view_count?: number | null;
 };
 
 type ApiTrack = {
@@ -262,6 +266,8 @@ export default function Artist() {
                   title={p.title}
                   imageUrl={p.cover_url || "/placeholder.svg"}
                   description=""
+                  likeCount={p.like_count ?? p.public_like_count}
+                  viewCount={p.view_count ?? p.public_view_count}
                 />
               </div>
             ))}

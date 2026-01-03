@@ -42,7 +42,7 @@ const Home = () => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("playlists")
-        .select("id, title, cover_url, external_id")
+        .select("id, title, cover_url, external_id, like_count, view_count, public_like_count, public_view_count")
         .in("external_id", [...BEST_OF_RNB_PLAYLIST_IDS])
         .order("title", { ascending: true });
 
@@ -128,6 +128,8 @@ const Home = () => {
                           title={playlist.title ?? ""}
                           description=""
                           imageUrl={playlist.cover_url || "/placeholder.svg"}
+                          likeCount={(playlist as any).like_count ?? (playlist as any).public_like_count}
+                          viewCount={(playlist as any).view_count ?? (playlist as any).public_view_count}
                         />
                       </div>
                     ))
@@ -163,6 +165,8 @@ const Home = () => {
                         title={playlist.title}
                         description={playlist.description || ""}
                         imageUrl={playlist.cover_url || "/placeholder.svg"}
+                        likeCount={playlist.like_count ?? playlist.public_like_count}
+                        viewCount={playlist.view_count ?? playlist.public_view_count}
                       />
                     </div>
                   ))

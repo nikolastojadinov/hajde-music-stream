@@ -156,6 +156,8 @@ const Library = () => {
                     title={p.title || ''}
                     description={p.description || ''}
                     imageUrl={p.cover_url || undefined}
+                    likeCount={(p as any).like_count ?? (p as any).public_like_count}
+                    viewCount={(p as any).view_count ?? (p as any).public_view_count}
                   />
                 ))}
               </div>

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient, type User } from "@supabase/supabase-js";
-import { Loader2, Music2, Heart, ListMusic, Lock, Globe, Disc3 } from "lucide-react";
+import { Loader2, Music2, Heart, ListMusic, Lock, Globe, Disc3, Eye } from "lucide-react";
 import Link from "next/link";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -20,6 +20,10 @@ type PlaylistRecord = {
   cover_url: string | null;
   is_public: boolean | null;
   owner_id?: string | null;
+  like_count?: number | null;
+  view_count?: number | null;
+  public_like_count?: number | null;
+  public_view_count?: number | null;
 };
 
 type LikedPlaylistRecord = {
@@ -38,7 +42,7 @@ type LikedSongRecord = {
   } | null;
 };
 
-const playlistFields = "id,title,cover_url,is_public,owner_id";
+const playlistFields = "id,title,cover_url,is_public,owner_id,like_count,view_count,public_like_count,public_view_count";
 const likedPlaylistSelect = `id,playlist:playlists(${playlistFields})`;
 const likedTrackSelect = "id,track:tracks(id,title,artist,cover_url,duration)";
 
@@ -283,6 +287,12 @@ function PlaylistCard({ playlist }: { playlist: PlaylistRecord }) {
     ? "bg-emerald-400/15 text-emerald-200 border-emerald-400/30"
     : "bg-purple-500/15 text-purple-100 border-purple-500/30";
 
+  const likeCount = Math.max(0, playlist.like_count ?? playlist.public_like_count ?? 0);
+  const viewCount = Math.max(0, playlist.view_count ?? playlist.public_view_count ?? 0);
+
+  const formatCompact = (value: number) =>
+    new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(value);
+
   return (
     <Link
       href={`/playlist/${playlist.id}`}
@@ -302,7 +312,19 @@ function PlaylistCard({ playlist }: { playlist: PlaylistRecord }) {
         </span>
       </div>
       <p className="text-lg font-semibold text-white truncate">{playlist.title}</p>
-      <p className="text-sm text-white/50">{playlist.is_public ? "Searchable" : "Only you"}</p>
+      <div className="mt-1 flex items-center justify-between text-xs text-white/60">
+        <span>{playlist.is_public ? "Searchable" : "Only you"}</span>
+        <span className="flex items-center gap-3">
+          <span className="flex items-center gap-1">
+            <Heart className="h-3 w-3" />
+            <span>{formatCompact(likeCount)}</span>
+          </span>
+          <span className="flex items-center gap-1">
+            <Eye className="h-3 w-3" />
+            <span>{formatCompact(viewCount)}</span>
+          </span>
+        </span>
+      </div>
     </Link>
   );
 }
