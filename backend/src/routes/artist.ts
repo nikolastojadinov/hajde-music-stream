@@ -300,9 +300,7 @@ async function loadPlaylistsByChannelId(youtube_channel_id: string): Promise<any
 
   const { data, error } = await supabase
     .from("playlists")
-    .select(
-      "id, title, description, external_id, channel_id, cover_url, created_at, sync_status, view_count"
-    )
+    .select("id, title, description, external_id, channel_id, cover_url, created_at, sync_status, view_count")
     .eq("channel_id", id)
     .order("created_at", { ascending: false })
     .limit(ARTIST_PLAYLIST_LIMIT * 3);
@@ -312,7 +310,33 @@ async function loadPlaylistsByChannelId(youtube_channel_id: string): Promise<any
     return [];
   }
 
-  return Array.isArray(data) ? data : [];
+  const rows = Array.isArray(data) ? data : [];
+  if (rows.length > 0) return rows;
+
+  // Fallback: use playlists_raw (thumbnail_url) when playlists table has not been hydrated yet.
+  const { data: rawData, error: rawError } = await supabase
+    .from("playlists_raw")
+    .select("id, external_id, title, description, channel_id, thumbnail_url, fetched_on")
+    .eq("channel_id", id)
+    .order("fetched_on", { ascending: false })
+    .limit(ARTIST_PLAYLIST_LIMIT * 3);
+
+  if (rawError) {
+    console.warn(LOG_PREFIX, "playlists_raw by channel query failed", { youtube_channel_id: id, code: rawError.code, message: rawError.message });
+    return [];
+  }
+
+  return (Array.isArray(rawData) ? rawData : []).map((r) => ({
+    id: normalizeString((r as any)?.id) || normalizeString((r as any)?.external_id),
+    external_id: normalizeString((r as any)?.external_id) || null,
+    title: normalizeString((r as any)?.title) || "Untitled",
+    description: normalizeNullableString((r as any)?.description),
+    channel_id: normalizeString((r as any)?.channel_id) || id,
+    cover_url: normalizeNullableString((r as any)?.thumbnail_url) ?? null,
+    created_at: normalizeNullableString((r as any)?.fetched_on),
+    sync_status: "raw",
+    view_count: null,
+  }));
 }
 
 async function loadArtistMediaByChannelId(youtube_channel_id: string, artistName: string): Promise<ApiArtistMedia> {
@@ -420,9 +444,7 @@ async function loadPlaylistsViaPlaylistTracks(trackIds: string[]): Promise<any[]
   for (const chunk of chunkArray(playlistIdList, IN_CHUNK)) {
     const { data, error } = await supabase
       .from("playlists")
-      .select(
-        "id, title, description, external_id, channel_id, cover_url, created_at, sync_status, view_count"
-      )
+      .select("id, title, description, external_id, channel_id, cover_url, created_at, sync_status, view_count")
       .in("id", chunk);
     if (error) {
       console.warn(LOG_PREFIX, "playlists query failed", { code: error.code, message: error.message });
