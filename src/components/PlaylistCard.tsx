@@ -20,14 +20,14 @@ type PlaylistCardProps =
       linkState?: unknown;
     }
   | {
-    id: string;
-    title: string;
-    description: string;
-    imageUrl?: string;
-    likeCount?: number | null;
-    viewCount?: number | null;
-    linkState?: unknown;
-  };
+      id: string;
+      title: string;
+      description?: string | null;
+      imageUrl?: string;
+      likeCount?: number | null;
+      viewCount?: number | null;
+      linkState?: unknown;
+    };
 
 const formatCompact = (value: number) =>
   new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(value);
@@ -39,16 +39,14 @@ const PlaylistCard = (props: PlaylistCardProps) => {
         title: props.playlist.title ?? "",
         description: props.playlist.description ?? "",
         imageUrl: props.playlist.cover_url ?? props.playlist.image_url ?? undefined,
-        likeCount:
-          props.playlist.like_count ?? props.playlist.public_like_count ?? undefined,
-        viewCount:
-          props.playlist.view_count ?? props.playlist.public_view_count ?? undefined,
+        likeCount: props.playlist.like_count ?? props.playlist.public_like_count ?? undefined,
+        viewCount: props.playlist.view_count ?? props.playlist.public_view_count ?? undefined,
         linkState: props.linkState,
       }
     : {
         id: props.id,
         title: props.title,
-        description: props.description,
+        description: props.description ?? "",
         imageUrl: props.imageUrl,
         likeCount: props.likeCount,
         viewCount: props.viewCount,
@@ -57,12 +55,12 @@ const PlaylistCard = (props: PlaylistCardProps) => {
 
   const likeCount = Math.max(0, normalized.likeCount ?? 0);
   const viewCount = Math.max(0, normalized.viewCount ?? 0);
+  const description = (normalized.description ?? "").trim();
+  const showDescription = description.length > 0;
 
   return (
     <Link to={`/playlist/${normalized.id}`} state={normalized.linkState} className="group block">
       <div className="overflow-hidden rounded-[6px] border border-[rgba(255,255,255,0.08)] bg-[rgba(20,17,38,0.6)] backdrop-blur-xl shadow-[0_8px_24px_rgba(0,0,0,0.45)] transition-all duration-300 hover:border-[rgba(246,198,109,0.45)] hover:shadow-[0_12px_30px_rgba(0,0,0,0.55)]">
-        
-        {/* COVER — full width, fixed aspect, FINAL zoom */}
         <div className="relative w-full aspect-square bg-black/30 overflow-hidden rounded-[4px]">
           {normalized.imageUrl ? (
             <img
@@ -79,14 +77,11 @@ const PlaylistCard = (props: PlaylistCardProps) => {
           )}
         </div>
 
-        {/* TEXT — fixed height so all cards stay equal */}
         <div className="px-4 pt-3 pb-4 h-[72px] flex flex-col justify-between">
-          <h3 className="font-semibold text-sm text-[#F6C66D] truncate leading-tight">
-            {normalized.title}
-          </h3>
-          <p className="text-[11px] text-[#B7B2CC] line-clamp-1 leading-tight">
-            {normalized.description}
-          </p>
+          <h3 className="font-semibold text-sm text-[#F6C66D] truncate leading-tight">{normalized.title}</h3>
+          {showDescription ? (
+            <p className="text-[11px] text-white/75 truncate leading-tight">{description}</p>
+          ) : null}
           <div className="flex items-center justify-between text-[11px] text-[#B7B2CC] leading-none">
             <span className="flex items-center gap-1">
               <Heart className="h-3 w-3 opacity-80" />

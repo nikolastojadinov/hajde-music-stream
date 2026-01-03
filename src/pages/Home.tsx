@@ -29,7 +29,6 @@ const Home = () => {
   const { t } = useLanguage();
   const navigate = useNavigate();
 
-  // Fetch different categories from Supabase
   const { data: recentPlaylists, isLoading: isLoadingRecent } = usePlaylists("recent");
   const { data: popularPlaylists, isLoading: isLoadingPopular } = usePlaylists("popular");
   const { data: moodPlaylists, isLoading: isLoadingMood } = usePlaylists("mood");
@@ -91,7 +90,6 @@ const Home = () => {
   return (
     <div className="flex-1 overflow-y-auto scrollbar-hide">
       <div className="p-4 md:p-8 pb-8">
-        {/* Mobile Search Bar */}
         <div className="mb-4 md:hidden animate-fade-in">
           <div className="relative">
             <SearchIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[#F6C66D]" />
@@ -104,12 +102,10 @@ const Home = () => {
           </div>
         </div>
 
-        {/* Jump Back In - Personalized Recent Playlists (2x3 Grid) - NO HEADING */}
         <div className="mb-6 animate-slide-up">
           <JumpBackGrid />
         </div>
 
-        {/* Featured For You Section */}
         <div className="mb-8 md:mb-12 animate-slide-up">
           <FeaturedForYou />
         </div>
@@ -140,7 +136,7 @@ const Home = () => {
                         <PlaylistCard
                           id={playlist.id}
                           title={playlist.title ?? ""}
-                          description=""
+                          description={playlist.description ?? ""}
                           imageUrl={playlist.cover_url || "/placeholder.svg"}
                           likeCount={statsMap[playlist.id]?.likes}
                           viewCount={statsMap[playlist.id]?.views ?? (playlist as any).view_count ?? (playlist as any).public_view_count}
@@ -157,7 +153,6 @@ const Home = () => {
           </div>
         </section>
 
-        {/* Other Categories with horizontal scroll */}
         {categories.map((category, index) => (
           <section key={index} className="mb-8 md:mb-12 animate-slide-up">
             <h2 className="text-xl md:text-2xl font-bold mb-4 md:mb-6">{category.title}</h2>

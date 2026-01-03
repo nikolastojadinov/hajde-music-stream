@@ -10,6 +10,18 @@ import TrackCard from "@/components/TrackCard";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { usePlayer } from "@/contexts/PlayerContext";
 import { fetchArtistByKey } from "@/lib/api/artist";
+import { useEffect, useMemo, useState } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import { ListMusic, Music, Play, ArrowLeft } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import EmptyState from "@/components/ui/EmptyState";
+import ErrorState from "@/components/ui/ErrorState";
+import PlaylistCard from "@/components/PlaylistCard";
+import TrackCard from "@/components/TrackCard";
+import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
+import { usePlayer } from "@/contexts/PlayerContext";
+import { fetchArtistByKey } from "@/lib/api/artist";
 import { usePlaylistPublicStats } from "@/hooks/usePlaylistPublicStats";
 
 /* ===================== TYPES ===================== */
@@ -18,6 +30,7 @@ type ApiPlaylist = {
   id: string;
   title: string;
   youtube_playlist_id: string;
+  description?: string | null;
   cover_url?: string | null;
   youtube_channel_id?: string;
   source?: string;
@@ -101,7 +114,6 @@ export default function Artist() {
   const { artistKey: artistKeyParam } = useParams();
   const navigate = useNavigate();
 
-  // ⬇️ BITNO: uzimamo GLOBALNI player state
   const { playPlaylist, currentTrackId } = usePlayer();
 
   const artistKey = normalizeString(artistKeyParam);
@@ -134,15 +146,10 @@ export default function Artist() {
     [tracks, canonicalArtistName]
   );
 
-  const displayPlaylists = useMemo(
-    () => playlists.filter(isDisplayablePlaylist),
-    [playlists]
-  );
+  const displayPlaylists = useMemo(() => playlists.filter(isDisplayablePlaylist), [playlists]);
 
   const playlistIds = useMemo(() => displayPlaylists.map((p) => p.id).filter(Boolean), [displayPlaylists]);
   const { data: statsMap = {} } = usePlaylistPublicStats(playlistIds);
-
-  /* ===================== PLAY ===================== */
 
   const handlePlayAll = () => {
     if (playlistTracks.length === 0) return;
@@ -159,8 +166,6 @@ export default function Artist() {
   };
 
   const handleBack = () => navigate(-1);
-
-  /* ===================== DATA LOAD ===================== */
 
   useEffect(() => {
     let active = true;
@@ -203,8 +208,6 @@ export default function Artist() {
     };
   }, [artistKey, reloadNonce]);
 
-  /* ===================== UI ===================== */
-
   if (loading) {
     return <div className="p-4 pb-32 text-center opacity-60">Učitavanje…</div>;
   }
@@ -227,7 +230,6 @@ export default function Artist() {
         </Button>
       </div>
 
-      {/* HEADER */}
       <div className="pt-6 px-4 text-center">
         <div className="flex justify-center mb-4">
           <div className="w-28 h-28 rounded-full overflow-hidden border">
@@ -254,7 +256,6 @@ export default function Artist() {
         </div>
       </div>
 
-      {/* PLAYLISTS */}
       <section className="mt-8 px-4">
         <div className="flex items-center gap-2 mb-4">
           <ListMusic className="w-5 h-5" />
@@ -269,7 +270,7 @@ export default function Artist() {
                   id={p.id}
                   title={p.title}
                   imageUrl={p.cover_url || "/placeholder.svg"}
-                  description=""
+                  description={p.description ?? ""}
                   likeCount={statsMap[p.id]?.likes ?? p.like_count ?? p.public_like_count}
                   viewCount={statsMap[p.id]?.views ?? p.view_count ?? p.public_view_count}
                 />
@@ -280,7 +281,6 @@ export default function Artist() {
         </ScrollArea>
       </section>
 
-      {/* TRACKS */}
       <section className="mt-8 px-4">
         <div className="flex items-center gap-2 mb-4">
           <Music className="w-5 h-5" />
@@ -305,4 +305,5 @@ export default function Artist() {
       </section>
     </div>
   );
+}
 }
