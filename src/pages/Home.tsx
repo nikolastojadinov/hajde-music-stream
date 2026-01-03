@@ -43,7 +43,7 @@ const Home = () => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("playlists")
-        .select("id, title, cover_url, external_id, view_count")
+        .select("id, title, description, cover_url, external_id, view_count, public_view_count")
         .in("external_id", [...BEST_OF_RNB_PLAYLIST_IDS])
         .order("title", { ascending: true });
 
