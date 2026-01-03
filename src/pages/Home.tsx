@@ -42,7 +42,8 @@ const Home = () => {
   } = useQuery({
     queryKey: ["best-of-rnb-playlists"],
     queryFn: async () => {
-      const fields = "id, title, description, cover_url, external_id, view_count, public_view_count";
+      // Only select columns guaranteed to exist on both external and primary Supabase schemas.
+      const fields = "id, title, description, cover_url, external_id, view_count";
       const ids = [...BEST_OF_RNB_PLAYLIST_IDS];
 
       let data: any[] = [];
