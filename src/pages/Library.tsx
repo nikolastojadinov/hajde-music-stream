@@ -4,11 +4,13 @@ import PlaylistCard from "@/components/PlaylistCard";
 import TrackCard from "@/components/TrackCard";
 import { usePi } from "@/contexts/PiContext";
 import useLikes from "@/hooks/useLikes";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useNavigate, Link } from "react-router-dom";
 import type { KeyboardEvent, MouseEvent } from "react";
 import { useMyPlaylists, type UserPlaylist } from "@/hooks/useMyPlaylists";
+import { deriveArtistKey } from "@/lib/artistKey";
+import { useExistingArtistKeys } from "@/hooks/useExistingArtistKeys";
 
 const Library = () => {
   const { user } = usePi();
@@ -16,7 +18,6 @@ const Library = () => {
   const { t } = useLanguage();
   const navigate = useNavigate();
   const userId = user?.uid || null;
-  const [activeTab, setActiveTab] = useState<string>("liked-songs");
   const {
     data: myPlaylists = [],
     isLoading: myPlaylistsLoading,
@@ -28,6 +29,12 @@ const Library = () => {
       ? myPlaylistsError.message
       : String(myPlaylistsError)
     : null;
+
+  const artistNames = useMemo(
+    () => likedTracks.map((track) => (track.artist ? String(track.artist) : "")).filter(Boolean),
+    [likedTracks]
+  );
+  const { existingKeys: existingArtistKeys } = useExistingArtistKeys(artistNames);
 
   const myPlaylistsContent = useMemo(() => {
     if (!userId) {
@@ -104,19 +111,28 @@ const Library = () => {
               <div className="text-center py-12 text-muted-foreground">{t("library_sign_in_songs")}</div>
             ) : likedTracks.length > 0 ? (
               <div className="space-y-1">
-                {likedTracks.map((track) => (
-                  <TrackCard
-                    key={track.id}
-                    id={track.id}
-                    title={track.title || ''}
-                    artist={track.artist || ''}
-                    imageUrl={track.cover_url || undefined}
-                    youtubeId={track.external_id || ''}
-                    duration={track.duration || undefined}
-                    liked={likedTrackIds.has(track.id)}
-                    onToggleLike={toggleTrackLike}
-                  />
-                ))}
+                {likedTracks.map((track) => {
+                  const artistName = track.artist || '';
+                  const artistKey = deriveArtistKey(artistName);
+                  const artistHref = artistKey && existingArtistKeys.has(artistKey)
+                    ? `/artist/${encodeURIComponent(artistKey)}`
+                    : undefined;
+
+                  return (
+                    <TrackCard
+                      key={track.id}
+                      id={track.id}
+                      title={track.title || ''}
+                      artist={artistName}
+                      artistHref={artistHref}
+                      imageUrl={track.cover_url || undefined}
+                      youtubeId={track.external_id || ''}
+                      duration={track.duration || undefined}
+                      liked={likedTrackIds.has(track.id)}
+                      onToggleLike={toggleTrackLike}
+                    />
+                  );
+                })}
               </div>
             ) : (
               <div className="text-center py-12 text-muted-foreground">

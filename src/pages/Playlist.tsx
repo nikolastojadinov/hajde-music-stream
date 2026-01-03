@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, Link } from "react-router-dom";
 import { Play, Heart, ArrowLeft } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,8 @@ import useLikes from "@/hooks/useLikes";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { PlaylistHeaderStats } from "@/components/playlists/PlaylistHeaderStats";
 import { usePlaylistViewTracking } from "@/hooks/usePlaylistViewTracking";
+import { deriveArtistKey } from "@/lib/artistKey";
+import { useExistingArtistKeys } from "@/hooks/useExistingArtistKeys";
 
 /* ===================== UTILS ===================== */
 
@@ -38,6 +40,12 @@ const Playlist = () => {
   const { isPlaylistLiked, togglePlaylistLike } = useLikes();
 
   const isLiked = id ? isPlaylistLiked(id) : false;
+
+  const artistNames = useMemo(
+    () => (playlist?.tracks ?? []).map((t: any) => (t?.artist ? String(t.artist) : "")).filter(Boolean),
+    [playlist?.tracks]
+  );
+  const { existingKeys: existingArtistKeys } = useExistingArtistKeys(artistNames);
 
   useEffect(() => {
     if (playlist?.id) {
@@ -148,6 +156,11 @@ const Playlist = () => {
         {playlist.tracks.map((track: any, index: number) => {
           const isActive = currentTrackId === track.id;
           const duration = formatDuration(track.duration);
+          const artistName = track.artist || "";
+          const artistKey = deriveArtistKey(artistName);
+          const artistHref = artistKey && existingArtistKeys.has(artistKey)
+            ? `/artist/${encodeURIComponent(artistKey)}`
+            : null;
 
           return (
             <div
@@ -178,7 +191,17 @@ const Playlist = () => {
                   {track.title}
                 </div>
                 <div className="text-sm text-[#9A95B2] truncate">
-                  {track.artist}
+                  {artistHref ? (
+                    <Link
+                      to={artistHref}
+                      onClick={(e) => e.stopPropagation()}
+                      className="underline decoration-dotted underline-offset-[3px] hover:text-[#F6C66D]"
+                    >
+                      {artistName}
+                    </Link>
+                  ) : (
+                    artistName
+                  )}
                 </div>
               </div>
 

@@ -1,4 +1,5 @@
 import { Play, Heart } from "lucide-react";
+import { Link } from "react-router-dom";
 import { usePlayer } from "@/contexts/PlayerContext";
 import AddToPlaylistButton from "@/components/AddToPlaylistButton";
 
@@ -6,6 +7,7 @@ interface TrackCardProps {
   id: string;
   title: string;
   artist: string;
+  artistHref?: string | null;
   imageUrl?: string | null;
   youtubeId: string;
   duration?: number | null;
@@ -25,6 +27,7 @@ const TrackCard = ({
   imageUrl,
   youtubeId,
   duration,
+  artistHref,
   isActive = false,
   onPlay,
   liked = false,
@@ -101,9 +104,17 @@ const TrackCard = ({
         <div className="font-medium text-[#F6C66D] truncate leading-tight">
           {title}
         </div>
-        <div className="text-sm text-[#9A95B2] truncate leading-tight">
-          {artist}
-        </div>
+        {artistHref ? (
+          <Link
+            to={artistHref}
+            onClick={(e) => e.stopPropagation()}
+            className="text-sm text-[#9A95B2] truncate leading-tight underline decoration-dotted underline-offset-[3px] hover:text-[#F6C66D]"
+          >
+            {artist}
+          </Link>
+        ) : (
+          <div className="text-sm text-[#9A95B2] truncate leading-tight">{artist}</div>
+        )}
       </div>
 
       {/* ===== ACTIONS ===== */}
