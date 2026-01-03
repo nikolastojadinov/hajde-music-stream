@@ -471,8 +471,9 @@ function mapPlaylistsForFrontend(rows: any[]): ApiPlaylist[] {
     const id = normalizeString(p?.id);
     const title = normalizeString(p?.title) || "Untitled";
     const youtube_playlist_id = normalizeString(p?.external_id);
-    if (!id || !youtube_playlist_id) continue;
-    if (isOlakPlaylistId(youtube_playlist_id)) continue;
+    if (!id) continue;
+    // If external_id is missing we still return the playlist so artist page shows something; filter only OLAK when present.
+    if (youtube_playlist_id && isOlakPlaylistId(youtube_playlist_id)) continue;
 
     out.push({
       id,
