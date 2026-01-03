@@ -301,7 +301,7 @@ async function loadPlaylistsByChannelId(youtube_channel_id: string): Promise<any
   const { data, error } = await supabase
     .from("playlists")
     .select(
-      "id, title, description, external_id, channel_id, cover_url, created_at, sync_status, like_count, view_count, public_like_count, public_view_count"
+      "id, title, description, external_id, channel_id, cover_url, created_at, sync_status, view_count"
     )
     .eq("channel_id", id)
     .order("created_at", { ascending: false })
@@ -421,7 +421,7 @@ async function loadPlaylistsViaPlaylistTracks(trackIds: string[]): Promise<any[]
     const { data, error } = await supabase
       .from("playlists")
       .select(
-        "id, title, description, external_id, channel_id, cover_url, created_at, sync_status, like_count, view_count, public_like_count, public_view_count"
+        "id, title, description, external_id, channel_id, cover_url, created_at, sync_status, view_count"
       )
       .in("id", chunk);
     if (error) {
