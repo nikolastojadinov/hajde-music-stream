@@ -34,6 +34,7 @@ type PersistSuggestEntryParams = {
 let redisClient: Redis | null = null;
 let redisReady = false;
 let redisAttempted = false;
+let redisErrorLogged = false;
 
 const memoryCache = new Map<string, CacheEntry>();
 let fileCacheLoaded = false;
@@ -70,18 +71,33 @@ function nowMs(): number {
 
 function buildRedisClient(): Redis | null {
   try {
+    const commonOptions = {
+      lazyConnect: true,
+      enableOfflineQueue: false,
+      maxRetriesPerRequest: 0,
+      retryStrategy: () => null,
+    } as const;
+
     const url = process.env.REDIS_URL;
-    if (url) return new Redis(url, { lazyConnect: true });
+    if (url) return new Redis(url, commonOptions);
 
     return new Redis({
       host: process.env.REDIS_HOST || "127.0.0.1",
       port: Number(process.env.REDIS_PORT || 6379),
       password: process.env.REDIS_PASSWORD,
-      lazyConnect: true,
+      ...commonOptions,
     });
   } catch {
     return null;
   }
+}
+
+function logRedisDisabled(err: unknown): void {
+  if (redisErrorLogged) return;
+  redisErrorLogged = true;
+
+  const message = err instanceof Error ? err.message : String(err ?? "unknown error");
+  console.warn(`[SuggestCache] Redis unavailable, falling back to local cache (${message})`);
 }
 
 async function getRedis(): Promise<Redis | null> {
@@ -92,13 +108,20 @@ async function getRedis(): Promise<Redis | null> {
   redisClient = buildRedisClient();
   if (!redisClient) return null;
 
+  redisClient.on("error", (err) => {
+    logRedisDisabled(err);
+  });
+
   try {
     if (redisClient.status === "wait") {
       await redisClient.connect();
     }
     redisReady = true;
     return redisClient;
-  } catch {
+  } catch (err) {
+    logRedisDisabled(err);
+    redisClient.disconnect();
+    redisClient = null;
     redisReady = false;
     return null;
   }

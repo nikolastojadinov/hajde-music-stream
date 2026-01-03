@@ -13,6 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { externalSupabase } from "@/lib/externalSupabase";
 
 const BEST_OF_RNB_PLAYLIST_IDS = [
   "PLDIoUOhQQPlVFjmZnM41bOzoowjfTS4wU",
@@ -41,7 +42,8 @@ const Home = () => {
   } = useQuery({
     queryKey: ["best-of-rnb-playlists"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      // Use the same external Supabase as "featured for you" so we get rich playlist descriptions.
+      const { data, error } = await externalSupabase
         .from("playlists")
         .select("id, title, description, cover_url, external_id, view_count, public_view_count")
         .in("external_id", [...BEST_OF_RNB_PLAYLIST_IDS])
