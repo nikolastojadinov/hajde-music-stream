@@ -55,6 +55,7 @@ type ApiPlaylist = {
   description?: string | null;
   youtube_playlist_id: string;
   cover_url?: string | null;
+  channel_title?: string | null;
   youtube_channel_id?: string;
   source?: string;
   created_at?: string | null;
@@ -300,7 +301,7 @@ async function loadPlaylistsByChannelId(youtube_channel_id: string): Promise<any
 
   const { data, error } = await supabase
     .from("playlists")
-    .select("id, title, description, external_id, channel_id, cover_url, created_at, sync_status, view_count")
+    .select("id, title, description, external_id, channel_id, channel_title, cover_url, created_at, sync_status, view_count")
     .eq("channel_id", id)
     .order("created_at", { ascending: false })
     .limit(ARTIST_PLAYLIST_LIMIT * 3);
@@ -316,7 +317,7 @@ async function loadPlaylistsByChannelId(youtube_channel_id: string): Promise<any
   // Fallback: use playlists_raw (thumbnail_url) when playlists table has not been hydrated yet.
   const { data: rawData, error: rawError } = await supabase
     .from("playlists_raw")
-    .select("id, external_id, title, description, channel_id, thumbnail_url, fetched_on")
+    .select("id, external_id, title, description, channel_id, channel_title, thumbnail_url, fetched_on")
     .eq("channel_id", id)
     .order("fetched_on", { ascending: false })
     .limit(ARTIST_PLAYLIST_LIMIT * 3);
@@ -332,6 +333,7 @@ async function loadPlaylistsByChannelId(youtube_channel_id: string): Promise<any
     title: normalizeString((r as any)?.title) || "Untitled",
     description: normalizeNullableString((r as any)?.description),
     channel_id: normalizeString((r as any)?.channel_id) || id,
+    channel_title: normalizeNullableString((r as any)?.channel_title) ?? null,
     cover_url: normalizeNullableString((r as any)?.thumbnail_url) ?? null,
     created_at: normalizeNullableString((r as any)?.fetched_on),
     sync_status: "raw",
@@ -444,7 +446,7 @@ async function loadPlaylistsViaPlaylistTracks(trackIds: string[]): Promise<any[]
   for (const chunk of chunkArray(playlistIdList, IN_CHUNK)) {
     const { data, error } = await supabase
       .from("playlists")
-      .select("id, title, description, external_id, channel_id, cover_url, created_at, sync_status, view_count")
+      .select("id, title, description, external_id, channel_id, channel_title, cover_url, created_at, sync_status, view_count")
       .in("id", chunk);
     if (error) {
       console.warn(LOG_PREFIX, "playlists query failed", { code: error.code, message: error.message });
@@ -503,6 +505,7 @@ function mapPlaylistsForFrontend(rows: any[]): ApiPlaylist[] {
       description: normalizeNullableString(p?.description) ?? null,
       youtube_playlist_id,
       cover_url: normalizeNullableString(p?.cover_url) ?? null,
+      channel_title: normalizeNullableString(p?.channel_title) ?? null,
       youtube_channel_id: normalizeNullableString(p?.channel_id) ?? undefined,
       source: normalizeNullableString(p?.sync_status) ?? undefined,
       created_at: normalizeNullableString(p?.created_at),

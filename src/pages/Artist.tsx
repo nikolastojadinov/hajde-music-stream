@@ -19,6 +19,7 @@ type ApiPlaylist = {
   youtube_playlist_id: string;
   description?: string | null;
   cover_url?: string | null;
+  channel_title?: string | null;
   youtube_channel_id?: string;
   source?: string;
   created_at?: string | null;
@@ -255,7 +256,7 @@ export default function Artist() {
               <div key={p.id} className="w-[140px]">
                 {/** Show description if available; fall back to channel title so cards match home behavior. */}
                 {(() => {
-                  const description = p.description || (p as any).channel_title || "";
+                  const description = (p.description || p.channel_title || "").trim();
                   return (
                     <PlaylistCard
                       id={p.id}
