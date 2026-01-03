@@ -253,14 +253,20 @@ export default function Artist() {
           <div className="flex space-x-4 pb-4">
             {displayPlaylists.map((p) => (
               <div key={p.id} className="w-[140px]">
-                <PlaylistCard
-                  id={p.id}
-                  title={p.title}
-                  imageUrl={p.cover_url || "/placeholder.svg"}
-                  description={p.description ?? ""}
-                  likeCount={statsMap[p.id]?.likes ?? p.like_count ?? p.public_like_count}
-                  viewCount={statsMap[p.id]?.views ?? p.view_count ?? p.public_view_count}
-                />
+                {/** Show description if available; fall back to channel title so cards match home behavior. */}
+                {(() => {
+                  const description = p.description || (p as any).channel_title || "";
+                  return (
+                    <PlaylistCard
+                      id={p.id}
+                      title={p.title}
+                      imageUrl={p.cover_url || "/placeholder.svg"}
+                      description={description}
+                      likeCount={statsMap[p.id]?.likes ?? p.like_count ?? p.public_like_count}
+                      viewCount={statsMap[p.id]?.views ?? p.view_count ?? p.public_view_count}
+                    />
+                  );
+                })()}
               </div>
             ))}
           </div>
