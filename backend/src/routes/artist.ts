@@ -52,11 +52,16 @@ function cacheKeyForIdentifier(identifierRaw: string): string {
 type ApiPlaylist = {
   id: string;
   title: string;
+  description?: string | null;
   youtube_playlist_id: string;
   cover_url?: string | null;
   youtube_channel_id?: string;
   source?: string;
   created_at?: string | null;
+  like_count?: number | null;
+  view_count?: number | null;
+  public_like_count?: number | null;
+  public_view_count?: number | null;
 };
 
 type ApiTrack = {
