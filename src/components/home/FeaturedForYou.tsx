@@ -32,7 +32,7 @@ const FeaturedForYou = () => {
 
       const { data, error } = await externalSupabase
         .from("playlists")
-        .select("id, title, description, cover_url, like_count, view_count, public_like_count, public_view_count")
+        .select("id, title, description, cover_url, view_count")
         .in("id", featuredIds);
 
       if (error) throw error;
@@ -82,7 +82,7 @@ const FeaturedForYou = () => {
                     title={playlist.title}
                     description={playlist.description || ""}
                     imageUrl={playlist.cover_url || "/placeholder.svg"}
-                    likeCount={playlist.like_count ?? playlist.public_like_count}
+                    likeCount={undefined}
                     viewCount={playlist.view_count ?? playlist.public_view_count}
                   />
                 </div>
