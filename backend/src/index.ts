@@ -11,23 +11,10 @@ import mountUserEndpoints from './handlers/users';
 import mountNotificationEndpoints from './handlers/notifications';
 import mountHealthEndpoints from './handlers/health';
 import supabase from './services/supabaseClient';
-import { initDailyRefreshScheduler } from './lib/dailyRefreshScheduler';
-import { initJobProcessor } from './lib/jobProcessor';
-import { getPublicPlaylistStats, registerPlaylistView } from './handlers/playlists/stats';
-import { refreshPlaylistTracks } from './handlers/playlists/refresh';
-import { getPublicPlaylist } from './handlers/playlists/public';
-import categoriesRouter from './routes/categories';
-import studioPlaylistsRouter from './routes/studioPlaylists';
 import usersRouter from './routes/users';
 
 import piAuthRouter from './routes/pi/auth';
 import piPaymentsRouter from './routes/pi/payments';
-import playlistViewsRouter from './routes/playlistViews';
-
-import { getLikedSongs, likeSong, unlikeSong } from './handlers/likes/songs';
-import { getLikedPlaylists, likePlaylist, unlikePlaylist } from './handlers/likes/playlists';
-import { getUserLibrary } from './handlers/library/getLibrary';
-import { piAuth } from './middleware/piAuth';
 
 import searchRouter from './routes/search';
 import artistRouter from './routes/artist';
@@ -150,34 +137,6 @@ const notificationRouter = express.Router();
 mountNotificationEndpoints(notificationRouter);
 app.use('/notifications', notificationRouter);
 
-// Pi Auth middleware for protected resource groups
-app.use('/likes', piAuth);
-app.use('/playlists', piAuth);
-app.use('/tracks', piAuth);
-
-// Likes endpoints (direct handlers)
-// --- Likes: tracks ---
-app.get('/likes/songs', getLikedSongs);
-app.post('/likes/songs/:trackId', likeSong);
-app.delete('/likes/songs/:trackId', unlikeSong);
-// --- Likes: playlists ---
-app.get('/likes/playlists', getLikedPlaylists);
-app.post('/likes/playlists/:playlistId', likePlaylist);
-app.delete('/likes/playlists/:playlistId', unlikePlaylist);
-
-// (Legacy modular routers retained for compatibility; should be removed if unused)
-// New likes endpoints are direct (no legacy routers)
-
-// User library overview
-app.use('/library', piAuth);
-app.get('/library', getUserLibrary);
-
-// Public categories endpoint for SPA dropdowns
-app.use('/api/categories', categoriesRouter);
-
-// PurpleMusic Studio playlist creation
-app.use('/api/studio/playlists', studioPlaylistsRouter);
-
 // Authenticated user profile helpers
 app.use('/api/users', usersRouter);
 
@@ -187,23 +146,10 @@ app.use('/api/search', searchRouter);
 // On-demand artist hydration + local bundle
 app.use('/api/artist', artistRouter);
 
-// Public playlist details (used by SPA playlist pages)
-app.get('/api/playlists/:id', getPublicPlaylist);
-
 // Pi Network routes under /pi:
 app.use('/pi', piAuthRouter);
 app.use('/pi/payments', piPaymentsRouter);
 app.use('/client-log', clientLogRouter);
-
-// Public playlist stats endpoints
-app.get('/api/playlists/:id/public-stats', getPublicPlaylistStats);
-app.post('/api/playlists/:id/public-view', registerPlaylistView);
-
-// Playlist refresh endpoint (used when opening playlists from Artist page)
-app.post('/api/playlists/:id/refresh', refreshPlaylistTracks);
-
-// Playlist views tracking (no auth required for now - will add Pi auth later)
-app.use('/api/playlist-views', playlistViewsRouter);
 
 // Health endpoint under /health:
 const healthRouter = express.Router();
@@ -217,9 +163,6 @@ app.get('/', async (_req: Request, res: Response) => {
 
 
 // III. Boot up the app:
-
-initDailyRefreshScheduler();
-initJobProcessor();
 
 app.listen(env.port, async () => {
   console.log(`Connected to Supabase at ${env.supabase_url}`);
