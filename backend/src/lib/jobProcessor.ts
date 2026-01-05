@@ -1,10 +1,15 @@
+// backend/src/lib/jobProcessor.ts
+// FULL REWRITE — slot-aware run dispatcher (runBatch vs runBatch1)
+
 import cron from 'node-cron';
 import { DateTime } from 'luxon';
 import supabase from '../services/supabaseClient';
 
 import { executePrepareJob } from './prepareBatch1';
-import { executeRunJob } from '../jobs/runBatch';
+import { executeRunJob } from '../jobs/runBatch';        // legacy
+import { executeRunBatch1 } from '../jobs/runBatch1';   // OLAK-only
 import { executePostBatchJob } from '../jobs/postBatch';
+
 import { JobStatus, JobType, RefreshJobRow } from '../types/jobs';
 import env from '../environments';
 
@@ -12,17 +17,16 @@ const SCHEDULER_DISABLED = process.env.SCHEDULER_DISABLED === 'true';
 let loggedDisabled = false;
 
 const TIMEZONE = 'Europe/Budapest';
-const CRON_EXPRESSION = '* * * * *';
+const CRON_EXPRESSION = '* * * * *'; // every minute
 const JOB_TABLE = 'refresh_jobs';
 
 function logDisabledOnce(): void {
   if (loggedDisabled) return;
-  console.log('Job processor disabled by env flag');
+  console.log('[jobProcessor] Disabled by env flag');
   loggedDisabled = true;
 }
 
 export function initJobProcessor(): void {
-  // Freeze switch: do not poll, execute, or schedule background loops.
   if (SCHEDULER_DISABLED) {
     logDisabledOnce();
     return;
@@ -41,12 +45,11 @@ export function initJobProcessor(): void {
     { timezone: TIMEZONE }
   );
 
-  console.log(`[jobProcessor] Scheduled every minute in ${TIMEZONE}`);
+  console.log(`[jobProcessor] Scheduled every minute (${TIMEZONE})`);
 }
 
 async function processPendingJobs(): Promise<void> {
-  if (SCHEDULER_DISABLED) return;
-  if (!supabase) return;
+  if (SCHEDULER_DISABLED || !supabase) return;
 
   const budapestNow = DateTime.now().setZone(TIMEZONE).toISO();
   console.log(`[jobProcessor] Tick at ${budapestNow}`);
@@ -66,27 +69,25 @@ async function processPendingJobs(): Promise<void> {
       return;
     }
 
-    if (!data || data.length === 0) {
-      return;
-    }
+    if (!data || data.length === 0) return;
 
     for (const job of data as RefreshJobRow[]) {
       if (SCHEDULER_DISABLED) return;
       await handleJob(job);
     }
   } catch (error) {
-    console.error('[jobProcessor] Unexpected error while processing tick', error);
+    console.error('[jobProcessor] Unexpected error during tick', error);
   }
 }
 
 async function handleJob(job: RefreshJobRow): Promise<void> {
-  if (SCHEDULER_DISABLED) return;
-  if (!supabase) return;
+  if (SCHEDULER_DISABLED || !supabase) return;
 
   console.log(
     `[jobProcessor] Executing job ${job.id} type=${job.type} slot=${job.slot_index} scheduled_at=${job.scheduled_at}`
   );
 
+  // optimistic lock
   const { data: lockedRows, error: lockError } = await supabase
     .from(JOB_TABLE)
     .update({ status: 'running' })
@@ -95,7 +96,10 @@ async function handleJob(job: RefreshJobRow): Promise<void> {
     .select('id');
 
   if (lockError) {
-    console.error('[jobProcessor] Failed to lock job', { jobId: job.id, error: lockError });
+    console.error('[jobProcessor] Failed to lock job', {
+      jobId: job.id,
+      error: lockError,
+    });
     return;
   }
 
@@ -106,6 +110,7 @@ async function handleJob(job: RefreshJobRow): Promise<void> {
   try {
     if (job.type === 'prepare') {
       await executePrepareJob(job);
+
     } else if (job.type === 'run') {
       if (!env.enable_run_jobs) {
         console.warn(
@@ -115,9 +120,17 @@ async function handleJob(job: RefreshJobRow): Promise<void> {
         return;
       }
 
-      await executeRunJob(job);
+      if (job.slot_index === 1) {
+        console.log('[jobProcessor] ▶ runBatch1 (OLAK-only)');
+        await executeRunBatch1(job);
+      } else {
+        console.log('[jobProcessor] ▶ legacy runBatch');
+        await executeRunJob(job);
+      }
+
     } else if (job.type === 'postbatch') {
       await executePostBatchJob(job);
+
     } else {
       throw new Error(`Unsupported job type ${job.type}`);
     }
@@ -125,16 +138,21 @@ async function handleJob(job: RefreshJobRow): Promise<void> {
     await markJobDone(job.id);
   } catch (error) {
     const reason = error instanceof Error ? error.message : 'Unknown error';
-    console.error('[jobProcessor] Job execution failed', { jobId: job.id, reason });
+    console.error('[jobProcessor] Job execution failed', {
+      jobId: job.id,
+      reason,
+    });
     await markJobError(job.id, reason);
   }
 }
 
 async function markJobDone(jobId: string): Promise<void> {
-  if (SCHEDULER_DISABLED) return;
-  if (!supabase) return;
+  if (SCHEDULER_DISABLED || !supabase) return;
 
-  const { error } = await supabase.from(JOB_TABLE).update({ status: 'done' }).eq('id', jobId);
+  const { error } = await supabase
+    .from(JOB_TABLE)
+    .update({ status: 'done' })
+    .eq('id', jobId);
 
   if (error) {
     console.error('[jobProcessor] Failed to mark job done', { jobId, error });
@@ -142,8 +160,7 @@ async function markJobDone(jobId: string): Promise<void> {
 }
 
 async function markJobError(jobId: string, reason: string): Promise<void> {
-  if (SCHEDULER_DISABLED) return;
-  if (!supabase) return;
+  if (SCHEDULER_DISABLED || !supabase) return;
 
   const payload = { error: reason };
   const { error } = await supabase
@@ -157,8 +174,7 @@ async function markJobError(jobId: string, reason: string): Promise<void> {
 }
 
 async function markJobSkipped(jobId: string, reason: string): Promise<void> {
-  if (SCHEDULER_DISABLED) return;
-  if (!supabase) return;
+  if (SCHEDULER_DISABLED || !supabase) return;
 
   const payload = { skipped: true, reason };
   const { error } = await supabase
