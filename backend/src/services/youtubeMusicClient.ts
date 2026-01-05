@@ -38,6 +38,7 @@ export type MusicSearchSuggestion = {
   name: string;
   subtitle?: string;
   imageUrl?: string;
+  artists?: string[];
 };
 
 export type MusicSearchTrack = {
@@ -125,6 +126,38 @@ async function callYoutubei<T = any>(config: InnertubeConfig, path: string, payl
   } catch {
     return null;
   }
+}
+
+function collectResponsiveItems(root: any): any[] {
+  const out: any[] = [];
+  function walk(node: any): void {
+    if (!node) return;
+    if (Array.isArray(node)) {
+      for (const item of node) walk(item);
+      return;
+    }
+    if (typeof node !== "object") return;
+
+    if ((node as any).musicResponsiveListItemRenderer) {
+      out.push((node as any).musicResponsiveListItemRenderer);
+    }
+    if ((node as any).musicShelfRenderer) {
+      const shelfItems = (node as any).musicShelfRenderer?.contents;
+      if (Array.isArray(shelfItems)) {
+        for (const item of shelfItems) walk(item);
+      }
+    }
+    if ((node as any).musicCarouselShelfRenderer) {
+      const cards = (node as any).musicCarouselShelfRenderer?.contents;
+      if (Array.isArray(cards)) {
+        for (const card of cards) walk(card);
+      }
+    }
+
+    for (const value of Object.values(node)) walk(value);
+  }
+  walk(root);
+  return out;
 }
 
 type ParsedItem =
