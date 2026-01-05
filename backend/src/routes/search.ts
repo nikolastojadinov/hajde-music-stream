@@ -105,37 +105,37 @@ function mapAlbum(item: any): SearchAlbum | null {
 function deriveTracks(live: any): SearchTrack[] {
   const fromSections = pickSection(live, 'songs')
     .map(mapTrack)
-    .filter((t): t is SearchTrack => Boolean(t));
+    .filter((t: SearchTrack | null): t is SearchTrack => Boolean(t));
   if (fromSections.length > 0) return fromSections;
 
   const flat = Array.isArray(live?.tracks) ? live.tracks : [];
   return flat
     .map(mapTrack)
-    .filter((t): t is SearchTrack => Boolean(t));
+    .filter((t: SearchTrack | null): t is SearchTrack => Boolean(t));
 }
 
 function deriveArtists(live: any): SearchArtist[] {
   const fromSections = pickSection(live, 'artists')
     .map(mapArtist)
-    .filter((a): a is SearchArtist => Boolean(a));
+    .filter((a: SearchArtist | null): a is SearchArtist => Boolean(a));
   if (fromSections.length > 0) return fromSections;
 
   const flat = Array.isArray(live?.artists) ? live.artists : [];
   return flat
     .map(mapArtist)
-    .filter((a): a is SearchArtist => Boolean(a));
+    .filter((a: SearchArtist | null): a is SearchArtist => Boolean(a));
 }
 
 function deriveAlbums(live: any): SearchAlbum[] {
   const fromSections = pickSection(live, 'albums')
     .map(mapAlbum)
-    .filter((a): a is SearchAlbum => Boolean(a));
+    .filter((a: SearchAlbum | null): a is SearchAlbum => Boolean(a));
   if (fromSections.length > 0) return fromSections;
 
   const flat = Array.isArray(live?.albums) ? live.albums : [];
   return flat
     .map(mapAlbum)
-    .filter((a): a is SearchAlbum => Boolean(a));
+    .filter((a: SearchAlbum | null): a is SearchAlbum => Boolean(a));
 }
 
 router.get('/suggest', async (req, res) => {
