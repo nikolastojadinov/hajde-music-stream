@@ -4,28 +4,28 @@
 import { DateTime } from 'luxon';
 import path from 'path';
 import { promises as fs } from 'fs';
-import { randomUUID } from 'crypto';
 import supabase from '../services/supabaseClient';
 import env from '../environments';
 import { RefreshJobRow } from '../types/jobs';
 import { PlaylistIngestTarget } from '../services/postBatchPlaylistTrackIngest';
-import { canonicalArtistName, normalizeArtistKey } from '../utils/artistKey';
 
 const TIMEZONE = 'Europe/Budapest';
 const JOB_TABLE = 'refresh_jobs';
 const PLAYLIST_TABLE = 'playlists';
-const TRACKS_TABLE = 'tracks';
-const PLAYLIST_TRACKS_TABLE = 'playlist_tracks';
-
 const BATCH_DIR = path.resolve(__dirname, '../../tmp/refresh_batches');
 
 const OLAK_PREFIX = 'OLAK5uy_';
 const MPRE_PREFIX = 'MPREb';
 const MIX_PREFIX = 'RD';
 
-const YOUTUBE_API_BASE = 'https://www.googleapis.com/youtube/v3';
-const YOUTUBE_PAGE_SIZE = 50;
-const PLAYLIST_TRACK_LIMIT = 500;
+type BatchFileEntry = {
+  playlistId?: string;
+};
+
+type PlaylistRow = {
+  id: string;
+  external_id: string;
+};
 
 type BatchResult = {
   playlistCount: number;
@@ -36,27 +36,9 @@ type BatchResult = {
   playlistTargets: PlaylistIngestTarget[];
 };
 
-type PlaylistRow = {
-  id: string;
-  external_id: string;
-  channel_id: string | null;
-  channel_title: string | null;
-  region: string | null;
-  category: string | null;
-  last_etag: string | null;
-};
-
-type YouTubePlaylistItem = {
-  videoId: string;
-  title: string;
-  channelTitle: string | null;
-  thumbnailUrl: string | null;
-  position: number;
-  videoOwnerChannelId?: string | null;
-};
-
-function isValidAlbumPlaylist(id: string): boolean {
-  return id.startsWith(OLAK_PREFIX) || id.startsWith(MPRE_PREFIX);
+function isValidAlbumPlaylistId(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  return value.startsWith(OLAK_PREFIX) || value.startsWith(MPRE_PREFIX);
 }
 
 function isMixPlaylist(id: string): boolean {
@@ -90,22 +72,30 @@ export async function executeRunJob(job: RefreshJobRow): Promise<void> {
 }
 
 async function runBatch(job: RefreshJobRow): Promise<BatchResult> {
-  const batchFile = path.join(BATCH_DIR, `batch_${job.day_key}_slot_${job.slot_index}.json`);
-  const raw = await fs.readFile(batchFile, 'utf-8');
-  const parsed = JSON.parse(raw) as Array<{ playlistId?: string }>;
+  const batchFilePath = path.join(
+    BATCH_DIR,
+    `batch_${job.day_key}_slot_${job.slot_index}.json`,
+  );
 
-  const playlistIds = parsed
+  const raw = await fs.readFile(batchFilePath, 'utf-8');
+  const parsed = JSON.parse(raw) as BatchFileEntry[];
+
+  const playlistIds: string[] = parsed
     .map(e => e.playlistId)
-    .filter((id): id is string => Boolean(id) && isValidAlbumPlaylist(id));
+    .filter(isValidAlbumPlaylistId);
 
   if (playlistIds.length === 0) {
-    throw new Error('No valid OLAK / MPREb playlistIds in batch file');
+    throw new Error('No valid OLAK / MPREb playlistIds found in batch file');
   }
 
-  const { data: playlists } = await supabase!
+  const { data: playlists, error } = await supabase!
     .from(PLAYLIST_TABLE)
-    .select('id, external_id, channel_id, channel_title, region, category, last_etag')
+    .select('id, external_id')
     .in('external_id', playlistIds);
+
+  if (error) {
+    throw new Error(`Failed to load playlists: ${error.message}`);
+  }
 
   const result: BatchResult = {
     playlistCount: playlists?.length ?? 0,
@@ -118,23 +108,16 @@ async function runBatch(job: RefreshJobRow): Promise<BatchResult> {
 
   for (const playlist of playlists as PlaylistRow[]) {
     if (isMixPlaylist(playlist.external_id)) {
-      result.skippedCount++;
+      result.skippedCount += 1;
       continue;
     }
 
-    try {
-      result.playlistTargets.push({
-        playlist_id: playlist.id,
-        external_playlist_id: playlist.external_id,
-      });
-      result.successCount++;
-    } catch (err) {
-      result.failureCount++;
-      result.errors.push({
-        playlistId: playlist.external_id,
-        message: err instanceof Error ? err.message : 'Unknown error',
-      });
-    }
+    result.playlistTargets.push({
+      playlist_id: playlist.id,
+      external_playlist_id: playlist.external_id,
+    });
+
+    result.successCount += 1;
   }
 
   return result;
