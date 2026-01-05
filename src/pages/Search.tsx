@@ -21,7 +21,7 @@ import {
   type SearchSuggestItem,
 } from "@/lib/api/search";
 
-// Shelf-based live search inspired by YouTube Music; renders grouped sections instead of flat lists.
+// Shelf-first search UI that renders Innertube sections; no flat REST assumptions remain.
 
 const MIN_QUERY_CHARS = 2;
 
@@ -29,24 +29,35 @@ function normalizeQuery(value: string): string {
   return value.trim();
 }
 
-function isTrack(item: any): item is SearchTrackItem {
-  return Boolean(item && typeof item.youtubeId === "string");
+function isTrackItem(item: unknown): item is SearchTrackItem {
+  const t = item as SearchTrackItem;
+  return Boolean(t && typeof t.youtubeId === "string" && typeof t.title === "string");
 }
 
-function isArtist(item: any): item is SearchArtistItem {
-  return Boolean(item && typeof item.name === "string" && typeof item.id === "string");
+function isArtistItem(item: unknown): item is SearchArtistItem {
+  const a = item as SearchArtistItem;
+  return Boolean(a && typeof a.id === "string" && typeof a.name === "string");
 }
 
-function isAlbum(item: any): item is SearchAlbumItem {
-  return Boolean(item && typeof item.title === "string" && typeof item.id === "string");
+function isAlbumItem(item: unknown): item is SearchAlbumItem {
+  const a = item as SearchAlbumItem;
+  return Boolean(a && typeof a.id === "string" && typeof a.title === "string");
 }
 
-function isPlaylist(item: any): item is SearchPlaylistItem {
-  return Boolean(item && typeof item.title === "string" && typeof item.id === "string");
+function isPlaylistItem(item: unknown): item is SearchPlaylistItem {
+  const p = item as SearchPlaylistItem;
+  return Boolean(p && typeof p.id === "string" && typeof p.title === "string");
 }
 
 function hasItems(section: SearchSection | undefined): boolean {
   return Boolean(section && Array.isArray(section.items) && section.items.length > 0);
+}
+
+function toText(item: unknown): { title: string; subtitle?: string } {
+  const anyItem = item as { title?: string; name?: string; subtitle?: string } | null | undefined;
+  const title = normalizeQuery(anyItem?.title || anyItem?.name || "Item");
+  const subtitle = normalizeQuery(anyItem?.subtitle || "");
+  return { title: title || "Item", subtitle: subtitle || undefined };
 }
 
 export default function Search() {
@@ -80,9 +91,10 @@ export default function Search() {
           try {
             const resp = await searchSuggest(q, { signal: controller.signal });
             if (!controller.signal.aborted) setSuggestions(resp.suggestions ?? []);
-          } catch (e: any) {
+          } catch (e: unknown) {
             if (controller.signal.aborted) return;
-            setSuggestError(e?.message || "Suggest failed");
+            const message = e instanceof Error ? e.message : "Suggest failed";
+            setSuggestError(message);
             setSuggestions([]);
           } finally {
             if (!controller.signal.aborted) setSuggestLoading(false);
@@ -121,8 +133,9 @@ export default function Search() {
     try {
       const resp = await searchResolve({ q });
       setResults(resp);
-    } catch (e: any) {
-      setError(e?.message || "Search failed");
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : "Search failed";
+      setError(message);
       setResults(null);
     } finally {
       setLoading(false);
@@ -144,80 +157,98 @@ export default function Search() {
   const sections = results?.sections ?? [];
   const hasAnySections = sections.some((s) => hasItems(s));
 
-  const renderSongs = (section: SearchSection) => (
-    <div className="space-y-2">
-      {section.items.filter(isTrack).map((t) => (
-        <div key={t.id} className="flex items-center justify-between rounded-md border p-3">
-          <div className="min-w-0">
-            <p className="truncate text-sm font-semibold">{t.title}</p>
-            <p className="truncate text-xs text-muted-foreground">{t.artist || t.artists?.join(", ") || "Unknown artist"}</p>
+  const renderSongs = (section: SearchSection) => {
+    const tracks = section.items.filter(isTrackItem);
+    if (tracks.length === 0) return null;
+    return (
+      <div className="space-y-2">
+        {tracks.map((t) => (
+          <div key={t.id} className="flex items-center justify-between rounded-md border p-3">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold">{t.title}</p>
+              <p className="truncate text-xs text-muted-foreground">{t.artist || t.artists?.join(", ") || "Unknown artist"}</p>
+            </div>
+            <Button variant="ghost" size="icon" onClick={() => handlePlay(t.youtubeId, t.title, t.artist)}>
+              <Play className="h-4 w-4" />
+            </Button>
           </div>
-          <Button variant="ghost" size="icon" onClick={() => handlePlay(t.youtubeId, t.title, t.artist)}>
-            <Play className="h-4 w-4" />
-          </Button>
-        </div>
-      ))}
-    </div>
-  );
+        ))}
+      </div>
+    );
+  };
 
-  const renderArtists = (section: SearchSection) => (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-      {section.items.filter(isArtist).map((a) => (
-        <Link
-          key={a.id}
-          to={`/artist/${encodeURIComponent(a.name)}`}
-          className="flex items-center gap-3 rounded-md border p-3 hover:bg-accent"
-        >
-          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted text-sm font-semibold">
-            {a.name.slice(0, 1).toUpperCase()}
-          </div>
-          <div className="min-w-0">
-            <p className="truncate text-sm font-semibold">{a.name}</p>
-            <p className="truncate text-xs text-muted-foreground">YouTube • Live</p>
-          </div>
-        </Link>
-      ))}
-    </div>
-  );
+  const renderArtists = (section: SearchSection) => {
+    const artists = section.items.filter(isArtistItem);
+    if (artists.length === 0) return null;
+    return (
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+        {artists.map((a) => (
+          <Link
+            key={a.id}
+            to={`/artist/${encodeURIComponent(a.name)}`}
+            className="flex items-center gap-3 rounded-md border p-3 hover:bg-accent"
+          >
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted text-sm font-semibold">
+              {a.name.slice(0, 1).toUpperCase()}
+            </div>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold">{a.name}</p>
+              <p className="truncate text-xs text-muted-foreground">YouTube • Live</p>
+            </div>
+          </Link>
+        ))}
+      </div>
+    );
+  };
 
-  const renderAlbums = (section: SearchSection) => (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-      {section.items.filter((i) => isAlbum(i) || isPlaylist(i)).map((p) => (
-        <a
-          key={(p as any).id}
-          href={`https://music.youtube.com/playlist?list=${encodeURIComponent((p as any).id)}`}
-          target="_blank"
-          rel="noreferrer"
-          className="flex flex-col gap-2 rounded-md border p-3 hover:bg-accent"
-        >
-          <div className="flex h-24 w-full items-center justify-center rounded bg-muted text-xs font-semibold text-muted-foreground">
-            {(p as any).title.slice(0, 1).toUpperCase()}
-          </div>
-          <div className="min-w-0">
-            <p className="truncate text-sm font-semibold">{(p as any).title}</p>
-            <p className="truncate text-xs text-muted-foreground">{(p as any).subtitle || (p as any).channelTitle || "YouTube Music"}</p>
-          </div>
-        </a>
-      ))}
-    </div>
-  );
+  const renderAlbumsOrPlaylists = (section: SearchSection) => {
+    const entries = section.items.filter((i) => isAlbumItem(i) || isPlaylistItem(i));
+    if (entries.length === 0) return null;
+    return (
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+        {entries.map((p) => {
+          const title = (p as SearchAlbumItem | SearchPlaylistItem).title;
+          const subtitle = (p as SearchAlbumItem | SearchPlaylistItem).subtitle || (p as SearchAlbumItem).channelTitle;
+          return (
+            <a
+              key={p.id}
+              href={`https://music.youtube.com/playlist?list=${encodeURIComponent(p.id)}`}
+              target="_blank"
+              rel="noreferrer"
+              className="flex flex-col gap-2 rounded-md border p-3 hover:bg-accent"
+            >
+              <div className="flex h-24 w-full items-center justify-center rounded bg-muted text-xs font-semibold text-muted-foreground">
+                {title.slice(0, 1).toUpperCase()}
+              </div>
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold">{title}</p>
+                <p className="truncate text-xs text-muted-foreground">{subtitle || "YouTube Music"}</p>
+              </div>
+            </a>
+          );
+        })}
+      </div>
+    );
+  };
 
-  const renderGeneric = (section: SearchSection) => (
-    <div className="space-y-2">
-      {section.items.map((item, idx) => (
-        <div key={`${section.kind}-${idx}`} className="rounded-md border p-3">
-          <p className="text-sm font-semibold truncate">{(item as any)?.title || (item as any)?.name || "Item"}</p>
-          {(item as any)?.subtitle ? (
-            <p className="text-xs text-muted-foreground truncate">{(item as any).subtitle}</p>
-          ) : null}
-        </div>
-      ))}
-    </div>
-  );
+  const renderGeneric = (section: SearchSection) => {
+    if (!hasItems(section)) return null;
+    return (
+      <div className="space-y-2">
+        {section.items.map((item, idx) => {
+          const { title, subtitle } = toText(item);
+          return (
+            <div key={`${section.kind}-${idx}`} className="rounded-md border p-3">
+              <p className="text-sm font-semibold truncate">{title}</p>
+              {subtitle ? <p className="text-xs text-muted-foreground truncate">{subtitle}</p> : null}
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
 
   const renderSection = (section: SearchSection) => {
-    if (!hasItems(section)) return null;
-
     switch (section.kind) {
       case "songs":
       case "videos":
@@ -228,7 +259,7 @@ export default function Search() {
       case "playlists":
       case "community_playlists":
       case "featured_playlists":
-        return renderAlbums(section);
+        return renderAlbumsOrPlaylists(section);
       default:
         return renderGeneric(section);
     }
@@ -292,18 +323,18 @@ export default function Search() {
       </div>
 
       {loading ? (
-        <LoadingSkeleton />
+        <LoadingSkeleton type="search" />
       ) : error ? (
         <ErrorState title="Search failed" subtitle={error} onRetry={() => handleSearch()} />
       ) : results ? (
         hasAnySections ? (
           <div className="space-y-10">
-            {sections.filter(hasItems).map((section) => (
-              <section key={section.kind} className="space-y-3">
+            {sections.filter(hasItems).map((section, idx) => (
+              <section key={`${section.kind}-${idx}`} className="space-y-3">
                 <div className="flex items-center gap-2">
                   {section.kind === "songs" || section.kind === "videos" ? <Music className="h-5 w-5" /> : null}
                   {section.kind === "artists" ? <User className="h-5 w-5" /> : null}
-                  {(section.kind === "albums" || section.kind === "playlists" || section.kind === "community_playlists" || section.kind === "featured_playlists") ? (
+                  {section.kind === "albums" || section.kind === "playlists" || section.kind === "community_playlists" || section.kind === "featured_playlists" ? (
                     <Disc3 className="h-5 w-5" />
                   ) : null}
                   <h2 className="text-lg font-semibold">{section.title || section.kind}</h2>
