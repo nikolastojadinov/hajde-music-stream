@@ -1,16 +1,16 @@
 // backend/src/lib/jobProcessor.ts
-// FULL REWRITE — slot-aware run dispatcher (runBatch vs runBatch1)
+// FULL REWRITE — slot-aware dispatcher with runBatch1 alias
 
 import cron from 'node-cron';
 import { DateTime } from 'luxon';
 import supabase from '../services/supabaseClient';
 
 import { executePrepareJob } from './prepareBatch1';
-import { executeRunJob } from '../jobs/runBatch';        // legacy
-import { executeRunBatch1 } from '../jobs/runBatch1';   // OLAK-only
+import { executeRunJob } from '../jobs/runBatch'; // legacy runBatch
+import { executeRunJob as executeRunBatch1 } from '../jobs/runBatch1'; // alias (OLAK-only)
 import { executePostBatchJob } from '../jobs/postBatch';
 
-import { JobStatus, JobType, RefreshJobRow } from '../types/jobs';
+import { RefreshJobRow } from '../types/jobs';
 import env from '../environments';
 
 const SCHEDULER_DISABLED = process.env.SCHEDULER_DISABLED === 'true';
@@ -121,7 +121,7 @@ async function handleJob(job: RefreshJobRow): Promise<void> {
       }
 
       if (job.slot_index === 1) {
-        console.log('[jobProcessor] ▶ runBatch1 (OLAK-only)');
+        console.log('[jobProcessor] ▶ runBatch1 (OLAK / MPREb only)');
         await executeRunBatch1(job);
       } else {
         console.log('[jobProcessor] ▶ legacy runBatch');
