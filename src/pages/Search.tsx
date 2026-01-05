@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import debounce from "lodash.debounce";
-import { Disc3, Music, Search as SearchIcon, User, ListMusic, Play } from "lucide-react";
+import { Disc3, ListMusic, Music, Play, Search as SearchIcon, User } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,9 +12,16 @@ import { usePlayer } from "@/contexts/PlayerContext";
 import {
   searchResolve,
   searchSuggest,
+  type SearchAlbumItem,
+  type SearchArtistItem,
+  type SearchPlaylistItem,
   type SearchResolveResponse,
+  type SearchSection,
+  type SearchTrackItem,
   type SearchSuggestItem,
 } from "@/lib/api/search";
+
+// Shelf-based live search inspired by YouTube Music; renders grouped sections instead of flat lists.
 
 const MIN_QUERY_CHARS = 2;
 
@@ -22,8 +29,27 @@ function normalizeQuery(value: string): string {
   return value.trim();
 }
 
+function isTrack(item: any): item is SearchTrackItem {
+  return Boolean(item && typeof item.youtubeId === "string");
+}
+
+function isArtist(item: any): item is SearchArtistItem {
+  return Boolean(item && typeof item.name === "string" && typeof item.id === "string");
+}
+
+function isAlbum(item: any): item is SearchAlbumItem {
+  return Boolean(item && typeof item.title === "string" && typeof item.id === "string");
+}
+
+function isPlaylist(item: any): item is SearchPlaylistItem {
+  return Boolean(item && typeof item.title === "string" && typeof item.id === "string");
+}
+
+function hasItems(section: SearchSection | undefined): boolean {
+  return Boolean(section && Array.isArray(section.items) && section.items.length > 0);
+}
+
 export default function Search() {
-  const navigate = useNavigate();
   const { playTrack } = usePlayer();
 
   const [query, setQuery] = useState("");
@@ -106,18 +132,107 @@ export default function Search() {
   const handleSuggestionClick = (item: SearchSuggestItem) => {
     setQuery(item.name);
     setSuggestOpen(false);
-    if (item.type === "artist") {
-      navigate(`/artist/${encodeURIComponent(item.name)}`);
-      return;
-    }
     void handleSearch(item.name);
   };
 
-  const handlePlay = (youtubeId: string, title: string, artist: string) => {
-    playTrack(youtubeId, title, artist, youtubeId);
+  const handlePlay = (youtubeId: string, title: string, artist?: string) => {
+    playTrack(youtubeId, title, artist || "", youtubeId);
   };
 
   const showDropdown = suggestOpen && (suggestions.length > 0 || suggestLoading || suggestError);
+
+  const sections = results?.sections ?? [];
+  const hasAnySections = sections.some((s) => hasItems(s));
+
+  const renderSongs = (section: SearchSection) => (
+    <div className="space-y-2">
+      {section.items.filter(isTrack).map((t) => (
+        <div key={t.id} className="flex items-center justify-between rounded-md border p-3">
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold">{t.title}</p>
+            <p className="truncate text-xs text-muted-foreground">{t.artist || t.artists?.join(", ") || "Unknown artist"}</p>
+          </div>
+          <Button variant="ghost" size="icon" onClick={() => handlePlay(t.youtubeId, t.title, t.artist)}>
+            <Play className="h-4 w-4" />
+          </Button>
+        </div>
+      ))}
+    </div>
+  );
+
+  const renderArtists = (section: SearchSection) => (
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+      {section.items.filter(isArtist).map((a) => (
+        <Link
+          key={a.id}
+          to={`/artist/${encodeURIComponent(a.name)}`}
+          className="flex items-center gap-3 rounded-md border p-3 hover:bg-accent"
+        >
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted text-sm font-semibold">
+            {a.name.slice(0, 1).toUpperCase()}
+          </div>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold">{a.name}</p>
+            <p className="truncate text-xs text-muted-foreground">YouTube • Live</p>
+          </div>
+        </Link>
+      ))}
+    </div>
+  );
+
+  const renderAlbums = (section: SearchSection) => (
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+      {section.items.filter((i) => isAlbum(i) || isPlaylist(i)).map((p) => (
+        <a
+          key={(p as any).id}
+          href={`https://music.youtube.com/playlist?list=${encodeURIComponent((p as any).id)}`}
+          target="_blank"
+          rel="noreferrer"
+          className="flex flex-col gap-2 rounded-md border p-3 hover:bg-accent"
+        >
+          <div className="flex h-24 w-full items-center justify-center rounded bg-muted text-xs font-semibold text-muted-foreground">
+            {(p as any).title.slice(0, 1).toUpperCase()}
+          </div>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold">{(p as any).title}</p>
+            <p className="truncate text-xs text-muted-foreground">{(p as any).subtitle || (p as any).channelTitle || "YouTube Music"}</p>
+          </div>
+        </a>
+      ))}
+    </div>
+  );
+
+  const renderGeneric = (section: SearchSection) => (
+    <div className="space-y-2">
+      {section.items.map((item, idx) => (
+        <div key={`${section.kind}-${idx}`} className="rounded-md border p-3">
+          <p className="text-sm font-semibold truncate">{(item as any)?.title || (item as any)?.name || "Item"}</p>
+          {(item as any)?.subtitle ? (
+            <p className="text-xs text-muted-foreground truncate">{(item as any).subtitle}</p>
+          ) : null}
+        </div>
+      ))}
+    </div>
+  );
+
+  const renderSection = (section: SearchSection) => {
+    if (!hasItems(section)) return null;
+
+    switch (section.kind) {
+      case "songs":
+      case "videos":
+        return renderSongs(section);
+      case "artists":
+        return renderArtists(section);
+      case "albums":
+      case "playlists":
+      case "community_playlists":
+      case "featured_playlists":
+        return renderAlbums(section);
+      default:
+        return renderGeneric(section);
+    }
+  };
 
   return (
     <div className="space-y-6 p-4 pb-24">
@@ -161,6 +276,7 @@ export default function Search() {
                         {s.type === "artist" && <User className="h-4 w-4" />}
                         {s.type === "track" && <Music className="h-4 w-4" />}
                         {s.type === "album" && <Disc3 className="h-4 w-4" />}
+                        {s.type === "playlist" && <ListMusic className="h-4 w-4" />}
                       </span>
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-medium">{s.name}</p>
@@ -180,89 +296,25 @@ export default function Search() {
       ) : error ? (
         <ErrorState title="Search failed" subtitle={error} onRetry={() => handleSearch()} />
       ) : results ? (
-        <div className="space-y-8">
-          <section>
-            <div className="mb-3 flex items-center gap-2">
-              <Music className="h-5 w-5" />
-              <h2 className="text-lg font-semibold">Songs</h2>
-            </div>
-            {results.tracks.length === 0 ? (
-              <EmptyState title="No songs" subtitle="Try another query." />
-            ) : (
-              <div className="space-y-2">
-                {results.tracks.map((t) => (
-                  <div key={t.id} className="flex items-center justify-between rounded-md border p-3">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold">{t.title}</p>
-                      <p className="truncate text-xs text-muted-foreground">{t.artist}</p>
-                    </div>
-                    <Button variant="ghost" size="icon" onClick={() => handlePlay(t.youtubeId, t.title, t.artist)}>
-                      <Play className="h-4 w-4" />
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-
-          <section>
-            <div className="mb-3 flex items-center gap-2">
-              <User className="h-5 w-5" />
-              <h2 className="text-lg font-semibold">Artists</h2>
-            </div>
-            {results.artists.length === 0 ? (
-              <EmptyState title="No artists" subtitle="Try another query." />
-            ) : (
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-                {results.artists.map((a) => (
-                  <Link
-                    key={a.id}
-                    to={`/artist/${encodeURIComponent(a.name)}`}
-                    className="flex items-center gap-3 rounded-md border p-3 hover:bg-accent"
-                  >
-                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted text-sm font-semibold">
-                      {a.name.slice(0, 1).toUpperCase()}
-                    </div>
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold">{a.name}</p>
-                      <p className="truncate text-xs text-muted-foreground">YouTube • Live</p>
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            )}
-          </section>
-
-          <section>
-            <div className="mb-3 flex items-center gap-2">
-              <ListMusic className="h-5 w-5" />
-              <h2 className="text-lg font-semibold">Albums</h2>
-            </div>
-            {results.albums.length === 0 ? (
-              <EmptyState title="No albums" subtitle="Try another query." />
-            ) : (
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-                {results.albums.map((p) => (
-                  <a
-                    key={p.id}
-                    href={`https://music.youtube.com/playlist?list=${encodeURIComponent(p.id)}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex flex-col gap-2 rounded-md border p-3 hover:bg-accent"
-                  >
-                    <div className="flex h-24 w-full items-center justify-center rounded bg-muted text-xs font-semibold text-muted-foreground">
-                      {p.title.slice(0, 1).toUpperCase()}
-                    </div>
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold">{p.title}</p>
-                      <p className="truncate text-xs text-muted-foreground">{p.channelTitle || "YouTube Music"}</p>
-                    </div>
-                  </a>
-                ))}
-              </div>
-            )}
-          </section>
-        </div>
+        hasAnySections ? (
+          <div className="space-y-10">
+            {sections.filter(hasItems).map((section) => (
+              <section key={section.kind} className="space-y-3">
+                <div className="flex items-center gap-2">
+                  {section.kind === "songs" || section.kind === "videos" ? <Music className="h-5 w-5" /> : null}
+                  {section.kind === "artists" ? <User className="h-5 w-5" /> : null}
+                  {(section.kind === "albums" || section.kind === "playlists" || section.kind === "community_playlists" || section.kind === "featured_playlists") ? (
+                    <Disc3 className="h-5 w-5" />
+                  ) : null}
+                  <h2 className="text-lg font-semibold">{section.title || section.kind}</h2>
+                </div>
+                {renderSection(section)}
+              </section>
+            ))}
+          </div>
+        ) : (
+          <EmptyState title="Nothing found" subtitle="Try another query." />
+        )
       ) : (
         <EmptyState title="Search music live" subtitle="Start typing to see suggestions." />
       )}
