@@ -62,10 +62,27 @@ export type MusicSearchAlbum = {
   imageUrl?: string;
 };
 
+export type MusicSearchPlaylist = {
+  id: string;
+  title: string;
+  channelId?: string | null;
+  channelTitle?: string | null;
+  imageUrl?: string;
+};
+
+export type MusicSearchSection = {
+  kind: string;
+  title?: string | null;
+  items: Array<MusicSearchTrack | MusicSearchArtist | MusicSearchAlbum | MusicSearchPlaylist>;
+};
+
 export type MusicSearchResults = {
   tracks: MusicSearchTrack[];
   artists: MusicSearchArtist[];
   albums: MusicSearchAlbum[];
+  playlists: MusicSearchPlaylist[];
+  sections: MusicSearchSection[];
+  refinements: string[];
   suggestions: MusicSearchSuggestion[];
 };
 
@@ -110,7 +127,13 @@ async function callYoutubei<T = any>(config: InnertubeConfig, path: string, payl
   }
 }
 
-function collectResponsiveItems(root: any): any[] {
+type ParsedItem =
+  | { variant: "track"; value: MusicSearchTrack }
+  | { variant: "artist"; value: MusicSearchArtist }
+  | { variant: "album"; value: MusicSearchAlbum }
+  | { variant: "playlist"; value: MusicSearchPlaylist };
+
+function collectShelfRenderers(root: any): any[] {
   const out: any[] = [];
   function walk(node: any): void {
     if (!node) return;
@@ -120,20 +143,8 @@ function collectResponsiveItems(root: any): any[] {
     }
     if (typeof node !== "object") return;
 
-    if ((node as any).musicResponsiveListItemRenderer) {
-      out.push((node as any).musicResponsiveListItemRenderer);
-    }
     if ((node as any).musicShelfRenderer) {
-      const shelfItems = (node as any).musicShelfRenderer?.contents;
-      if (Array.isArray(shelfItems)) {
-        for (const item of shelfItems) walk(item);
-      }
-    }
-    if ((node as any).musicCarouselShelfRenderer) {
-      const cards = (node as any).musicCarouselShelfRenderer?.contents;
-      if (Array.isArray(cards)) {
-        for (const card of cards) walk(card);
-      }
+      out.push((node as any).musicShelfRenderer);
     }
 
     for (const value of Object.values(node)) walk(value);
@@ -142,7 +153,7 @@ function collectResponsiveItems(root: any): any[] {
   return out;
 }
 
-function parseListItem(item: any): MusicSearchSuggestion | MusicSearchTrack | MusicSearchArtist | MusicSearchAlbum | null {
+function parseListItem(item: any): ParsedItem | null {
   const title = pickText(item?.flexColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.[0]);
   const subtitlesRuns = item?.flexColumns?.[1]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs;
   const subtitle = Array.isArray(subtitlesRuns) ? subtitlesRuns.map((r: any) => r?.text ?? "").join("") : "";
@@ -156,13 +167,15 @@ function parseListItem(item: any): MusicSearchSuggestion | MusicSearchTrack | Mu
   // Song / track
   if (watchEndpoint?.videoId && looksLikeVideoId(watchEndpoint.videoId)) {
     return {
-      type: "track",
-      id: watchEndpoint.videoId,
-      title: title || "Unknown",
-      artist: subtitle || "Unknown artist",
-      youtubeId: watchEndpoint.videoId,
-      imageUrl: thumb || undefined,
-    } as MusicSearchTrack;
+      variant: "track",
+      value: {
+        id: watchEndpoint.videoId,
+        title: title || "Unknown",
+        artist: subtitle || "Unknown artist",
+        youtubeId: watchEndpoint.videoId,
+        imageUrl: thumb || undefined,
+      },
+    };
   }
 
   const browseId = normalizeString(browseEndpoint?.browseId);
@@ -170,22 +183,39 @@ function parseListItem(item: any): MusicSearchSuggestion | MusicSearchTrack | Mu
 
   if (browseId && isMusicPageType(pageType, "MUSIC_PAGE_TYPE_ARTIST")) {
     return {
-      type: "artist",
-      id: browseId,
-      name: title || subtitle || "Artist",
-      imageUrl: thumb || undefined,
-    } as MusicSearchArtist;
+      variant: "artist",
+      value: {
+        id: browseId,
+        name: title || subtitle || "Artist",
+        imageUrl: thumb || undefined,
+      },
+    };
   }
 
-  if (browseId && (isMusicPageType(pageType, "MUSIC_PAGE_TYPE_ALBUM") || isMusicPageType(pageType, "MUSIC_PAGE_TYPE_PLAYLIST"))) {
+  if (browseId && isMusicPageType(pageType, "MUSIC_PAGE_TYPE_ALBUM")) {
     return {
-      type: "album",
-      id: browseId,
-      title: title || "Album",
-      channelId: null,
-      channelTitle: subtitle || null,
-      imageUrl: thumb || undefined,
-    } as MusicSearchAlbum;
+      variant: "album",
+      value: {
+        id: browseId,
+        title: title || "Album",
+        channelId: null,
+        channelTitle: subtitle || null,
+        imageUrl: thumb || undefined,
+      },
+    };
+  }
+
+  if (browseId && isMusicPageType(pageType, "MUSIC_PAGE_TYPE_PLAYLIST")) {
+    return {
+      variant: "playlist",
+      value: {
+        id: browseId,
+        title: title || "Playlist",
+        channelId: null,
+        channelTitle: subtitle || null,
+        imageUrl: thumb || undefined,
+      },
+    };
   }
 
   return null;
@@ -193,41 +223,62 @@ function parseListItem(item: any): MusicSearchSuggestion | MusicSearchTrack | Mu
 
 export async function musicSearch(queryRaw: string): Promise<MusicSearchResults> {
   const query = normalizeString(queryRaw);
-  if (!query) return { tracks: [], artists: [], albums: [], suggestions: [] };
+  if (!query) return { tracks: [], artists: [], albums: [], playlists: [], sections: [], refinements: [], suggestions: [] };
 
   const config = await fetchInnertubeConfig();
-  if (!config) return { tracks: [], artists: [], albums: [], suggestions: [] };
+  if (!config) return { tracks: [], artists: [], albums: [], playlists: [], sections: [], refinements: [], suggestions: [] };
 
   const json = await callYoutubei<any>(config, "search", { query });
-  if (!json) return { tracks: [], artists: [], albums: [], suggestions: [] };
+  if (!json) return { tracks: [], artists: [], albums: [], playlists: [], sections: [], refinements: [], suggestions: [] };
 
-  const suggestions: MusicSearchSuggestion[] = Array.isArray((json as any)?.refinements)
-    ? (json as any).refinements.map((s: any) => ({ type: "track", id: String(s), name: String(s) }))
-    : [];
+  const refinements: string[] = Array.isArray((json as any)?.refinements) ? (json as any).refinements.map((s: any) => String(s)) : [];
 
-  const items = collectResponsiveItems(json);
+  const shelves = collectShelfRenderers(json);
+  const sections: MusicSearchSection[] = [];
   const tracks: MusicSearchTrack[] = [];
   const artists: MusicSearchArtist[] = [];
   const albums: MusicSearchAlbum[] = [];
+  const playlists: MusicSearchPlaylist[] = [];
 
-  for (const item of items) {
-    const parsed = parseListItem(item);
-    if (!parsed) continue;
-    if ((parsed as any).type === "track") {
-      tracks.push(parsed as MusicSearchTrack);
-      continue;
+  for (const shelf of shelves) {
+    const contents = Array.isArray(shelf?.contents) ? shelf.contents : [];
+    const parsedItems: ParsedItem[] = [];
+
+    for (const content of contents) {
+      const renderer = content?.musicResponsiveListItemRenderer;
+      if (!renderer) continue;
+      const parsed = parseListItem(renderer);
+      if (parsed) parsedItems.push(parsed);
     }
-    if ((parsed as any).type === "artist") {
-      artists.push(parsed as MusicSearchArtist);
-      continue;
+
+    if (parsedItems.length === 0) continue;
+
+    const items = parsedItems.map((p) => p.value);
+
+    const variantSet = new Set(parsedItems.map((p) => p.variant));
+    const kind = variantSet.has("track")
+      ? "songs"
+      : variantSet.has("artist")
+        ? "artists"
+        : variantSet.has("album")
+          ? "albums"
+          : variantSet.has("playlist")
+            ? "playlists"
+            : "unknown";
+
+    for (const parsed of parsedItems) {
+      if (parsed.variant === "track") tracks.push(parsed.value as MusicSearchTrack);
+      else if (parsed.variant === "artist") artists.push(parsed.value as MusicSearchArtist);
+      else if (parsed.variant === "album") albums.push(parsed.value as MusicSearchAlbum);
+      else if (parsed.variant === "playlist") playlists.push(parsed.value as MusicSearchPlaylist);
     }
-    if ((parsed as any).type === "album") {
-      albums.push(parsed as MusicSearchAlbum);
-      continue;
-    }
+
+    sections.push({ kind, title: pickText(shelf?.title) || null, items });
   }
 
-  return { tracks, artists, albums, suggestions };
+  const suggestions: MusicSearchSuggestion[] = refinements.map((s) => ({ type: "track", id: s, name: s }));
+
+  return { tracks, artists, albums, playlists, sections, refinements, suggestions };
 }
 
 export type ArtistBrowse = {
