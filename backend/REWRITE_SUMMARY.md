@@ -1,5 +1,7 @@
 # Playlist Refresh System - Rewrite Summary
 
+> **Status:** Archived. The live-only Purple Music B stack no longer runs playlist refresh jobs or uses the YouTube Data API; this summary is preserved for historical context.
+
 ## Changes Completed
 
 ### 1. Database Migration

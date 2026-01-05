@@ -80,6 +80,8 @@ router.post('/complete', async (req: Request, res: Response) => {
   console.log('[Pi Payments] Complete request received');
   
   try {
+    if (!supabase) return res.status(500).json({ error: 'supabase_unavailable' });
+    const client = supabase;
     const { paymentId, txid } = req.body;
 
     if (!paymentId) {
@@ -118,7 +120,7 @@ router.post('/complete', async (req: Request, res: Response) => {
     const newPremiumUntil = new Date();
     newPremiumUntil.setDate(newPremiumUntil.getDate() + daysToAdd);
 
-    const { data: userData, error: updateError } = await supabase
+    const { data: userData, error: updateError } = await client
       .from('users')
       .update({
         premium_until: newPremiumUntil.toISOString()

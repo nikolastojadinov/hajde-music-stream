@@ -11,13 +11,15 @@ export default function mountPaymentsEndpoints(router: Router) {
 
   // handle the incomplete payment
   router.post('/incomplete', async (req: Request, res: Response) => {
+    if (!supabase) return res.status(500).json({ message: 'supabase_unavailable' });
+    const client = supabase;
     const payment = req.body.payment;
     const paymentId = payment.identifier;
     const txid = payment.transaction && payment.transaction.txid;
     const txURL = payment.transaction && payment.transaction._link;
 
     // find the incomplete order
-    const { data: orders } = await supabase.from('orders').select('*').eq('pi_payment_id', paymentId).limit(1);
+    const { data: orders } = await client.from('orders').select('*').eq('pi_payment_id', paymentId).limit(1);
     const order = orders && orders[0];
     if (!order) {
       return res.status(400).json({ message: "Order not found" });
@@ -32,7 +34,7 @@ export default function mountPaymentsEndpoints(router: Router) {
       }
     }
 
-    await supabase.from('orders').update({ txid, paid: true }).eq('pi_payment_id', paymentId);
+    await client.from('orders').update({ txid, paid: true }).eq('pi_payment_id', paymentId);
     await platformAPIClient.post(`/v2/payments/${paymentId}/complete`, { txid });
     return res.status(200).json({ message: `Handled the incomplete payment ${paymentId}` });
   });
@@ -43,10 +45,13 @@ export default function mountPaymentsEndpoints(router: Router) {
       return res.status(401).json({ error: 'unauthorized', message: "User needs to sign in first" });
     }
 
+    if (!supabase) return res.status(500).json({ error: 'supabase_unavailable' });
+    const client = supabase;
+
     const paymentId = req.body.paymentId;
     const currentPayment = await platformAPIClient.get(`/v2/payments/${paymentId}`);
 
-    await supabase.from('orders').upsert({
+    await client.from('orders').upsert({
       pi_payment_id: paymentId,
       product_id: currentPayment.data?.metadata?.productId ?? null,
       user_uid: req.currentUser.uid,
@@ -62,18 +67,22 @@ export default function mountPaymentsEndpoints(router: Router) {
 
   // complete the current payment
   router.post('/complete', async (req: Request, res: Response) => {
+    if (!supabase) return res.status(500).json({ error: 'supabase_unavailable' });
+    const client = supabase;
     const paymentId = req.body.paymentId;
     const txid = req.body.txid;
 
-    await supabase.from('orders').update({ txid, paid: true }).eq('pi_payment_id', paymentId);
+    await client.from('orders').update({ txid, paid: true }).eq('pi_payment_id', paymentId);
     await platformAPIClient.post(`/v2/payments/${paymentId}/complete`, { txid });
     return res.status(200).json({ message: `Completed the payment ${paymentId}` });
   });
 
   // handle the cancelled payment
   router.post('/cancelled_payment', async (req: Request, res: Response) => {
+    if (!supabase) return res.status(500).json({ error: 'supabase_unavailable' });
+    const client = supabase;
     const paymentId = req.body.paymentId;
-    await supabase.from('orders').update({ cancelled: true }).eq('pi_payment_id', paymentId);
+    await client.from('orders').update({ cancelled: true }).eq('pi_payment_id', paymentId);
     return res.status(200).json({ message: `Cancelled the payment ${paymentId}` });
   })
 }

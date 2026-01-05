@@ -1,230 +1,47 @@
-import { useMemo } from "react";
-import PlaylistCard from "@/components/PlaylistCard";
-import FeaturedForYou from "@/components/home/FeaturedForYou";
-import JumpBackGrid from "@/components/home/JumpBackGrid";
-import TopSongsSection from "@/components/home/TopSongsSection";
-import { Search as SearchIcon } from "lucide-react";
-import { Input } from "@/components/ui/input";
-import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
-import { useLanguage } from "@/contexts/LanguageContext";
-import { usePlaylists } from "@/hooks/usePlaylists";
-import { usePlaylistPublicStats } from "@/hooks/usePlaylistPublicStats";
-import { Skeleton } from "@/components/ui/skeleton";
-import { useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
-import { externalSupabase } from "@/lib/externalSupabase";
+import { Link } from "react-router-dom";
+import Footer from "@/components/Footer";
+import Header from "@/components/Header";
 
-const BEST_OF_RNB_PLAYLIST_IDS = [
-  "PLDIoUOhQQPlVFjmZnM41bOzoowjfTS4wU",
-  "PLdjynnbWVGDkjusKFwqnRb4p7pCn9ZujU",
-  "PLrZoX_h4DFIvZeenXGhLFXaarIo0ii68d",
-  "PL1puyG1gnPbpmncMC36a6RLm-NSz_Rs18",
-  "PL08ytyBKu7cp10v7cIdGkwLGk6sb_Vcw-",
-  "PLQFaxYyYuinoLi3hvLt4bc8V6yjluTKFd",
-  "PLSmGb1TO3MjTTrI0bMZksM9gbSkwO0wCt",
-  "PL0kNWD0XZExeHWo5PUDC1GFdtY8Mpvnyt",
-] as const;
-
-const Home = () => {
-  const { t } = useLanguage();
-  const navigate = useNavigate();
-
-  const { data: recentPlaylists, isLoading: isLoadingRecent } = usePlaylists("recent");
-  const { data: popularPlaylists, isLoading: isLoadingPopular } = usePlaylists("popular");
-  const { data: moodPlaylists, isLoading: isLoadingMood } = usePlaylists("mood");
-  const { data: genrePlaylists, isLoading: isLoadingGenre } = usePlaylists("genre");
-
-  const {
-    data: bestOfRnBPlaylists = [],
-    isLoading: isLoadingBestOfRnB,
-    error: bestOfRnBError,
-  } = useQuery({
-    queryKey: ["best-of-rnb-playlists"],
-    queryFn: async () => {
-      // Only select columns guaranteed to exist on both external and primary Supabase schemas.
-      const fields = "id, title, description, cover_url, external_id, view_count";
-      const ids = [...BEST_OF_RNB_PLAYLIST_IDS];
-
-      let data: any[] = [];
-      let lastError: any = null;
-
-      // Try external Supabase first (richer descriptions like Featured).
-      try {
-        const { data: extData, error: extError } = await externalSupabase
-          .from("playlists")
-          .select(fields)
-          .in("external_id", ids)
-          .order("title", { ascending: true });
-
-        if (extError) throw extError;
-        data = extData ?? [];
-      } catch (err) {
-        lastError = err;
-      }
-
-      // Fallback to primary Supabase if external fails or returns nothing.
-      if (!data || data.length === 0) {
-        try {
-          const { data: primaryData, error: primaryError } = await supabase
-            .from("playlists")
-            .select(fields)
-            .in("external_id", ids)
-            .order("title", { ascending: true });
-
-          if (primaryError) throw primaryError;
-          data = primaryData ?? [];
-          lastError = null;
-        } catch (err) {
-          if (!lastError) lastError = err;
-        }
-      }
-
-      if (!data || data.length === 0) {
-        if (lastError) throw lastError;
-        return [];
-      }
-
-      return data;
-    },
-  });
-
-  const allHomePlaylistIds = useMemo(() => {
-    const ids: string[] = [];
-    bestOfRnBPlaylists?.forEach((p: any) => p?.id && ids.push(String(p.id)));
-    (recentPlaylists || []).forEach((p) => p?.id && ids.push(p.id));
-    (popularPlaylists || []).forEach((p) => p?.id && ids.push(p.id));
-    (moodPlaylists || []).forEach((p) => p?.id && ids.push(p.id));
-    (genrePlaylists || []).forEach((p) => p?.id && ids.push(p.id));
-    return ids;
-  }, [bestOfRnBPlaylists, recentPlaylists, popularPlaylists, moodPlaylists, genrePlaylists]);
-
-  const { data: statsMap = {} } = usePlaylistPublicStats(allHomePlaylistIds);
-
-  const categories = [
-    {
-      title: t("recently_played"),
-      playlists: recentPlaylists || [],
-      isLoading: isLoadingRecent,
-    },
-    {
-      title: t("popular_now"),
-      playlists: popularPlaylists || [],
-      isLoading: isLoadingPopular,
-    },
-    {
-      title: t("by_mood"),
-      playlists: moodPlaylists || [],
-      isLoading: isLoadingMood,
-    },
-    {
-      title: t("by_genre"),
-      playlists: genrePlaylists || [],
-      isLoading: isLoadingGenre,
-    },
-  ];
-
+export default function Home() {
   return (
-    <div className="flex-1 overflow-y-auto scrollbar-hide">
-      <div className="p-4 md:p-8 pb-8">
-        <div className="mb-4 md:hidden animate-fade-in">
-          <div className="relative">
-            <SearchIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[#F6C66D]" />
-            <Input
-              type="text"
-              placeholder={t("search_placeholder")}
-              className="pl-12 h-12 rounded-[16px] bg-[rgba(255,255,255,0.06)] border border-[rgba(255,255,255,0.08)] text-foreground placeholder:text-[#8B86A3]"
-              onFocus={() => navigate("/search")}
-            />
-          </div>
-        </div>
-
-        <div className="mb-6 animate-slide-up">
-          <JumpBackGrid />
-        </div>
-
-        <div className="mb-8 md:mb-12 animate-slide-up">
-          <FeaturedForYou />
-        </div>
-
-        <TopSongsSection />
-
-        <section className="mb-8 md:mb-12 animate-slide-up">
-          <h2 className="text-2xl font-bold text-foreground px-4 md:px-8">Best of R&B</h2>
-          <div className="px-4 md:px-8">
-            {bestOfRnBError ? (
-              <div className="text-foreground/60 py-8">Error loading playlists. Please try again later.</div>
-            ) : (
-              <ScrollArea className="w-full whitespace-nowrap rounded-md">
-                <div className="flex w-max space-x-4 pb-4">
-                  {isLoadingBestOfRnB ? (
-                    Array.from({ length: 8 }).map((_, index) => (
-                      <div key={index} className="w-[140px] space-y-2">
-                        <Skeleton className="h-[140px] w-[140px] rounded-md" />
-                        <div className="space-y-1">
-                          <Skeleton className="h-3 w-24" />
-                          <Skeleton className="h-3 w-20" />
-                        </div>
-                      </div>
-                    ))
-                  ) : bestOfRnBPlaylists.length > 0 ? (
-                    bestOfRnBPlaylists.map((playlist) => (
-                      <div key={playlist.id} className="w-[140px]">
-                        <PlaylistCard
-                          id={playlist.id}
-                          title={playlist.title ?? ""}
-                          description={playlist.description ?? ""}
-                          imageUrl={playlist.cover_url || "/placeholder.svg"}
-                          likeCount={statsMap[playlist.id]?.likes}
-                          viewCount={statsMap[playlist.id]?.views ?? (playlist as any).view_count ?? (playlist as any).public_view_count}
-                        />
-                      </div>
-                    ))
-                  ) : (
-                    <div className="text-foreground/60 py-8">No playlists found. Please check the Supabase data.</div>
-                  )}
-                </div>
-                <ScrollBar orientation="horizontal" />
-              </ScrollArea>
-            )}
+    <div className="flex min-h-screen flex-col">
+      <Header />
+      <main className="flex-1 space-y-10 pb-24">
+        <section className="bg-gradient-to-b from-background via-background to-muted/30 py-6">
+          <div className="container space-y-4">
+            <div className="inline-flex rounded-full bg-primary/10 px-4 py-1 text-sm font-semibold text-primary">
+              Purple Music B • live streaming
+            </div>
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h1 className="text-3xl font-black tracking-tight md:text-4xl">Slušaj uživo sa YouTube Music</h1>
+                <p className="max-w-2xl text-muted-foreground">
+                  Bez lokalne baze, bez batch poslova, bez Supabase skladištenja pesama. Sve dolazi direktno sa weba u realnom vremenu.
+                </p>
+              </div>
+              <Link
+                to="/search"
+                className="inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2 text-white shadow-lg transition hover:opacity-90"
+              >
+                Otvori pretragu
+              </Link>
+            </div>
           </div>
         </section>
 
-        {categories.map((category, index) => (
-          <section key={index} className="mb-8 md:mb-12 animate-slide-up">
-            <h2 className="text-xl md:text-2xl font-bold mb-4 md:mb-6">{category.title}</h2>
-            <ScrollArea className="w-full whitespace-nowrap [&>div:first-child]:scrollbar-hide">
-              <div className="flex gap-3 md:gap-4 pb-4">
-                {category.isLoading ? (
-                  Array.from({ length: 6 }).map((_, i) => (
-                    <div key={i} className="w-[130px] md:w-[140px] flex-shrink-0">
-                      <Skeleton className="aspect-square rounded-md mb-2" />
-                      <Skeleton className="h-3 w-3/4 mb-1" />
-                      <Skeleton className="h-3 w-full" />
-                    </div>
-                  ))
-                ) : (
-                  category.playlists.map((playlist) => (
-                    <div key={playlist.id} className="w-[130px] md:w-[140px] flex-shrink-0">
-                      <PlaylistCard
-                        id={playlist.id}
-                        title={playlist.title}
-                        description={playlist.description || ""}
-                        imageUrl={playlist.cover_url || "/placeholder.svg"}
-                        likeCount={statsMap[playlist.id]?.likes ?? playlist.like_count ?? playlist.public_like_count}
-                        viewCount={statsMap[playlist.id]?.views ?? playlist.view_count ?? playlist.public_view_count}
-                      />
-                    </div>
-                  ))
-                )}
-              </div>
-              <ScrollBar orientation="horizontal" />
-            </ScrollArea>
-          </section>
-        ))}
-      </div>
+        <section className="container space-y-4">
+          <div className="rounded-lg border bg-card p-6 shadow-sm">
+            <h2 className="text-xl font-semibold mb-2">Šta je novo?</h2>
+            <ul className="space-y-2 text-sm text-muted-foreground">
+              <li>• Nema čuvanja muzike u Supabase-u; sve je live.</li>
+              <li>• Nema batch/cron poslova niti YouTube Data API ključeva.</li>
+              <li>• Backend je čisti proxy/transformer ka YouTube Music web endpointima.</li>
+              <li>• Pi autentifikacija i plaćanja ostaju netaknuti.</li>
+            </ul>
+          </div>
+        </section>
+      </main>
+      <Footer />
     </div>
   );
-};
-
-export default Home;
+}

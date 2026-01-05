@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { youtubeSearchMixed } from '../services/youtubeClient';
+import { musicSearch } from '../services/youtubeMusicClient';
 
 const router = Router();
 
@@ -69,39 +69,33 @@ router.get('/suggest', async (req, res) => {
   }
 
   try {
-    const mixed = await youtubeSearchMixed(q);
+    const live = await musicSearch(q);
 
-    const suggestions: SearchSuggestion[] = [];
-
-    for (const channel of mixed.channels) {
-      suggestions.push({
-        type: 'artist',
-        id: channel.channelId,
-        name: channel.title,
-        imageUrl: channel.thumbUrl,
-      });
-    }
-
-    for (const video of mixed.videos) {
-      suggestions.push({
+    const suggestions: SearchSuggestion[] = [
+      ...live.artists.map<SearchSuggestion>((a) => ({ type: 'artist', id: a.id, name: a.name, imageUrl: a.imageUrl })),
+      ...live.tracks.map<SearchSuggestion>((t) => ({
         type: 'track',
-        id: video.videoId,
-        name: video.title,
-        imageUrl: video.thumbUrl,
-        subtitle: video.channelTitle,
-        artists: video.channelTitle ? [video.channelTitle] : undefined,
-      });
-    }
-
-    for (const playlist of mixed.playlists) {
-      suggestions.push({
+        id: t.id,
+        name: t.title,
+        imageUrl: t.imageUrl,
+        subtitle: t.artist,
+        artists: t.artist ? [t.artist] : undefined,
+      })),
+      ...live.albums.map<SearchSuggestion>((a) => ({
         type: 'album',
-        id: playlist.playlistId,
-        name: playlist.title,
-        imageUrl: playlist.thumbUrl,
-        subtitle: playlist.channelTitle,
-      });
-    }
+        id: a.id,
+        name: a.title,
+        imageUrl: a.imageUrl,
+        subtitle: a.channelTitle || undefined,
+      })),
+      ...live.suggestions.map<SearchSuggestion>((s) => ({
+        type: s.type,
+        id: s.id,
+        name: s.name,
+        imageUrl: s.imageUrl,
+        subtitle: s.subtitle,
+      })),
+    ];
 
     res.set('Cache-Control', 'no-store');
     return res.json({ q, source: 'youtube_live', suggestions });
@@ -118,28 +112,28 @@ router.get('/results', async (req, res) => {
   }
 
   try {
-    const mixed = await youtubeSearchMixed(q);
+    const live = await musicSearch(q);
 
-    const tracks = mixed.videos.map<SearchTrack>((video) => ({
-      id: video.videoId,
+    const tracks = live.tracks.map<SearchTrack>((video) => ({
+      id: video.id,
       title: video.title,
-      artist: video.channelTitle || 'Unknown artist',
-      youtubeId: video.videoId,
-      imageUrl: video.thumbUrl,
+      artist: video.artist || 'Unknown artist',
+      youtubeId: video.youtubeId,
+      imageUrl: video.imageUrl,
     }));
 
-    const artists = mixed.channels.map<SearchArtist>((channel) => ({
-      id: channel.channelId,
-      name: channel.title,
-      imageUrl: channel.thumbUrl,
+    const artists = live.artists.map<SearchArtist>((channel) => ({
+      id: channel.id,
+      name: channel.name,
+      imageUrl: channel.imageUrl,
     }));
 
-    const albums = mixed.playlists.map<SearchAlbum>((playlist) => ({
-      id: playlist.playlistId,
+    const albums = live.albums.map<SearchAlbum>((playlist) => ({
+      id: playlist.id,
       title: playlist.title,
       channelId: playlist.channelId || null,
       channelTitle: playlist.channelTitle || null,
-      imageUrl: playlist.thumbUrl,
+      imageUrl: playlist.imageUrl,
     }));
 
     res.set('Cache-Control', 'no-store');

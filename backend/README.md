@@ -3,9 +3,7 @@
 Critical environment variables:
 
 - `PI_API_KEY` – required to authorize Pi payments (obtain it from the Pi developer portal).
-- `YOUTUBE_API_KEY` – required so the refresh worker can call the YouTube Data API and keep playlists in sync.
 - `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` – required for Spotify search and autocomplete.
-- `REDIS_URL` (or `REDIS_HOST` / `REDIS_PORT` / `REDIS_PASSWORD`) – optional, enables Redis-backed caches for autocomplete.
 
 You receive the Pi key upon app registration. For more guidelines on registering your app refer to
 the [Pi Developer Guide](https://pi-apps.github.io/community-developer-guide/docs/gettingStarted/devPortal/).
@@ -62,13 +60,6 @@ SESSION_SECRET=
 # Spotify client credentials for search/autocomplete:
 SPOTIFY_CLIENT_ID=
 SPOTIFY_CLIENT_SECRET=
-
-# Redis connection (recommended for autocomplete caching; falls back to local file cache if unavailable):
-REDIS_URL=redis://127.0.0.1:6379
-# or
-REDIS_HOST=127.0.0.1
-REDIS_PORT=6379
-REDIS_PASSWORD=
 ```
 
 

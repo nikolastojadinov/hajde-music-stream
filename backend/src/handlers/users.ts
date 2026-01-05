@@ -11,6 +11,9 @@ export default function mountUserEndpoints(router: Router) {
       return res.status(400).json({ error: 'invalid_request' });
     }
 
+    if (!supabase) return res.status(500).json({ error: 'supabase_unavailable' });
+    const client = supabase;
+
     try {
       // Verify the user's access token with the /me endpoint:
       await platformAPIClient.get(`/v2/me`, { headers: { 'Authorization': `Bearer ${auth.accessToken}` } });
@@ -27,11 +30,11 @@ export default function mountUserEndpoints(router: Router) {
       access_token: auth.accessToken,
       updated_at: new Date().toISOString(),
     };
-    await supabase.from('users').upsert(userRow, { onConflict: 'uid' });
+    await client.from('users').upsert(userRow, { onConflict: 'uid' });
 
     // Create session
     const sid = randomBytes(24).toString('hex');
-    await supabase.from('sessions').insert({ sid, user_uid: auth.user.uid, created_at: new Date().toISOString() });
+    await client.from('sessions').insert({ sid, user_uid: auth.user.uid, created_at: new Date().toISOString() });
 
     // Set cookie for cross-site usage (Netlify -> Render)
     res.cookie('sid', sid, {
@@ -48,7 +51,9 @@ export default function mountUserEndpoints(router: Router) {
   router.get('/signout', async (req: Request, res: Response) => {
     const sid = req.cookies?.sid as string | undefined;
     if (sid) {
-      await supabase.from('sessions').delete().eq('sid', sid);
+      if (supabase) {
+        await supabase.from('sessions').delete().eq('sid', sid);
+      }
     }
     res.clearCookie('sid', { sameSite: 'none', secure: true });
     return res.status(200).json({ message: "User signed out" });
@@ -64,7 +69,9 @@ export default function mountUserEndpoints(router: Router) {
 
     try {
       // Fetch user from Supabase
-      const { data: userRows, error } = await supabase
+      if (!supabase) return res.status(500).json({ error: 'supabase_unavailable' });
+      const client = supabase;
+      const { data: userRows, error } = await client
         .from('users')
         .select('uid, username, premium, premium_until')
         .eq('uid', uid)

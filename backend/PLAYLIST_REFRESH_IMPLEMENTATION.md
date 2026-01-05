@@ -1,5 +1,7 @@
 # Playlist Refresh System - Implementation Documentation
 
+> **Status:** Archived. Live-only Purple Music B no longer runs the playlist refresh system or uses the YouTube Data API. This document is kept for historical reference only.
+
 ## Overview
 
 This document describes the complete rewrite of the Purple Music playlist refresh system, implementing efficient, YouTube Terms-compliant playlist synchronization with ETag-based short-circuiting and delta sync.

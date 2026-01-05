@@ -1,4 +1,4 @@
-const CONSENT_COOKIES = "CONSENT=YES+1; SOCS=CAESHAgBEhIaZ29vZ2xlLmNvbS9jb25zZW50L2Jhc2ljLzIiDFNvaURtdXhSNVQ1ag==; PREF=f1=50000000&hl=en";
+import { CONSENT_COOKIES, fetchInnertubeConfig, type InnertubeConfig } from "./youtubeInnertubeConfig";
 
 function normalizeString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
@@ -7,11 +7,6 @@ function normalizeString(value: unknown): string {
 function looksLikeVideoId(value: string): boolean {
   const v = normalizeString(value);
   return /^[A-Za-z0-9_-]{11}$/.test(v);
-}
-
-function takeFirstMatch(html: string, pattern: RegExp): string | null {
-  const m = pattern.exec(html);
-  return m && m[1] ? normalizeString(m[1]) : null;
 }
 
 function extractVideoIdsFromTree(root: any, max: number | null): string[] {
@@ -58,69 +53,6 @@ function extractVideoIdsFromTree(root: any, max: number | null): string[] {
 
   walk(root);
   return out;
-}
-
-type InnertubeConfig = {
-  apiKey: string;
-  clientVersion: string | null;
-  visitorData: string | null;
-};
-
-async function fetchInnertubeConfigFrom(url: string): Promise<InnertubeConfig | null> {
-  try {
-    const response = await fetch(url, {
-      method: "GET",
-      // Prevent infinite consent redirects; treat non-200 as failure and let caller log.
-      redirect: "manual",
-      headers: {
-        Accept: "text/html,application/xhtml+xml",
-        "Accept-Language": "en-US,en;q=0.9",
-        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) HajdeMusicIngest/1.0",
-        Cookie: CONSENT_COOKIES,
-      },
-    });
-
-    if (response.type === "opaqueredirect" || response.status >= 300) {
-      console.info("[youtubeInnertubeBrowsePlaylist] config_fetch_http_error", {
-        url,
-        status: response.status,
-        redirected: response.type,
-      });
-      return null;
-    }
-
-    const html = await response.text().catch(() => "");
-    if (!html) return null;
-    if (html.includes("consent.youtube.com") || html.includes("Before you continue")) {
-      console.info("[youtubeInnertubeBrowsePlaylist] consent_wall", { url });
-      return null;
-    }
-
-    const apiKey = takeFirstMatch(html, /"INNERTUBE_API_KEY"\s*:\s*"([^"]+)"/);
-    if (!apiKey) return null;
-
-    const clientVersion =
-      takeFirstMatch(html, /"INNERTUBE_CLIENT_VERSION"\s*:\s*"([^"]+)"/) ||
-      takeFirstMatch(html, /"clientVersion"\s*:\s*"([^"]+)"/);
-
-    const visitorData =
-      takeFirstMatch(html, /"VISITOR_DATA"\s*:\s*"([^"]+)"/) ||
-      takeFirstMatch(html, /"visitorData"\s*:\s*"([^"]+)"/);
-
-    return { apiKey, clientVersion, visitorData };
-  } catch (err: any) {
-    console.info("[youtubeInnertubeBrowsePlaylist] config_fetch_exception", {
-      url,
-      message: err?.message,
-    });
-    return null;
-  }
-}
-
-async function fetchInnertubeConfig(): Promise<InnertubeConfig | null> {
-  // Try music first (WEB_REMIX), then www as a fallback.
-  return (await fetchInnertubeConfigFrom("https://music.youtube.com/?hl=en&gl=US"))
-    || (await fetchInnertubeConfigFrom("https://www.youtube.com/?hl=en&gl=US"));
 }
 
 export async function youtubeInnertubeBrowsePlaylistVideoIds(

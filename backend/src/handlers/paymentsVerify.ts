@@ -6,6 +6,8 @@ export default function mountPaymentsVerify(router: Router) {
   // Verify Pi payment and update premium status
   router.post('/verify', async (req: Request, res: Response) => {
     try {
+      if (!supabase) return res.status(500).json({ error: 'supabase_unavailable' });
+      const client = supabase;
       const { paymentId, plan, amount, user } = req.body || {};
       if (!paymentId || !amount || !user?.username) {
         return res.status(400).json({ error: 'Missing required fields' });
@@ -28,7 +30,7 @@ export default function mountPaymentsVerify(router: Router) {
       else premiumUntil.setDate(now.getDate() + 7); // default weekly
 
       // Insert payment record
-      const { error: paymentError } = await supabase.from('payments').insert([
+      const { error: paymentError } = await client.from('payments').insert([
         {
           user_name: user.username,
           plan,
@@ -44,7 +46,7 @@ export default function mountPaymentsVerify(router: Router) {
       }
 
       // Update user's premium_until
-      const { error: userError } = await supabase
+      const { error: userError } = await client
         .from('users')
         .update({ premium_until: premiumUntil.toISOString() })
         .eq('username', user.username);
