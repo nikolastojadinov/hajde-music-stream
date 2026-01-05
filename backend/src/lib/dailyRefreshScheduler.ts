@@ -1,5 +1,5 @@
 // backend/src/lib/dailyRefreshScheduler.ts
-// FULL REWRITE — ONLY Batch 1 (11:10 / 11:15 / 11:20)
+// FULL REWRITE — ONLY Batch 1 (11:40 / 11:45 / 11:50)
 
 import cron from 'node-cron';
 import { DateTime } from 'luxon';
@@ -10,12 +10,12 @@ const TIMEZONE = 'Europe/Budapest';
 const TABLE_NAME = 'refresh_jobs';
 
 /**
- * Scheduler runs every day at 11:10 local time (Europe/Budapest)
+ * Scheduler runs every day at 11:40 local time (Europe/Budapest)
  * It creates:
- *  - prepare batch 1 at 11:15
- *  - run batch 1 at 11:20
+ *  - prepare batch 1 at 11:45
+ *  - run batch 1 at 11:50
  */
-const CRON_EXPRESSION = '10 11 * * *'; // 11:10 Europe/Budapest
+const CRON_EXPRESSION = '40 11 * * *'; // 11:40 Europe/Budapest
 
 type JobType = 'prepare' | 'run';
 
@@ -43,7 +43,7 @@ export function initDailyRefreshScheduler(): void {
     { timezone: TIMEZONE }
   );
 
-  console.log('[DailyRefreshScheduler] Scheduled daily job generation at 11:10 Europe/Budapest');
+  console.log('[DailyRefreshScheduler] Scheduled daily job generation at 11:40 Europe/Budapest');
 }
 
 async function generateDailyJobs(): Promise<void> {
@@ -64,10 +64,10 @@ async function generateDailyJobs(): Promise<void> {
     }
 
     // Local schedule:
-    // prepare batch 1 -> 11:15
-    // run batch 1     -> 11:20
-    const prepare1Time = buildLocalDate(dayKey, 11, 15);
-    const run1Time = buildLocalDate(dayKey, 11, 20);
+    // prepare batch 1 -> 11:45
+    // run batch 1     -> 11:50
+    const prepare1Time = buildLocalDate(dayKey, 11, 45);
+    const run1Time = buildLocalDate(dayKey, 11, 50);
 
     const jobs: RefreshJobRow[] = [
       createJobRow(1, 'prepare', prepare1Time, dayKey),
@@ -78,7 +78,7 @@ async function generateDailyJobs(): Promise<void> {
     if (error) throw error;
 
     console.log(
-      `[DailyRefreshScheduler] Created daily jobs for ${dayKey} (prepare1 11:15, run1 11:20)`
+      `[DailyRefreshScheduler] Created daily jobs for ${dayKey} (prepare1 11:45, run1 11:50)`
     );
   } catch (err) {
     console.error('[DailyRefreshScheduler] Failed to create jobs', err);
