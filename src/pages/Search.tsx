@@ -1,354 +1,122 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
-import debounce from "lodash.debounce";
-import { Disc3, ListMusic, Music, Play, Search as SearchIcon, User } from "lucide-react";
-
-import { Button } from "@/components/ui/button";
+import { useEffect, useState } from "react";
+import { searchResolve, searchSuggest } from "@/lib/api/search";
 import { Input } from "@/components/ui/input";
-import EmptyState from "@/components/ui/EmptyState";
-import ErrorState from "@/components/ui/ErrorState";
-import LoadingSkeleton from "@/components/ui/LoadingSkeleton";
-import { usePlayer } from "@/contexts/PlayerContext";
-import {
-  searchResolve,
-  searchSuggest,
-  type SearchAlbumItem,
-  type SearchArtistItem,
-  type SearchPlaylistItem,
-  type SearchResolveResponse,
-  type SearchSection,
-  type SearchTrackItem,
-  type SearchSuggestItem,
-} from "@/lib/api/search";
+import { Button } from "@/components/ui/button";
 
-// Shelf-first search UI that renders Innertube sections; no flat REST assumptions remain.
-
-const MIN_QUERY_CHARS = 2;
-
-function normalizeQuery(value: string): string {
-  return value.trim();
-}
-
-function isTrackItem(item: unknown): item is SearchTrackItem {
-  const t = item as SearchTrackItem;
-  return Boolean(t && typeof t.youtubeId === "string" && typeof t.title === "string");
-}
-
-function isArtistItem(item: unknown): item is SearchArtistItem {
-  const a = item as SearchArtistItem;
-  return Boolean(a && typeof a.id === "string" && typeof a.name === "string");
-}
-
-function isAlbumItem(item: unknown): item is SearchAlbumItem {
-  const a = item as SearchAlbumItem;
-  return Boolean(a && typeof a.id === "string" && typeof a.title === "string");
-}
-
-function isPlaylistItem(item: unknown): item is SearchPlaylistItem {
-  const p = item as SearchPlaylistItem;
-  return Boolean(p && typeof p.id === "string" && typeof p.title === "string");
-}
-
-function hasItems(section: SearchSection | undefined): boolean {
-  return Boolean(section && Array.isArray(section.items) && section.items.length > 0);
-}
-
-function toText(item: unknown): { title: string; subtitle?: string } {
-  const anyItem = item as { title?: string; name?: string; subtitle?: string } | null | undefined;
-  const title = normalizeQuery(anyItem?.title || anyItem?.name || "Item");
-  const subtitle = normalizeQuery(anyItem?.subtitle || "");
-  return { title: title || "Item", subtitle: subtitle || undefined };
-}
+type AnySection = {
+  kind?: string;
+  title?: string | null;
+  items?: any[];
+};
 
 export default function Search() {
-  const { playTrack } = usePlayer();
-
   const [query, setQuery] = useState("");
-  const [suggestions, setSuggestions] = useState<SearchSuggestItem[]>([]);
-  const [suggestOpen, setSuggestOpen] = useState(false);
-  const [suggestLoading, setSuggestLoading] = useState(false);
-  const [suggestError, setSuggestError] = useState<string | null>(null);
-
-  const [results, setResults] = useState<SearchResolveResponse | null>(null);
+  const [results, setResults] = useState<any>(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [suggestions, setSuggestions] = useState<any[]>([]);
 
-  const inputRef = useRef<HTMLInputElement | null>(null);
-  const suggestAbortRef = useRef<AbortController | null>(null);
-
-  const normalizedQuery = useMemo(() => normalizeQuery(query), [query]);
-  const normalizedLength = normalizedQuery.length;
-
-  const debouncedSuggest = useMemo(
-    () =>
-      debounce((q: string) => {
-        suggestAbortRef.current?.abort();
-        const controller = new AbortController();
-        suggestAbortRef.current = controller;
-        setSuggestLoading(true);
-        setSuggestError(null);
-        void (async () => {
-          try {
-            const resp = await searchSuggest(q, { signal: controller.signal });
-            if (!controller.signal.aborted) setSuggestions(resp.suggestions ?? []);
-          } catch (e: unknown) {
-            if (controller.signal.aborted) return;
-            const message = e instanceof Error ? e.message : "Suggest failed";
-            setSuggestError(message);
-            setSuggestions([]);
-          } finally {
-            if (!controller.signal.aborted) setSuggestLoading(false);
-          }
-        })();
-      }, 250),
-    []
-  );
-
+  // LIVE SUGGEST (MINIMAL)
   useEffect(() => {
-    return () => {
-      debouncedSuggest.cancel();
-      suggestAbortRef.current?.abort();
-    };
-  }, [debouncedSuggest]);
-
-  useEffect(() => {
-    if (normalizedLength < MIN_QUERY_CHARS) {
-      debouncedSuggest.cancel();
-      suggestAbortRef.current?.abort();
+    if (query.length < 2) {
       setSuggestions([]);
-      setSuggestLoading(false);
       return;
     }
-    debouncedSuggest(normalizedQuery);
-  }, [normalizedLength, normalizedQuery, debouncedSuggest]);
 
-  const handleSearch = async (value?: string) => {
-    const q = normalizeQuery(value ?? query);
-    if (q.length < MIN_QUERY_CHARS) return;
+    searchSuggest(query)
+      .then((r) => setSuggestions(r?.suggestions ?? []))
+      .catch(() => setSuggestions([]));
+  }, [query]);
 
+  // SEARCH
+  const runSearch = async () => {
+    if (query.length < 2) return;
     setLoading(true);
-    setError(null);
-    setSuggestOpen(false);
-
     try {
-      const resp = await searchResolve({ q });
-      setResults(resp);
-    } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : "Search failed";
-      setError(message);
-      setResults(null);
+      const r = await searchResolve({ q: query });
+      setResults(r);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleSuggestionClick = (item: SearchSuggestItem) => {
-    setQuery(item.name);
-    setSuggestOpen(false);
-    void handleSearch(item.name);
-  };
+  const sections: AnySection[] =
+    results?.sections ??
+    results?.data?.sections ??
+    [];
 
-  const handlePlay = (youtubeId: string, title: string, artist?: string) => {
-    playTrack(youtubeId, title, artist || "", youtubeId);
-  };
-
-  const showDropdown = suggestOpen && (suggestions.length > 0 || suggestLoading || suggestError);
-
-  const sections = results?.sections ?? [];
-  const hasAnySections = sections.some((s) => hasItems(s));
-
-  const renderSongs = (section: SearchSection) => {
-    const tracks = section.items.filter(isTrackItem);
-    if (tracks.length === 0) return null;
-    return (
-      <div className="space-y-2">
-        {tracks.map((t) => (
-          <div key={t.id} className="flex items-center justify-between rounded-md border p-3">
-            <div className="min-w-0">
-              <p className="truncate text-sm font-semibold">{t.title}</p>
-              <p className="truncate text-xs text-muted-foreground">{t.artist || t.artists?.join(", ") || "Unknown artist"}</p>
-            </div>
-            <Button variant="ghost" size="icon" onClick={() => handlePlay(t.youtubeId, t.title, t.artist)}>
-              <Play className="h-4 w-4" />
-            </Button>
-          </div>
-        ))}
-      </div>
-    );
-  };
-
-  const renderArtists = (section: SearchSection) => {
-    const artists = section.items.filter(isArtistItem);
-    if (artists.length === 0) return null;
-    return (
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-        {artists.map((a) => (
-          <Link
-            key={a.id}
-            to={`/artist/${encodeURIComponent(a.name)}`}
-            className="flex items-center gap-3 rounded-md border p-3 hover:bg-accent"
-          >
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted text-sm font-semibold">
-              {a.name.slice(0, 1).toUpperCase()}
-            </div>
-            <div className="min-w-0">
-              <p className="truncate text-sm font-semibold">{a.name}</p>
-              <p className="truncate text-xs text-muted-foreground">YouTube • Live</p>
-            </div>
-          </Link>
-        ))}
-      </div>
-    );
-  };
-
-  const renderAlbumsOrPlaylists = (section: SearchSection) => {
-    const entries = section.items.filter((i) => isAlbumItem(i) || isPlaylistItem(i));
-    if (entries.length === 0) return null;
-    return (
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-        {entries.map((p) => {
-          const title = (p as SearchAlbumItem | SearchPlaylistItem).title;
-          const subtitle = (p as SearchAlbumItem | SearchPlaylistItem).subtitle || (p as SearchAlbumItem).channelTitle;
-          return (
-            <a
-              key={p.id}
-              href={`https://music.youtube.com/playlist?list=${encodeURIComponent(p.id)}`}
-              target="_blank"
-              rel="noreferrer"
-              className="flex flex-col gap-2 rounded-md border p-3 hover:bg-accent"
-            >
-              <div className="flex h-24 w-full items-center justify-center rounded bg-muted text-xs font-semibold text-muted-foreground">
-                {title.slice(0, 1).toUpperCase()}
-              </div>
-              <div className="min-w-0">
-                <p className="truncate text-sm font-semibold">{title}</p>
-                <p className="truncate text-xs text-muted-foreground">{subtitle || "YouTube Music"}</p>
-              </div>
-            </a>
-          );
-        })}
-      </div>
-    );
-  };
-
-  const renderGeneric = (section: SearchSection) => {
-    if (!hasItems(section)) return null;
-    return (
-      <div className="space-y-2">
-        {section.items.map((item, idx) => {
-          const { title, subtitle } = toText(item);
-          return (
-            <div key={`${section.kind}-${idx}`} className="rounded-md border p-3">
-              <p className="text-sm font-semibold truncate">{title}</p>
-              {subtitle ? <p className="text-xs text-muted-foreground truncate">{subtitle}</p> : null}
-            </div>
-          );
-        })}
-      </div>
-    );
-  };
-
-  const renderSection = (section: SearchSection) => {
-    switch (section.kind) {
-      case "songs":
-      case "videos":
-        return renderSongs(section);
-      case "artists":
-        return renderArtists(section);
-      case "albums":
-      case "playlists":
-      case "community_playlists":
-      case "featured_playlists":
-        return renderAlbumsOrPlaylists(section);
-      default:
-        return renderGeneric(section);
-    }
-  };
+  const hasAnything =
+    sections.length > 0 &&
+    sections.some((s) => Array.isArray(s.items) && s.items.length > 0);
 
   return (
-    <div className="space-y-6 p-4 pb-24">
-      <div className="rounded-lg border bg-card p-4 shadow-sm">
-        <div className="mb-2 flex items-center gap-2 text-muted-foreground">
-          <SearchIcon className="h-5 w-5" />
-          <span className="text-sm font-semibold">Live search</span>
-        </div>
-        <div className="relative flex gap-2">
-          <Input
-            ref={inputRef}
-            value={query}
-            onChange={(e) => {
-              setQuery(e.target.value);
-              setSuggestOpen(true);
-            }}
-            onFocus={() => setSuggestOpen(true)}
-            placeholder="Search songs, artists, albums"
-          />
-          <Button onClick={() => handleSearch()} disabled={normalizedLength < MIN_QUERY_CHARS}>
-            Search
-          </Button>
-          {showDropdown ? (
-            <div className="absolute left-0 top-full z-20 mt-1 w-full rounded-md border bg-card shadow-lg">
-              {suggestLoading ? (
-                <div className="p-3 text-sm text-muted-foreground">Loading…</div>
-              ) : suggestError ? (
-                <div className="p-3 text-sm text-red-500">{suggestError}</div>
-              ) : suggestions.length === 0 ? (
-                <div className="p-3 text-sm text-muted-foreground">No suggestions</div>
-              ) : (
-                <ul className="divide-y">
-                  {suggestions.map((s) => (
-                    <li
-                      key={`${s.type}:${s.id}`}
-                      className="flex cursor-pointer items-center gap-3 px-3 py-2 hover:bg-accent"
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => handleSuggestionClick(s)}
-                    >
-                      <span className="flex h-8 w-8 items-center justify-center rounded bg-muted text-xs font-semibold uppercase">
-                        {s.type === "artist" && <User className="h-4 w-4" />}
-                        {s.type === "track" && <Music className="h-4 w-4" />}
-                        {s.type === "album" && <Disc3 className="h-4 w-4" />}
-                        {s.type === "playlist" && <ListMusic className="h-4 w-4" />}
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium">{s.name}</p>
-                        {s.subtitle ? <p className="truncate text-xs text-muted-foreground">{s.subtitle}</p> : null}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          ) : null}
-        </div>
-      </div>
+    <div className="p-4 space-y-6 pb-24">
+      {/* SEARCH INPUT */}
+      <div className="space-y-2">
+        <Input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search YouTube Music…"
+        />
+        <Button onClick={runSearch}>Search</Button>
 
-      {loading ? (
-        <LoadingSkeleton type="search" />
-      ) : error ? (
-        <ErrorState title="Search failed" subtitle={error} onRetry={() => handleSearch()} />
-      ) : results ? (
-        hasAnySections ? (
-          <div className="space-y-10">
-            {sections.filter(hasItems).map((section, idx) => (
-              <section key={`${section.kind}-${idx}`} className="space-y-3">
-                <div className="flex items-center gap-2">
-                  {section.kind === "songs" || section.kind === "videos" ? <Music className="h-5 w-5" /> : null}
-                  {section.kind === "artists" ? <User className="h-5 w-5" /> : null}
-                  {section.kind === "albums" || section.kind === "playlists" || section.kind === "community_playlists" || section.kind === "featured_playlists" ? (
-                    <Disc3 className="h-5 w-5" />
-                  ) : null}
-                  <h2 className="text-lg font-semibold">{section.title || section.kind}</h2>
-                </div>
-                {renderSection(section)}
-              </section>
+        {/* SUGGESTIONS */}
+        {suggestions.length > 0 && (
+          <div className="border rounded bg-card">
+            {suggestions.map((s: any, i: number) => (
+              <div
+                key={i}
+                className="px-3 py-2 text-sm border-b last:border-b-0"
+                onClick={() => {
+                  setQuery(s.name ?? "");
+                  runSearch();
+                }}
+              >
+                {s.name ?? JSON.stringify(s)}
+              </div>
             ))}
           </div>
-        ) : (
-          <EmptyState title="Nothing found" subtitle="Try another query." />
-        )
-      ) : (
-        <EmptyState title="Search music live" subtitle="Start typing to see suggestions." />
+        )}
+      </div>
+
+      {/* RESULTS */}
+      {loading && <div>Loading…</div>}
+
+      {!loading && results && !hasAnything && (
+        <div>Nothing found</div>
       )}
+
+      {!loading &&
+        sections.map((section, si) => {
+          if (!section.items || section.items.length === 0) return null;
+
+          return (
+            <div key={si} className="space-y-2">
+              <h2 className="font-bold text-lg">
+                {section.title ?? section.kind ?? "Section"}
+              </h2>
+
+              <div className="space-y-2">
+                {section.items.map((item: any, ii: number) => {
+                  const text =
+                    item.title ||
+                    item.name ||
+                    item.text ||
+                    item.subtitle ||
+                    JSON.stringify(item);
+
+                  return (
+                    <div
+                      key={ii}
+                      className="border rounded p-2 text-sm"
+                    >
+                      {text}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
     </div>
   );
 }
