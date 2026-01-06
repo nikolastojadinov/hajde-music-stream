@@ -2,7 +2,12 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import YTMusicSearch from "@/components/search/YTMusicSearch";
-import { searchResolve, searchSuggest, type SearchSection, type SearchSuggestItem } from "@/lib/api/search";
+import {
+  searchResolve,
+  searchSuggest,
+  type SearchSection,
+  type SearchSuggestItem,
+} from "@/lib/api/search";
 
 export default function Search() {
   const [query, setQuery] = useState("");
@@ -10,9 +15,12 @@ export default function Search() {
   const [suggestions, setSuggestions] = useState<SearchSuggestItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
   const suggestAbortRef = useRef<AbortController | null>(null);
   const suggestTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const SUGGEST_DEBOUNCE_MS = 250;
+
+  /* ---------------- SEARCH (submit only) ---------------- */
 
   const runSearch = async (value?: string) => {
     const nextQuery = (value ?? query).trim();
@@ -24,13 +32,15 @@ export default function Search() {
     try {
       const response = await searchResolve({ q: nextQuery });
       setSections(response?.sections ?? []);
-    } catch (err) {
+    } catch {
       setError("Unable to load search results.");
       setSections([]);
     } finally {
       setLoading(false);
     }
   };
+
+  /* ---------------- SUGGEST HELPERS ---------------- */
 
   const clearSuggestions = () => {
     suggestAbortRef.current?.abort();
@@ -40,6 +50,7 @@ export default function Search() {
 
   const normalizeSuggestions = (response: unknown): SearchSuggestItem[] => {
     const res = response as any;
+
     const source = Array.isArray(res)
       ? res
       : Array.isArray(res?.items)
@@ -56,41 +67,50 @@ export default function Search() {
       return typeof run?.text === "string" ? run.text : undefined;
     };
 
-    const flexText = (item: any, flexIndex: number) => {
-      const runs = item?.flexColumns?.[flexIndex]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs;
+    const flexText = (item: any, index: number) => {
+      const runs =
+        item?.flexColumns?.[index]?.musicResponsiveListItemFlexColumnRenderer
+          ?.text?.runs;
       const run = Array.isArray(runs) ? runs[0] : undefined;
       return typeof run?.text === "string" ? run.text : undefined;
     };
 
     return source
       .map((item: any, index: number) => {
-        const type = typeof item?.type === "string" && ["artist", "track", "album", "playlist"].includes(item.type)
-          ? (item.type as SearchSuggestItem["type"])
-          : "track";
+        const nameCandidate = [
+          item?.name,
+          item?.title,
+          item?.text,
+          runText(item?.text),
+          item?.query,
+          flexText(item, 0),
+        ].find((v) => typeof v === "string" && v.trim().length > 0);
 
-        const nameCandidate = [item?.name, item?.title, item?.text, runText(item?.text), item?.query, flexText(item, 0)].find(
-          (value) => typeof value === "string" && value.trim().length > 0,
-        );
-        const name = typeof nameCandidate === "string" ? nameCandidate.trim() : "";
-        if (!name) return null;
+        if (!nameCandidate) return null;
 
-        const subtitleCandidate = typeof item?.subtitle === "string" && item.subtitle.trim().length > 0 ? item.subtitle : flexText(item, 1);
-        const subtitle = typeof subtitleCandidate === "string" ? subtitleCandidate : undefined;
+        const subtitleCandidate =
+          typeof item?.subtitle === "string"
+            ? item.subtitle
+            : flexText(item, 1);
 
         const idCandidate = [item?.id, item?.videoId, item?.browseId].find(
-          (value) => typeof value === "string" && value.trim().length > 0,
+          (v) => typeof v === "string" && v.trim().length > 0,
         );
-        const id = (typeof idCandidate === "string" ? idCandidate : `${name}-${index}`).trim();
 
-        const imageUrl = typeof item?.imageUrl === "string" && item.imageUrl.trim().length > 0 ? item.imageUrl : undefined;
-        const artists = Array.isArray(item?.artists)
-          ? item.artists.filter((artist: any) => typeof artist === "string" && artist.trim().length > 0)
-          : undefined;
-
-        return { type, id, name, subtitle, imageUrl, artists } satisfies SearchSuggestItem;
+        return {
+          id: (idCandidate ?? `${nameCandidate}-${index}`).toString(),
+          name: nameCandidate.trim(),
+          subtitle:
+            typeof subtitleCandidate === "string"
+              ? subtitleCandidate
+              : undefined,
+          type: "track",
+        } satisfies SearchSuggestItem;
       })
       .filter(Boolean) as SearchSuggestItem[];
   };
+
+  /* ---------------- LIVE SUGGEST ---------------- */
 
   const triggerSuggest = (value: string) => {
     const trimmed = value.trim();
@@ -111,14 +131,25 @@ export default function Search() {
       suggestAbortRef.current = controller;
 
       try {
-        const response = await searchSuggest(trimmed, { signal: controller.signal });
-        setSuggestions(normalizeSuggestions(response));
+        const res = await searchSuggest(trimmed, {
+          signal: controller.signal,
+        });
+
+        // 🔥 KLJUČNA ISPRAVKA
+        const data =
+          typeof (res as any)?.json === "function"
+            ? await (res as any).json()
+            : res;
+
+        setSuggestions(normalizeSuggestions(data));
       } catch (err: any) {
         if (err?.name === "AbortError") return;
         setSuggestions([]);
       }
     }, SUGGEST_DEBOUNCE_MS);
   };
+
+  /* ---------------- EVENTS ---------------- */
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -139,6 +170,8 @@ export default function Search() {
     };
   }, []);
 
+  /* ---------------- UI ---------------- */
+
   return (
     <div className="min-h-screen bg-neutral-950 pb-20 text-white">
       <div className="mx-auto max-w-6xl px-4 py-8 space-y-6">
@@ -146,7 +179,7 @@ export default function Search() {
           <div className="relative flex flex-col gap-3 rounded-xl border border-neutral-800 bg-neutral-900/70 p-4">
             <Input
               value={query}
-              onChange={(event) => handleInputChange(event.target.value)}
+              onChange={(e) => handleInputChange(e.target.value)}
               placeholder="Search songs, artists, albums..."
               className="border-neutral-700 bg-neutral-950 text-white placeholder:text-neutral-500 focus-visible:ring-neutral-500"
             />
@@ -159,7 +192,9 @@ export default function Search() {
               >
                 {loading ? "Searching..." : "Search"}
               </Button>
-              <span className="text-xs text-neutral-500">Type at least 2 characters to search</span>
+              <span className="text-xs text-neutral-500">
+                Type at least 2 characters to search
+              </span>
             </div>
 
             {suggestions.length > 0 && (
@@ -167,13 +202,19 @@ export default function Search() {
                 <div className="flex flex-col divide-y divide-neutral-800 text-sm">
                   {suggestions.map((item) => (
                     <button
-                      key={`${item.id}-${item.name}`}
+                      key={item.id}
                       type="button"
                       onClick={() => handleInputChange(item.name)}
-                      className="flex flex-col gap-1 px-3 py-2 text-left text-neutral-100 hover:bg-neutral-900"
+                      className="px-3 py-2 text-left hover:bg-neutral-900"
                     >
-                      <div className="font-medium text-neutral-50">{item.name}</div>
-                      {item.subtitle && <div className="text-xs text-neutral-500">{item.subtitle}</div>}
+                      <div className="font-medium text-neutral-50">
+                        {item.name}
+                      </div>
+                      {item.subtitle && (
+                        <div className="text-xs text-neutral-500">
+                          {item.subtitle}
+                        </div>
+                      )}
                     </button>
                   ))}
                 </div>
@@ -189,7 +230,9 @@ export default function Search() {
         )}
 
         {!loading && sections.length === 0 && !error && (
-          <div className="text-sm text-neutral-500">Start typing to see results.</div>
+          <div className="text-sm text-neutral-500">
+            Start typing to see results.
+          </div>
         )}
 
         <YTMusicSearch sections={sections} />
