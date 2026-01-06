@@ -1,5 +1,8 @@
 import { CONSENT_COOKIES, fetchInnertubeConfig, type InnertubeConfig } from "./youtubeInnertubeConfig";
 
+const DEFAULT_CLIENT_VERSION = "1.20241210.01.00";
+const YTM_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
 function normalizeString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -87,46 +90,11 @@ export type MusicSearchResults = {
   suggestions: MusicSearchSuggestion[];
 };
 
-async function callYoutubei<T = any>(config: InnertubeConfig, path: string, payload: Record<string, any>): Promise<T | null> {
-  const clientVersion = config.clientVersion || "1.20241210.01.00";
-  const url = `https://music.youtube.com/youtubei/v1/${path}?prettyPrint=false&key=${encodeURIComponent(config.apiKey)}`;
-
-  try {
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-        "Accept-Language": "en-US,en;q=0.9",
-        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) HajdeMusic/1.0",
-        Origin: "https://music.youtube.com",
-        Referer: "https://music.youtube.com/",
-        Cookie: CONSENT_COOKIES,
-        "X-Goog-Visitor-Id": config.visitorData || "",
-      },
-      body: JSON.stringify({
-        context: {
-          client: {
-            clientName: "WEB_REMIX",
-            clientVersion,
-            hl: "en",
-            gl: "US",
-            visitorData: config.visitorData || undefined,
-          },
-          user: { enableSafetyMode: false },
-        },
-        ...payload,
-      }),
-    });
-
-    if (!response.ok) return null;
-    const json = await response.json().catch(() => null);
-    if (!json || typeof json !== "object") return null;
-    return json as T;
-  } catch {
-    return null;
-  }
-}
+type ParsedItem =
+  | { variant: "track"; value: MusicSearchTrack }
+  | { variant: "artist"; value: MusicSearchArtist }
+  | { variant: "album"; value: MusicSearchAlbum }
+  | { variant: "playlist"; value: MusicSearchPlaylist };
 
 function logKeys(label: string, obj: any): void {
   const keys = obj && typeof obj === "object" ? Object.keys(obj) : [];
@@ -138,11 +106,58 @@ function logArrayItem(label: string, index: number, obj: any): void {
   console.log(`[Innertube][${label}][${index}]`, keys);
 }
 
-type ParsedItem =
-  | { variant: "track"; value: MusicSearchTrack }
-  | { variant: "artist"; value: MusicSearchArtist }
-  | { variant: "album"; value: MusicSearchAlbum }
-  | { variant: "playlist"; value: MusicSearchPlaylist };
+function buildSearchBody(config: InnertubeConfig, query: string): any {
+  const clientVersion = config.clientVersion || DEFAULT_CLIENT_VERSION;
+  return {
+    context: {
+      client: {
+        clientName: "WEB_REMIX",
+        clientVersion,
+        hl: "en",
+        gl: "US",
+        platform: "DESKTOP",
+        visitorData: config.visitorData || undefined,
+        userAgent: YTM_USER_AGENT,
+        utcOffsetMinutes: 0,
+      },
+      user: { enableSafetyMode: false },
+      request: {
+        internalExperimentFlags: [],
+        sessionIndex: 0,
+      },
+    },
+    query,
+  };
+}
+
+async function callYoutubei<T = any>(config: InnertubeConfig, path: string, payload: Record<string, any>): Promise<T> {
+  const clientVersion = config.clientVersion || DEFAULT_CLIENT_VERSION;
+  const url = `https://music.youtube.com/youtubei/v1/${path}?prettyPrint=false&key=${encodeURIComponent(config.apiKey)}`;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      "Accept-Language": "en-US,en;q=0.9",
+      "User-Agent": YTM_USER_AGENT,
+      Origin: "https://music.youtube.com",
+      Referer: "https://music.youtube.com/search",
+      Cookie: CONSENT_COOKIES,
+      "X-Goog-Visitor-Id": config.visitorData || "",
+      "X-YouTube-Client-Name": "67",
+      "X-YouTube-Client-Version": clientVersion,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Innertube request failed: ${response.status}`);
+  }
+
+  const json = (await response.json()) as T;
+  return json;
+}
 
 function parseListItem(item: any): ParsedItem | null {
   logKeys("musicResponsiveListItemRenderer", item);
@@ -351,24 +366,26 @@ function parseCardShelfRenderer(cardShelf: any): { section: MusicSearchSection |
 }
 
 function extractSearchSections(root: any): { sections: MusicSearchSection[]; collected: ParsedItem[] } {
-  logKeys("root", root || {});
-  logKeys("contents", root?.contents || {});
-  logKeys("tabbedSearchResultsRenderer", root?.contents?.tabbedSearchResultsRenderer || {});
+  logKeys("root_keys", root || {});
+  const contents = root?.contents;
+  if (contents) logKeys("contents_keys", contents);
+  const tabbed = contents?.tabbedSearchResultsRenderer;
+  if (tabbed) logKeys("tabbedSearchResultsRenderer_keys", tabbed);
 
   const sections: MusicSearchSection[] = [];
   const collected: ParsedItem[] = [];
 
-  const tabs = root?.contents?.tabbedSearchResultsRenderer?.tabs || [];
+  const tabs = tabbed?.tabs || [];
   tabs.forEach((tab: any, tabIndex: number) => {
     logArrayItem("tabs", tabIndex, tab);
     const tabRenderer = tab?.tabRenderer;
-    logKeys(`tabRenderer[${tabIndex}]`, tabRenderer || {});
+    if (tabRenderer) logKeys(`tabRenderer[${tabIndex}]`, tabRenderer);
 
     const tabContent = tabRenderer?.content;
-    logKeys(`tabRenderer.content[${tabIndex}]`, tabContent || {});
+    if (tabContent) logKeys(`tabRenderer.content[${tabIndex}]`, tabContent);
 
     const sectionList = tabContent?.sectionListRenderer;
-    logKeys(`sectionListRenderer[${tabIndex}]`, sectionList || {});
+    if (sectionList) logKeys(`sectionListRenderer[${tabIndex}]`, sectionList);
 
     const sectionContents = sectionList?.contents || [];
     sectionContents.forEach((section: any, sectionIndex: number) => {
@@ -429,11 +446,8 @@ function extractSearchSections(root: any): { sections: MusicSearchSection[]; col
     });
   });
 
-  logKeys("refinements", root?.refinements || {});
-  console.log("[Innertube][sections.length]", sections.length);
-
   if (sections.length === 0) {
-    console.error("[Innertube][FATAL] sections is EMPTY – search parsing FAILED");
+    throw new Error("Innertube search returned no sections (no shelf/carousel/card data)");
   }
 
   return { sections, collected };
@@ -441,14 +455,18 @@ function extractSearchSections(root: any): { sections: MusicSearchSection[]; col
 
 export async function musicSearch(queryRaw: string): Promise<MusicSearchResults> {
   const query = normalizeString(queryRaw);
-  if (!query) return { tracks: [], artists: [], albums: [], playlists: [], sections: [], refinements: [], suggestions: [] };
+  if (!query) throw new Error("Empty search query");
 
   const config = await fetchInnertubeConfig();
-  if (!config) return { tracks: [], artists: [], albums: [], playlists: [], sections: [], refinements: [], suggestions: [] };
+  if (!config) throw new Error("Failed to load Innertube config");
 
-  const json = await callYoutubei<any>(config, "search", { query });
-  logKeys("root_response", json || {});
-  if (!json) return { tracks: [], artists: [], albums: [], playlists: [], sections: [], refinements: [], suggestions: [] };
+  const payload = buildSearchBody(config, query);
+  const json = await callYoutubei<any>(config, "search", payload);
+  logKeys("root_keys", json || {});
+  const contents = json?.contents;
+  if (contents) logKeys("contents_keys", contents);
+  const tabbed = contents?.tabbedSearchResultsRenderer;
+  if (tabbed) logKeys("tabbedSearchResultsRenderer_keys", tabbed);
 
   const refinements: string[] = Array.isArray((json as any)?.refinements) ? (json as any).refinements.map((s: any) => String(s)) : [];
 
@@ -469,6 +487,23 @@ export async function musicSearch(queryRaw: string): Promise<MusicSearchResults>
   const suggestions: MusicSearchSuggestion[] = refinements.map((s) => ({ type: "track", id: s, name: s }));
 
   return { tracks, artists, albums, playlists, sections, refinements, suggestions };
+}
+
+export async function musicSearchRaw(queryRaw: string): Promise<any> {
+  const query = normalizeString(queryRaw);
+  if (!query) throw new Error("Empty search query");
+
+  const config = await fetchInnertubeConfig();
+  if (!config) throw new Error("Failed to load Innertube config");
+
+  const payload = buildSearchBody(config, query);
+  const json = await callYoutubei<any>(config, "search", payload);
+  logKeys("root_keys", json || {});
+  const contents = json?.contents;
+  if (contents) logKeys("contents_keys", contents);
+  const tabbed = contents?.tabbedSearchResultsRenderer;
+  if (tabbed) logKeys("tabbedSearchResultsRenderer_keys", tabbed);
+  return json;
 }
 
 export type ArtistBrowse = {
@@ -501,7 +536,10 @@ export async function fetchArtistBrowse(queryRaw: string): Promise<ArtistBrowse 
   const config = await fetchInnertubeConfig();
   if (!config) return null;
 
-  const browseJson = await callYoutubei<any>(config, "browse", { browseId: candidateBrowseId });
+  const browseJson = await callYoutubei<any>(config, "browse", {
+    context: buildSearchBody(config, queryRaw).context,
+    browseId: candidateBrowseId,
+  });
   if (!browseJson) return null;
 
   const header = browseJson.header?.musicImmersiveHeaderRenderer || browseJson.header?.musicHeaderRenderer;
@@ -596,14 +634,4 @@ export async function fetchArtistBrowse(queryRaw: string): Promise<ArtistBrowse 
     topSongs,
     albums,
   };
-}
-
-export async function musicSearchRaw(queryRaw: string): Promise<any | null> {
-  const query = normalizeString(queryRaw);
-  if (!query) return null;
-
-  const config = await fetchInnertubeConfig();
-  if (!config) return null;
-
-  return callYoutubei<any>(config, "search", { query });
 }
