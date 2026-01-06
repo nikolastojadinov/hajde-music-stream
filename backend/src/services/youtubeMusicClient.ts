@@ -1,6 +1,5 @@
 import { CONSENT_COOKIES, fetchInnertubeConfig, type InnertubeConfig } from "./youtubeInnertubeConfig";
 
-const DEFAULT_CLIENT_VERSION = "1.20241210.01.00";
 const YTM_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
 function normalizeString(value: unknown): string {
@@ -107,16 +106,15 @@ function logArrayItem(label: string, index: number, obj: any): void {
 }
 
 function buildSearchBody(config: InnertubeConfig, query: string): any {
-  const clientVersion = config.clientVersion || DEFAULT_CLIENT_VERSION;
   return {
     context: {
       client: {
-        clientName: "WEB_REMIX",
-        clientVersion,
+        clientName: config.clientName,
+        clientVersion: config.clientVersion,
         hl: "en",
         gl: "US",
         platform: "DESKTOP",
-        visitorData: config.visitorData || undefined,
+        visitorData: config.visitorData,
         userAgent: YTM_USER_AGENT,
         utcOffsetMinutes: 0,
       },
@@ -130,9 +128,24 @@ function buildSearchBody(config: InnertubeConfig, query: string): any {
   };
 }
 
+function resolveApiUrl(config: InnertubeConfig): string {
+  const trimmed = config.apiUrl.endsWith("/") ? config.apiUrl.slice(0, -1) : config.apiUrl;
+  return `${trimmed}/`;
+}
+
+async function loadConfigOrThrow(): Promise<InnertubeConfig> {
+  try {
+    return await fetchInnertubeConfig();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[Innertube][config] ${message}`);
+    throw err instanceof Error ? err : new Error(message);
+  }
+}
+
 async function callYoutubei<T = any>(config: InnertubeConfig, path: string, payload: Record<string, any>): Promise<T> {
-  const clientVersion = config.clientVersion || DEFAULT_CLIENT_VERSION;
-  const url = `https://music.youtube.com/youtubei/v1/${path}?prettyPrint=false&key=${encodeURIComponent(config.apiKey)}`;
+  const base = resolveApiUrl(config);
+  const url = `${base}${path}?prettyPrint=false&key=${encodeURIComponent(config.apiKey)}`;
 
   const response = await fetch(url, {
     method: "POST",
@@ -144,9 +157,9 @@ async function callYoutubei<T = any>(config: InnertubeConfig, path: string, payl
       Origin: "https://music.youtube.com",
       Referer: "https://music.youtube.com/search",
       Cookie: CONSENT_COOKIES,
-      "X-Goog-Visitor-Id": config.visitorData || "",
+      "X-Goog-Visitor-Id": config.visitorData,
       "X-YouTube-Client-Name": "67",
-      "X-YouTube-Client-Version": clientVersion,
+      "X-YouTube-Client-Version": config.clientVersion,
     },
     body: JSON.stringify(payload),
   });
@@ -457,8 +470,7 @@ export async function musicSearch(queryRaw: string): Promise<MusicSearchResults>
   const query = normalizeString(queryRaw);
   if (!query) throw new Error("Empty search query");
 
-  const config = await fetchInnertubeConfig();
-  if (!config) throw new Error("Failed to load Innertube config");
+  const config = await loadConfigOrThrow();
 
   const payload = buildSearchBody(config, query);
   const json = await callYoutubei<any>(config, "search", payload);
@@ -493,8 +505,7 @@ export async function musicSearchRaw(queryRaw: string): Promise<any> {
   const query = normalizeString(queryRaw);
   if (!query) throw new Error("Empty search query");
 
-  const config = await fetchInnertubeConfig();
-  if (!config) throw new Error("Failed to load Innertube config");
+  const config = await loadConfigOrThrow();
 
   const payload = buildSearchBody(config, query);
   const json = await callYoutubei<any>(config, "search", payload);
