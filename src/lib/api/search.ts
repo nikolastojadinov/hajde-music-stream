@@ -140,6 +140,9 @@ function normalizeResolveResponse(json: any): SearchResolveResponse {
 
 export async function searchSuggest(q: string, options?: { signal?: AbortSignal }): Promise<SearchSuggestResponse> {
   const trimmed = q.trim();
+  if (trimmed.length < 2) {
+    return { q: trimmed, source: "client", suggestions: [] };
+  }
   const url = new URL(withBackendOrigin("/api/search/suggest"));
   url.searchParams.set("q", trimmed);
 
