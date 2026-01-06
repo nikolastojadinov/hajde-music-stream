@@ -101,7 +101,7 @@ export default function Artist() {
   const { artistKey: artistKeyParam } = useParams();
   const navigate = useNavigate();
 
-  const { playPlaylist, currentTrackId } = usePlayer();
+  const { playCollection, youtubeVideoId } = usePlayer();
 
   const artistKey = normalizeString(artistKeyParam);
 
@@ -125,10 +125,10 @@ export default function Artist() {
       tracks
         .filter((t) => t.youtube_video_id)
         .map((t) => ({
-          id: t.id,
-          external_id: t.youtube_video_id,
+          youtubeVideoId: t.youtube_video_id,
           title: cleanTrackTitle(t.title, canonicalArtistName),
           artist: canonicalArtistName,
+          thumbnailUrl: t.cover_url ?? undefined,
         })),
     [tracks, canonicalArtistName]
   );
@@ -137,11 +137,11 @@ export default function Artist() {
 
   const handlePlayAll = () => {
     if (playlistTracks.length === 0) return;
-    playPlaylist(playlistTracks, 0);
+    playCollection(playlistTracks, 0, "artist", null);
   };
 
-  const handlePlayTrack = (_trackId: string, index: number) => {
-    playPlaylist(playlistTracks, index);
+  const handlePlayTrack = (index: number) => {
+    playCollection(playlistTracks, index, "artist", null);
   };
 
   const retry = () => {
@@ -283,10 +283,11 @@ export default function Artist() {
               title={cleanTrackTitle(t.title, canonicalArtistName)}
               artist={canonicalArtistName}
               imageUrl={t.cover_url}
-              youtubeId={t.youtube_video_id}
+              youtubeVideoId={t.youtube_video_id}
               duration={t.duration ?? null}
-              isActive={currentTrackId === t.id}
-              onPlay={() => handlePlayTrack(t.id, index)}
+              isActive={youtubeVideoId === t.youtube_video_id}
+              onPlay={() => handlePlayTrack(index)}
+              playbackContext="artist"
             />
           ))}
         </div>

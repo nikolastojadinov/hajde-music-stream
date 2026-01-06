@@ -19,6 +19,7 @@ import piPaymentsRouter from './routes/pi/payments';
 import searchRouter from './routes/search';
 import artistRouter from './routes/artist';
 import clientLogRouter from './routes/clientLog';
+import playlistRouter from './routes/playlist';
 
 declare global {
   namespace Express {
@@ -145,6 +146,9 @@ app.use('/api/search', searchRouter);
 
 // On-demand artist hydration + local bundle
 app.use('/api/artist', artistRouter);
+
+// Playlist browse (YouTube Music)
+app.use('/api/playlist', playlistRouter);
 
 // Pi Network routes under /pi:
 app.use('/pi', piAuthRouter);

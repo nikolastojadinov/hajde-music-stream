@@ -18,6 +18,7 @@ export type SearchTrackItem = {
   artist?: string;
   artists?: string[];
   youtubeId: string;
+  youtubeVideoId?: string;
   imageUrl?: string;
   album?: string | null;
   durationMs?: number | null;

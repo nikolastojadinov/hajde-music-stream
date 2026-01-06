@@ -9,6 +9,16 @@ function looksLikeVideoId(value: string): boolean {
   return /^[A-Za-z0-9_-]{11}$/.test(v);
 }
 
+function pickThumbnail(thumbnails?: any): string | null {
+  const arr = Array.isArray(thumbnails) ? thumbnails : thumbnails?.thumbnails;
+  if (!Array.isArray(arr)) return null;
+  for (const t of arr) {
+    const url = normalizeString((t as any)?.url);
+    if (url) return url;
+  }
+  return null;
+}
+
 function extractVideoIdsFromTree(root: any, max: number | null): string[] {
   const out: string[] = [];
   const seen = new Set<string>();
@@ -55,16 +65,24 @@ function extractVideoIdsFromTree(root: any, max: number | null): string[] {
   return out;
 }
 
-export async function youtubeInnertubeBrowsePlaylistVideoIds(
+export type PlaylistBrowseResult = {
+  id: string;
+  title: string;
+  author?: string | null;
+  thumbnailUrl?: string | null;
+  videoIds: string[];
+};
+
+export async function youtubeInnertubeBrowsePlaylist(
   playlistIdRaw: string,
   opts?: { max?: number | null }
-): Promise<string[]> {
+): Promise<PlaylistBrowseResult | null> {
   const playlistId = normalizeString(playlistIdRaw);
-  if (!playlistId) return [];
+  if (!playlistId) return null;
 
   const maxRaw = opts?.max;
   const max = typeof maxRaw === "number" && Number.isFinite(maxRaw) ? Math.max(0, Math.trunc(maxRaw)) : null;
-  if (max === 0) return [];
+  if (max === 0) return null;
 
   const browseId = playlistId.startsWith("VL") ? playlistId : `VL${playlistId}`;
   const config = await fetchInnertubeConfig();
@@ -107,24 +125,37 @@ export async function youtubeInnertubeBrowsePlaylistVideoIds(
         status: response.status,
         playlistId,
       });
-      return [];
+      return null;
     }
     const json = await response.json().catch(() => null);
     if (!json || typeof json !== "object") {
       console.info("[youtubeInnertubeBrowsePlaylist] browse_invalid_json", { playlistId });
-      return [];
+      return null;
     }
 
     const ids = extractVideoIdsFromTree(json, max);
     if (ids.length === 0) {
       console.info("[youtubeInnertubeBrowsePlaylist] browse_empty", { playlistId });
     }
-    return ids;
+    const header = (json as any)?.header?.musicDetailHeaderRenderer;
+    const title = normalizeString(header?.title?.runs?.[0]?.text) || playlistId;
+    const author = normalizeString(header?.subtitle?.runs?.[0]?.text) || null;
+    const thumb =
+      pickThumbnail(header?.thumbnail?.croppedSquareThumbnailRenderer?.thumbnail?.thumbnails) ||
+      pickThumbnail(header?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails);
+
+    return {
+      id: playlistId,
+      title,
+      author,
+      thumbnailUrl: thumb,
+      videoIds: ids,
+    };
   } catch (err: any) {
     console.info("[youtubeInnertubeBrowsePlaylist] browse_exception", {
       playlistId,
       message: err?.message,
     });
-    return [];
+    return null;
   }
 }
