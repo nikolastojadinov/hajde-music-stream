@@ -1,3 +1,102 @@
+export const CONSENT_COOKIES =
+  "CONSENT=YES+1; SOCS=CAESHAgBEhIaZ29vZ2xlLmNvbS9jb25zZW50L2Jhc2ljLzIiDFNvaURtdXhSNVQ1ag==; PREF=f1=50000000&hl=en";
+
+export interface InnertubeConfig {
+  apiKey: string;
+  apiUrl: string;
+  clientName: string;
+  clientVersion: string;
+  visitorData: string;
+}
+
+function assertString(field: string, value: unknown): string {
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new Error(`Missing or invalid ${field}`);
+  }
+  return value;
+}
+
+function parseYtcfg(html: string): Record<string, unknown> {
+  const match = html.match(/ytcfg\.set\((\{[\s\S]*?\})\);/);
+  if (!match || !match[1]) {
+    throw new Error("ytcfg.set payload not found in HTML");
+  }
+
+  try {
+    return JSON.parse(match[1]);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`Failed to parse ytcfg JSON: ${message}`);
+  }
+}
+
+export async function fetchInnertubeConfig(): Promise<InnertubeConfig> {
+  const response = await fetch("https://music.youtube.com/", {
+    method: "GET",
+    redirect: "manual",
+    headers: {
+      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+      "Accept-Language": "en-US,en;q=0.9",
+      "Upgrade-Insecure-Requests": "1",
+      "Sec-Fetch-Dest": "document",
+      "Sec-Fetch-Mode": "navigate",
+      "Sec-Fetch-Site": "none",
+      "Sec-Fetch-User": "?1",
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.6167.100 Safari/537.36",
+      Cookie: CONSENT_COOKIES,
+    },
+  });
+
+  const location = response.headers.get("location") || "";
+  if (response.status === 302) {
+    if (!location) {
+      throw new Error("Redirect without Location header");
+    }
+    if (location.includes("consent.youtube.com")) {
+      throw new Error(`Consent redirect encountered: ${location}`);
+    }
+    throw new Error(`Unexpected redirect to ${location}`);
+  }
+
+  if (response.status !== 200) {
+    throw new Error(`Bootstrap request failed with status ${response.status}`);
+  }
+
+  const html = await response.text();
+  if (!html) {
+    throw new Error("Bootstrap response body is empty");
+  }
+  if (html.includes("consent.youtube.com")) {
+    throw new Error("Consent interstitial detected in response body");
+  }
+
+  const cfg = parseYtcfg(html);
+
+  const apiKey = assertString("INNERTUBE_API_KEY", (cfg as Record<string, unknown>).INNERTUBE_API_KEY);
+  const apiUrl = assertString("INNERTUBE_API_URL", (cfg as Record<string, unknown>).INNERTUBE_API_URL);
+
+  const context = (cfg as Record<string, unknown>).INNERTUBE_CONTEXT;
+  if (!context || typeof context !== "object") {
+    throw new Error("Missing INNERTUBE_CONTEXT");
+  }
+
+  const client = (context as Record<string, unknown>).client;
+  if (!client || typeof client !== "object") {
+    throw new Error("Missing INNERTUBE_CONTEXT.client");
+  }
+
+  const clientName = assertString("INNERTUBE_CONTEXT.client.clientName", (client as Record<string, unknown>).clientName);
+  const clientVersion = assertString(
+    "INNERTUBE_CONTEXT.client.clientVersion",
+    (client as Record<string, unknown>).clientVersion,
+  );
+  const visitorData = assertString(
+    "INNERTUBE_CONTEXT.client.visitorData",
+    (client as Record<string, unknown>).visitorData,
+  );
+
+  return { apiKey, apiUrl, clientName, clientVersion, visitorData };
+}
 const CONSENT_COOKIES =
   "CONSENT=YES+1; SOCS=CAESHAgBEhIaZ29vZ2xlLmNvbS9jb25zZW50L2Jhc2ljLzIiDFNvaURtdXhSNVQ1ag==; PREF=f1=50000000&hl=en";
 
