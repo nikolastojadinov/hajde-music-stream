@@ -4,6 +4,7 @@ import { musicSearch, musicSearchRaw } from '../services/youtubeMusicClient';
 const router = Router();
 
 const MIN_QUERY_CHARS = 2;
+const MAX_SUGGESTIONS = 8;
 
 export type SearchSuggestion = {
   type: 'artist' | 'track' | 'album';
@@ -43,6 +44,67 @@ function emptySuggestions(q: string): SearchSuggestResponse {
   return { q, source: 'youtube_live', suggestions: [] };
 }
 
+function toSuggestionId(entry: any, name: string, index: number): string {
+  const candidates = [entry?.browseId, entry?.videoId, entry?.id].map(normalizeString).filter(Boolean);
+  return candidates[0] || `${name}-${index}`;
+}
+
+function toArtists(entry: any): string[] | undefined {
+  const list = Array.isArray(entry?.artists) ? entry.artists : [];
+  const names = list.map(normalizeString).filter(Boolean);
+  if (names.length > 0) return names;
+  const single = normalizeString(entry?.artist);
+  return single ? [single] : undefined;
+}
+
+function toImage(entry: any): string | undefined {
+  const image = normalizeString(entry?.imageUrl) || normalizeString(entry?.thumbnailUrl) || normalizeString(entry?.thumbnail);
+  return image || undefined;
+}
+
+function toSubtitle(entry: any): string | undefined {
+  const subtitle = normalizeString(entry?.subtitle) || normalizeString(entry?.description) || normalizeString(entry?.album);
+  return subtitle || undefined;
+}
+
+function makeSuggestion(entry: any, type: SearchSuggestion['type'], index: number): SearchSuggestion | null {
+  const name = normalizeString(entry?.name) || normalizeString(entry?.title) || normalizeString(entry?.text);
+  if (!name) return null;
+  const id = toSuggestionId(entry, name, index);
+  return {
+    type,
+    id,
+    name,
+    imageUrl: toImage(entry),
+    subtitle: toSubtitle(entry),
+    artists: type === 'track' ? toArtists(entry) : undefined,
+  };
+}
+
+function buildSuggestions(live: any): SearchSuggestion[] {
+  const result: SearchSuggestion[] = [];
+  const seen = new Set<string>();
+  let cursor = 0;
+
+  const addAll = (entries: any[], type: SearchSuggestion['type']) => {
+    for (const entry of entries) {
+      if (result.length >= MAX_SUGGESTIONS) return;
+      const suggestion = makeSuggestion(entry, type, cursor++);
+      if (!suggestion) continue;
+      const key = suggestion.name.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      result.push(suggestion);
+    }
+  };
+
+  addAll(Array.isArray(live?.artists) ? live.artists : [], 'artist');
+  addAll(Array.isArray(live?.tracks) ? live.tracks : [], 'track');
+  addAll(Array.isArray(live?.albums) ? live.albums : [], 'album');
+
+  return result;
+}
+
 router.get('/suggest', async (req, res) => {
   const q = normalizeString(req.query.q);
   if (q.length < MIN_QUERY_CHARS) {
@@ -51,26 +113,14 @@ router.get('/suggest', async (req, res) => {
 
   try {
     const live = await musicSearch(q);
-    const suggestions: SearchSuggestion[] = Array.isArray(live?.suggestions)
-      ? live.suggestions.map((s) => ({
-          type: s.type,
-          id: s.id,
-          name: s.name,
-          imageUrl: s.imageUrl,
-          subtitle: s.subtitle,
-          artists: s.artists,
-        }))
-      : [];
-
+    const suggestions = buildSuggestions(live);
     res.set('Cache-Control', 'no-store');
     return res.json({ q, source: 'youtube_live', suggestions });
   } catch (err: any) {
-    console.error('[search.suggest] failed', { message: err?.message || 'unknown' });
     return res.status(500).json({ error: 'suggest_failed' });
   }
 });
 
-// Debug-only endpoint to inspect raw Innertube search JSON
 router.get('/raw', async (req, res) => {
   const q = normalizeString(req.query.q);
   if (q.length < MIN_QUERY_CHARS) {
@@ -82,7 +132,6 @@ router.get('/raw', async (req, res) => {
     res.set('Cache-Control', 'no-store');
     return res.json({ q, rawInnertubeResponse });
   } catch (err: any) {
-    console.error('[search.raw] failed', { message: err?.message || 'unknown' });
     return res.status(500).json({ error: 'raw_search_failed' });
   }
 });
@@ -108,7 +157,6 @@ router.get('/results', async (req, res) => {
     };
     return res.json(payload);
   } catch (err: any) {
-    console.error('[search.results] failed', { message: err?.message || 'unknown' });
     return res.status(500).json({ error: 'search_failed' });
   }
 });
