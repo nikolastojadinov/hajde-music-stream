@@ -25,7 +25,6 @@ export default function Search() {
       const response = await searchResolve({ q: nextQuery });
       setSections(response?.sections ?? []);
     } catch (err) {
-      console.error("Search failed", err);
       setError("Unable to load search results.");
       setSections([]);
     } finally {
@@ -39,15 +38,16 @@ export default function Search() {
     setSuggestions([]);
   };
 
-  const normalizeSuggestions = (response: any): SearchSuggestItem[] => {
-    const source = Array.isArray(response)
-      ? response
-      : Array.isArray(response?.items)
-      ? response.items
-      : Array.isArray(response?.results)
-      ? response.results
-      : Array.isArray(response?.suggestions)
-      ? response.suggestions
+  const normalizeSuggestions = (response: unknown): SearchSuggestItem[] => {
+    const res = response as any;
+    const source = Array.isArray(res)
+      ? res
+      : Array.isArray(res?.items)
+      ? res.items
+      : Array.isArray(res?.results)
+      ? res.results
+      : Array.isArray(res?.suggestions)
+      ? res.suggestions
       : [];
 
     const runText = (value: any) => {
@@ -143,7 +143,7 @@ export default function Search() {
     <div className="min-h-screen bg-neutral-950 pb-20 text-white">
       <div className="mx-auto max-w-6xl px-4 py-8 space-y-6">
         <form onSubmit={handleSubmit} className="space-y-3">
-          <div className="flex flex-col gap-3 rounded-xl border border-neutral-800 bg-neutral-900/70 p-4">
+          <div className="relative flex flex-col gap-3 rounded-xl border border-neutral-800 bg-neutral-900/70 p-4">
             <Input
               value={query}
               onChange={(event) => handleInputChange(event.target.value)}
@@ -163,18 +163,20 @@ export default function Search() {
             </div>
 
             {suggestions.length > 0 && (
-              <div className="flex flex-col gap-2 text-sm">
-                {suggestions.map((item) => (
-                  <button
-                    key={`${item.id}-${item.name}`}
-                    type="button"
-                    onClick={() => handleInputChange(item.name)}
-                    className="rounded-lg bg-neutral-950 px-3 py-2 text-left text-neutral-100 hover:bg-neutral-900"
-                  >
-                    <div className="font-medium text-neutral-50">{item.name}</div>
-                    {item.subtitle && <div className="text-xs text-neutral-500">{item.subtitle}</div>}
-                  </button>
-                ))}
+              <div className="absolute left-0 right-0 top-full z-50 mt-2 max-h-80 overflow-y-auto rounded-xl border border-neutral-800 bg-neutral-950/95 shadow-xl">
+                <div className="flex flex-col divide-y divide-neutral-800 text-sm">
+                  {suggestions.map((item) => (
+                    <button
+                      key={`${item.id}-${item.name}`}
+                      type="button"
+                      onClick={() => handleInputChange(item.name)}
+                      className="flex flex-col gap-1 px-3 py-2 text-left text-neutral-100 hover:bg-neutral-900"
+                    >
+                      <div className="font-medium text-neutral-50">{item.name}</div>
+                      {item.subtitle && <div className="text-xs text-neutral-500">{item.subtitle}</div>}
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
           </div>
