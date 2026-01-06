@@ -50,25 +50,31 @@ export default function Search() {
       ? response.suggestions
       : [];
 
+    const runText = (value: any) => {
+      const runs = value?.runs;
+      const run = Array.isArray(runs) ? runs[0] : undefined;
+      return typeof run?.text === "string" ? run.text : undefined;
+    };
+
+    const flexText = (item: any, flexIndex: number) => {
+      const runs = item?.flexColumns?.[flexIndex]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs;
+      const run = Array.isArray(runs) ? runs[0] : undefined;
+      return typeof run?.text === "string" ? run.text : undefined;
+    };
+
     return source
       .map((item: any, index: number) => {
         const type = typeof item?.type === "string" && ["artist", "track", "album", "playlist"].includes(item.type)
           ? (item.type as SearchSuggestItem["type"])
           : "track";
 
-        const flexText = (flexIndex: number) => {
-          const runs = item?.flexColumns?.[flexIndex]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs;
-          const run = Array.isArray(runs) ? runs[0] : undefined;
-          return typeof run?.text === "string" ? run.text : undefined;
-        };
-
-        const nameCandidate = [item?.name, item?.title, item?.text, item?.query, flexText(0)].find(
+        const nameCandidate = [item?.name, item?.title, item?.text, runText(item?.text), item?.query, flexText(item, 0)].find(
           (value) => typeof value === "string" && value.trim().length > 0,
         );
         const name = typeof nameCandidate === "string" ? nameCandidate.trim() : "";
         if (!name) return null;
 
-        const subtitleCandidate = typeof item?.subtitle === "string" && item.subtitle.trim().length > 0 ? item.subtitle : flexText(1);
+        const subtitleCandidate = typeof item?.subtitle === "string" && item.subtitle.trim().length > 0 ? item.subtitle : flexText(item, 1);
         const subtitle = typeof subtitleCandidate === "string" ? subtitleCandidate : undefined;
 
         const idCandidate = [item?.id, item?.videoId, item?.browseId].find(
@@ -109,7 +115,6 @@ export default function Search() {
         setSuggestions(normalizeSuggestions(response));
       } catch (err: any) {
         if (err?.name === "AbortError") return;
-        console.warn("Search suggest failed", err);
         setSuggestions([]);
       }
     }, SUGGEST_DEBOUNCE_MS);
