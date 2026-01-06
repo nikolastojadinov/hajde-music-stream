@@ -166,26 +166,6 @@ type ParsedItem =
   | { variant: "album"; value: MusicSearchAlbum }
   | { variant: "playlist"; value: MusicSearchPlaylist };
 
-function collectShelfRenderers(root: any): any[] {
-  const out: any[] = [];
-  function walk(node: any): void {
-    if (!node) return;
-    if (Array.isArray(node)) {
-      for (const item of node) walk(item);
-      return;
-    }
-    if (typeof node !== "object") return;
-
-    if ((node as any).musicShelfRenderer) {
-      out.push((node as any).musicShelfRenderer);
-    }
-
-    for (const value of Object.values(node)) walk(value);
-  }
-  walk(root);
-  return out;
-}
-
 function parseListItem(item: any): ParsedItem | null {
   const title = pickText(item?.flexColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.[0]);
   const subtitlesRuns = item?.flexColumns?.[1]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs;
@@ -254,6 +234,139 @@ function parseListItem(item: any): ParsedItem | null {
   return null;
 }
 
+function parseTwoRowItem(item: any): ParsedItem | null {
+  const title = pickText(item?.title) || "";
+  const subtitle = pickText(item?.subtitle) || "";
+  const thumb = pickThumbnail(item?.thumbnailRenderer?.musicThumbnailRenderer?.thumbnail?.thumbnails);
+
+  const browseEndpoint = item?.navigationEndpoint?.browseEndpoint;
+  const pageType = browseEndpoint?.browseEndpointContextSupportedConfigs?.browseEndpointContextMusicConfig?.pageType;
+  const browseId = normalizeString(browseEndpoint?.browseId);
+
+  if (!browseId) return null;
+
+  if (isMusicPageType(pageType, "MUSIC_PAGE_TYPE_ALBUM")) {
+    return {
+      variant: "album",
+      value: {
+        id: browseId,
+        title: title || "Album",
+        channelId: null,
+        channelTitle: subtitle || null,
+        imageUrl: thumb || undefined,
+      },
+    };
+  }
+
+  if (isMusicPageType(pageType, "MUSIC_PAGE_TYPE_PLAYLIST")) {
+    return {
+      variant: "playlist",
+      value: {
+        id: browseId,
+        title: title || "Playlist",
+        channelId: null,
+        channelTitle: subtitle || null,
+        imageUrl: thumb || undefined,
+      },
+    };
+  }
+
+  if (isMusicPageType(pageType, "MUSIC_PAGE_TYPE_ARTIST")) {
+    return {
+      variant: "artist",
+      value: {
+        id: browseId,
+        name: title || subtitle || "Artist",
+        imageUrl: thumb || undefined,
+      },
+    };
+  }
+
+  return null;
+}
+
+function inferKind(parsedItems: ParsedItem[]): string {
+  const variantSet = new Set(parsedItems.map((p) => p.variant));
+  if (variantSet.has("track")) return "songs";
+  if (variantSet.has("artist")) return "artists";
+  if (variantSet.has("album")) return "albums";
+  if (variantSet.has("playlist")) return "playlists";
+  return "unknown";
+}
+
+function parseShelfRenderer(shelf: any): { section: MusicSearchSection | null; collected: ParsedItem[] } {
+  const contents = Array.isArray(shelf?.contents) ? shelf.contents : [];
+  const parsedItems: ParsedItem[] = [];
+
+  for (const content of contents) {
+    const renderer = content?.musicResponsiveListItemRenderer;
+    if (!renderer) continue;
+    const parsed = parseListItem(renderer);
+    if (parsed) parsedItems.push(parsed);
+  }
+
+  if (parsedItems.length === 0) return { section: null, collected: [] };
+
+  const section: MusicSearchSection = {
+    kind: inferKind(parsedItems),
+    title: pickText(shelf?.title) || null,
+    items: parsedItems.map((p) => p.value),
+  };
+
+  return { section, collected: parsedItems };
+}
+
+function parseCarouselRenderer(carousel: any): { section: MusicSearchSection | null; collected: ParsedItem[] } {
+  const cards = Array.isArray(carousel?.contents) ? carousel.contents : [];
+  const parsedItems: ParsedItem[] = [];
+
+  for (const card of cards) {
+    const renderer = card?.musicTwoRowItemRenderer;
+    if (!renderer) continue;
+    const parsed = parseTwoRowItem(renderer);
+    if (parsed) parsedItems.push(parsed);
+  }
+
+  if (parsedItems.length === 0) return { section: null, collected: [] };
+
+  const section: MusicSearchSection = {
+    kind: inferKind(parsedItems),
+    title: pickText(carousel?.header?.musicCarouselShelfBasicHeaderRenderer?.title) || pickText(carousel?.header?.musicCarouselShelfRenderer?.title) || null,
+    items: parsedItems.map((p) => p.value),
+  };
+
+  return { section, collected: parsedItems };
+}
+
+function extractSearchSections(root: any): { sections: MusicSearchSection[]; collected: ParsedItem[] } {
+  const sections: MusicSearchSection[] = [];
+  const collected: ParsedItem[] = [];
+
+  const tabs = root?.contents?.tabbedSearchResultsRenderer?.tabs || [];
+
+  for (const tab of tabs) {
+    const tabContent = tab?.tabRenderer?.content;
+    const sectionList = tabContent?.sectionListRenderer;
+    const sectionContents = sectionList?.contents || [];
+
+    for (const section of sectionContents) {
+      if (section?.musicShelfRenderer) {
+        const parsed = parseShelfRenderer(section.musicShelfRenderer);
+        if (parsed.section) sections.push(parsed.section);
+        collected.push(...parsed.collected);
+      }
+
+      if (section?.musicCarouselShelfRenderer) {
+        const parsed = parseCarouselRenderer(section.musicCarouselShelfRenderer);
+        if (parsed.section) sections.push(parsed.section);
+        collected.push(...parsed.collected);
+      }
+    }
+  }
+
+  return { sections, collected };
+}
+
 export async function musicSearch(queryRaw: string): Promise<MusicSearchResults> {
   const query = normalizeString(queryRaw);
   if (!query) return { tracks: [], artists: [], albums: [], playlists: [], sections: [], refinements: [], suggestions: [] };
@@ -266,47 +379,18 @@ export async function musicSearch(queryRaw: string): Promise<MusicSearchResults>
 
   const refinements: string[] = Array.isArray((json as any)?.refinements) ? (json as any).refinements.map((s: any) => String(s)) : [];
 
-  const shelves = collectShelfRenderers(json);
-  const sections: MusicSearchSection[] = [];
+  const { sections, collected } = extractSearchSections(json);
+
   const tracks: MusicSearchTrack[] = [];
   const artists: MusicSearchArtist[] = [];
   const albums: MusicSearchAlbum[] = [];
   const playlists: MusicSearchPlaylist[] = [];
 
-  for (const shelf of shelves) {
-    const contents = Array.isArray(shelf?.contents) ? shelf.contents : [];
-    const parsedItems: ParsedItem[] = [];
-
-    for (const content of contents) {
-      const renderer = content?.musicResponsiveListItemRenderer;
-      if (!renderer) continue;
-      const parsed = parseListItem(renderer);
-      if (parsed) parsedItems.push(parsed);
-    }
-
-    if (parsedItems.length === 0) continue;
-
-    const items = parsedItems.map((p) => p.value);
-
-    const variantSet = new Set(parsedItems.map((p) => p.variant));
-    const kind = variantSet.has("track")
-      ? "songs"
-      : variantSet.has("artist")
-        ? "artists"
-        : variantSet.has("album")
-          ? "albums"
-          : variantSet.has("playlist")
-            ? "playlists"
-            : "unknown";
-
-    for (const parsed of parsedItems) {
-      if (parsed.variant === "track") tracks.push(parsed.value as MusicSearchTrack);
-      else if (parsed.variant === "artist") artists.push(parsed.value as MusicSearchArtist);
-      else if (parsed.variant === "album") albums.push(parsed.value as MusicSearchAlbum);
-      else if (parsed.variant === "playlist") playlists.push(parsed.value as MusicSearchPlaylist);
-    }
-
-    sections.push({ kind, title: pickText(shelf?.title) || null, items });
+  for (const parsed of collected) {
+    if (parsed.variant === "track") tracks.push(parsed.value as MusicSearchTrack);
+    else if (parsed.variant === "artist") artists.push(parsed.value as MusicSearchArtist);
+    else if (parsed.variant === "album") albums.push(parsed.value as MusicSearchAlbum);
+    else if (parsed.variant === "playlist") playlists.push(parsed.value as MusicSearchPlaylist);
   }
 
   const suggestions: MusicSearchSuggestion[] = refinements.map((s) => ({ type: "track", id: s, name: s }));
