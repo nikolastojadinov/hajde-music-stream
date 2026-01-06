@@ -86,7 +86,7 @@ export async function youtubeInnertubeBrowsePlaylist(
 
   const browseId = playlistId.startsWith("VL") ? playlistId : `VL${playlistId}`;
   const config = await fetchInnertubeConfig();
-  if (!config) return [];
+  if (!config) return null;
 
   const clientVersion = config.clientVersion || "1.20241210.01.00";
   const payload = {
