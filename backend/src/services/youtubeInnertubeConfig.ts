@@ -1,19 +1,20 @@
 export const CONSENT_COOKIES =
   "CONSENT=YES+1; SOCS=CAESHAgBEhIaZ29vZ2xlLmNvbS9jb25zZW50L2Jhc2ljLzIiDFNvaURtdXhSNVQ1ag==; PREF=f1=50000000&hl=en";
 
+export const INNERTUBE_API_BASE = "https://music.youtube.com/youtubei/v1";
+
 export interface InnertubeConfig {
   apiKey: string;
-  apiUrl: string;
   clientName: string;
   clientVersion: string;
   visitorData: string;
+  apiBase: string;
 }
 
 type FetchOptions = { hl?: string; gl?: string };
 
 type ExtractedFields = {
   apiKey?: string;
-  apiUrl?: string;
   clientName?: string;
   clientVersion?: string;
   visitorData?: string;
@@ -43,17 +44,22 @@ function extractViaYtcfg(html: string): ExtractedFields {
   const m = html.match(/ytcfg\.set\((\{[\s\S]*?\})\);/);
   if (!m || !m[1]) return {};
   const cfg = parseJson<Record<string, unknown>>(m[1], "ytcfg_set");
-  console.log("[InnertubeConfig][ytcfg_keys]", Object.keys(cfg || {}));
   const ctx = cfg.INNERTUBE_CONTEXT as Record<string, unknown> | undefined;
   const client = ctx && typeof ctx === "object" ? (ctx as Record<string, unknown>).client : undefined;
   return {
     apiKey: cfg.INNERTUBE_API_KEY as string | undefined,
-    apiUrl: cfg.INNERTUBE_API_URL as string | undefined,
-    clientName: client && typeof client === "object" ? ((client as Record<string, unknown>).clientName as string | undefined) : undefined,
+    clientName:
+      client && typeof client === "object"
+        ? ((client as Record<string, unknown>).clientName as string | undefined)
+        : undefined,
     clientVersion:
-      client && typeof client === "object" ? ((client as Record<string, unknown>).clientVersion as string | undefined) : undefined,
+      client && typeof client === "object"
+        ? ((client as Record<string, unknown>).clientVersion as string | undefined)
+        : undefined,
     visitorData:
-      client && typeof client === "object" ? ((client as Record<string, unknown>).visitorData as string | undefined) : undefined,
+      client && typeof client === "object"
+        ? ((client as Record<string, unknown>).visitorData as string | undefined)
+        : undefined,
   };
 }
 
@@ -64,7 +70,6 @@ function extractViaRegex(html: string): ExtractedFields {
     return m ? m[1] : undefined;
   };
   fields.apiKey = grab("INNERTUBE_API_KEY");
-  fields.apiUrl = grab("INNERTUBE_API_URL");
   fields.clientName = grab("INNERTUBE_CLIENT_NAME");
   fields.clientVersion = grab("INNERTUBE_CLIENT_VERSION");
   fields.visitorData = grab("VISITOR_DATA");
@@ -78,7 +83,6 @@ function extractViaFallback(html: string): ExtractedFields {
     try {
       const obj = parseJson<Record<string, unknown>>(block, "fallback_block");
       if (!fields.apiKey && typeof obj.INNERTUBE_API_KEY === "string") fields.apiKey = obj.INNERTUBE_API_KEY;
-      if (!fields.apiUrl && typeof obj.INNERTUBE_API_URL === "string") fields.apiUrl = obj.INNERTUBE_API_URL;
       const ctx = obj.INNERTUBE_CONTEXT as Record<string, unknown> | undefined;
       const client = ctx && typeof ctx === "object" ? (ctx as Record<string, unknown>).client : undefined;
       if (client && typeof client === "object") {
@@ -92,7 +96,7 @@ function extractViaFallback(html: string): ExtractedFields {
           fields.visitorData = (client as Record<string, unknown>).visitorData as string;
         }
       }
-      if (fields.apiKey && fields.apiUrl && fields.clientName && fields.clientVersion && fields.visitorData) break;
+      if (fields.apiKey && fields.clientName && fields.clientVersion && fields.visitorData) break;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.log("[InnertubeConfig][fallback_block_parse_error]", message);
@@ -102,23 +106,23 @@ function extractViaFallback(html: string): ExtractedFields {
 }
 
 function mergeFields(...sets: ExtractedFields[]): ExtractedFields {
-  return sets.reduce<ExtractedFields>((acc, cur) => ({
-    apiKey: acc.apiKey || cur.apiKey,
-    apiUrl: acc.apiUrl || cur.apiUrl,
-    clientName: acc.clientName || cur.clientName,
-    clientVersion: acc.clientVersion || cur.clientVersion,
-    visitorData: acc.visitorData || cur.visitorData,
-  }), {});
+  return sets.reduce<ExtractedFields>(
+    (acc, cur) => ({
+      apiKey: acc.apiKey || cur.apiKey,
+      clientName: acc.clientName || cur.clientName,
+      clientVersion: acc.clientVersion || cur.clientVersion,
+      visitorData: acc.visitorData || cur.visitorData,
+    }),
+    {},
+  );
 }
 
 async function fetchWithRedirects(url: string, headers: Record<string, string>): Promise<Response> {
   let current = url;
   for (let i = 0; i <= MAX_REDIRECTS; i += 1) {
     const res = await fetch(current, { method: "GET", redirect: "manual", headers });
-    console.log("[InnertubeConfig][http]", { url: current, status: res.status, type: res.type });
     if ([301, 302, 303, 307, 308].includes(res.status)) {
       const location = res.headers.get("location");
-      console.log("[InnertubeConfig][redirect]", { from: current, to: location });
       if (!location) {
         throw new Error("redirect_without_location");
       }
@@ -142,7 +146,8 @@ function buildHeaders(): Record<string, string> {
     "Sec-Fetch-Mode": "navigate",
     "Sec-Fetch-Site": "none",
     "Sec-Fetch-User": "?1",
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.6167.100 Safari/537.36",
+    "User-Agent":
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.6167.100 Safari/537.36",
     Cookie: CONSENT_COOKIES,
   };
 }
@@ -160,7 +165,6 @@ export async function fetchInnertubeConfig(opts?: FetchOptions): Promise<Innertu
 
   for (const url of urls) {
     try {
-      console.log("[InnertubeConfig][attempt]", url);
       const res = await fetchWithRedirects(url, headers);
       if (res.status !== 200) {
         throw new Error(`non_200:${res.status}`);
@@ -175,26 +179,14 @@ export async function fetchInnertubeConfig(opts?: FetchOptions): Promise<Innertu
       }
 
       const fields = mergeFields(extractViaYtcfg(html), extractViaRegex(html), extractViaFallback(html));
-      console.log("[InnertubeConfig][extracted_keys]", Object.keys(fields));
-
       const apiKey = assertString("INNERTUBE_API_KEY", fields.apiKey);
-      const apiUrl = assertString("INNERTUBE_API_URL", fields.apiUrl);
       const clientName = assertString("INNERTUBE_CLIENT_NAME", fields.clientName);
       const clientVersion = assertString("INNERTUBE_CLIENT_VERSION", fields.clientVersion);
       const visitorData = assertString("VISITOR_DATA", fields.visitorData);
 
-      console.log("[InnertubeConfig][final_keys]", {
-        apiKey: !!apiKey,
-        apiUrl: !!apiUrl,
-        clientName,
-        clientVersion,
-        visitorData: !!visitorData,
-      });
-
-      return { apiKey, apiUrl, clientName, clientVersion, visitorData };
+      return { apiKey, clientName, clientVersion, visitorData, apiBase: INNERTUBE_API_BASE };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      console.log("[InnertubeConfig][error]", { url, message });
       errors.push(`${url}:${message}`);
     }
   }

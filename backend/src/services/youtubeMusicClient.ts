@@ -128,9 +128,8 @@ function buildSearchBody(config: InnertubeConfig, query: string): any {
   };
 }
 
-function resolveApiUrl(config: InnertubeConfig): string {
-  const trimmed = config.apiUrl.endsWith("/") ? config.apiUrl.slice(0, -1) : config.apiUrl;
-  return `${trimmed}/`;
+function resolveApiBase(config: InnertubeConfig): string {
+  return config.apiBase.endsWith("/") ? config.apiBase : `${config.apiBase}/`;
 }
 
 async function loadConfigOrThrow(): Promise<InnertubeConfig> {
@@ -144,7 +143,7 @@ async function loadConfigOrThrow(): Promise<InnertubeConfig> {
 }
 
 async function callYoutubei<T = any>(config: InnertubeConfig, path: string, payload: Record<string, any>): Promise<T> {
-  const base = resolveApiUrl(config);
+  const base = resolveApiBase(config);
   const url = `${base}${path}?prettyPrint=false&key=${encodeURIComponent(config.apiKey)}`;
 
   const response = await fetch(url, {
