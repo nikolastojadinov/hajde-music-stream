@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { musicSearch } from '../services/youtubeMusicClient';
+import { musicSearch, musicSearchRaw } from '../services/youtubeMusicClient';
 
 const router = Router();
 
@@ -67,6 +67,23 @@ router.get('/suggest', async (req, res) => {
   } catch (err: any) {
     console.error('[search.suggest] failed', { message: err?.message || 'unknown' });
     return res.status(500).json({ error: 'suggest_failed' });
+  }
+});
+
+// Debug-only endpoint to inspect raw Innertube search JSON
+router.get('/raw', async (req, res) => {
+  const q = normalizeString(req.query.q);
+  if (q.length < MIN_QUERY_CHARS) {
+    return res.json({ q, rawInnertubeResponse: null });
+  }
+
+  try {
+    const rawInnertubeResponse = await musicSearchRaw(q);
+    res.set('Cache-Control', 'no-store');
+    return res.json({ q, rawInnertubeResponse });
+  } catch (err: any) {
+    console.error('[search.raw] failed', { message: err?.message || 'unknown' });
+    return res.status(500).json({ error: 'raw_search_failed' });
   }
 });
 

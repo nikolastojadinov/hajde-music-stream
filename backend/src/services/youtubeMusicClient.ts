@@ -87,6 +87,17 @@ export type MusicSearchResults = {
   suggestions: MusicSearchSuggestion[];
 };
 
+// Raw Innertube search fetch (no parsing) for debugging/inspection
+export async function musicSearchRaw(queryRaw: string): Promise<any | null> {
+  const query = normalizeString(queryRaw);
+  if (!query) return null;
+
+  const config = await fetchInnertubeConfig();
+  if (!config) return null;
+
+  return callYoutubei<any>(config, "search", { query });
+}
+
 async function callYoutubei<T = any>(config: InnertubeConfig, path: string, payload: Record<string, any>): Promise<T | null> {
   const clientVersion = config.clientVersion || "1.20241210.01.00";
   const url = `https://music.youtube.com/youtubei/v1/${path}?prettyPrint=false&key=${encodeURIComponent(config.apiKey)}`;
