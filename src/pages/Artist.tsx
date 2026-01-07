@@ -1,123 +1,61 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Music, Play } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 
-import TrackCard from "@/components/TrackCard";
-import ErrorState from "@/components/ui/ErrorState";
 import { Button } from "@/components/ui/button";
-import { usePlayer } from "@/contexts/PlayerContext";
-import {
-  searchResolve,
-  type SearchArtistItem,
-  type SearchSection,
-  type SearchTrackItem,
-} from "@/lib/api/search";
+import ErrorState from "@/components/ui/ErrorState";
+import { withBackendOrigin } from "@/lib/backendUrl";
 
-type NormalizedTrack = {
-  id: string;
-  title: string;
-  artist: string;
-  imageUrl?: string;
-  youtubeVideoId: string;
-  durationSeconds?: number;
+type BrowseArtistResponse = {
+  artistName: string | null;
+  thumbnails: { avatar: string | null; banner: string | null } | null;
+  topSongs: Array<{ id: string; title: string; youtubeId: string; artist: string; imageUrl?: string | null }>;
+  albums: Array<{ id: string; title: string; imageUrl?: string | null; channelTitle?: string | null }>;
 };
 
-const isArtistItem = (item: any): item is SearchArtistItem =>
-  item && typeof item.name === "string" && typeof item.id === "string";
-
-const isTrackItem = (item: any): item is SearchTrackItem => {
-  const hasId = typeof item?.youtubeVideoId === "string" || typeof item?.youtubeId === "string";
-  return hasId && typeof item?.title === "string";
-};
-
-const pickYoutubeId = (item: SearchTrackItem): string | null => {
-  if (typeof item.youtubeVideoId === "string" && item.youtubeVideoId.trim()) return item.youtubeVideoId.trim();
-  if (typeof item.youtubeId === "string" && item.youtubeId.trim()) return item.youtubeId.trim();
-  return null;
-};
+function isAlbumBrowseId(id: string): boolean {
+  const value = id.trim();
+  return value.startsWith("MPRE") || value.startsWith("OLAK") || (!value.startsWith("VL") && !value.startsWith("PL"));
+}
 
 export default function Artist() {
   const navigate = useNavigate();
   const { artistKey } = useParams();
-  const { playCollection, youtubeVideoId } = usePlayer();
 
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [sections, setSections] = useState<SearchSection[]>([]);
-
-  const loadArtist = async (key: string) => {
-    try {
-      setLoading(true);
-      setError(null);
-      const response = await searchResolve({ q: key });
-      setSections(response.sections ?? []);
-    } catch (err: any) {
-      setError(err?.message || "Unable to load artist data.");
-      setSections([]);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const [data, setData] = useState<BrowseArtistResponse | null>(null);
 
   useEffect(() => {
     if (!artistKey) return;
-    void loadArtist(artistKey);
+
+    const controller = new AbortController();
+    const load = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const url = withBackendOrigin(`/api/browse/artist?browseId=${encodeURIComponent(artistKey)}`);
+        const res = await fetch(url, {
+          method: "GET",
+          headers: { Accept: "application/json" },
+          credentials: "include",
+          signal: controller.signal,
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(typeof json?.error === "string" ? json.error : "Artist fetch failed");
+        setData(json as BrowseArtistResponse);
+      } catch (err: any) {
+        if (err?.name === "AbortError") return;
+        setError(err?.message || "Artist fetch failed");
+        setData(null);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    void load();
+    return () => controller.abort();
   }, [artistKey]);
-
-  const flatItems = useMemo(() => sections.flatMap((section) => section.items ?? []), [sections]);
-
-  const artistData = useMemo(() => {
-    const match = flatItems.find((item) => isArtistItem(item) && item.id === artistKey);
-    if (match) return match;
-    return flatItems.find(isArtistItem) ?? null;
-  }, [flatItems, artistKey]);
-
-  const artistName = artistData?.name || artistKey || "Artist";
-  const artistSubtitle = artistData?.subtitle;
-  const artistImage = artistData?.imageUrl;
-
-  const tracks: NormalizedTrack[] = useMemo(() => {
-    const items = flatItems.filter(isTrackItem);
-    return items
-      .map((item) => {
-        const youtubeId = pickYoutubeId(item);
-        if (!youtubeId) return null;
-        const artistLabel =
-          (Array.isArray(item.artists) && item.artists.filter(Boolean).join(", ")) ||
-          item.artist ||
-          artistName;
-
-        return {
-          id: item.id || youtubeId,
-          title: item.title,
-          artist: artistLabel,
-          imageUrl: item.imageUrl,
-          youtubeVideoId: youtubeId,
-          durationSeconds: typeof item.durationMs === "number" ? Math.round(item.durationMs / 1000) : undefined,
-        } satisfies NormalizedTrack;
-      })
-      .filter(Boolean) as NormalizedTrack[];
-  }, [flatItems, artistName]);
-
-  const playbackQueue = useMemo(
-    () =>
-      tracks.map((track) => ({
-        youtubeVideoId: track.youtubeVideoId,
-        title: track.title,
-        artist: track.artist,
-        thumbnailUrl: track.imageUrl,
-      })),
-    [tracks],
-  );
-
-  const handlePlayAll = () => {
-    if (!playbackQueue.length) return;
-    playCollection(playbackQueue, 0, "artist", null);
-  };
-
-  const handlePlayTrack = (index: number) => {
-    playCollection(playbackQueue, index, "artist", null);
-  };
 
   if (loading) {
     return <div className="p-6 text-sm text-neutral-400">Loading artist...</div>;
@@ -126,13 +64,21 @@ export default function Artist() {
   if (error) {
     return (
       <div className="p-6">
-        <ErrorState title="Artist request failed" subtitle={error} onRetry={() => artistKey && loadArtist(artistKey)} />
+        <ErrorState title="Artist request failed" subtitle={error} onRetry={() => {}} />
       </div>
     );
   }
 
+  const artistName = data?.artistName || "Artist";
+  const avatar = data?.thumbnails?.avatar || null;
+  const banner = data?.thumbnails?.banner || null;
+  const topSongs = Array.isArray(data?.topSongs) ? data!.topSongs : [];
+  const albums = Array.isArray(data?.albums) ? data!.albums.filter((a) => a?.id && isAlbumBrowseId(a.id)) : [];
+
+  const showEmpty = topSongs.length === 0 && albums.length === 0;
+
   return (
-    <div className="min-h-screen bg-neutral-950 pb-28 text-white">
+    <div className="min-h-screen bg-neutral-950 pb-24 text-white">
       <div className="relative mx-auto max-w-5xl px-4 pt-6">
         <div className="absolute left-0 top-0">
           <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
@@ -140,59 +86,81 @@ export default function Artist() {
           </Button>
         </div>
 
-        <div className="flex flex-col items-center gap-3 pt-4 text-center">
-          <div className="h-28 w-28 overflow-hidden rounded-full border border-white/10 bg-neutral-900">
-            {artistImage ? (
-              <img src={artistImage} alt={artistName} className="h-full w-full object-cover" />
-            ) : (
-              <div className="flex h-full items-center justify-center text-3xl font-semibold text-neutral-300">
-                {artistName.slice(0, 1).toUpperCase()}
-              </div>
-            )}
-          </div>
+        <div className="overflow-hidden rounded-2xl border border-white/5 bg-neutral-900/60">
+          {banner ? (
+            <div className="h-48 w-full overflow-hidden bg-neutral-900">
+              <img src={banner} alt={artistName} className="h-full w-full object-cover" />
+            </div>
+          ) : null}
 
-          <div className="space-y-1">
-            <h1 className="text-3xl font-black leading-tight">{artistName}</h1>
-            {artistSubtitle ? <p className="text-sm text-neutral-400">{artistSubtitle}</p> : null}
+          <div className="flex flex-col items-center gap-4 px-6 py-6 text-center">
+            <div className="h-28 w-28 overflow-hidden rounded-full border border-white/10 bg-neutral-800">
+              {avatar ? <img src={avatar} alt={artistName} className="h-full w-full object-cover" /> : null}
+            </div>
+            <div className="space-y-1">
+              <h1 className="text-3xl font-black leading-tight">{artistName}</h1>
+              <p className="text-sm text-neutral-400">Artist</p>
+            </div>
           </div>
-
-          <button className="pm-cta-pill" onClick={handlePlayAll} disabled={!playbackQueue.length}>
-            <span className="pm-cta-pill-inner">
-              <Play className="h-5 w-5" />
-              Play all
-            </span>
-          </button>
         </div>
 
-        <section className="mt-10 space-y-4">
-          <div className="flex items-center gap-2 text-neutral-200">
-            <Music className="h-5 w-5" />
-            <h2 className="text-xl font-semibold">Tracks</h2>
+        {showEmpty ? (
+          <div className="mt-10 rounded-lg border border-white/5 bg-white/5 p-4 text-sm text-neutral-300">
+            No content available for this artist.
           </div>
+        ) : (
+          <div className="mt-10 space-y-10">
+            {topSongs.length > 0 ? (
+              <section className="space-y-3">
+                <h2 className="text-xl font-semibold text-neutral-100">Top Songs</h2>
+                <div className="space-y-2">
+                  {topSongs.map((song) => (
+                    <div
+                      key={song.id}
+                      className="flex items-center gap-3 rounded-lg border border-white/5 bg-neutral-900/60 px-3 py-2"
+                    >
+                      <div className="h-12 w-12 overflow-hidden rounded-md bg-neutral-800">
+                        {song.imageUrl ? <img src={song.imageUrl} alt={song.title} className="h-full w-full object-cover" /> : null}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-semibold text-neutral-50">{song.title}</div>
+                        <div className="truncate text-xs text-neutral-400">{song.artist}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ) : null}
 
-          {tracks.length === 0 ? (
-            <div className="rounded-lg border border-white/5 bg-white/5 p-4 text-sm text-neutral-400">
-              No tracks available.
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {tracks.map((track, index) => (
-                <TrackCard
-                  key={track.id}
-                  id={track.id}
-                  title={track.title}
-                  artist={track.artist}
-                  imageUrl={track.imageUrl}
-                  youtubeVideoId={track.youtubeVideoId}
-                  duration={track.durationSeconds}
-                  isActive={youtubeVideoId === track.youtubeVideoId}
-                  onPlay={() => handlePlayTrack(index)}
-                  playbackContext="artist"
-                />
-              ))}
-            </div>
-          )}
-        </section>
+            {albums.length > 0 ? (
+              <section className="space-y-3">
+                <h2 className="text-xl font-semibold text-neutral-100">Albums</h2>
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {albums.map((album) => (
+                    <button
+                      key={album.id}
+                      type="button"
+                      onClick={() => navigate(`/playlist/${encodeURIComponent(album.id)}`)}
+                      className="flex flex-col overflow-hidden rounded-xl border border-white/5 bg-neutral-900/60 text-left hover:border-white/20"
+                    >
+                      <div className="h-44 w-full bg-neutral-800">
+                        {album.imageUrl ? (
+                          <img src={album.imageUrl} alt={album.title} className="h-full w-full object-cover" />
+                        ) : null}
+                      </div>
+                      <div className="p-3">
+                        <div className="truncate text-sm font-semibold text-neutral-50">{album.title}</div>
+                        {album.channelTitle ? (
+                          <div className="truncate text-xs text-neutral-400">{album.channelTitle}</div>
+                        ) : null}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </section>
+            ) : null}
+          </div>
+        )}
       </div>
     </div>
   );
