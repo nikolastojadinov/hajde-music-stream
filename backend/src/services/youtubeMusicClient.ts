@@ -625,7 +625,7 @@ export async function fetchArtistBrowse(queryRaw: string): Promise<ArtistBrowse 
       const renderer = card?.musicTwoRowItemRenderer;
       if (!renderer) continue;
       const browseIdAlbum = normalizeString(renderer?.navigationEndpoint?.browseEndpoint?.browseId);
-      if (!browseIdAlbum || !title) continue;
+      if (!browseIdAlbum || !titleText) continue;
       const pageType = renderer?.navigationEndpoint?.browseEndpoint?.browseEndpointContextSupportedConfigs?.browseEndpointContextMusicConfig?.pageType;
       if (!isMusicPageType(pageType, "MUSIC_PAGE_TYPE_ALBUM") && !isMusicPageType(pageType, "MUSIC_PAGE_TYPE_PLAYLIST")) continue;
       const albumTitle = pickText(renderer?.title) || "Album";
