@@ -1,9 +1,13 @@
+// target file: backend/src/services/youtubeMusicClient.ts
 import { CONSENT_COOKIES, fetchInnertubeConfig, type InnertubeConfig } from "./youtubeInnertubeConfig";
 import { parseArtistBrowseFromInnertube, type ArtistBrowse } from "./ytmArtistParser";
 
 export type { ArtistBrowse } from "./ytmArtistParser";
 
-const YTM_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+const YTM_USER_AGENT =
+  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
+const DEBUG = process.env.YTM_DEBUG === "1";
 
 function normalizeString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
@@ -98,12 +102,24 @@ type ParsedItem =
   | { variant: "album"; value: MusicSearchAlbum }
   | { variant: "playlist"; value: MusicSearchPlaylist };
 
-function logKeys(_label: string, _obj: any): void {
-  return;
+function logKeys(label: string, obj: any): void {
+  if (!DEBUG) return;
+  try {
+    const keys = obj && typeof obj === "object" ? Object.keys(obj) : [];
+    console.log(`[YTM][debug] ${label} keys:`, keys);
+  } catch {
+    // ignore
+  }
 }
 
-function logArrayItem(_label: string, _index: number, _obj: any): void {
-  return;
+function logArrayItem(label: string, index: number, obj: any): void {
+  if (!DEBUG) return;
+  try {
+    const keys = obj && typeof obj === "object" ? Object.keys(obj) : [];
+    console.log(`[YTM][debug] ${label}[${index}] keys:`, keys);
+  } catch {
+    // ignore
+  }
 }
 
 function buildSearchBody(config: InnertubeConfig, query: string): any {
@@ -475,11 +491,6 @@ export async function musicSearch(queryRaw: string): Promise<MusicSearchResults>
 
   const payload = buildSearchBody(config, query);
   const json = await callYoutubei<any>(config, "search", payload);
-  logKeys("root_keys", json || {});
-  const contents = json?.contents;
-  if (contents) logKeys("contents_keys", contents);
-  const tabbed = contents?.tabbedSearchResultsRenderer;
-  if (tabbed) logKeys("tabbedSearchResultsRenderer_keys", tabbed);
 
   const refinements: string[] = Array.isArray((json as any)?.refinements)
     ? (json as any).refinements.map((s: any) => String(s))
@@ -512,11 +523,6 @@ export async function musicSearchRaw(queryRaw: string): Promise<any> {
 
   const payload = buildSearchBody(config, query);
   const json = await callYoutubei<any>(config, "search", payload);
-  logKeys("root_keys", json || {});
-  const contents = json?.contents;
-  if (contents) logKeys("contents_keys", contents);
-  const tabbed = contents?.tabbedSearchResultsRenderer;
-  if (tabbed) logKeys("tabbedSearchResultsRenderer_keys", tabbed);
   return json;
 }
 
@@ -552,12 +558,63 @@ export async function browseArtistById(browseIdRaw: string): Promise<ArtistBrows
   return result;
 }
 
+// --- FIX helpers for playlist/albums rows where videoId is only in menu.*.watchEndpoint ---
+function findFirstWatchVideoId(node: any, visited: WeakSet<object>): string {
+  if (!node) return "";
+  if (typeof node !== "object") return "";
+  if (visited.has(node)) return "";
+  visited.add(node);
+
+  // direct hit
+  const direct = normalizeString((node as any)?.watchEndpoint?.videoId);
+  if (direct && looksLikeVideoId(direct)) return direct;
+
+  if (Array.isArray(node)) {
+    for (const item of node) {
+      const found = findFirstWatchVideoId(item, visited);
+      if (found) return found;
+    }
+    return "";
+  }
+
+  for (const value of Object.values(node)) {
+    const found = findFirstWatchVideoId(value as any, visited);
+    if (found) return found;
+  }
+  return "";
+}
+
+function extractVideoIdFromResponsive(renderer: any): string {
+  const p1 = normalizeString(
+    renderer?.overlay?.musicItemThumbnailOverlayRenderer?.content?.musicPlayButtonRenderer?.playNavigationEndpoint?.watchEndpoint
+      ?.videoId
+  );
+  if (looksLikeVideoId(p1)) return p1;
+
+  const p2 = normalizeString(renderer?.navigationEndpoint?.watchEndpoint?.videoId);
+  if (looksLikeVideoId(p2)) return p2;
+
+  const p3 = normalizeString(renderer?.playlistItemData?.videoId);
+  if (looksLikeVideoId(p3)) return p3;
+
+  // menu scan (new layout)
+  const menu = renderer?.menu;
+  if (menu && typeof menu === "object") {
+    const visited = new WeakSet<object>();
+    const found = findFirstWatchVideoId(menu, visited);
+    if (looksLikeVideoId(found)) return found;
+  }
+
+  return "";
+}
+
 export async function browsePlaylistById(playlistIdRaw: string): Promise<PlaylistBrowse | null> {
   const playlistId = normalizeString(playlistIdRaw);
   if (!playlistId) return null;
 
   const upper = playlistId.toUpperCase();
   const browseId = upper.startsWith("VL") || upper.startsWith("MPRE") || upper.startsWith("OLAK") ? playlistId : `VL${playlistId}`;
+
   const config = await fetchInnertubeConfig();
   if (!config) return null;
 
@@ -566,10 +623,11 @@ export async function browsePlaylistById(playlistIdRaw: string): Promise<Playlis
     browseId,
   });
 
-  // === DEBUG: RAW YOUTUBE PLAYLIST BROWSE (REMOVE AFTER DEBUG) ===
-  console.log("[YT RAW PLAYLIST BROWSE] root keys:", Object.keys(browseJson || {}));
-  console.log("[YT RAW PLAYLIST BROWSE] contents:", JSON.stringify(browseJson?.contents ?? null, null, 2));
-  // === END DEBUG ===
+  if (DEBUG) {
+    console.log("[YT RAW PLAYLIST BROWSE] root keys:", Object.keys(browseJson || {}));
+    // WARNING: huge output; only in DEBUG
+    console.log("[YT RAW PLAYLIST BROWSE] contents:", JSON.stringify(browseJson?.contents ?? null, null, 2));
+  }
 
   if (!browseJson) return null;
 
@@ -612,30 +670,51 @@ export async function browsePlaylistById(playlistIdRaw: string): Promise<Playlis
   }
 
   function parseResponsive(renderer: any) {
-    const playNav =
-      renderer?.overlay?.musicItemThumbnailOverlayRenderer?.content?.musicPlayButtonRenderer?.playNavigationEndpoint ||
-      renderer?.navigationEndpoint;
-    const videoId = normalizeString(playNav?.watchEndpoint?.videoId) || normalizeString(renderer?.playlistItemData?.videoId);
+    const videoId = extractVideoIdFromResponsive(renderer);
     if (!looksLikeVideoId(videoId)) return;
+
     const titleText = pickText(renderer?.flexColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.[0]);
     const subtitleRuns = renderer?.flexColumns?.[1]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs;
     const artistText = Array.isArray(subtitleRuns) ? subtitleRuns.map((r: any) => r?.text ?? "").join("") : "";
     const durationText = pickText(renderer?.fixedColumns?.[0]?.musicResponsiveListItemFixedColumnRenderer?.text?.runs?.[0]);
     const thumb = pickThumbnail(renderer?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails);
+
     if (!titleText) return;
-    pushTrack({ videoId, title: titleText, artist: artistText, duration: durationText || null, thumbnail: thumb }, "musicResponsiveListItemRenderer");
+    pushTrack(
+      { videoId, title: titleText, artist: artistText, duration: durationText || null, thumbnail: thumb },
+      "musicResponsiveListItemRenderer"
+    );
   }
 
   function parsePlaylistItemData(item: any) {
-    const videoId = normalizeString(item?.playlistItemData?.videoId);
+    let videoId = normalizeString(item?.playlistItemData?.videoId);
+    if (!looksLikeVideoId(videoId)) {
+      videoId = extractVideoIdFromResponsive(item);
+    }
     if (!looksLikeVideoId(videoId)) return;
+
     const titleText = pickText(item?.flexColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.[0]);
     const thumb = pickThumbnail(item?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails);
     const durationText = pickText(item?.fixedColumns?.[0]?.musicResponsiveListItemFixedColumnRenderer?.text?.runs?.[0]);
     const subtitleRuns = item?.flexColumns?.[1]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs;
     const artistText = Array.isArray(subtitleRuns) ? subtitleRuns.map((r: any) => r?.text ?? "").join("") : "";
+
     if (!titleText) return;
-    pushTrack({ videoId, title: titleText, artist: artistText, duration: durationText || null, thumbnail: thumb }, "playlistItemData");
+    pushTrack(
+      { videoId, title: titleText, artist: artistText, duration: durationText || null, thumbnail: thumb },
+      "playlistItemData"
+    );
+  }
+
+  function parseContainerContents(contents: any, label: string) {
+    if (!Array.isArray(contents)) return;
+    for (const item of contents) {
+      if (item?.musicResponsiveListItemRenderer) parseResponsive(item.musicResponsiveListItemRenderer);
+      if (item?.playlistPanelVideoRenderer) parsePanel(item.playlistPanelVideoRenderer);
+      if (item?.playlistVideoRenderer) parsePlaylistVideo(item.playlistVideoRenderer);
+      if (item?.playlistItemData) parsePlaylistItemData(item);
+      renderSources.add(label);
+    }
   }
 
   function walk(node: any): void {
@@ -645,37 +724,27 @@ export async function browsePlaylistById(playlistIdRaw: string): Promise<Playlis
       return;
     }
     if (typeof node !== "object") return;
-// 🔴 FIX: playlist items inside itemSectionRenderer
-const itemSection = (node as any)?.itemSectionRenderer;
-if (itemSection?.contents && Array.isArray(itemSection.contents)) {
-  for (const item of itemSection.contents) {
-    if (item?.musicResponsiveListItemRenderer) {
-      parseResponsive(item.musicResponsiveListItemRenderer);
+
+    // FIX: playlist items inside itemSectionRenderer
+    const itemSection = (node as any)?.itemSectionRenderer;
+    if (itemSection?.contents) {
+      parseContainerContents(itemSection.contents, "itemSectionRenderer.contents");
     }
-  }
-}
-    // 🔴 FIX: playlist items inside musicCarouselShelfRenderer (new YTM layout)
-const carousel = (node as any)?.musicCarouselShelfRenderer;
-if (carousel?.contents && Array.isArray(carousel.contents)) {
-  for (const item of carousel.contents) {
-    if (item?.musicResponsiveListItemRenderer) {
-      parseResponsive(item.musicResponsiveListItemRenderer);
+
+    // FIX: playlist items inside musicCarouselShelfRenderer (new YTM layout)
+    const carousel = (node as any)?.musicCarouselShelfRenderer;
+    if (carousel?.contents) {
+      parseContainerContents(carousel.contents, "musicCarouselShelfRenderer.contents");
     }
-    if (item?.playlistPanelVideoRenderer) {
-      parsePanel(item.playlistPanelVideoRenderer);
+
+    const mps = (node as any)?.musicPlaylistShelfRenderer;
+    if (mps?.contents) {
+      parseContainerContents(mps.contents, "musicPlaylistShelfRenderer.contents");
     }
-    if (item?.playlistItemData) {
-      parsePlaylistItemData(item);
-    }
-  }
-}
-    if ((node as any)?.musicPlaylistShelfRenderer?.contents) {
-      const contents = (node as any).musicPlaylistShelfRenderer.contents;
-      for (const item of contents || []) {
-        if (item?.musicResponsiveListItemRenderer) parseResponsive(item.musicResponsiveListItemRenderer);
-        if (item?.playlistPanelVideoRenderer) parsePanel(item.playlistPanelVideoRenderer);
-        if (item?.playlistItemData) parsePlaylistItemData(item);
-      }
+
+    const musicShelf = (node as any)?.musicShelfRenderer;
+    if (musicShelf?.contents) {
+      parseContainerContents(musicShelf.contents, "musicShelfRenderer.contents");
     }
 
     const panel = (node as any)?.playlistPanelVideoRenderer;
@@ -683,16 +752,6 @@ if (carousel?.contents && Array.isArray(carousel.contents)) {
 
     const playlistVideo = (node as any)?.playlistVideoRenderer;
     if (playlistVideo) parsePlaylistVideo(playlistVideo);
-
-    const musicShelf = (node as any)?.musicShelfRenderer;
-    if (musicShelf?.contents && Array.isArray(musicShelf.contents)) {
-      for (const item of musicShelf.contents) {
-        if (item?.musicResponsiveListItemRenderer) parseResponsive(item.musicResponsiveListItemRenderer);
-        if (item?.playlistPanelVideoRenderer) parsePanel(item.playlistPanelVideoRenderer);
-        if (item?.playlistVideoRenderer) parsePlaylistVideo(item.playlistVideoRenderer);
-        if (item?.playlistItemData) parsePlaylistItemData(item);
-      }
-    }
 
     const responsive = (node as any)?.musicResponsiveListItemRenderer;
     if (responsive) parseResponsive(responsive);
@@ -715,6 +774,7 @@ if (carousel?.contents && Array.isArray(carousel.contents)) {
 
   console.info("[browse/playlist] parsed", {
     browseId,
+    title,
     count: deduped.length,
     sources: Array.from(renderSources),
   });
