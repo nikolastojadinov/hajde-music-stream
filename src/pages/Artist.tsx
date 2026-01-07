@@ -8,30 +8,21 @@ import { withBackendOrigin } from "@/lib/backendUrl";
 
 type BrowseArtistResponse = {
   artistName: string | null;
-  thumbnails?: { avatar?: string | null; banner?: string | null } | null;
-  topSongs?: Array<{ id: string; title: string; imageUrl?: string | null; playCount?: string | null }>;
-  albums?: Array<{ id: string; title: string; imageUrl?: string | null; year?: string | null }>;
-  playlists?: Array<{ id: string; title: string; imageUrl?: string | null }>;
+  thumbnails: { avatar: string | null; banner: string | null };
+  topSongs: Array<{ id: string; title: string; imageUrl: string | null; playCount: string | null }>;
+  albums: Array<{ id: string; title: string; imageUrl: string | null; year: string | null }>;
+  playlists: Array<{ id: string; title: string; imageUrl: string | null }>;
 };
 
-type NormalizedSong = {
-  id: string;
+type QueueItem = {
+  youtubeVideoId: string;
   title: string;
   artist: string;
-  imageUrl: string | null;
-  playCount: string | null;
+  thumbnailUrl?: string;
 };
 
-type NormalizedCollection = {
-  id: string;
-  title: string;
-  imageUrl: string | null;
-  year?: string | null;
-};
-
+const normalize = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
 const looksLikeVideoId = (value: string | undefined | null): value is string => typeof value === "string" && /^[A-Za-z0-9_-]{11}$/.test(value.trim());
-
-const normalizeString = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
 
 export default function Artist() {
   const navigate = useNavigate();
@@ -57,13 +48,19 @@ export default function Artist() {
           credentials: "include",
           signal: controller.signal,
         });
-        const json = await res.json().catch(() => ({}));
+        const json = (await res.json().catch(() => ({}))) as Partial<BrowseArtistResponse>;
         if (!res.ok) throw new Error(typeof (json as any)?.error === "string" ? (json as any).error : "Artist fetch failed");
-        setData(json as BrowseArtistResponse);
+        setData({
+          artistName: json.artistName ?? null,
+          thumbnails: json.thumbnails ?? { avatar: null, banner: null },
+          topSongs: Array.isArray(json.topSongs) ? json.topSongs : [],
+          albums: Array.isArray(json.albums) ? json.albums : [],
+          playlists: Array.isArray(json.playlists) ? json.playlists : [],
+        });
       } catch (err: any) {
         if (err?.name === "AbortError") return;
         setError(err?.message || "Artist fetch failed");
-        setData({ artistName: null, thumbnails: null, topSongs: [], albums: [], playlists: [] });
+        setData({ artistName: null, thumbnails: { avatar: null, banner: null }, topSongs: [], albums: [], playlists: [] });
       } finally {
         setLoading(false);
       }
@@ -73,24 +70,23 @@ export default function Artist() {
     return () => controller.abort();
   }, [artistKey]);
 
-  const artistName = data?.artistName?.trim() || "Artist";
+  const artistName = normalize(data?.artistName) || "Artist";
   const avatar = data?.thumbnails?.avatar || null;
 
-  const songs: NormalizedSong[] = useMemo(() => {
-    const source = Array.isArray(data?.topSongs) ? data.topSongs : [];
-    return source.slice(0, 5).map((song) => ({
+  const songs = useMemo(() => {
+    return (data?.topSongs || []).slice(0, 5).map((song) => ({
       id: song.id,
-      title: normalizeString(song.title) || "Untitled",
+      title: normalize(song.title) || "Untitled",
       artist: artistName,
-      imageUrl: song.imageUrl ?? null,
-      playCount: song.playCount ?? null,
+      imageUrl: song.imageUrl,
+      playCount: song.playCount,
     }));
   }, [data?.topSongs, artistName]);
 
-  const playbackQueue = useMemo(
+  const playbackQueue: QueueItem[] = useMemo(
     () =>
       songs.map((song) => ({
-        youtubeVideoId: looksLikeVideoId(song.id) ? song.id : normalizeString(song.id),
+        youtubeVideoId: looksLikeVideoId(song.id) ? song.id : normalize(song.id),
         title: song.title,
         artist: song.artist,
         thumbnailUrl: song.imageUrl || undefined,
@@ -98,26 +94,22 @@ export default function Artist() {
     [songs],
   );
 
-  const albums: NormalizedCollection[] = useMemo(
-    () =>
-      (Array.isArray(data?.albums) ? data!.albums : []).map((item) => ({
-        id: item.id,
-        title: normalizeString(item.title) || "Album",
-        imageUrl: item.imageUrl ?? null,
-        year: item.year ?? null,
-      })),
-    [data?.albums],
-  );
+  const albums = useMemo(() => {
+    return (data?.albums || []).map((album) => ({
+      id: album.id,
+      title: normalize(album.title) || "Album",
+      imageUrl: album.imageUrl,
+      year: album.year,
+    }));
+  }, [data?.albums]);
 
-  const playlists: NormalizedCollection[] = useMemo(
-    () =>
-      (Array.isArray(data?.playlists) ? data!.playlists : []).map((item) => ({
-        id: item.id,
-        title: normalizeString(item.title) || "Playlist",
-        imageUrl: item.imageUrl ?? null,
-      })),
-    [data?.playlists],
-  );
+  const playlists = useMemo(() => {
+    return (data?.playlists || []).map((pl) => ({
+      id: pl.id,
+      title: normalize(pl.title) || "Playlist",
+      imageUrl: pl.imageUrl,
+    }));
+  }, [data?.playlists]);
 
   const handlePlaySong = (index: number) => {
     if (!playbackQueue.length) return;
@@ -158,7 +150,7 @@ export default function Artist() {
                       key={`${song.id}-${index}`}
                       type="button"
                       onClick={() => handlePlaySong(index)}
-                      className="flex h-14 w-full items-center gap-3 rounded-lg border border-white/5 bg-white/5 px-3 text-left transition hover:bg-white/10"
+                      className="flex w-full items-center gap-3 rounded-lg border border-white/5 bg-white/5 px-3 py-2 text-left transition hover:bg-white/10"
                     >
                       <div className="h-12 w-12 shrink-0 overflow-hidden rounded-md bg-neutral-800">
                         {song.imageUrl ? <img src={song.imageUrl} alt={song.title} className="h-full w-full object-cover" /> : null}
