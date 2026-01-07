@@ -645,7 +645,15 @@ export async function browsePlaylistById(playlistIdRaw: string): Promise<Playlis
       return;
     }
     if (typeof node !== "object") return;
-
+// 🔴 FIX: playlist items inside itemSectionRenderer
+const itemSection = (node as any)?.itemSectionRenderer;
+if (itemSection?.contents && Array.isArray(itemSection.contents)) {
+  for (const item of itemSection.contents) {
+    if (item?.musicResponsiveListItemRenderer) {
+      parseResponsive(item.musicResponsiveListItemRenderer);
+    }
+  }
+}
     if ((node as any)?.musicPlaylistShelfRenderer?.contents) {
       const contents = (node as any).musicPlaylistShelfRenderer.contents;
       for (const item of contents || []) {
