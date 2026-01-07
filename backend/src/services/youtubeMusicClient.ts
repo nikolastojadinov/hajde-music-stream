@@ -633,6 +633,15 @@ export async function browsePlaylistById(playlistIdRaw: string): Promise<Playlis
     const playlistVideo = (node as any)?.playlistVideoRenderer;
     if (playlistVideo) parsePlaylistVideo(playlistVideo);
 
+    const musicShelf = (node as any)?.musicShelfRenderer;
+    if (musicShelf?.contents && Array.isArray(musicShelf.contents)) {
+      for (const item of musicShelf.contents) {
+        if (item?.musicResponsiveListItemRenderer) parseResponsive(item.musicResponsiveListItemRenderer);
+        if (item?.playlistPanelVideoRenderer) parsePanel(item.playlistPanelVideoRenderer);
+        if (item?.playlistVideoRenderer) parsePlaylistVideo(item.playlistVideoRenderer);
+      }
+    }
+
     const responsive = (node as any)?.musicResponsiveListItemRenderer;
     if (responsive) parseResponsive(responsive);
 
