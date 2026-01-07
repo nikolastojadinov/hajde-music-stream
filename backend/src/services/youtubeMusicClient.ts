@@ -654,6 +654,21 @@ if (itemSection?.contents && Array.isArray(itemSection.contents)) {
     }
   }
 }
+    // 🔴 FIX: playlist items inside musicCarouselShelfRenderer (new YTM layout)
+const carousel = (node as any)?.musicCarouselShelfRenderer;
+if (carousel?.contents && Array.isArray(carousel.contents)) {
+  for (const item of carousel.contents) {
+    if (item?.musicResponsiveListItemRenderer) {
+      parseResponsive(item.musicResponsiveListItemRenderer);
+    }
+    if (item?.playlistPanelVideoRenderer) {
+      parsePanel(item.playlistPanelVideoRenderer);
+    }
+    if (item?.playlistItemData) {
+      parsePlaylistItemData(item);
+    }
+  }
+}
     if ((node as any)?.musicPlaylistShelfRenderer?.contents) {
       const contents = (node as any).musicPlaylistShelfRenderer.contents;
       for (const item of contents || []) {
