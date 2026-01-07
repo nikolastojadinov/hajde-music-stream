@@ -4,8 +4,6 @@ type CacheEntry = { at: number; value: any };
 
 const INFLIGHT = new Map<string, Promise<any>>();
 const COMPLETED = new Map<string, CacheEntry>();
-
-// Short TTL: meant only to dedupe rapid repeats (hover prefetch + navigation + StrictMode double effects).
 const COMPLETED_TTL_MS = 5_000;
 
 function now() {
@@ -38,17 +36,16 @@ async function fetchJson(url: string): Promise<any> {
   return json;
 }
 
-export async function fetchArtistByKey(
-  artistKey: string,
+export async function fetchArtistById(
+  browseId: string,
   opts?: {
-    /** Bypass in-memory dedupe/cache. */
     force?: boolean;
   }
 ): Promise<any> {
-  const key = (artistKey || "").trim();
-  if (!key) throw new Error("Missing artist");
+  const id = (browseId || "").trim();
+  if (!id) throw new Error("Missing artist id");
 
-  const url = withBackendOrigin(`/api/artist?artist_key=${encodeURIComponent(key)}`);
+  const url = withBackendOrigin(`/api/artist?id=${encodeURIComponent(id)}`);
 
   if (!opts?.force) {
     const cached = getFreshCompleted(url);
@@ -71,10 +68,8 @@ export async function fetchArtistByKey(
   return p;
 }
 
-export function prefetchArtistByKey(artistKey: string): void {
-  const key = (artistKey || "").trim();
-  if (!key) return;
-  void fetchArtistByKey(key).catch(() => {
-    // best-effort prefetch; ignore errors
-  });
+export function prefetchArtistById(browseId: string): void {
+  const id = (browseId || "").trim();
+  if (!id) return;
+  void fetchArtistById(id).catch(() => {});
 }

@@ -95,14 +95,12 @@ type ParsedItem =
   | { variant: "album"; value: MusicSearchAlbum }
   | { variant: "playlist"; value: MusicSearchPlaylist };
 
-function logKeys(label: string, obj: any): void {
-  const keys = obj && typeof obj === "object" ? Object.keys(obj) : [];
-  console.log(`[Innertube][${label}]`, keys);
+function logKeys(_label: string, _obj: any): void {
+  return;
 }
 
-function logArrayItem(label: string, index: number, obj: any): void {
-  const keys = obj && typeof obj === "object" ? Object.keys(obj) : [];
-  console.log(`[Innertube][${label}][${index}]`, keys);
+function logArrayItem(_label: string, _index: number, _obj: any): void {
+  return;
 }
 
 function buildSearchBody(config: InnertubeConfig, query: string): any {
@@ -184,13 +182,13 @@ function parseListItem(item: any): ParsedItem | null {
 
   const thumb = pickThumbnail(item?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails);
 
-  if (watchEndpoint?.videoId && looksLikeVideoId(watchEndpoint.videoId)) {
+  if (watchEndpoint?.videoId && looksLikeVideoId(watchEndpoint.videoId) && title) {
     return {
       variant: "track",
       value: {
         id: watchEndpoint.videoId,
         title: title || "Unknown",
-        artist: subtitle || "Unknown artist",
+        artist: subtitle || "",
         youtubeId: watchEndpoint.videoId,
         imageUrl: thumb || undefined,
       },
@@ -200,23 +198,23 @@ function parseListItem(item: any): ParsedItem | null {
   const browseId = normalizeString(browseEndpoint?.browseId);
   const pageType = browseEndpoint?.browseEndpointContextSupportedConfigs?.browseEndpointContextMusicConfig?.pageType;
 
-  if (browseId && isMusicPageType(pageType, "MUSIC_PAGE_TYPE_ARTIST")) {
+  if (browseId && isMusicPageType(pageType, "MUSIC_PAGE_TYPE_ARTIST") && (title || subtitle)) {
     return {
       variant: "artist",
       value: {
         id: browseId,
-        name: title || subtitle || "Artist",
+        name: title || subtitle || "",
         imageUrl: thumb || undefined,
       },
     };
   }
 
-  if (browseId && isMusicPageType(pageType, "MUSIC_PAGE_TYPE_ALBUM")) {
+  if (browseId && isMusicPageType(pageType, "MUSIC_PAGE_TYPE_ALBUM") && title) {
     return {
       variant: "album",
       value: {
         id: browseId,
-        title: title || "Album",
+        title,
         channelId: null,
         channelTitle: subtitle || null,
         imageUrl: thumb || undefined,
@@ -224,12 +222,12 @@ function parseListItem(item: any): ParsedItem | null {
     };
   }
 
-  if (browseId && isMusicPageType(pageType, "MUSIC_PAGE_TYPE_PLAYLIST")) {
+  if (browseId && isMusicPageType(pageType, "MUSIC_PAGE_TYPE_PLAYLIST") && title) {
     return {
       variant: "playlist",
       value: {
         id: browseId,
-        title: title || "Playlist",
+        title,
         channelId: null,
         channelTitle: subtitle || null,
         imageUrl: thumb || undefined,
@@ -251,14 +249,14 @@ function parseTwoRowItem(item: any): ParsedItem | null {
   const pageType = browseEndpoint?.browseEndpointContextSupportedConfigs?.browseEndpointContextMusicConfig?.pageType;
   const browseId = normalizeString(browseEndpoint?.browseId);
 
-  if (!browseId) return null;
+  if (!browseId || !title) return null;
 
   if (isMusicPageType(pageType, "MUSIC_PAGE_TYPE_ALBUM")) {
     return {
       variant: "album",
       value: {
         id: browseId,
-        title: title || "Album",
+        title,
         channelId: null,
         channelTitle: subtitle || null,
         imageUrl: thumb || undefined,
@@ -271,7 +269,7 @@ function parseTwoRowItem(item: any): ParsedItem | null {
       variant: "playlist",
       value: {
         id: browseId,
-        title: title || "Playlist",
+        title,
         channelId: null,
         channelTitle: subtitle || null,
         imageUrl: thumb || undefined,
@@ -284,7 +282,7 @@ function parseTwoRowItem(item: any): ParsedItem | null {
       variant: "artist",
       value: {
         id: browseId,
-        name: title || subtitle || "Artist",
+        name: title || subtitle || "",
         imageUrl: thumb || undefined,
       },
     };
@@ -458,10 +456,6 @@ function extractSearchSections(root: any): { sections: MusicSearchSection[]; col
     });
   });
 
-  if (sections.length === 0) {
-    throw new Error("Innertube search returned no sections (no shelf/carousel/card data)");
-  }
-
   return { sections, collected };
 }
 
@@ -495,7 +489,7 @@ export async function musicSearch(queryRaw: string): Promise<MusicSearchResults>
     else if (parsed.variant === "playlist") playlists.push(parsed.value as MusicSearchPlaylist);
   }
 
-  const suggestions: MusicSearchSuggestion[] = refinements.map((s) => ({ type: "track", id: s, name: s }));
+  const suggestions: MusicSearchSuggestion[] = [];
 
   return { tracks, artists, albums, playlists, sections, refinements, suggestions };
 }
@@ -537,10 +531,25 @@ function pickFirstArtistBrowseId(results: MusicSearchResults, fallbackQuery: str
   return { browseId: null, title: fallbackQuery };
 }
 
+function maybeBrowseId(input: string): string | null {
+  const trimmed = normalizeString(input);
+  if (!trimmed) return null;
+  if (/^[A-Za-z0-9_-]{5,}$/.test(trimmed)) return trimmed;
+  return null;
+}
+
 export async function fetchArtistBrowse(queryRaw: string): Promise<ArtistBrowse | null> {
-  const searchResults = await musicSearch(queryRaw);
-  const { browseId, title } = pickFirstArtistBrowseId(searchResults, queryRaw);
-  const candidateBrowseId = browseId && browseId.startsWith("UC") ? browseId : browseId || null;
+  const directBrowseId = maybeBrowseId(queryRaw);
+  let candidateBrowseId = directBrowseId;
+  let fallbackTitle = queryRaw;
+
+  if (!candidateBrowseId) {
+    const searchResults = await musicSearch(queryRaw);
+    const picked = pickFirstArtistBrowseId(searchResults, queryRaw);
+    candidateBrowseId = picked.browseId;
+    fallbackTitle = picked.title;
+  }
+
   if (!candidateBrowseId) return null;
 
   const config = await fetchInnertubeConfig();
@@ -553,7 +562,7 @@ export async function fetchArtistBrowse(queryRaw: string): Promise<ArtistBrowse 
   if (!browseJson) return null;
 
   const header = browseJson.header?.musicImmersiveHeaderRenderer || browseJson.header?.musicHeaderRenderer;
-  const titleText = pickText(header?.title) || title || "Artist";
+  const titleText = pickText(header?.title) || fallbackTitle || "";
   const thumbnailUrl = pickThumbnail(header?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails) || null;
   const bannerUrl = pickThumbnail(header?.banner?.thumbnails) || null;
 
@@ -600,10 +609,11 @@ export async function fetchArtistBrowse(queryRaw: string): Promise<ArtistBrowse 
       const nav = item?.navigationEndpoint || item?.overlay?.musicItemThumbnailOverlayRenderer?.content?.musicPlayButtonRenderer?.playNavigationEndpoint;
       const videoId = nav?.watchEndpoint?.videoId;
       if (!looksLikeVideoId(videoId)) continue;
-      const songTitle = pickText(item?.flexColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.[0]) || "Track";
+      const songTitle = pickText(item?.flexColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.[0]);
+      if (!songTitle) continue;
       const subtitlesRuns = item?.flexColumns?.[1]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs;
       const artistName = Array.isArray(subtitlesRuns) ? subtitlesRuns.map((r: any) => r?.text ?? "").join("") : titleText;
-      topSongs.push({ id: videoId, title: songTitle, youtubeId: videoId, artist: artistName, imageUrl: pickThumbnail(item?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails) || undefined });
+      topSongs.push({ id: videoId, title: songTitle, youtubeId: videoId, artist: artistName || titleText, imageUrl: pickThumbnail(item?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails) || undefined });
     }
   }
 
@@ -615,7 +625,7 @@ export async function fetchArtistBrowse(queryRaw: string): Promise<ArtistBrowse 
       const renderer = card?.musicTwoRowItemRenderer;
       if (!renderer) continue;
       const browseIdAlbum = normalizeString(renderer?.navigationEndpoint?.browseEndpoint?.browseId);
-      if (!browseIdAlbum) continue;
+      if (!browseIdAlbum || !title) continue;
       const pageType = renderer?.navigationEndpoint?.browseEndpoint?.browseEndpointContextSupportedConfigs?.browseEndpointContextMusicConfig?.pageType;
       if (!isMusicPageType(pageType, "MUSIC_PAGE_TYPE_ALBUM") && !isMusicPageType(pageType, "MUSIC_PAGE_TYPE_PLAYLIST")) continue;
       const albumTitle = pickText(renderer?.title) || "Album";

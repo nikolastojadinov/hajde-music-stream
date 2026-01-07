@@ -2,22 +2,26 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import YTMusicSearch from "@/components/search/YTMusicSearch";
 import SearchSuggestList from "@/components/search/SearchSuggestList";
-import {
-  searchResolve,
-  searchSuggest,
-  type SearchSection,
-  type SearchSuggestItem,
-} from "@/lib/api/search";
+import { searchResolve, searchSuggest, type SearchResolveResponse, type SearchSuggestItem } from "@/lib/api/search";
+import { usePlayer } from "@/contexts/PlayerContext";
 
 const SUGGEST_DEBOUNCE_MS = 250;
+const typeLabel: Record<SearchResolveResponse["sections"][number]["kind"], string> = {
+  songs: "Songs",
+  artists: "Artists",
+  albums: "Albums",
+  playlists: "Playlists",
+};
+
+const isVideoId = (id: string | undefined | null) => typeof id === "string" && /^[A-Za-z0-9_-]{11}$/.test(id.trim());
 
 export default function Search() {
   const navigate = useNavigate();
+  const { playTrack } = usePlayer();
 
   const [query, setQuery] = useState("");
-  const [sections, setSections] = useState<SearchSection[]>([]);
+  const [sections, setSections] = useState<SearchResolveResponse["sections"]>([]);
   const [suggestions, setSuggestions] = useState<SearchSuggestItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -29,6 +33,11 @@ export default function Search() {
     suggestAbortRef.current?.abort();
     suggestAbortRef.current = null;
     setSuggestions([]);
+  };
+
+  const playVideo = (videoId: string, title: string, artist?: string, imageUrl?: string) => {
+    if (!isVideoId(videoId)) return;
+    playTrack({ youtubeVideoId: videoId, title, artist: artist || title, thumbnailUrl: imageUrl || undefined }, "song");
   };
 
   const runSearch = async (value?: string) => {
@@ -99,13 +108,36 @@ export default function Search() {
       return;
     }
 
-    if (item.type === "playlist") {
+    if (item.type === "playlist" || item.type === "album") {
       navigate(`/playlist/${encodeURIComponent(item.id)}`);
+      return;
+    }
+
+    if (item.type === "track" && isVideoId(item.id)) {
+      playVideo(item.id, item.name, item.subtitle, item.imageUrl);
       return;
     }
 
     setQuery(item.name);
     void runSearch(item.name);
+  };
+
+  const handleResultClick = (sectionKind: SearchResolveResponse["sections"][number]["kind"], item: SearchResolveResponse["sections"][number]["items"][number]) => {
+    if (item.endpointType === "watch" && isVideoId(item.endpointPayload)) {
+      playVideo(item.endpointPayload, item.title, item.subtitle, item.imageUrl);
+      return;
+    }
+
+    if (item.endpointType === "browse") {
+      if (sectionKind === "artists") {
+        navigate(`/artist/${encodeURIComponent(item.endpointPayload)}`);
+        return;
+      }
+
+      if (sectionKind === "albums" || sectionKind === "playlists") {
+        navigate(`/playlist/${encodeURIComponent(item.endpointPayload)}`);
+      }
+    }
   };
 
   useEffect(() => {
@@ -116,6 +148,8 @@ export default function Search() {
       clearSuggestions();
     };
   }, []);
+
+  const orderedSections = ["songs", "artists", "albums", "playlists"] as const;
 
   return (
     <div className="min-h-screen bg-neutral-950 pb-20 text-white">
@@ -137,9 +171,7 @@ export default function Search() {
               >
                 {loading ? "Searching..." : "Search"}
               </Button>
-              <span className="text-xs text-neutral-500">
-                Type at least 2 characters to search
-              </span>
+              <span className="text-xs text-neutral-500">Type at least 2 characters to search</span>
             </div>
 
             {suggestions.length > 0 && (
@@ -151,18 +183,44 @@ export default function Search() {
         </form>
 
         {error && (
-          <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-100">
-            {error}
-          </div>
+          <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-100">{error}</div>
         )}
 
-        {!loading && sections.length === 0 && !error && (
-          <div className="text-sm text-neutral-500">
-            Start typing to see results.
-          </div>
-        )}
+        {!loading && sections.length === 0 && !error && <div className="text-sm text-neutral-500">Start typing to see results.</div>}
 
-        <YTMusicSearch sections={sections} />
+        <div className="space-y-8">
+          {orderedSections.map((kind) => {
+            const section = sections.find((s) => s.kind === kind);
+            if (!section || section.items.length === 0) return null;
+            return (
+              <div key={kind} className="space-y-3">
+                <h2 className="text-xl font-semibold text-neutral-100">{typeLabel[kind]}</h2>
+                <div className="flex gap-4 overflow-x-auto pb-2">
+                  {section.items.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => handleResultClick(kind, item)}
+                      className="w-44 shrink-0 text-left"
+                    >
+                      <div className="h-44 w-full overflow-hidden rounded-xl border border-white/5 bg-neutral-900">
+                        {item.imageUrl ? (
+                          <img src={item.imageUrl} alt={item.title} className="h-full w-full object-cover" />
+                        ) : (
+                          <div className="flex h-full items-center justify-center text-lg font-semibold text-neutral-400">{item.title.slice(0, 2)}</div>
+                        )}
+                      </div>
+                      <div className="mt-2 space-y-1">
+                        <div className="truncate text-sm font-semibold text-neutral-50">{item.title}</div>
+                        {item.subtitle ? <div className="truncate text-xs text-neutral-400">{item.subtitle}</div> : null}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

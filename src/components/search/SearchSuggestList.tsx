@@ -9,17 +9,14 @@ const typeLabel: Record<SearchSuggestItem["type"], string> = {
   artist: "Artist",
   album: "Album",
   playlist: "Playlist",
-  track: "Track",
+  track: "Song",
 };
 
 export default function SearchSuggestList({ suggestions, onSelect }: SearchSuggestListProps) {
   return (
     <div className="flex flex-col divide-y divide-neutral-800 text-sm">
       {suggestions.map((item) => {
-        const secondary =
-          item.type === "track"
-            ? (item.artists?.filter(Boolean).join(", ") || item.subtitle || typeLabel[item.type])
-            : item.subtitle || typeLabel[item.type];
+        const secondary = [typeLabel[item.type], item.subtitle].filter(Boolean).join(" • ");
 
         return (
           <button
@@ -28,7 +25,7 @@ export default function SearchSuggestList({ suggestions, onSelect }: SearchSugge
             onClick={() => onSelect(item)}
             className="flex items-center gap-3 px-3 py-2 text-left hover:bg-neutral-900"
           >
-            <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-md bg-neutral-800">
+            <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-md bg-neutral-800">
               {item.imageUrl ? (
                 <img src={item.imageUrl} alt={item.name} className="h-full w-full object-cover" />
               ) : (

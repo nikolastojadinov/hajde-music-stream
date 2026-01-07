@@ -1,162 +1,248 @@
 import { Router } from 'express';
-import { musicSearch, musicSearchRaw } from '../services/youtubeMusicClient';
+import { musicSearch, type MusicSearchAlbum, type MusicSearchArtist, type MusicSearchPlaylist, type MusicSearchResults, type MusicSearchTrack } from '../services/youtubeMusicClient';
 
 const router = Router();
 
 const MIN_QUERY_CHARS = 2;
 const MAX_SUGGESTIONS = 8;
 
-export type SearchSuggestion = {
-  type: 'artist' | 'track' | 'album';
+type SuggestionType = 'artist' | 'track' | 'album' | 'playlist';
+
+export type SearchSuggestItem = {
+  type: SuggestionType;
   id: string;
   name: string;
   imageUrl?: string;
   subtitle?: string;
-  artists?: string[];
-};
-
-export type SearchResultsResponse = {
-  q: string;
-  source: 'youtube_live';
-  sections: Array<{ kind: string; title?: string | null; items: any[]; continuation?: unknown }>;
-  refinements?: string[];
-  tracks?: any[];
-  artists?: any[];
-  albums?: any[];
-  playlists?: any[];
 };
 
 export type SearchSuggestResponse = {
   q: string;
   source: 'youtube_live';
-  suggestions: SearchSuggestion[];
+  suggestions: SearchSuggestItem[];
+};
+
+export type SearchResultItem = {
+  id: string;
+  title: string;
+  imageUrl?: string;
+  subtitle?: string;
+  endpointType: 'watch' | 'browse';
+  endpointPayload: string;
+};
+
+export type SearchResultsResponse = {
+  q: string;
+  source: 'youtube_live';
+  sections: Array<{
+    kind: 'songs' | 'artists' | 'albums' | 'playlists';
+    title: string | null;
+    items: SearchResultItem[];
+  }>;
 };
 
 function normalizeString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function emptyResults(q: string): SearchResultsResponse {
-  return { q, source: 'youtube_live', sections: [], refinements: [], tracks: [], artists: [], albums: [], playlists: [] };
+function isVideoId(value: string | undefined): value is string {
+  return typeof value === 'string' && /^[A-Za-z0-9_-]{11}$/.test(value.trim());
 }
 
-function emptySuggestions(q: string): SearchSuggestResponse {
-  return { q, source: 'youtube_live', suggestions: [] };
+function isNonEmpty(value: string | undefined | null): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
 }
 
-function toSuggestionId(entry: any, name: string, index: number): string {
-  const candidates = [entry?.browseId, entry?.videoId, entry?.id].map(normalizeString).filter(Boolean);
-  return candidates[0] || `${name}-${index}`;
-}
-
-function toArtists(entry: any): string[] | undefined {
-  const list = Array.isArray(entry?.artists) ? entry.artists : [];
-  const names = list.map(normalizeString).filter(Boolean);
-  if (names.length > 0) return names;
-  const single = normalizeString(entry?.artist);
-  return single ? [single] : undefined;
-}
-
-function toImage(entry: any): string | undefined {
-  const image = normalizeString(entry?.imageUrl) || normalizeString(entry?.thumbnailUrl) || normalizeString(entry?.thumbnail);
-  return image || undefined;
-}
-
-function toSubtitle(entry: any): string | undefined {
-  const subtitle = normalizeString(entry?.subtitle) || normalizeString(entry?.description) || normalizeString(entry?.album);
-  return subtitle || undefined;
-}
-
-function makeSuggestion(entry: any, type: SearchSuggestion['type'], index: number): SearchSuggestion | null {
-  const name = normalizeString(entry?.name) || normalizeString(entry?.title) || normalizeString(entry?.text);
-  if (!name) return null;
-  const id = toSuggestionId(entry, name, index);
+function buildTrackSuggestion(track: MusicSearchTrack): SearchSuggestItem | null {
+  if (!isVideoId(track.youtubeId) || !isNonEmpty(track.title)) return null;
   return {
-    type,
-    id,
-    name,
-    imageUrl: toImage(entry),
-    subtitle: toSubtitle(entry),
-    artists: type === 'track' ? toArtists(entry) : undefined,
+    type: 'track',
+    id: track.youtubeId,
+    name: track.title.trim(),
+    imageUrl: isNonEmpty(track.imageUrl) ? track.imageUrl : undefined,
+    subtitle: isNonEmpty(track.artist) ? track.artist : undefined,
   };
 }
 
-function buildSuggestions(live: any): SearchSuggestion[] {
-  const result: SearchSuggestion[] = [];
-  const seen = new Set<string>();
-  let cursor = 0;
+function buildArtistSuggestion(artist: MusicSearchArtist): SearchSuggestItem | null {
+  if (!isNonEmpty(artist.id) || !isNonEmpty(artist.name)) return null;
+  return {
+    type: 'artist',
+    id: artist.id.trim(),
+    name: artist.name.trim(),
+    imageUrl: isNonEmpty(artist.imageUrl) ? artist.imageUrl : undefined,
+    subtitle: undefined,
+  };
+}
 
-  const addAll = (entries: any[], type: SearchSuggestion['type']) => {
-    for (const entry of entries) {
-      if (result.length >= MAX_SUGGESTIONS) return;
-      const suggestion = makeSuggestion(entry, type, cursor++);
-      if (!suggestion) continue;
-      const key = suggestion.name.toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      result.push(suggestion);
-    }
+function buildAlbumSuggestion(album: MusicSearchAlbum): SearchSuggestItem | null {
+  if (!isNonEmpty(album.id) || !isNonEmpty(album.title)) return null;
+  return {
+    type: 'album',
+    id: album.id.trim(),
+    name: album.title.trim(),
+    imageUrl: isNonEmpty(album.imageUrl) ? album.imageUrl : undefined,
+    subtitle: isNonEmpty(album.channelTitle) ? album.channelTitle : undefined,
+  };
+}
+
+function buildPlaylistSuggestion(playlist: MusicSearchPlaylist): SearchSuggestItem | null {
+  if (!isNonEmpty(playlist.id) || !isNonEmpty(playlist.title)) return null;
+  return {
+    type: 'playlist',
+    id: playlist.id.trim(),
+    name: playlist.title.trim(),
+    imageUrl: isNonEmpty(playlist.imageUrl) ? playlist.imageUrl : undefined,
+    subtitle: isNonEmpty(playlist.channelTitle) ? playlist.channelTitle : undefined,
+  };
+}
+
+function dedupePush<T extends { id: string }>(list: T[], seen: Set<string>, item: T): void {
+  const key = item.id.trim();
+  if (!key || seen.has(key)) return;
+  seen.add(key);
+  list.push(item);
+}
+
+function buildSuggestions(live: MusicSearchResults): SearchSuggestItem[] {
+  const suggestions: SearchSuggestItem[] = [];
+  const seen = new Set<string>();
+
+  const pushItem = (candidate: SearchSuggestItem | null) => {
+    if (!candidate) return;
+    if (suggestions.length >= MAX_SUGGESTIONS) return;
+    dedupePush(suggestions, seen, candidate);
   };
 
-  addAll(Array.isArray(live?.artists) ? live.artists : [], 'artist');
-  addAll(Array.isArray(live?.tracks) ? live.tracks : [], 'track');
-  addAll(Array.isArray(live?.albums) ? live.albums : [], 'album');
+  for (const track of live.tracks || []) {
+    if (suggestions.length >= MAX_SUGGESTIONS) break;
+    pushItem(buildTrackSuggestion(track));
+  }
 
-  return result;
+  for (const artist of live.artists || []) {
+    if (suggestions.length >= MAX_SUGGESTIONS) break;
+    pushItem(buildArtistSuggestion(artist));
+  }
+
+  for (const album of live.albums || []) {
+    if (suggestions.length >= MAX_SUGGESTIONS) break;
+    pushItem(buildAlbumSuggestion(album));
+  }
+
+  for (const playlist of live.playlists || []) {
+    if (suggestions.length >= MAX_SUGGESTIONS) break;
+    pushItem(buildPlaylistSuggestion(playlist));
+  }
+
+  return suggestions.slice(0, MAX_SUGGESTIONS);
+}
+
+function mapTracks(tracks: MusicSearchTrack[]): SearchResultItem[] {
+  return tracks
+    .filter((t) => isVideoId(t.youtubeId) && isNonEmpty(t.title))
+    .map((t) => ({
+      id: t.youtubeId,
+      title: t.title.trim(),
+      imageUrl: isNonEmpty(t.imageUrl) ? t.imageUrl : undefined,
+      subtitle: isNonEmpty(t.artist) ? t.artist : undefined,
+      endpointType: 'watch' as const,
+      endpointPayload: t.youtubeId,
+    }));
+}
+
+function mapArtists(artists: MusicSearchArtist[]): SearchResultItem[] {
+  return artists
+    .filter((a) => isNonEmpty(a.id) && isNonEmpty(a.name))
+    .map((a) => ({
+      id: a.id.trim(),
+      title: a.name.trim(),
+      imageUrl: isNonEmpty(a.imageUrl) ? a.imageUrl : undefined,
+      subtitle: undefined,
+      endpointType: 'browse' as const,
+      endpointPayload: a.id.trim(),
+    }));
+}
+
+function mapAlbums(albums: MusicSearchAlbum[]): SearchResultItem[] {
+  return albums
+    .filter((a) => isNonEmpty(a.id) && isNonEmpty(a.title))
+    .map((a) => ({
+      id: a.id.trim(),
+      title: a.title.trim(),
+      imageUrl: isNonEmpty(a.imageUrl) ? a.imageUrl : undefined,
+      subtitle: isNonEmpty(a.channelTitle) ? a.channelTitle : undefined,
+      endpointType: 'browse' as const,
+      endpointPayload: a.id.trim(),
+    }));
+}
+
+function mapPlaylists(playlists: MusicSearchPlaylist[]): SearchResultItem[] {
+  return playlists
+    .filter((p) => isNonEmpty(p.id) && isNonEmpty(p.title))
+    .map((p) => ({
+      id: p.id.trim(),
+      title: p.title.trim(),
+      imageUrl: isNonEmpty(p.imageUrl) ? p.imageUrl : undefined,
+      subtitle: isNonEmpty(p.channelTitle) ? p.channelTitle : undefined,
+      endpointType: 'browse' as const,
+      endpointPayload: p.id.trim(),
+    }));
+}
+
+function buildSections(live: MusicSearchResults): SearchResultsResponse['sections'] {
+  const sections: SearchResultsResponse['sections'] = [];
+
+  const songs = mapTracks(live.tracks || []);
+  if (songs.length > 0) {
+    sections.push({ kind: 'songs', title: 'Songs', items: songs });
+  }
+
+  const artists = mapArtists(live.artists || []);
+  if (artists.length > 0) {
+    sections.push({ kind: 'artists', title: 'Artists', items: artists });
+  }
+
+  const albums = mapAlbums(live.albums || []);
+  if (albums.length > 0) {
+    sections.push({ kind: 'albums', title: 'Albums', items: albums });
+  }
+
+  const playlists = mapPlaylists(live.playlists || []);
+  if (playlists.length > 0) {
+    sections.push({ kind: 'playlists', title: 'Playlists', items: playlists });
+  }
+
+  return sections;
 }
 
 router.get('/suggest', async (req, res) => {
   const q = normalizeString(req.query.q);
   if (q.length < MIN_QUERY_CHARS) {
-    return res.json(emptySuggestions(q));
+    return res.json({ q, source: 'youtube_live', suggestions: [] } satisfies SearchSuggestResponse);
   }
 
   try {
     const live = await musicSearch(q);
     const suggestions = buildSuggestions(live);
     res.set('Cache-Control', 'no-store');
-    return res.json({ q, source: 'youtube_live', suggestions });
-  } catch (err: any) {
+    return res.json({ q, source: 'youtube_live', suggestions } satisfies SearchSuggestResponse);
+  } catch {
     return res.status(500).json({ error: 'suggest_failed' });
-  }
-});
-
-router.get('/raw', async (req, res) => {
-  const q = normalizeString(req.query.q);
-  if (q.length < MIN_QUERY_CHARS) {
-    return res.json({ q, rawInnertubeResponse: null });
-  }
-
-  try {
-    const rawInnertubeResponse = await musicSearchRaw(q);
-    res.set('Cache-Control', 'no-store');
-    return res.json({ q, rawInnertubeResponse });
-  } catch (err: any) {
-    return res.status(500).json({ error: 'raw_search_failed' });
   }
 });
 
 router.get('/results', async (req, res) => {
   const q = normalizeString(req.query.q);
   if (q.length < MIN_QUERY_CHARS) {
-    return res.json(emptyResults(q));
+    return res.json({ q, source: 'youtube_live', sections: [] } satisfies SearchResultsResponse);
   }
 
   try {
     const live = await musicSearch(q);
+    const sections = buildSections(live);
     res.set('Cache-Control', 'no-store');
-    const payload: SearchResultsResponse = {
-      q,
-      source: 'youtube_live',
-      sections: Array.isArray(live?.sections) ? live.sections : [],
-      refinements: Array.isArray(live?.refinements) ? live.refinements : [],
-      tracks: Array.isArray(live?.tracks) ? live.tracks : [],
-      artists: Array.isArray(live?.artists) ? live.artists : [],
-      albums: Array.isArray(live?.albums) ? live.albums : [],
-      playlists: Array.isArray(live?.playlists) ? live.playlists : [],
-    };
-    return res.json(payload);
-  } catch (err: any) {
+    return res.json({ q, source: 'youtube_live', sections } satisfies SearchResultsResponse);
+  } catch {
     return res.status(500).json({ error: 'search_failed' });
   }
 });

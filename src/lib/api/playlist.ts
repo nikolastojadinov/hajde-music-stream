@@ -23,7 +23,7 @@ export async function fetchPlaylistById(playlistId: string, opts?: { max?: numbe
   if (!id) throw new Error("Missing playlist id");
 
   const url = new URL(withBackendOrigin("/api/playlist"));
-  url.searchParams.set("playlist_id", id);
+  url.searchParams.set("id", id);
   if (typeof opts?.max === "number" && Number.isFinite(opts.max)) {
     url.searchParams.set("max", String(Math.max(0, Math.trunc(opts.max))));
   }

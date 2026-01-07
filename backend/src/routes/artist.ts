@@ -11,43 +11,32 @@ function normalizeString(value: unknown): string {
 }
 
 router.get('/', async (req, res) => {
+  const browseId = normalizeString((req.query.id as string) || (req.query.browseId as string));
   const artistQuery = normalizeString((req.query.artist_key as string) || (req.query.artist as string));
-  if (artistQuery.length < MIN_QUERY_CHARS) {
+
+  if (!browseId && artistQuery.length < MIN_QUERY_CHARS) {
     return res.status(400).json({ error: 'artist_required' });
   }
 
   try {
-    const browse = await fetchArtistBrowse(artistQuery);
+    const identifier = browseId || artistQuery;
+    const browse = await fetchArtistBrowse(identifier);
     if (!browse) {
       return res.status(404).json({ error: 'artist_not_found' });
     }
 
-    const mappedPlaylists = browse.albums.map((p) => ({
-      id: p.id,
-      title: p.title,
-      youtube_playlist_id: p.id,
-      description: null,
-      cover_url: p.imageUrl ?? null,
-      channel_title: p.channelTitle ?? browse.artist.name,
-      youtube_channel_id: browse.artist.channelId,
-      source: 'youtube_live',
-      created_at: null,
-      like_count: null,
-      view_count: null,
-      public_like_count: null,
-      public_view_count: null,
-    }));
-
-    const mappedTracks = browse.topSongs.map((v) => ({
-      id: v.id,
-      title: v.title,
-      youtube_video_id: v.youtubeId,
-      cover_url: v.imageUrl ?? null,
-      duration: null,
-      youtube_channel_id: browse.artist.channelId,
-      artist_name: v.artist || browse.artist.name,
-      created_at: null,
-    }));
+    const mappedTracks = browse.topSongs
+      .filter((v) => normalizeString(v.youtubeId).length === 11 && normalizeString(v.title))
+      .map((v) => ({
+        id: v.id,
+        title: v.title,
+        youtube_video_id: v.youtubeId,
+        cover_url: v.imageUrl ?? null,
+        duration: null,
+        youtube_channel_id: browse.artist.channelId,
+        artist_name: v.artist || browse.artist.name,
+        created_at: null,
+      }));
 
     res.set('Cache-Control', 'no-store');
     return res.json({
@@ -58,11 +47,11 @@ router.get('/', async (req, res) => {
         thumbnail_url: browse.artist.thumbnailUrl,
         banner_url: browse.artist.bannerUrl,
       },
-      playlists: mappedPlaylists,
+      playlists: [],
       tracks: mappedTracks,
+      meta: {},
     });
-  } catch (err: any) {
-    console.error('[artist] failed', { message: err?.message || 'unknown' });
+  } catch {
     return res.status(500).json({ error: 'artist_fetch_failed' });
   }
 });
