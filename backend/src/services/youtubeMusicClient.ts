@@ -599,8 +599,10 @@ export async function browsePlaylistById(playlistIdRaw: string): Promise<Playlis
   }
 
   function parseResponsive(renderer: any) {
-    const playNav = renderer?.overlay?.musicItemThumbnailOverlayRenderer?.content?.musicPlayButtonRenderer?.playNavigationEndpoint || renderer?.navigationEndpoint;
-    const videoId = normalizeString(playNav?.watchEndpoint?.videoId);
+    const playNav =
+      renderer?.overlay?.musicItemThumbnailOverlayRenderer?.content?.musicPlayButtonRenderer?.playNavigationEndpoint ||
+      renderer?.navigationEndpoint;
+    const videoId = normalizeString(playNav?.watchEndpoint?.videoId) || normalizeString(renderer?.playlistItemData?.videoId);
     if (!looksLikeVideoId(videoId)) return;
     const titleText = pickText(renderer?.flexColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.[0]);
     const subtitleRuns = renderer?.flexColumns?.[1]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs;
@@ -609,6 +611,18 @@ export async function browsePlaylistById(playlistIdRaw: string): Promise<Playlis
     const thumb = pickThumbnail(renderer?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails);
     if (!titleText) return;
     pushTrack({ videoId, title: titleText, artist: artistText, duration: durationText || null, thumbnail: thumb }, "musicResponsiveListItemRenderer");
+  }
+
+  function parsePlaylistItemData(item: any) {
+    const videoId = normalizeString(item?.playlistItemData?.videoId);
+    if (!looksLikeVideoId(videoId)) return;
+    const titleText = pickText(item?.flexColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.[0]);
+    const thumb = pickThumbnail(item?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails);
+    const durationText = pickText(item?.fixedColumns?.[0]?.musicResponsiveListItemFixedColumnRenderer?.text?.runs?.[0]);
+    const subtitleRuns = item?.flexColumns?.[1]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs;
+    const artistText = Array.isArray(subtitleRuns) ? subtitleRuns.map((r: any) => r?.text ?? "").join("") : "";
+    if (!titleText) return;
+    pushTrack({ videoId, title: titleText, artist: artistText, duration: durationText || null, thumbnail: thumb }, "playlistItemData");
   }
 
   function walk(node: any): void {
@@ -624,6 +638,7 @@ export async function browsePlaylistById(playlistIdRaw: string): Promise<Playlis
       for (const item of contents || []) {
         if (item?.musicResponsiveListItemRenderer) parseResponsive(item.musicResponsiveListItemRenderer);
         if (item?.playlistPanelVideoRenderer) parsePanel(item.playlistPanelVideoRenderer);
+        if (item?.playlistItemData) parsePlaylistItemData(item);
       }
     }
 
@@ -639,11 +654,15 @@ export async function browsePlaylistById(playlistIdRaw: string): Promise<Playlis
         if (item?.musicResponsiveListItemRenderer) parseResponsive(item.musicResponsiveListItemRenderer);
         if (item?.playlistPanelVideoRenderer) parsePanel(item.playlistPanelVideoRenderer);
         if (item?.playlistVideoRenderer) parsePlaylistVideo(item.playlistVideoRenderer);
+        if (item?.playlistItemData) parsePlaylistItemData(item);
       }
     }
 
     const responsive = (node as any)?.musicResponsiveListItemRenderer;
     if (responsive) parseResponsive(responsive);
+
+    const playlistItemData = (node as any)?.playlistItemData;
+    if (playlistItemData) parsePlaylistItemData(node);
 
     for (const value of Object.values(node)) walk(value);
   }
