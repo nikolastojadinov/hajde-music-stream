@@ -8,6 +8,7 @@ const YTM_USER_AGENT =
   "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
 const DEBUG = process.env.YTM_DEBUG === "1";
+const BROWSE_DEBUG = DEBUG || process.env.YTM_PLAYLIST_DEBUG === "1";
 
 function normalizeString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
@@ -29,6 +30,11 @@ function pickText(node: any): string {
   }
   const simple = node?.simpleText;
   return normalizeString(simple);
+}
+
+function pickRunsText(runs: any): string {
+  if (!Array.isArray(runs) || runs.length === 0) return "";
+  return normalizeString(runs.map((r: any) => r?.text ?? "").join(""));
 }
 
 function pickThumbnail(thumbnails?: any): string | null {
@@ -565,7 +571,9 @@ function findFirstWatchVideoId(node: any, visited: WeakSet<object>): string {
   if (visited.has(node)) return "";
   visited.add(node);
 
-  // direct hit
+  const directPlayNav = normalizeString((node as any)?.playNavigationEndpoint?.watchEndpoint?.videoId);
+  if (directPlayNav && looksLikeVideoId(directPlayNav)) return directPlayNav;
+
   const direct = normalizeString((node as any)?.watchEndpoint?.videoId);
   if (direct && looksLikeVideoId(direct)) return direct;
 
@@ -585,19 +593,18 @@ function findFirstWatchVideoId(node: any, visited: WeakSet<object>): string {
 }
 
 function extractVideoIdFromResponsive(renderer: any): string {
-  const p1 = normalizeString(
-    renderer?.overlay?.musicItemThumbnailOverlayRenderer?.content?.musicPlayButtonRenderer?.playNavigationEndpoint?.watchEndpoint
-      ?.videoId
-  );
-  if (looksLikeVideoId(p1)) return p1;
+  const overlayNav =
+    renderer?.overlay?.musicItemThumbnailOverlayRenderer?.content?.musicPlayButtonRenderer?.playNavigationEndpoint;
+  const navigation = overlayNav || renderer?.navigationEndpoint || renderer?.playNavigationEndpoint;
+  const watchVideoId = normalizeString(navigation?.watchEndpoint?.videoId);
+  if (looksLikeVideoId(watchVideoId)) return watchVideoId;
 
-  const p2 = normalizeString(renderer?.navigationEndpoint?.watchEndpoint?.videoId);
-  if (looksLikeVideoId(p2)) return p2;
+  const playlistDataId = normalizeString(renderer?.playlistItemData?.videoId);
+  if (looksLikeVideoId(playlistDataId)) return playlistDataId;
 
-  const p3 = normalizeString(renderer?.playlistItemData?.videoId);
-  if (looksLikeVideoId(p3)) return p3;
+  const directId = normalizeString(renderer?.watchEndpoint?.videoId || renderer?.videoId);
+  if (looksLikeVideoId(directId)) return directId;
 
-  // menu scan (new layout)
   const menu = renderer?.menu;
   if (menu && typeof menu === "object") {
     const visited = new WeakSet<object>();
@@ -640,6 +647,22 @@ export async function browsePlaylistById(playlistIdRaw: string): Promise<Playlis
 
   const tracks: PlaylistBrowse["tracks"] = [];
   const renderSources = new Set<string>();
+  const stats = {
+    responsiveSeen: 0,
+    responsiveParsed: 0,
+    playlistVideoSeen: 0,
+    playlistVideoParsed: 0,
+    panelSeen: 0,
+    panelParsed: 0,
+    playlistItemDataSeen: 0,
+    playlistItemDataParsed: 0,
+    shelvesVisited: 0,
+  };
+
+  const logDebug = (label: string, payload?: Record<string, unknown>) => {
+    if (!BROWSE_DEBUG) return;
+    console.info(`[browse/playlist][debug] ${label}`, payload ?? {});
+  };
 
   const pushTrack = (track: PlaylistBrowse["tracks"][number], source: string) => {
     if (!track?.videoId || !looksLikeVideoId(track.videoId)) return;
@@ -647,7 +670,41 @@ export async function browsePlaylistById(playlistIdRaw: string): Promise<Playlis
     renderSources.add(source);
   };
 
-  function parsePanel(panel: any) {
+  const buildTrackFromResponsive = (renderer: any): PlaylistBrowse["tracks"][number] | null => {
+    const videoId = extractVideoIdFromResponsive(renderer);
+    if (!looksLikeVideoId(videoId)) return null;
+
+    const title =
+      pickRunsText(renderer?.flexColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs) ||
+      pickText(renderer?.title) ||
+      pickText(renderer?.accessibilityLabel);
+    if (!title) return null;
+
+    const artist = pickRunsText(renderer?.flexColumns?.[1]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs);
+    const duration =
+      pickRunsText(renderer?.fixedColumns?.[0]?.musicResponsiveListItemFixedColumnRenderer?.text?.runs) ||
+      pickText(renderer?.fixedColumns?.[0]?.musicResponsiveListItemFixedColumnRenderer?.text) ||
+      pickText(renderer?.lengthText) ||
+      normalizeString(renderer?.lengthSeconds);
+    const thumb =
+      pickThumbnail(renderer?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails) ||
+      pickThumbnail(renderer?.thumbnail?.thumbnails) ||
+      null;
+
+    return { videoId, title, artist, duration: duration || null, thumbnail: thumb };
+  };
+
+  function parseResponsive(renderer: any, source: string) {
+    stats.responsiveSeen += 1;
+    const track = buildTrackFromResponsive(renderer);
+    if (track) {
+      stats.responsiveParsed += 1;
+      pushTrack(track, source);
+    }
+  }
+
+  function parsePanel(panel: any, source: string) {
+    stats.panelSeen += 1;
     const videoId = normalizeString(panel?.videoId);
     if (!looksLikeVideoId(videoId)) return;
     const trackTitle = pickText(panel?.title);
@@ -655,10 +712,12 @@ export async function browsePlaylistById(playlistIdRaw: string): Promise<Playlis
     const duration = pickText(panel?.lengthText) || normalizeString((panel?.lengthSeconds as any) ?? "");
     const thumb = pickThumbnail(panel?.thumbnail?.thumbnails);
     if (!trackTitle) return;
-    pushTrack({ videoId, title: trackTitle, artist, duration: duration || null, thumbnail: thumb }, "playlistPanelVideoRenderer");
+    stats.panelParsed += 1;
+    pushTrack({ videoId, title: trackTitle, artist, duration: duration || null, thumbnail: thumb }, source);
   }
 
-  function parsePlaylistVideo(renderer: any) {
+  function parsePlaylistVideo(renderer: any, source: string) {
+    stats.playlistVideoSeen += 1;
     const videoId = normalizeString(renderer?.videoId);
     if (!looksLikeVideoId(videoId)) return;
     const trackTitle = pickText(renderer?.title);
@@ -666,55 +725,58 @@ export async function browsePlaylistById(playlistIdRaw: string): Promise<Playlis
     const duration = pickText(renderer?.lengthText) || normalizeString((renderer?.lengthSeconds as any) ?? "");
     const thumb = pickThumbnail(renderer?.thumbnail?.thumbnails);
     if (!trackTitle) return;
-    pushTrack({ videoId, title: trackTitle, artist, duration: duration || null, thumbnail: thumb }, "playlistVideoRenderer");
+    stats.playlistVideoParsed += 1;
+    pushTrack({ videoId, title: trackTitle, artist, duration: duration || null, thumbnail: thumb }, source);
   }
 
-  function parseResponsive(renderer: any) {
-    const videoId = extractVideoIdFromResponsive(renderer);
-    if (!looksLikeVideoId(videoId)) return;
-
-    const titleText = pickText(renderer?.flexColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.[0]);
-    const subtitleRuns = renderer?.flexColumns?.[1]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs;
-    const artistText = Array.isArray(subtitleRuns) ? subtitleRuns.map((r: any) => r?.text ?? "").join("") : "";
-    const durationText = pickText(renderer?.fixedColumns?.[0]?.musicResponsiveListItemFixedColumnRenderer?.text?.runs?.[0]);
-    const thumb = pickThumbnail(renderer?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails);
-
-    if (!titleText) return;
-    pushTrack(
-      { videoId, title: titleText, artist: artistText, duration: durationText || null, thumbnail: thumb },
-      "musicResponsiveListItemRenderer"
-    );
-  }
-
-  function parsePlaylistItemData(item: any) {
-    let videoId = normalizeString(item?.playlistItemData?.videoId);
-    if (!looksLikeVideoId(videoId)) {
-      videoId = extractVideoIdFromResponsive(item);
+  function parsePlaylistItemData(item: any, source: string) {
+    stats.playlistItemDataSeen += 1;
+    const track = buildTrackFromResponsive(item);
+    if (track) {
+      stats.playlistItemDataParsed += 1;
+      pushTrack(track, source);
     }
-    if (!looksLikeVideoId(videoId)) return;
-
-    const titleText = pickText(item?.flexColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.[0]);
-    const thumb = pickThumbnail(item?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails);
-    const durationText = pickText(item?.fixedColumns?.[0]?.musicResponsiveListItemFixedColumnRenderer?.text?.runs?.[0]);
-    const subtitleRuns = item?.flexColumns?.[1]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs;
-    const artistText = Array.isArray(subtitleRuns) ? subtitleRuns.map((r: any) => r?.text ?? "").join("") : "";
-
-    if (!titleText) return;
-    pushTrack(
-      { videoId, title: titleText, artist: artistText, duration: durationText || null, thumbnail: thumb },
-      "playlistItemData"
-    );
   }
 
   function parseContainerContents(contents: any, label: string) {
     if (!Array.isArray(contents)) return;
-    for (const item of contents) {
-      if (item?.musicResponsiveListItemRenderer) parseResponsive(item.musicResponsiveListItemRenderer);
-      if (item?.playlistPanelVideoRenderer) parsePanel(item.playlistPanelVideoRenderer);
-      if (item?.playlistVideoRenderer) parsePlaylistVideo(item.playlistVideoRenderer);
-      if (item?.playlistItemData) parsePlaylistItemData(item);
-      renderSources.add(label);
-    }
+    contents.forEach((item: any, idx: number) => {
+      const baseLabel = `${label}[${idx}]`;
+      if (item?.musicResponsiveListItemRenderer) parseResponsive(item.musicResponsiveListItemRenderer, `${baseLabel}.musicResponsiveListItemRenderer`);
+      if (item?.playlistPanelVideoRenderer) parsePanel(item.playlistPanelVideoRenderer, `${baseLabel}.playlistPanelVideoRenderer`);
+      if (item?.playlistVideoRenderer) parsePlaylistVideo(item.playlistVideoRenderer, `${baseLabel}.playlistVideoRenderer`);
+      if (item?.playlistItemData) parsePlaylistItemData(item, `${baseLabel}.playlistItemData`);
+
+      if (item?.musicPlaylistShelfRenderer) parseMusicShelf(item.musicPlaylistShelfRenderer, `${baseLabel}.musicPlaylistShelfRenderer`);
+      if (item?.musicShelfRenderer) parseMusicShelf(item.musicShelfRenderer, `${baseLabel}.musicShelfRenderer`);
+      if (item?.musicCarouselShelfRenderer) parseContainerContents(item.musicCarouselShelfRenderer?.contents, `${baseLabel}.musicCarouselShelfRenderer.contents`);
+      if (item?.itemSectionRenderer) parseContainerContents(item.itemSectionRenderer?.contents, `${baseLabel}.itemSectionRenderer.contents`);
+    });
+  }
+
+  function parseMusicShelf(shelf: any, label: string) {
+    if (!shelf) return;
+    stats.shelvesVisited += 1;
+    parseContainerContents(shelf?.contents, `${label}.contents`);
+  }
+
+  function handleExplicitTwoColumn(root: any) {
+    const twoColumn = root?.contents?.twoColumnBrowseResultsRenderer;
+    if (!twoColumn) return;
+    const sectionContents = twoColumn?.secondaryContents?.sectionListRenderer?.contents;
+    if (!Array.isArray(sectionContents)) return;
+
+    sectionContents.forEach((section: any, sectionIndex: number) => {
+      const baseLabel = `twoColumn.secondary.sectionList[${sectionIndex}]`;
+      if (section?.musicShelfRenderer) parseMusicShelf(section.musicShelfRenderer, `${baseLabel}.musicShelfRenderer`);
+      if (section?.musicPlaylistShelfRenderer) parseMusicShelf(section.musicPlaylistShelfRenderer, `${baseLabel}.musicPlaylistShelfRenderer`);
+      if (section?.musicCarouselShelfRenderer) {
+        parseContainerContents(section.musicCarouselShelfRenderer.contents, `${baseLabel}.musicCarouselShelfRenderer.contents`);
+      }
+      if (section?.itemSectionRenderer?.contents) {
+        parseContainerContents(section.itemSectionRenderer.contents, `${baseLabel}.itemSectionRenderer.contents`);
+      }
+    });
   }
 
   function walk(node: any): void {
@@ -725,43 +787,46 @@ export async function browsePlaylistById(playlistIdRaw: string): Promise<Playlis
     }
     if (typeof node !== "object") return;
 
-    // FIX: playlist items inside itemSectionRenderer
+    if ((node as any)?.twoColumnBrowseResultsRenderer) {
+      handleExplicitTwoColumn({ contents: node });
+    }
+
     const itemSection = (node as any)?.itemSectionRenderer;
     if (itemSection?.contents) {
       parseContainerContents(itemSection.contents, "itemSectionRenderer.contents");
     }
 
-    // FIX: playlist items inside musicCarouselShelfRenderer (new YTM layout)
     const carousel = (node as any)?.musicCarouselShelfRenderer;
     if (carousel?.contents) {
       parseContainerContents(carousel.contents, "musicCarouselShelfRenderer.contents");
     }
 
-    const mps = (node as any)?.musicPlaylistShelfRenderer;
-    if (mps?.contents) {
-      parseContainerContents(mps.contents, "musicPlaylistShelfRenderer.contents");
+    const playlistShelf = (node as any)?.musicPlaylistShelfRenderer;
+    if (playlistShelf?.contents) {
+      parseMusicShelf(playlistShelf, "musicPlaylistShelfRenderer");
     }
 
     const musicShelf = (node as any)?.musicShelfRenderer;
     if (musicShelf?.contents) {
-      parseContainerContents(musicShelf.contents, "musicShelfRenderer.contents");
+      parseMusicShelf(musicShelf, "musicShelfRenderer");
     }
 
     const panel = (node as any)?.playlistPanelVideoRenderer;
-    if (panel) parsePanel(panel);
+    if (panel) parsePanel(panel, "playlistPanelVideoRenderer");
 
     const playlistVideo = (node as any)?.playlistVideoRenderer;
-    if (playlistVideo) parsePlaylistVideo(playlistVideo);
+    if (playlistVideo) parsePlaylistVideo(playlistVideo, "playlistVideoRenderer");
 
     const responsive = (node as any)?.musicResponsiveListItemRenderer;
-    if (responsive) parseResponsive(responsive);
+    if (responsive) parseResponsive(responsive, "musicResponsiveListItemRenderer");
 
     const playlistItemData = (node as any)?.playlistItemData;
-    if (playlistItemData) parsePlaylistItemData(node);
+    if (playlistItemData) parsePlaylistItemData(node, "playlistItemData");
 
     for (const value of Object.values(node)) walk(value);
   }
 
+  handleExplicitTwoColumn(browseJson);
   walk(browseJson);
 
   const deduped: PlaylistBrowse["tracks"] = [];
@@ -771,6 +836,21 @@ export async function browsePlaylistById(playlistIdRaw: string): Promise<Playlis
     seen.add(t.videoId);
     deduped.push(t);
   }
+
+  logDebug("extraction_summary", {
+    responsiveSeen: stats.responsiveSeen,
+    responsiveParsed: stats.responsiveParsed,
+    playlistVideoSeen: stats.playlistVideoSeen,
+    playlistVideoParsed: stats.playlistVideoParsed,
+    panelSeen: stats.panelSeen,
+    panelParsed: stats.panelParsed,
+    playlistItemDataSeen: stats.playlistItemDataSeen,
+    playlistItemDataParsed: stats.playlistItemDataParsed,
+    shelvesVisited: stats.shelvesVisited,
+    trackCount: tracks.length,
+    dedupedCount: deduped.length,
+    sources: Array.from(renderSources),
+  });
 
   console.info("[browse/playlist] parsed", {
     browseId,
