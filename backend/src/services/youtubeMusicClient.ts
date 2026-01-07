@@ -35,7 +35,7 @@ function pickThumbnail(thumbnails?: any): string | null {
 }
 
 export type MusicSearchSuggestion = {
-  type: "artist" | "track" | "album";
+  type: "artist" | "track" | "album" | "playlist";
   id: string;
   name: string;
   subtitle?: string;
@@ -521,48 +521,28 @@ export type ArtistBrowse = {
   albums: Array<{ id: string; title: string; imageUrl?: string; channelTitle?: string | null }>;
 };
 
-function pickFirstArtistBrowseId(results: MusicSearchResults, fallbackQuery: string): { browseId: string | null; title: string } {
-  if (results.artists.length > 0) {
-    return { browseId: results.artists[0].id, title: results.artists[0].name };
-  }
-  if (results.tracks.length > 0) {
-    return { browseId: results.tracks[0].artist, title: fallbackQuery };
-  }
-  return { browseId: null, title: fallbackQuery };
-}
+export type PlaylistBrowse = {
+  playlistId: string;
+  title: string;
+  thumbnailUrl: string | null;
+  tracks: Array<{ id: string; title: string; youtubeId: string; artist?: string; imageUrl?: string }>;
+};
 
-function maybeBrowseId(input: string): string | null {
-  const trimmed = normalizeString(input);
-  if (!trimmed) return null;
-  if (/^[A-Za-z0-9_-]{5,}$/.test(trimmed)) return trimmed;
-  return null;
-}
-
-export async function fetchArtistBrowse(queryRaw: string): Promise<ArtistBrowse | null> {
-  const directBrowseId = maybeBrowseId(queryRaw);
-  let candidateBrowseId = directBrowseId;
-  let fallbackTitle = queryRaw;
-
-  if (!candidateBrowseId) {
-    const searchResults = await musicSearch(queryRaw);
-    const picked = pickFirstArtistBrowseId(searchResults, queryRaw);
-    candidateBrowseId = picked.browseId;
-    fallbackTitle = picked.title;
-  }
-
-  if (!candidateBrowseId) return null;
+export async function browseArtistById(browseIdRaw: string): Promise<ArtistBrowse | null> {
+  const browseId = normalizeString(browseIdRaw);
+  if (!browseId) return null;
 
   const config = await fetchInnertubeConfig();
   if (!config) return null;
 
   const browseJson = await callYoutubei<any>(config, "browse", {
-    context: buildSearchBody(config, queryRaw).context,
-    browseId: candidateBrowseId,
+    context: buildSearchBody(config, "").context,
+    browseId,
   });
   if (!browseJson) return null;
 
   const header = browseJson.header?.musicImmersiveHeaderRenderer || browseJson.header?.musicHeaderRenderer;
-  const titleText = pickText(header?.title) || fallbackTitle || "";
+  const titleText = pickText(header?.title) || browseId;
   const thumbnailUrl = pickThumbnail(header?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails) || null;
   const bannerUrl = pickThumbnail(header?.banner?.thumbnails) || null;
 
@@ -647,11 +627,80 @@ export async function fetchArtistBrowse(queryRaw: string): Promise<ArtistBrowse 
   return {
     artist: {
       name: titleText,
-      channelId: candidateBrowseId,
+      channelId: browseId,
       thumbnailUrl,
       bannerUrl,
     },
     topSongs,
     albums,
   };
+}
+
+export async function browsePlaylistById(playlistIdRaw: string): Promise<PlaylistBrowse | null> {
+  const playlistId = normalizeString(playlistIdRaw);
+  if (!playlistId) return null;
+
+  const browseId = playlistId.startsWith("VL") ? playlistId : `VL${playlistId}`;
+  const config = await fetchInnertubeConfig();
+  if (!config) return null;
+
+  const browseJson = await callYoutubei<any>(config, "browse", {
+    context: buildSearchBody(config, "").context,
+    browseId,
+  });
+  if (!browseJson) return null;
+
+  const header = browseJson?.header?.musicDetailHeaderRenderer;
+  const title = pickText(header?.title) || playlistId;
+  const thumbnailUrl =
+    pickThumbnail(header?.thumbnail?.croppedSquareThumbnailRenderer?.thumbnail?.thumbnails) ||
+    pickThumbnail(header?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails) ||
+    null;
+
+  const tracks: PlaylistBrowse["tracks"] = [];
+
+  function walk(node: any): void {
+    if (!node) return;
+    if (Array.isArray(node)) {
+      for (const item of node) walk(item);
+      return;
+    }
+    if (typeof node !== "object") return;
+
+    const panel = (node as any)?.playlistPanelVideoRenderer;
+    if (panel) {
+      const videoId = normalizeString(panel.videoId);
+      if (looksLikeVideoId(videoId)) {
+        const trackTitle = pickText(panel.title) || "Unknown title";
+        const artist = pickText(panel.shortBylineText) || pickText(panel.longBylineText) || undefined;
+        const imageUrl = pickThumbnail(panel.thumbnail?.thumbnails) || undefined;
+        tracks.push({ id: videoId, title: trackTitle, youtubeId: videoId, artist, imageUrl });
+      }
+    }
+
+    const playlistVideo = (node as any)?.playlistVideoRenderer;
+    if (playlistVideo) {
+      const videoId = normalizeString(playlistVideo.videoId);
+      if (looksLikeVideoId(videoId)) {
+        const trackTitle = pickText(playlistVideo.title) || "Unknown title";
+        const artist = pickText(playlistVideo.shortBylineText) || pickText(playlistVideo.longBylineText) || undefined;
+        const imageUrl = pickThumbnail(playlistVideo.thumbnail?.thumbnails) || undefined;
+        tracks.push({ id: videoId, title: trackTitle, youtubeId: videoId, artist, imageUrl });
+      }
+    }
+
+    for (const value of Object.values(node)) walk(value);
+  }
+
+  walk(browseJson);
+
+  const deduped: PlaylistBrowse["tracks"] = [];
+  const seen = new Set<string>();
+  for (const t of tracks) {
+    if (seen.has(t.youtubeId)) continue;
+    seen.add(t.youtubeId);
+    deduped.push(t);
+  }
+
+  return { playlistId, title, thumbnailUrl, tracks: deduped };
 }

@@ -18,8 +18,10 @@ import piPaymentsRouter from './routes/pi/payments';
 
 import searchRouter from './routes/search';
 import artistRouter from './routes/artist';
+import browseArtistRouter from './routes/browseArtist';
 import clientLogRouter from './routes/clientLog';
 import playlistRouter from './routes/playlist';
+import browsePlaylistRouter from './routes/browsePlaylist';
 
 declare global {
   namespace Express {
@@ -146,9 +148,11 @@ app.use('/api/search', searchRouter);
 
 // On-demand artist hydration + local bundle
 app.use('/api/artist', artistRouter);
+app.use('/api/browse/artist', browseArtistRouter);
 
 // Playlist browse (YouTube Music)
 app.use('/api/playlist', playlistRouter);
+app.use('/api/browse/playlist', browsePlaylistRouter);
 
 // Pi Network routes under /pi:
 app.use('/pi', piAuthRouter);

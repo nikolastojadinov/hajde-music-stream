@@ -1,10 +1,8 @@
 import { Router } from 'express';
 
-import { fetchArtistBrowse } from '../services/youtubeMusicClient';
+import { browseArtistById } from '../services/youtubeMusicClient';
 
 const router = Router();
-
-const MIN_QUERY_CHARS = 2;
 
 function normalizeString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
@@ -12,15 +10,13 @@ function normalizeString(value: unknown): string {
 
 router.get('/', async (req, res) => {
   const browseId = normalizeString((req.query.id as string) || (req.query.browseId as string));
-  const artistQuery = normalizeString((req.query.artist_key as string) || (req.query.artist as string));
 
-  if (!browseId && artistQuery.length < MIN_QUERY_CHARS) {
+  if (!browseId) {
     return res.status(400).json({ error: 'artist_required' });
   }
 
   try {
-    const identifier = browseId || artistQuery;
-    const browse = await fetchArtistBrowse(identifier);
+    const browse = await browseArtistById(browseId);
     if (!browse) {
       return res.status(404).json({ error: 'artist_not_found' });
     }
