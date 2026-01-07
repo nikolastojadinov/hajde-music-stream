@@ -4,9 +4,9 @@ import { browseArtistById } from '../services/youtubeMusicClient';
 
 const router = Router();
 
-function normalizeString(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : '';
-}
+const normalizeString = (value: unknown): string => (typeof value === 'string' ? value.trim() : '');
+const looksLikeVideoId = (value: string | undefined | null): value is string =>
+  typeof value === 'string' && /^[A-Za-z0-9_-]{11}$/.test(value.trim());
 
 router.get('/', async (req, res) => {
   const browseId = normalizeString((req.query.id as string) || (req.query.browseId as string));
@@ -21,16 +21,16 @@ router.get('/', async (req, res) => {
       return res.status(404).json({ error: 'artist_not_found' });
     }
 
-    const mappedTracks = browse.topSongs
-      .filter((v) => normalizeString(v.youtubeId).length === 11 && normalizeString(v.title))
+    const mappedTracks = (Array.isArray(browse.topSongs) ? browse.topSongs : [])
+      .filter((v) => looksLikeVideoId(v.id) && normalizeString(v.title))
       .map((v) => ({
         id: v.id,
         title: v.title,
-        youtube_video_id: v.youtubeId,
+        youtube_video_id: v.id,
         cover_url: v.imageUrl ?? null,
         duration: null,
         youtube_channel_id: browse.artist.channelId,
-        artist_name: v.artist || browse.artist.name,
+        artist_name: browse.artist.name,
         created_at: null,
       }));
 
