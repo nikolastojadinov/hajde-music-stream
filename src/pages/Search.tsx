@@ -7,6 +7,7 @@ import { searchResolve, searchSuggest, type SearchResolveResponse, type SearchSu
 import { usePlayer } from "@/contexts/PlayerContext";
 
 const SUGGEST_DEBOUNCE_MS = 250;
+const MAX_SUGGESTIONS = 20;
 const typeLabel: Record<SearchResolveResponse["sections"][number]["kind"], string> = {
   songs: "Songs",
   artists: "Artists",
@@ -15,6 +16,13 @@ const typeLabel: Record<SearchResolveResponse["sections"][number]["kind"], strin
 };
 
 const isVideoId = (id: string | undefined | null) => typeof id === "string" && /^[A-Za-z0-9_-]{11}$/.test(id.trim());
+
+function normalizeArtistName(raw: string): string {
+  const cleaned = raw.replace(/^Artist\s*•\s*/i, "").trim();
+  const [head] = cleaned.split("•");
+  const candidate = head?.trim();
+  return candidate || cleaned;
+}
 
 export default function Search() {
   const navigate = useNavigate();
@@ -81,7 +89,17 @@ export default function Search() {
 
       try {
         const res = await searchSuggest(trimmed, { signal: controller.signal });
-        setSuggestions(Array.isArray(res?.suggestions) ? res.suggestions : []);
+        const normalized = Array.isArray(res?.suggestions)
+          ? res.suggestions
+              .filter((s) => s?.type === "artist" && s?.id && s?.name && s?.imageUrl)
+              .slice(0, MAX_SUGGESTIONS)
+              .map((s) => ({
+                ...s,
+                name: normalizeArtistName(s.name),
+                subtitle: "Artist",
+              }))
+          : [];
+        setSuggestions(normalized);
       } catch (err: any) {
         if (err?.name === "AbortError") return;
         setSuggestions([]);
@@ -102,27 +120,13 @@ export default function Search() {
 
   const handleSelect = (item: SearchSuggestItem) => {
     clearSuggestions();
-
-    if (item.type === "artist") {
-      navigate(`/artist/${encodeURIComponent(item.id)}`);
-      return;
-    }
-
-    if (item.type === "playlist" || item.type === "album") {
-      navigate(`/playlist/${encodeURIComponent(item.id)}`);
-      return;
-    }
-
-    if (item.type === "track" && isVideoId(item.id)) {
-      playVideo(item.id, item.name, item.subtitle, item.imageUrl);
-      return;
-    }
-
-    setQuery(item.name);
-    void runSearch(item.name);
+    navigate(`/artist/${encodeURIComponent(item.id)}`);
   };
 
-  const handleResultClick = (sectionKind: SearchResolveResponse["sections"][number]["kind"], item: SearchResolveResponse["sections"][number]["items"][number]) => {
+  const handleResultClick = (
+    sectionKind: SearchResolveResponse["sections"][number]["kind"],
+    item: SearchResolveResponse["sections"][number]["items"][number]
+  ) => {
     if (item.endpointType === "watch" && isVideoId(item.endpointPayload)) {
       playVideo(item.endpointPayload, item.title, item.subtitle, item.imageUrl);
       return;
@@ -164,11 +168,7 @@ export default function Search() {
             />
 
             <div className="flex items-center gap-3">
-              <Button
-                type="submit"
-                className="bg-neutral-100 text-neutral-900 hover:bg-white"
-                disabled={loading}
-              >
+              <Button type="submit" className="bg-neutral-100 text-neutral-900 hover:bg-white" disabled={loading}>
                 {loading ? "Searching..." : "Search"}
               </Button>
               <span className="text-xs text-neutral-500">Type at least 2 characters to search</span>
@@ -182,9 +182,7 @@ export default function Search() {
           </div>
         </form>
 
-        {error && (
-          <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-100">{error}</div>
-        )}
+        {error && <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-100">{error}</div>}
 
         {!loading && sections.length === 0 && !error && <div className="text-sm text-neutral-500">Start typing to see results.</div>}
 
