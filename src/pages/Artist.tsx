@@ -1,297 +1,199 @@
 import { useEffect, useMemo, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
-import { ListMusic, Music, Play, ArrowLeft } from "lucide-react";
+import { useNavigate, useParams } from "react-router-dom";
+import { ArrowLeft, Music, Play } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
-import ErrorState from "@/components/ui/ErrorState";
-import PlaylistCard from "@/components/PlaylistCard";
 import TrackCard from "@/components/TrackCard";
-import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
+import ErrorState from "@/components/ui/ErrorState";
+import { Button } from "@/components/ui/button";
 import { usePlayer } from "@/contexts/PlayerContext";
-import { fetchArtistByKey } from "@/lib/api/artist";
+import {
+  searchResolve,
+  type SearchArtistItem,
+  type SearchSection,
+  type SearchTrackItem,
+} from "@/lib/api/search";
 
-/* ===================== TYPES ===================== */
-
-type ApiPlaylist = {
+type NormalizedTrack = {
   id: string;
   title: string;
-  youtube_playlist_id: string;
-  description?: string | null;
-  cover_url?: string | null;
-  channel_title?: string | null;
-  youtube_channel_id?: string;
-  source?: string;
-  created_at?: string | null;
-  like_count?: number | null;
-  view_count?: number | null;
-  public_like_count?: number | null;
-  public_view_count?: number | null;
+  artist: string;
+  imageUrl?: string;
+  youtubeVideoId: string;
+  durationSeconds?: number;
 };
 
-type ApiTrack = {
-  id: string;
-  title: string;
-  youtube_video_id: string;
-  cover_url?: string | null;
-  duration?: number | null;
-  youtube_channel_id?: string;
-  artist_name?: string | null;
-  created_at?: string | null;
+const isArtistItem = (item: any): item is SearchArtistItem =>
+  item && typeof item.name === "string" && typeof item.id === "string";
+
+const isTrackItem = (item: any): item is SearchTrackItem => {
+  const hasId = typeof item?.youtubeVideoId === "string" || typeof item?.youtubeId === "string";
+  return hasId && typeof item?.title === "string";
 };
 
-type ArtistOkResponse = {
-  status: "ok";
-  artist: {
-    artist_name: string;
-    youtube_channel_id: string | null;
-    thumbnail_url: string | null;
-    banner_url: string | null;
-  };
-  playlists: ApiPlaylist[];
-  tracks: ApiTrack[];
+const pickYoutubeId = (item: SearchTrackItem): string | null => {
+  if (typeof item.youtubeVideoId === "string" && item.youtubeVideoId.trim()) return item.youtubeVideoId.trim();
+  if (typeof item.youtubeId === "string" && item.youtubeId.trim()) return item.youtubeId.trim();
+  return null;
 };
-
-type ArtistNotReadyResponse = { status: "not_ready" };
-type ArtistErrorResponse = { error: string };
-
-/* ===================== UTILS ===================== */
-
-function normalizeString(value: unknown): string {
-  return typeof value === "string" ? value.trim() : "";
-}
-
-function formatCount(n: number): string {
-  return new Intl.NumberFormat().format(n);
-}
-
-function isOk(x: any): x is ArtistOkResponse {
-  return x && x.status === "ok" && Array.isArray(x.playlists) && Array.isArray(x.tracks);
-}
-
-function isNotReady(x: any): x is ArtistNotReadyResponse {
-  return x && x.status === "not_ready";
-}
-
-function isError(x: any): x is ArtistErrorResponse {
-  return x && typeof x.error === "string";
-}
-
-function escapeRegex(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function cleanTrackTitle(rawTitle: string, canonicalArtistName: string): string {
-  const title = normalizeString(rawTitle) || "Unknown title";
-  const artist = normalizeString(canonicalArtistName);
-  if (!artist) return title;
-  const pattern = new RegExp(`^${escapeRegex(artist)}\\s*-\\s*`, "i");
-  return title.replace(pattern, "").trim() || title;
-}
-
-function isDisplayablePlaylist(p: ApiPlaylist): boolean {
-  const title = normalizeString(p?.title);
-  if (!title) return false;
-  if (title.toLowerCase().includes("untitled")) return false;
-  return Boolean(normalizeString(p?.cover_url));
-}
-
-/* ===================== COMPONENT ===================== */
 
 export default function Artist() {
-  const { artistKey: artistKeyParam } = useParams();
   const navigate = useNavigate();
-
+  const { artistKey } = useParams();
   const { playCollection, youtubeVideoId } = usePlayer();
-
-  const artistKey = normalizeString(artistKeyParam);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [status, setStatus] = useState<"ok" | "not_ready" | "unknown">("unknown");
-  const [reloadNonce, setReloadNonce] = useState(0);
+  const [sections, setSections] = useState<SearchSection[]>([]);
 
-  const [playlists, setPlaylists] = useState<ApiPlaylist[]>([]);
-  const [tracks, setTracks] = useState<ApiTrack[]>([]);
-  const [artistMedia, setArtistMedia] = useState<{ thumbnail_url: string | null; banner_url: string | null } | null>(null);
-  const [artistTitle, setArtistTitle] = useState<string>(artistKey);
+  const loadArtist = async (key: string) => {
+    try {
+      setLoading(true);
+      setError(null);
+      const response = await searchResolve({ q: key });
+      setSections(response.sections ?? []);
+    } catch (err: any) {
+      setError(err?.message || "Unable to load artist data.");
+      setSections([]);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  const canonicalArtistName = useMemo(
-    () => normalizeString(artistTitle) || normalizeString(artistKey) || "Artist",
-    [artistTitle, artistKey]
-  );
+  useEffect(() => {
+    if (!artistKey) return;
+    void loadArtist(artistKey);
+  }, [artistKey]);
 
-  const playlistTracks = useMemo(
+  const flatItems = useMemo(() => sections.flatMap((section) => section.items ?? []), [sections]);
+
+  const artistData = useMemo(() => {
+    const match = flatItems.find((item) => isArtistItem(item) && item.id === artistKey);
+    if (match) return match;
+    return flatItems.find(isArtistItem) ?? null;
+  }, [flatItems, artistKey]);
+
+  const artistName = artistData?.name || artistKey || "Artist";
+  const artistSubtitle = artistData?.subtitle;
+  const artistImage = artistData?.imageUrl;
+
+  const tracks: NormalizedTrack[] = useMemo(() => {
+    const items = flatItems.filter(isTrackItem);
+    return items
+      .map((item) => {
+        const youtubeId = pickYoutubeId(item);
+        if (!youtubeId) return null;
+        const artistLabel =
+          (Array.isArray(item.artists) && item.artists.filter(Boolean).join(", ")) ||
+          item.artist ||
+          artistName;
+
+        return {
+          id: item.id || youtubeId,
+          title: item.title,
+          artist: artistLabel,
+          imageUrl: item.imageUrl,
+          youtubeVideoId: youtubeId,
+          durationSeconds: typeof item.durationMs === "number" ? Math.round(item.durationMs / 1000) : undefined,
+        } satisfies NormalizedTrack;
+      })
+      .filter(Boolean) as NormalizedTrack[];
+  }, [flatItems, artistName]);
+
+  const playbackQueue = useMemo(
     () =>
-      tracks
-        .filter((t) => t.youtube_video_id)
-        .map((t) => ({
-          youtubeVideoId: t.youtube_video_id,
-          title: cleanTrackTitle(t.title, canonicalArtistName),
-          artist: canonicalArtistName,
-          thumbnailUrl: t.cover_url ?? undefined,
-        })),
-    [tracks, canonicalArtistName]
+      tracks.map((track) => ({
+        youtubeVideoId: track.youtubeVideoId,
+        title: track.title,
+        artist: track.artist,
+        thumbnailUrl: track.imageUrl,
+      })),
+    [tracks],
   );
-
-  const displayPlaylists = useMemo(() => playlists.filter(isDisplayablePlaylist), [playlists]);
 
   const handlePlayAll = () => {
-    if (playlistTracks.length === 0) return;
-    playCollection(playlistTracks, 0, "artist", null);
+    if (!playbackQueue.length) return;
+    playCollection(playbackQueue, 0, "artist", null);
   };
 
   const handlePlayTrack = (index: number) => {
-    playCollection(playlistTracks, index, "artist", null);
+    playCollection(playbackQueue, index, "artist", null);
   };
-
-  const retry = () => {
-    if (!artistKey) return;
-    setReloadNonce((x) => x + 1);
-  };
-
-  const handleBack = () => navigate(-1);
-
-  useEffect(() => {
-    let active = true;
-
-    async function load() {
-      try {
-        setLoading(true);
-        const json = await fetchArtistByKey(artistKey, { force: reloadNonce > 0 });
-        if (!active) return;
-
-        if (isNotReady(json)) {
-          setStatus("not_ready");
-          return;
-        }
-
-        if (isOk(json)) {
-          setStatus("ok");
-          setPlaylists(json.playlists);
-          setTracks(json.tracks);
-          setArtistTitle(json.artist.artist_name || artistKey);
-          setArtistMedia({
-            thumbnail_url: json.artist.thumbnail_url,
-            banner_url: json.artist.banner_url,
-          });
-          return;
-        }
-
-        if (isError(json)) throw new Error(json.error);
-        throw new Error("Artist request failed");
-      } catch (e: any) {
-        if (active) setError(e.message);
-      } finally {
-        if (active) setLoading(false);
-      }
-    }
-
-    if (artistKey) load();
-    return () => {
-      active = false;
-    };
-  }, [artistKey, reloadNonce]);
 
   if (loading) {
-    return <div className="p-4 pb-32 text-center opacity-60">Učitavanje…</div>;
+    return <div className="p-6 text-sm text-neutral-400">Loading artist...</div>;
   }
 
   if (error) {
     return (
-      <div className="p-4 pb-32">
-        <ErrorState title="Artist request failed" subtitle={error} onRetry={retry} />
+      <div className="p-6">
+        <ErrorState title="Artist request failed" subtitle={error} onRetry={() => artistKey && loadArtist(artistKey)} />
       </div>
     );
   }
 
-  const displayInitial = canonicalArtistName[0]?.toUpperCase() ?? "?";
-
   return (
-    <div className="relative pb-32">
-      <div className="absolute left-2 top-2 z-10">
-        <Button variant="ghost" size="icon" onClick={handleBack}>
-          <ArrowLeft className="h-5 w-5" />
-        </Button>
-      </div>
-
-      <div className="pt-6 px-4 text-center">
-        <div className="flex justify-center mb-4">
-          <div className="w-28 h-28 rounded-full overflow-hidden border">
-            {artistMedia?.thumbnail_url ? (
-              <img src={artistMedia.thumbnail_url} className="w-full h-full object-cover" />
-            ) : (
-              <div className="flex items-center justify-center h-full text-3xl">{displayInitial}</div>
-            )}
-          </div>
+    <div className="min-h-screen bg-neutral-950 pb-28 text-white">
+      <div className="relative mx-auto max-w-5xl px-4 pt-6">
+        <div className="absolute left-0 top-0">
+          <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
         </div>
 
-        <h1 className="font-black text-[26px] truncate">{canonicalArtistName}</h1>
-        <p className="text-sm opacity-70">
-          {formatCount(tracks.length)} tracks • {formatCount(displayPlaylists.length)} playlists
-        </p>
+        <div className="flex flex-col items-center gap-3 pt-4 text-center">
+          <div className="h-28 w-28 overflow-hidden rounded-full border border-white/10 bg-neutral-900">
+            {artistImage ? (
+              <img src={artistImage} alt={artistName} className="h-full w-full object-cover" />
+            ) : (
+              <div className="flex h-full items-center justify-center text-3xl font-semibold text-neutral-300">
+                {artistName.slice(0, 1).toUpperCase()}
+              </div>
+            )}
+          </div>
 
-        <div className="flex justify-center mt-5">
-          <button className="pm-cta-pill" onClick={handlePlayAll}>
+          <div className="space-y-1">
+            <h1 className="text-3xl font-black leading-tight">{artistName}</h1>
+            {artistSubtitle ? <p className="text-sm text-neutral-400">{artistSubtitle}</p> : null}
+          </div>
+
+          <button className="pm-cta-pill" onClick={handlePlayAll} disabled={!playbackQueue.length}>
             <span className="pm-cta-pill-inner">
-              <Play className="w-5 h-5 mr-1" />
+              <Play className="h-5 w-5" />
               Play all
             </span>
           </button>
         </div>
-      </div>
 
-      <section className="mt-8 px-4">
-        <div className="flex items-center gap-2 mb-4">
-          <ListMusic className="w-5 h-5" />
-          <h2 className="text-xl font-bold">Playlists</h2>
-        </div>
-
-        <ScrollArea>
-          <div className="flex space-x-4 pb-4">
-            {displayPlaylists.map((p) => (
-              <div key={p.id} className="w-[140px]">
-                {/** Show description if available; fall back to channel title so cards match home behavior. */}
-                {(() => {
-                  const description = (p.description || p.channel_title || "").trim();
-                  return (
-                    <PlaylistCard
-                      id={p.id}
-                      title={p.title}
-                      imageUrl={p.cover_url || "/placeholder.svg"}
-                      description={description}
-                    />
-                  );
-                })()}
-              </div>
-            ))}
+        <section className="mt-10 space-y-4">
+          <div className="flex items-center gap-2 text-neutral-200">
+            <Music className="h-5 w-5" />
+            <h2 className="text-xl font-semibold">Tracks</h2>
           </div>
-          <ScrollBar orientation="horizontal" />
-        </ScrollArea>
-      </section>
 
-      <section className="mt-8 px-4">
-        <div className="flex items-center gap-2 mb-4">
-          <Music className="w-5 h-5" />
-          <h2 className="text-xl font-bold">Tracks</h2>
-        </div>
-
-        <div className="space-y-2">
-          {tracks.map((t, index) => (
-            <TrackCard
-              key={t.id}
-              id={t.id}
-              title={cleanTrackTitle(t.title, canonicalArtistName)}
-              artist={canonicalArtistName}
-              imageUrl={t.cover_url}
-              youtubeVideoId={t.youtube_video_id}
-              duration={t.duration ?? null}
-              isActive={youtubeVideoId === t.youtube_video_id}
-              onPlay={() => handlePlayTrack(index)}
-              playbackContext="artist"
-            />
-          ))}
-        </div>
-      </section>
+          {tracks.length === 0 ? (
+            <div className="rounded-lg border border-white/5 bg-white/5 p-4 text-sm text-neutral-400">
+              No tracks available.
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {tracks.map((track, index) => (
+                <TrackCard
+                  key={track.id}
+                  id={track.id}
+                  title={track.title}
+                  artist={track.artist}
+                  imageUrl={track.imageUrl}
+                  youtubeVideoId={track.youtubeVideoId}
+                  duration={track.durationSeconds}
+                  isActive={youtubeVideoId === track.youtubeVideoId}
+                  onPlay={() => handlePlayTrack(index)}
+                  playbackContext="artist"
+                />
+              ))}
+            </div>
+          )}
+        </section>
+      </div>
     </div>
   );
 }
