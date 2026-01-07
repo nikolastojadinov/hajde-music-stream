@@ -3,7 +3,6 @@ import { useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, Play } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import ErrorState from "@/components/ui/ErrorState";
 import { usePlayer } from "@/contexts/PlayerContext";
 import { withBackendOrigin } from "@/lib/backendUrl";
 
@@ -54,7 +53,8 @@ function formatDuration(duration: number | string | null | undefined): string | 
 }
 
 export default function Playlist() {
-  const { browseId } = useParams();
+  const { id: routeId, browseId: altBrowseId } = useParams();
+  const browseId = (altBrowseId || routeId || "").trim();
   const navigate = useNavigate();
   const { playCollection } = usePlayer();
 
@@ -81,11 +81,16 @@ export default function Playlist() {
         });
         const json = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(typeof json?.error === "string" ? json.error : "Playlist fetch failed");
-        setData(json as BrowsePlaylistResponse);
+        const typed = json as BrowsePlaylistResponse;
+        console.log("[playlist/browse] client fetch", {
+          browseId,
+          trackCount: Array.isArray(typed?.tracks) ? typed.tracks.length : 0,
+        });
+        setData(typed);
       } catch (err: any) {
         if (err?.name === "AbortError") return;
         setError(err?.message || "Playlist fetch failed");
-        setData(null);
+        setData({ title: null, tracks: [] });
       } finally {
         setLoading(false);
       }
@@ -100,13 +105,10 @@ export default function Playlist() {
     return data.tracks
       .map((t) => {
         if (!isVideoId(t.videoId)) return null;
-        const title = (t.title || "").trim();
-        const artist = (t.artist || "").trim();
-        if (!title || !artist) return null;
         return {
           videoId: t.videoId.trim(),
-          title,
-          artist,
+          title: (t.title || "").trim(),
+          artist: (t.artist || "").trim(),
           artistId: t.artistId || null,
           thumbnail: pickFirstThumbnail(t.thumbnails),
           durationLabel: formatDuration(t.duration),
@@ -143,14 +145,6 @@ export default function Playlist() {
     return <div className="p-6 text-sm text-neutral-400">Loading playlist...</div>;
   }
 
-  if (error) {
-    return (
-      <div className="p-6">
-        <ErrorState title="Playlist request failed" subtitle={error} onRetry={() => setReloadKey((key) => key + 1)} />
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-neutral-950 pb-24 text-white">
       <div className="relative mx-auto max-w-5xl px-4 pt-6">
@@ -183,6 +177,10 @@ export default function Playlist() {
         </div>
 
         <div className="mt-10 space-y-2">
+          {error ? (
+            <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">{error}</div>
+          ) : null}
+
           {tracks.length === 0 ? (
             <div className="rounded-lg border border-white/5 bg-white/5 p-4 text-sm text-neutral-300">No tracks available</div>
           ) : (
