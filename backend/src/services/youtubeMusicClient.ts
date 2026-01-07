@@ -549,7 +549,8 @@ export async function browsePlaylistById(playlistIdRaw: string): Promise<Playlis
   const playlistId = normalizeString(playlistIdRaw);
   if (!playlistId) return null;
 
-  const browseId = playlistId.startsWith("VL") || playlistId.startsWith("MPRE") ? playlistId : `VL${playlistId}`;
+  const upper = playlistId.toUpperCase();
+  const browseId = upper.startsWith("VL") || upper.startsWith("MPRE") || upper.startsWith("OLAK") ? playlistId : `VL${playlistId}`;
   const config = await fetchInnertubeConfig();
   if (!config) return null;
 
