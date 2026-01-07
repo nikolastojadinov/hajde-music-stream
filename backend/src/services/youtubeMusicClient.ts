@@ -1,4 +1,7 @@
 import { CONSENT_COOKIES, fetchInnertubeConfig, type InnertubeConfig } from "./youtubeInnertubeConfig";
+import { parseArtistBrowseFromInnertube, type ArtistBrowse } from "./ytmArtistParser";
+
+export type { ArtistBrowse } from "./ytmArtistParser";
 
 const YTM_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
@@ -510,18 +513,6 @@ export async function musicSearchRaw(queryRaw: string): Promise<any> {
   return json;
 }
 
-export type ArtistBrowse = {
-  artist: {
-    name: string;
-    channelId: string | null;
-    thumbnailUrl: string | null;
-    bannerUrl: string | null;
-  };
-  topSongs: Array<{ id: string; title: string; imageUrl: string | null; playCount: string | null }>;
-  albums: Array<{ id: string; title: string; imageUrl: string | null; year: string | null }>;
-  playlists: Array<{ id: string; title: string; imageUrl: string | null }>;
-};
-
 export type PlaylistBrowse = {
   playlistId: string;
   title: string;
@@ -542,146 +533,7 @@ export async function browseArtistById(browseIdRaw: string): Promise<ArtistBrows
   });
   if (!browseJson) return null;
 
-  const header = browseJson.header?.musicImmersiveHeaderRenderer || browseJson.header?.musicHeaderRenderer;
-  const titleText = pickText(header?.title) || browseId;
-  const thumbnailUrl = pickThumbnail(header?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails) || null;
-  const bannerUrl = pickThumbnail(header?.banner?.thumbnails) || null;
-
-  const sections = browseJson?.contents?.singleColumnBrowseResultsRenderer?.tabs?.[0]?.tabRenderer?.content?.sectionListRenderer?.contents || [];
-
-  const topSongs: ArtistBrowse["topSongs"] = [];
-  const albums: ArtistBrowse["albums"] = [];
-  const playlists: ArtistBrowse["playlists"] = [];
-
-  const isAlbumId = (id: string) => normalizeString(id).toUpperCase().startsWith("MPREB_");
-  const isPlaylistId = (id: string) => {
-    const v = normalizeString(id).toUpperCase();
-    return v.startsWith("VL") || v.startsWith("PL");
-  };
-
-  const pickYear = (text: string | null): string | null => {
-    if (!text) return null;
-    const match = text.match(/(\d{4})/);
-    return match ? match[1] : null;
-  };
-
-  const extractPlayCount = (renderer: any): string | null => {
-    const fixed = pickText(renderer?.fixedColumns?.[0]?.musicResponsiveListItemFixedColumnRenderer?.text?.runs?.[0]);
-    if (fixed) return fixed;
-    const subtitle = pickText(renderer?.flexColumns?.[1]?.musicResponsiveListItemFlexColumnRenderer?.text);
-    if (!subtitle) return null;
-    const match = subtitle.match(/([0-9][0-9,.]*\s*(views|plays)?)/i);
-    return match ? match[1].trim() : null;
-  };
-
-  const parseSong = (renderer: any): ArtistBrowse["topSongs"][number] | null => {
-    const playNav =
-      renderer?.overlay?.musicItemThumbnailOverlayRenderer?.content?.musicPlayButtonRenderer?.playNavigationEndpoint || renderer?.navigationEndpoint;
-    const videoId = normalizeString(playNav?.watchEndpoint?.videoId);
-    if (!looksLikeVideoId(videoId)) return null;
-    const title = pickText(renderer?.flexColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.[0]);
-    if (!title) return null;
-    const thumb =
-      pickThumbnail(renderer?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails) ||
-      pickThumbnail(renderer?.thumbnailRenderer?.musicThumbnailRenderer?.thumbnail?.thumbnails) ||
-      null;
-    const playCount = extractPlayCount(renderer);
-    return { id: videoId, title, imageUrl: thumb, playCount: playCount ?? null };
-  };
-
-  const parseCollection = (renderer: any): { album?: ArtistBrowse["albums"][number]; playlist?: ArtistBrowse["playlists"][number] } => {
-    const browseEndpoint = renderer?.navigationEndpoint?.browseEndpoint;
-    const browseIdTarget = normalizeString(browseEndpoint?.browseId);
-    if (!browseIdTarget) return {};
-
-    const title = pickText(renderer?.title) || pickText(renderer?.flexColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.[0]);
-    const thumb =
-      pickThumbnail(renderer?.thumbnailRenderer?.musicThumbnailRenderer?.thumbnail?.thumbnails) ||
-      pickThumbnail(renderer?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails) ||
-      null;
-    const subtitleText = pickText(renderer?.subtitle) || pickText(renderer?.flexColumns?.[1]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.[0]) || null;
-
-    if (isAlbumId(browseIdTarget) && title) {
-      return { album: { id: browseIdTarget, title, imageUrl: thumb, year: pickYear(subtitleText) } };
-    }
-
-    if (isPlaylistId(browseIdTarget) && title) {
-      return { playlist: { id: browseIdTarget, title, imageUrl: thumb } };
-    }
-
-    return {};
-  };
-
-  const handleShelf = (shelf: any) => {
-    const items = Array.isArray(shelf?.contents) ? shelf.contents : [];
-    for (const item of items) {
-      const renderer = item?.musicResponsiveListItemRenderer;
-      if (!renderer) continue;
-      const song = parseSong(renderer);
-      if (song) topSongs.push(song);
-      const collection = parseCollection(renderer);
-      if (collection.album) albums.push(collection.album);
-      if (collection.playlist) playlists.push(collection.playlist);
-    }
-  };
-
-  const handleCarousel = (carousel: any) => {
-    const cards = Array.isArray(carousel?.contents) ? carousel.contents : [];
-    for (const card of cards) {
-      const renderer = card?.musicTwoRowItemRenderer;
-      if (!renderer) continue;
-      const collection = parseCollection(renderer);
-      if (collection.album) albums.push(collection.album);
-      if (collection.playlist) playlists.push(collection.playlist);
-    }
-  };
-
-  const walk = (node: any): void => {
-    if (!node) return;
-    if (Array.isArray(node)) {
-      for (const item of node) walk(item);
-      return;
-    }
-    if (typeof node !== "object") return;
-
-    if ((node as any).musicShelfRenderer) {
-      handleShelf((node as any).musicShelfRenderer);
-    }
-
-    if ((node as any).musicCarouselShelfRenderer) {
-      handleCarousel((node as any).musicCarouselShelfRenderer);
-    }
-
-    for (const value of Object.values(node)) {
-      walk(value);
-    }
-  };
-
-  walk(sections);
-
-  const dedupeById = <T extends { id: string }>(items: T[]): T[] => {
-    const seen = new Set<string>();
-    const out: T[] = [];
-    for (const item of items) {
-      const key = normalizeString(item.id);
-      if (!key || seen.has(key)) continue;
-      seen.add(key);
-      out.push(item);
-    }
-    return out;
-  };
-
-  const result: ArtistBrowse = {
-    artist: {
-      name: titleText,
-      channelId: browseId,
-      thumbnailUrl,
-      bannerUrl,
-    },
-    topSongs: dedupeById(topSongs).slice(0, 5),
-    albums: dedupeById(albums),
-    playlists: dedupeById(playlists),
-  };
+  const result = parseArtistBrowseFromInnertube(browseJson, browseId);
 
   console.info("[browse/artist] parsed", {
     browseId,
