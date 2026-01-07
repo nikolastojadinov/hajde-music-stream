@@ -565,6 +565,15 @@ export async function browseArtistById(browseIdRaw: string): Promise<ArtistBrows
     return match ? match[1] : null;
   };
 
+  const extractPlayCount = (renderer: any): string | null => {
+    const fixed = pickText(renderer?.fixedColumns?.[0]?.musicResponsiveListItemFixedColumnRenderer?.text?.runs?.[0]);
+    if (fixed) return fixed;
+    const subtitle = pickText(renderer?.flexColumns?.[1]?.musicResponsiveListItemFlexColumnRenderer?.text);
+    if (!subtitle) return null;
+    const match = subtitle.match(/([0-9][0-9,.]*\s*(views|plays)?)/i);
+    return match ? match[1].trim() : null;
+  };
+
   const parseSong = (renderer: any): ArtistBrowse["topSongs"][number] | null => {
     const playNav =
       renderer?.overlay?.musicItemThumbnailOverlayRenderer?.content?.musicPlayButtonRenderer?.playNavigationEndpoint || renderer?.navigationEndpoint;
@@ -572,9 +581,12 @@ export async function browseArtistById(browseIdRaw: string): Promise<ArtistBrows
     if (!looksLikeVideoId(videoId)) return null;
     const title = pickText(renderer?.flexColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.[0]);
     if (!title) return null;
-    const thumb = pickThumbnail(renderer?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails);
-    const playCount = pickText(renderer?.fixedColumns?.[0]?.musicResponsiveListItemFixedColumnRenderer?.text?.runs?.[0]) || null;
-    return { id: videoId, title, imageUrl: thumb, playCount };
+    const thumb =
+      pickThumbnail(renderer?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails) ||
+      pickThumbnail(renderer?.thumbnailRenderer?.musicThumbnailRenderer?.thumbnail?.thumbnails) ||
+      null;
+    const playCount = extractPlayCount(renderer);
+    return { id: videoId, title, imageUrl: thumb, playCount: playCount ?? null };
   };
 
   const parseCollection = (renderer: any): { album?: ArtistBrowse["albums"][number]; playlist?: ArtistBrowse["playlists"][number] } => {
@@ -600,25 +612,21 @@ export async function browseArtistById(browseIdRaw: string): Promise<ArtistBrows
     return {};
   };
 
-  const collectSongsFromShelf = (shelf: any): ArtistBrowse["topSongs"] => {
-    const items = Array.isArray(shelf?.musicShelfRenderer?.contents) ? shelf.musicShelfRenderer.contents : [];
-    const songs: ArtistBrowse["topSongs"] = [];
+  const handleShelf = (shelf: any) => {
+    const items = Array.isArray(shelf?.contents) ? shelf.contents : [];
     for (const item of items) {
       const renderer = item?.musicResponsiveListItemRenderer;
       if (!renderer) continue;
       const song = parseSong(renderer);
-      if (song) songs.push(song);
+      if (song) topSongs.push(song);
       const collection = parseCollection(renderer);
       if (collection.album) albums.push(collection.album);
       if (collection.playlist) playlists.push(collection.playlist);
     }
-    return songs;
   };
 
-  const collectCollectionsFromCarousel = (carousel: any): void => {
-    const cards = Array.isArray(carousel?.musicCarouselShelfRenderer?.contents)
-      ? carousel.musicCarouselShelfRenderer.contents
-      : [];
+  const handleCarousel = (carousel: any) => {
+    const cards = Array.isArray(carousel?.contents) ? carousel.contents : [];
     for (const card of cards) {
       const renderer = card?.musicTwoRowItemRenderer;
       if (!renderer) continue;
@@ -628,18 +636,28 @@ export async function browseArtistById(browseIdRaw: string): Promise<ArtistBrows
     }
   };
 
-  for (const section of sections) {
-    if (section?.musicShelfRenderer) {
-      const parsed = collectSongsFromShelf(section);
-      if (!topSongs.length && parsed.length > 0) {
-        topSongs.push(...parsed.slice(0, 5));
-      }
+  const walk = (node: any): void => {
+    if (!node) return;
+    if (Array.isArray(node)) {
+      for (const item of node) walk(item);
+      return;
+    }
+    if (typeof node !== "object") return;
+
+    if ((node as any).musicShelfRenderer) {
+      handleShelf((node as any).musicShelfRenderer);
     }
 
-    if (section?.musicCarouselShelfRenderer) {
-      collectCollectionsFromCarousel(section);
+    if ((node as any).musicCarouselShelfRenderer) {
+      handleCarousel((node as any).musicCarouselShelfRenderer);
     }
-  }
+
+    for (const value of Object.values(node)) {
+      walk(value);
+    }
+  };
+
+  walk(sections);
 
   const dedupeById = <T extends { id: string }>(items: T[]): T[] => {
     const seen = new Set<string>();
