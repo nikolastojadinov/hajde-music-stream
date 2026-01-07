@@ -9,32 +9,29 @@ import { withBackendOrigin } from "@/lib/backendUrl";
 type BrowseArtistResponse = {
   artistName: string | null;
   thumbnails?: { avatar?: string | null; banner?: string | null } | null;
-  topSongs?: Array<{ id: string; title: string; imageUrl?: string | null; channelTitle?: string | null; playCount?: string | number | null }>;
-  songs?: Array<{ id: string; title: string; imageUrl?: string | null; channelTitle?: string | null; playCount?: string | number | null }>;
-  albums?: Array<{ id: string; title: string; imageUrl?: string | null; channelTitle?: string | null; year?: string | number | null }>;
+  topSongs?: Array<{ id: string; title: string; imageUrl?: string | null; playCount?: string | null }>;
+  albums?: Array<{ id: string; title: string; imageUrl?: string | null; year?: string | null }>;
+  playlists?: Array<{ id: string; title: string; imageUrl?: string | null }>;
 };
 
 type NormalizedSong = {
   id: string;
   title: string;
   artist: string;
-  imageUrl?: string | null;
+  imageUrl: string | null;
+  playCount: string | null;
 };
 
 type NormalizedCollection = {
   id: string;
   title: string;
-  imageUrl?: string | null;
+  imageUrl: string | null;
   year?: string | null;
 };
 
 const looksLikeVideoId = (value: string | undefined | null): value is string => typeof value === "string" && /^[A-Za-z0-9_-]{11}$/.test(value.trim());
 
-function formatYear(value?: string | number | null): string | null {
-  if (value === null || value === undefined) return null;
-  const text = String(value).trim();
-  return text || null;
-}
+const normalizeString = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
 
 export default function Artist() {
   const navigate = useNavigate();
@@ -66,7 +63,7 @@ export default function Artist() {
       } catch (err: any) {
         if (err?.name === "AbortError") return;
         setError(err?.message || "Artist fetch failed");
-        setData({ artistName: null, thumbnails: null, topSongs: [], songs: [], albums: [] });
+        setData({ artistName: null, thumbnails: null, topSongs: [], albums: [], playlists: [] });
       } finally {
         setLoading(false);
       }
@@ -79,25 +76,21 @@ export default function Artist() {
   const artistName = data?.artistName?.trim() || "Artist";
   const avatar = data?.thumbnails?.avatar || null;
 
-  const songsSource = useMemo(() => {
-    if (Array.isArray(data?.topSongs) && data.topSongs.length > 0) return data.topSongs;
-    if (Array.isArray(data?.songs)) return data.songs;
-    return [];
-  }, [data?.topSongs, data?.songs]);
-
   const songs: NormalizedSong[] = useMemo(() => {
-    return songsSource.slice(0, 5).map((song) => ({
+    const source = Array.isArray(data?.topSongs) ? data.topSongs : [];
+    return source.slice(0, 5).map((song) => ({
       id: song.id,
-      title: (song.title || "").trim() || "Untitled",
+      title: normalizeString(song.title) || "Untitled",
       artist: artistName,
-      imageUrl: song.imageUrl || null,
+      imageUrl: song.imageUrl ?? null,
+      playCount: song.playCount ?? null,
     }));
-  }, [songsSource, artistName]);
+  }, [data?.topSongs, artistName]);
 
   const playbackQueue = useMemo(
     () =>
       songs.map((song) => ({
-        youtubeVideoId: looksLikeVideoId(song.id) ? song.id : song.id?.trim?.() || "",
+        youtubeVideoId: looksLikeVideoId(song.id) ? song.id : normalizeString(song.id),
         title: song.title,
         artist: song.artist,
         thumbnailUrl: song.imageUrl || undefined,
@@ -105,24 +98,26 @@ export default function Artist() {
     [songs],
   );
 
-  const albumsRaw = Array.isArray(data?.albums) ? data!.albums : [];
-  const albums: NormalizedCollection[] = albumsRaw
-    .filter((item) => !String(item.channelTitle || "").startsWith("Playlist"))
-    .map((item) => ({
-      id: item.id,
-      title: (item.title || "").trim() || "Album",
-      imageUrl: item.imageUrl || null,
-      year: formatYear(item.year),
-    }));
+  const albums: NormalizedCollection[] = useMemo(
+    () =>
+      (Array.isArray(data?.albums) ? data!.albums : []).map((item) => ({
+        id: item.id,
+        title: normalizeString(item.title) || "Album",
+        imageUrl: item.imageUrl ?? null,
+        year: item.year ?? null,
+      })),
+    [data?.albums],
+  );
 
-  const playlists: NormalizedCollection[] = albumsRaw
-    .filter((item) => String(item.channelTitle || "").startsWith("Playlist"))
-    .map((item) => ({
-      id: item.id,
-      title: (item.title || "").trim() || "Playlist",
-      imageUrl: item.imageUrl || null,
-      year: null,
-    }));
+  const playlists: NormalizedCollection[] = useMemo(
+    () =>
+      (Array.isArray(data?.playlists) ? data!.playlists : []).map((item) => ({
+        id: item.id,
+        title: normalizeString(item.title) || "Playlist",
+        imageUrl: item.imageUrl ?? null,
+      })),
+    [data?.playlists],
+  );
 
   const handlePlaySong = (index: number) => {
     if (!playbackQueue.length) return;
@@ -160,7 +155,7 @@ export default function Artist() {
                 <div className="space-y-3">
                   {songs.map((song, index) => (
                     <button
-                      key={song.id}
+                      key={`${song.id}-${index}`}
                       type="button"
                       onClick={() => handlePlaySong(index)}
                       className="flex h-14 w-full items-center gap-3 rounded-lg border border-white/5 bg-white/5 px-3 text-left transition hover:bg-white/10"
@@ -171,6 +166,7 @@ export default function Artist() {
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-sm font-semibold text-white">{song.title}</div>
                         <div className="truncate text-xs text-white/65">{song.artist}</div>
+                        {song.playCount ? <div className="truncate text-[11px] text-white/50">{song.playCount}</div> : null}
                       </div>
                       <MoreVertical className="h-4 w-4 text-white/65" />
                     </button>

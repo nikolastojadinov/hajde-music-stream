@@ -517,8 +517,9 @@ export type ArtistBrowse = {
     thumbnailUrl: string | null;
     bannerUrl: string | null;
   };
-  topSongs: Array<{ id: string; title: string; youtubeId: string; artist: string; imageUrl?: string }>;
-  albums: Array<{ id: string; title: string; imageUrl?: string; channelTitle?: string | null }>;
+  topSongs: Array<{ id: string; title: string; imageUrl: string | null; playCount: string | null }>;
+  albums: Array<{ id: string; title: string; imageUrl: string | null; year: string | null }>;
+  playlists: Array<{ id: string; title: string; imageUrl: string | null }>;
 };
 
 export type PlaylistBrowse = {
@@ -550,90 +551,128 @@ export async function browseArtistById(browseIdRaw: string): Promise<ArtistBrows
 
   const topSongs: ArtistBrowse["topSongs"] = [];
   const albums: ArtistBrowse["albums"] = [];
+  const playlists: ArtistBrowse["playlists"] = [];
 
-  function collectResponsiveItems(node: any): any[] {
-    const out: any[] = [];
-    function walk(n: any): void {
-      if (!n) return;
-      if (Array.isArray(n)) {
-        for (const item of n) walk(item);
-        return;
-      }
-      if (typeof n !== "object") return;
+  const isAlbumId = (id: string) => normalizeString(id).toUpperCase().startsWith("MPREB_");
+  const isPlaylistId = (id: string) => {
+    const v = normalizeString(id).toUpperCase();
+    return v.startsWith("VL") || v.startsWith("PL");
+  };
 
-      if ((n as any).musicResponsiveListItemRenderer) {
-        out.push((n as any).musicResponsiveListItemRenderer);
-      }
-      if ((n as any).musicShelfRenderer) {
-        const shelfItems = (n as any).musicShelfRenderer?.contents;
-        if (Array.isArray(shelfItems)) {
-          for (const item of shelfItems) walk(item);
-        }
-      }
-      if ((n as any).musicCarouselShelfRenderer) {
-        const cards = (n as any).musicCarouselShelfRenderer?.contents;
-        if (Array.isArray(cards)) {
-          for (const card of cards) walk(card);
-        }
-      }
+  const pickYear = (text: string | null): string | null => {
+    if (!text) return null;
+    const match = text.match(/(\d{4})/);
+    return match ? match[1] : null;
+  };
 
-      for (const value of Object.values(n)) walk(value);
+  const parseSong = (renderer: any): ArtistBrowse["topSongs"][number] | null => {
+    const playNav =
+      renderer?.overlay?.musicItemThumbnailOverlayRenderer?.content?.musicPlayButtonRenderer?.playNavigationEndpoint || renderer?.navigationEndpoint;
+    const videoId = normalizeString(playNav?.watchEndpoint?.videoId);
+    if (!looksLikeVideoId(videoId)) return null;
+    const title = pickText(renderer?.flexColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.[0]);
+    if (!title) return null;
+    const thumb = pickThumbnail(renderer?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails);
+    const playCount = pickText(renderer?.fixedColumns?.[0]?.musicResponsiveListItemFixedColumnRenderer?.text?.runs?.[0]) || null;
+    return { id: videoId, title, imageUrl: thumb, playCount };
+  };
+
+  const parseCollection = (renderer: any): { album?: ArtistBrowse["albums"][number]; playlist?: ArtistBrowse["playlists"][number] } => {
+    const browseEndpoint = renderer?.navigationEndpoint?.browseEndpoint;
+    const browseIdTarget = normalizeString(browseEndpoint?.browseId);
+    if (!browseIdTarget) return {};
+
+    const title = pickText(renderer?.title) || pickText(renderer?.flexColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.[0]);
+    const thumb =
+      pickThumbnail(renderer?.thumbnailRenderer?.musicThumbnailRenderer?.thumbnail?.thumbnails) ||
+      pickThumbnail(renderer?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails) ||
+      null;
+    const subtitleText = pickText(renderer?.subtitle) || pickText(renderer?.flexColumns?.[1]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.[0]) || null;
+
+    if (isAlbumId(browseIdTarget) && title) {
+      return { album: { id: browseIdTarget, title, imageUrl: thumb, year: pickYear(subtitleText) } };
     }
-    walk(node);
-    return out;
-  }
 
-  function extractSongs(node: any) {
-    const items = collectResponsiveItems(node);
+    if (isPlaylistId(browseIdTarget) && title) {
+      return { playlist: { id: browseIdTarget, title, imageUrl: thumb } };
+    }
+
+    return {};
+  };
+
+  const collectSongsFromShelf = (shelf: any): ArtistBrowse["topSongs"] => {
+    const items = Array.isArray(shelf?.musicShelfRenderer?.contents) ? shelf.musicShelfRenderer.contents : [];
+    const songs: ArtistBrowse["topSongs"] = [];
     for (const item of items) {
-      const nav = item?.navigationEndpoint || item?.overlay?.musicItemThumbnailOverlayRenderer?.content?.musicPlayButtonRenderer?.playNavigationEndpoint;
-      const videoId = nav?.watchEndpoint?.videoId;
-      if (!looksLikeVideoId(videoId)) continue;
-      const songTitle = pickText(item?.flexColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.[0]);
-      if (!songTitle) continue;
-      const subtitlesRuns = item?.flexColumns?.[1]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs;
-      const artistName = Array.isArray(subtitlesRuns) ? subtitlesRuns.map((r: any) => r?.text ?? "").join("") : titleText;
-      topSongs.push({ id: videoId, title: songTitle, youtubeId: videoId, artist: artistName || titleText, imageUrl: pickThumbnail(item?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails) || undefined });
+      const renderer = item?.musicResponsiveListItemRenderer;
+      if (!renderer) continue;
+      const song = parseSong(renderer);
+      if (song) songs.push(song);
+      const collection = parseCollection(renderer);
+      if (collection.album) albums.push(collection.album);
+      if (collection.playlist) playlists.push(collection.playlist);
     }
-  }
+    return songs;
+  };
 
-  function extractAlbums(node: any) {
-    const carousel = node?.musicCarouselShelfRenderer;
-    if (!carousel) return;
-    const cards = carousel.contents || [];
+  const collectCollectionsFromCarousel = (carousel: any): void => {
+    const cards = Array.isArray(carousel?.musicCarouselShelfRenderer?.contents)
+      ? carousel.musicCarouselShelfRenderer.contents
+      : [];
     for (const card of cards) {
       const renderer = card?.musicTwoRowItemRenderer;
       if (!renderer) continue;
-      const browseIdAlbum = normalizeString(renderer?.navigationEndpoint?.browseEndpoint?.browseId);
-      if (!browseIdAlbum || !titleText) continue;
-      const pageType = renderer?.navigationEndpoint?.browseEndpoint?.browseEndpointContextSupportedConfigs?.browseEndpointContextMusicConfig?.pageType;
-      if (!isMusicPageType(pageType, "MUSIC_PAGE_TYPE_ALBUM") && !isMusicPageType(pageType, "MUSIC_PAGE_TYPE_PLAYLIST")) continue;
-      const albumTitle = pickText(renderer?.title) || "Album";
-      const thumb = pickThumbnail(renderer?.thumbnailRenderer?.musicThumbnailRenderer?.thumbnail?.thumbnails) || undefined;
-      const subtitleText = pickText(renderer?.subtitle) || null;
-      albums.push({ id: browseIdAlbum, title: albumTitle, imageUrl: thumb, channelTitle: subtitleText });
+      const collection = parseCollection(renderer);
+      if (collection.album) albums.push(collection.album);
+      if (collection.playlist) playlists.push(collection.playlist);
     }
-  }
+  };
 
   for (const section of sections) {
     if (section?.musicShelfRenderer) {
-      extractSongs(section);
+      const parsed = collectSongsFromShelf(section);
+      if (!topSongs.length && parsed.length > 0) {
+        topSongs.push(...parsed.slice(0, 5));
+      }
     }
+
     if (section?.musicCarouselShelfRenderer) {
-      extractAlbums(section);
+      collectCollectionsFromCarousel(section);
     }
   }
 
-  return {
+  const dedupeById = <T extends { id: string }>(items: T[]): T[] => {
+    const seen = new Set<string>();
+    const out: T[] = [];
+    for (const item of items) {
+      const key = normalizeString(item.id);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      out.push(item);
+    }
+    return out;
+  };
+
+  const result: ArtistBrowse = {
     artist: {
       name: titleText,
       channelId: browseId,
       thumbnailUrl,
       bannerUrl,
     },
-    topSongs,
-    albums,
+    topSongs: dedupeById(topSongs).slice(0, 5),
+    albums: dedupeById(albums),
+    playlists: dedupeById(playlists),
   };
+
+  console.info("[browse/artist] parsed", {
+    browseId,
+    topSongs: result.topSongs.length,
+    albums: result.albums.length,
+    playlists: result.playlists.length,
+  });
+
+  return result;
 }
 
 export async function browsePlaylistById(playlistIdRaw: string): Promise<PlaylistBrowse | null> {
