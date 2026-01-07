@@ -580,10 +580,10 @@ export async function browsePlaylistById(playlistIdRaw: string): Promise<Playlis
     const videoId = normalizeString(panel?.videoId);
     if (!looksLikeVideoId(videoId)) return;
     const trackTitle = pickText(panel?.title);
-    const artist = pickText(panel?.shortBylineText) || pickText(panel?.longBylineText);
+    const artist = pickText(panel?.shortBylineText) || pickText(panel?.longBylineText) || "";
     const duration = pickText(panel?.lengthText) || normalizeString((panel?.lengthSeconds as any) ?? "");
     const thumb = pickThumbnail(panel?.thumbnail?.thumbnails);
-    if (!trackTitle || !artist) return;
+    if (!trackTitle) return;
     pushTrack({ videoId, title: trackTitle, artist, duration: duration || null, thumbnail: thumb }, "playlistPanelVideoRenderer");
   }
 
@@ -591,10 +591,10 @@ export async function browsePlaylistById(playlistIdRaw: string): Promise<Playlis
     const videoId = normalizeString(renderer?.videoId);
     if (!looksLikeVideoId(videoId)) return;
     const trackTitle = pickText(renderer?.title);
-    const artist = pickText(renderer?.shortBylineText) || pickText(renderer?.longBylineText);
+    const artist = pickText(renderer?.shortBylineText) || pickText(renderer?.longBylineText) || "";
     const duration = pickText(renderer?.lengthText) || normalizeString((renderer?.lengthSeconds as any) ?? "");
     const thumb = pickThumbnail(renderer?.thumbnail?.thumbnails);
-    if (!trackTitle || !artist) return;
+    if (!trackTitle) return;
     pushTrack({ videoId, title: trackTitle, artist, duration: duration || null, thumbnail: thumb }, "playlistVideoRenderer");
   }
 
@@ -607,7 +607,7 @@ export async function browsePlaylistById(playlistIdRaw: string): Promise<Playlis
     const artistText = Array.isArray(subtitleRuns) ? subtitleRuns.map((r: any) => r?.text ?? "").join("") : "";
     const durationText = pickText(renderer?.fixedColumns?.[0]?.musicResponsiveListItemFixedColumnRenderer?.text?.runs?.[0]);
     const thumb = pickThumbnail(renderer?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails);
-    if (!titleText || !artistText) return;
+    if (!titleText) return;
     pushTrack({ videoId, title: titleText, artist: artistText, duration: durationText || null, thumbnail: thumb }, "musicResponsiveListItemRenderer");
   }
 
