@@ -525,7 +525,7 @@ export type PlaylistBrowse = {
   playlistId: string;
   title: string;
   thumbnailUrl: string | null;
-  tracks: Array<{ id: string; title: string; youtubeId: string; artist?: string; imageUrl?: string }>;
+  tracks: Array<{ videoId: string; title: string; artist: string; duration?: string | null; thumbnail?: string | null }>;
 };
 
 export async function browseArtistById(browseIdRaw: string): Promise<ArtistBrowse | null> {
@@ -640,7 +640,7 @@ export async function browsePlaylistById(playlistIdRaw: string): Promise<Playlis
   const playlistId = normalizeString(playlistIdRaw);
   if (!playlistId) return null;
 
-  const browseId = playlistId.startsWith("VL") ? playlistId : `VL${playlistId}`;
+  const browseId = playlistId.startsWith("VL") || playlistId.startsWith("MPRE") ? playlistId : `VL${playlistId}`;
   const config = await fetchInnertubeConfig();
   if (!config) return null;
 
@@ -658,6 +658,48 @@ export async function browsePlaylistById(playlistIdRaw: string): Promise<Playlis
     null;
 
   const tracks: PlaylistBrowse["tracks"] = [];
+  const renderSources = new Set<string>();
+
+  const pushTrack = (track: PlaylistBrowse["tracks"][number], source: string) => {
+    if (!track?.videoId || !looksLikeVideoId(track.videoId)) return;
+    tracks.push(track);
+    renderSources.add(source);
+  };
+
+  function parsePanel(panel: any) {
+    const videoId = normalizeString(panel?.videoId);
+    if (!looksLikeVideoId(videoId)) return;
+    const trackTitle = pickText(panel?.title);
+    const artist = pickText(panel?.shortBylineText) || pickText(panel?.longBylineText);
+    const duration = pickText(panel?.lengthText) || normalizeString((panel?.lengthSeconds as any) ?? "");
+    const thumb = pickThumbnail(panel?.thumbnail?.thumbnails);
+    if (!trackTitle || !artist) return;
+    pushTrack({ videoId, title: trackTitle, artist, duration: duration || null, thumbnail: thumb }, "playlistPanelVideoRenderer");
+  }
+
+  function parsePlaylistVideo(renderer: any) {
+    const videoId = normalizeString(renderer?.videoId);
+    if (!looksLikeVideoId(videoId)) return;
+    const trackTitle = pickText(renderer?.title);
+    const artist = pickText(renderer?.shortBylineText) || pickText(renderer?.longBylineText);
+    const duration = pickText(renderer?.lengthText) || normalizeString((renderer?.lengthSeconds as any) ?? "");
+    const thumb = pickThumbnail(renderer?.thumbnail?.thumbnails);
+    if (!trackTitle || !artist) return;
+    pushTrack({ videoId, title: trackTitle, artist, duration: duration || null, thumbnail: thumb }, "playlistVideoRenderer");
+  }
+
+  function parseResponsive(renderer: any) {
+    const playNav = renderer?.overlay?.musicItemThumbnailOverlayRenderer?.content?.musicPlayButtonRenderer?.playNavigationEndpoint || renderer?.navigationEndpoint;
+    const videoId = normalizeString(playNav?.watchEndpoint?.videoId);
+    if (!looksLikeVideoId(videoId)) return;
+    const titleText = pickText(renderer?.flexColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.[0]);
+    const subtitleRuns = renderer?.flexColumns?.[1]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs;
+    const artistText = Array.isArray(subtitleRuns) ? subtitleRuns.map((r: any) => r?.text ?? "").join("") : "";
+    const durationText = pickText(renderer?.fixedColumns?.[0]?.musicResponsiveListItemFixedColumnRenderer?.text?.runs?.[0]);
+    const thumb = pickThumbnail(renderer?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails);
+    if (!titleText || !artistText) return;
+    pushTrack({ videoId, title: titleText, artist: artistText, duration: durationText || null, thumbnail: thumb }, "musicResponsiveListItemRenderer");
+  }
 
   function walk(node: any): void {
     if (!node) return;
@@ -667,27 +709,22 @@ export async function browsePlaylistById(playlistIdRaw: string): Promise<Playlis
     }
     if (typeof node !== "object") return;
 
-    const panel = (node as any)?.playlistPanelVideoRenderer;
-    if (panel) {
-      const videoId = normalizeString(panel.videoId);
-      if (looksLikeVideoId(videoId)) {
-        const trackTitle = pickText(panel.title) || "Unknown title";
-        const artist = pickText(panel.shortBylineText) || pickText(panel.longBylineText) || undefined;
-        const imageUrl = pickThumbnail(panel.thumbnail?.thumbnails) || undefined;
-        tracks.push({ id: videoId, title: trackTitle, youtubeId: videoId, artist, imageUrl });
+    if ((node as any)?.musicPlaylistShelfRenderer?.contents) {
+      const contents = (node as any).musicPlaylistShelfRenderer.contents;
+      for (const item of contents || []) {
+        if (item?.musicResponsiveListItemRenderer) parseResponsive(item.musicResponsiveListItemRenderer);
+        if (item?.playlistPanelVideoRenderer) parsePanel(item.playlistPanelVideoRenderer);
       }
     }
 
+    const panel = (node as any)?.playlistPanelVideoRenderer;
+    if (panel) parsePanel(panel);
+
     const playlistVideo = (node as any)?.playlistVideoRenderer;
-    if (playlistVideo) {
-      const videoId = normalizeString(playlistVideo.videoId);
-      if (looksLikeVideoId(videoId)) {
-        const trackTitle = pickText(playlistVideo.title) || "Unknown title";
-        const artist = pickText(playlistVideo.shortBylineText) || pickText(playlistVideo.longBylineText) || undefined;
-        const imageUrl = pickThumbnail(playlistVideo.thumbnail?.thumbnails) || undefined;
-        tracks.push({ id: videoId, title: trackTitle, youtubeId: videoId, artist, imageUrl });
-      }
-    }
+    if (playlistVideo) parsePlaylistVideo(playlistVideo);
+
+    const responsive = (node as any)?.musicResponsiveListItemRenderer;
+    if (responsive) parseResponsive(responsive);
 
     for (const value of Object.values(node)) walk(value);
   }
@@ -697,10 +734,16 @@ export async function browsePlaylistById(playlistIdRaw: string): Promise<Playlis
   const deduped: PlaylistBrowse["tracks"] = [];
   const seen = new Set<string>();
   for (const t of tracks) {
-    if (seen.has(t.youtubeId)) continue;
-    seen.add(t.youtubeId);
+    if (seen.has(t.videoId)) continue;
+    seen.add(t.videoId);
     deduped.push(t);
   }
+
+  console.info("[browse/playlist] parsed", {
+    browseId,
+    count: deduped.length,
+    sources: Array.from(renderSources),
+  });
 
   return { playlistId, title, thumbnailUrl, tracks: deduped };
 }
