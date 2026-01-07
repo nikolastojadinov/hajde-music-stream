@@ -9,43 +9,31 @@ import { withBackendOrigin } from "@/lib/backendUrl";
 type BrowseArtistResponse = {
   artistName: string | null;
   thumbnails?: { avatar?: string | null; banner?: string | null } | null;
-  topSongs?: Array<{ id: string; title: string; youtubeId: string; artist: string; imageUrl?: string | null; playCount?: string | number | null }>;
-  songs?: Array<{ id: string; title: string; youtubeId: string; artist: string; imageUrl?: string | null; playCount?: string | number | null }>;
+  topSongs?: Array<{ id: string; title: string; imageUrl?: string | null; channelTitle?: string | null; playCount?: string | number | null }>;
+  songs?: Array<{ id: string; title: string; imageUrl?: string | null; channelTitle?: string | null; playCount?: string | number | null }>;
   albums?: Array<{ id: string; title: string; imageUrl?: string | null; channelTitle?: string | null; year?: string | number | null }>;
-  playlists?: Array<{ id: string; title: string; imageUrl?: string | null; channelTitle?: string | null; year?: string | number | null }>;
 };
 
 type NormalizedSong = {
   id: string;
   title: string;
   artist: string;
-  youtubeId: string;
   imageUrl?: string | null;
-  playCount?: string;
 };
 
 type NormalizedCollection = {
   id: string;
   title: string;
   imageUrl?: string | null;
-  year?: string;
+  year?: string | null;
 };
 
 const looksLikeVideoId = (value: string | undefined | null): value is string => typeof value === "string" && /^[A-Za-z0-9_-]{11}$/.test(value.trim());
 
-const isAlbumLike = (id?: string): boolean => {
-  if (!id) return false;
-  const value = id.trim();
-  return value.startsWith("MPRE") || value.startsWith("OLAK") || (!value.startsWith("VL") && !value.startsWith("PL"));
-};
-
-function formatPlayCount(playCount?: string | number | null): string | undefined {
-  if (playCount === null || playCount === undefined) return undefined;
-  const numeric = typeof playCount === "number" ? playCount : Number(String(playCount).replace(/[^0-9]/g, ""));
-  if (!Number.isFinite(numeric) || numeric <= 0) return undefined;
-  if (numeric >= 1_000_000) return `${(numeric / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
-  if (numeric >= 1_000) return `${(numeric / 1_000).toFixed(1).replace(/\.0$/, "")}K`;
-  return `${numeric}`;
+function formatYear(value?: string | number | null): string | null {
+  if (value === null || value === undefined) return null;
+  const text = String(value).trim();
+  return text || null;
 }
 
 export default function Artist() {
@@ -78,7 +66,7 @@ export default function Artist() {
       } catch (err: any) {
         if (err?.name === "AbortError") return;
         setError(err?.message || "Artist fetch failed");
-        setData({ artistName: null, thumbnails: null, topSongs: [], songs: [], albums: [], playlists: [] });
+        setData({ artistName: null, thumbnails: null, topSongs: [], songs: [], albums: [] });
       } finally {
         setLoading(false);
       }
@@ -97,63 +85,44 @@ export default function Artist() {
     return [];
   }, [data?.topSongs, data?.songs]);
 
-  const topSongs: NormalizedSong[] = useMemo(() => {
-    return songsSource
-      .slice(0, 5)
-      .map((song) => {
-        if (!looksLikeVideoId(song.youtubeId)) return null;
-        return {
-          id: song.id || song.youtubeId,
-          title: (song.title || "").trim() || "Untitled",
-          artist: (song.artist || "").trim() || artistName,
-          youtubeId: song.youtubeId.trim(),
-          imageUrl: song.imageUrl || null,
-          playCount: formatPlayCount(song.playCount),
-        } as NormalizedSong;
-      })
-      .filter(Boolean) as NormalizedSong[];
+  const songs: NormalizedSong[] = useMemo(() => {
+    return songsSource.slice(0, 5).map((song) => ({
+      id: song.id,
+      title: (song.title || "").trim() || "Untitled",
+      artist: artistName,
+      imageUrl: song.imageUrl || null,
+    }));
   }, [songsSource, artistName]);
 
   const playbackQueue = useMemo(
     () =>
-      topSongs.map((song) => ({
-        youtubeVideoId: song.youtubeId,
+      songs.map((song) => ({
+        youtubeVideoId: looksLikeVideoId(song.id) ? song.id : song.id?.trim?.() || "",
         title: song.title,
         artist: song.artist,
         thumbnailUrl: song.imageUrl || undefined,
       })),
-    [topSongs],
+    [songs],
   );
 
-  const albums: NormalizedCollection[] = useMemo(() => {
-    if (!Array.isArray(data?.albums)) return [];
-    return data.albums
-      .filter((album) => album?.id && isAlbumLike(album.id))
-      .map((album) => ({
-        id: album.id,
-        title: (album.title || "").trim() || "Album",
-        imageUrl: album.imageUrl || null,
-        year: album.year ? String(album.year) : album.channelTitle ? album.channelTitle : undefined,
-      }));
-  }, [data?.albums]);
+  const albumsRaw = Array.isArray(data?.albums) ? data!.albums : [];
+  const albums: NormalizedCollection[] = albumsRaw
+    .filter((item) => !String(item.channelTitle || "").startsWith("Playlist"))
+    .map((item) => ({
+      id: item.id,
+      title: (item.title || "").trim() || "Album",
+      imageUrl: item.imageUrl || null,
+      year: formatYear(item.year),
+    }));
 
-  const playlists: NormalizedCollection[] = useMemo(() => {
-    if (!Array.isArray(data?.playlists)) return [];
-    const albumIds = new Set(albums.map((a) => a.id));
-    return data.playlists
-      .filter((pl) => pl?.id && !albumIds.has(pl.id))
-      .map((pl) => ({
-        id: pl.id,
-        title: (pl.title || "").trim() || "Playlist",
-        imageUrl: pl.imageUrl || null,
-        year: pl.year ? String(pl.year) : pl.channelTitle ? pl.channelTitle : undefined,
-      }));
-  }, [data?.playlists, albums]);
-
-  const renderSongs = topSongs.length > 0;
-  const renderAlbums = albums.length > 0;
-  const renderPlaylists = playlists.length > 0;
-  const showEmpty = !renderSongs && !renderAlbums && !renderPlaylists;
+  const playlists: NormalizedCollection[] = albumsRaw
+    .filter((item) => String(item.channelTitle || "").startsWith("Playlist"))
+    .map((item) => ({
+      id: item.id,
+      title: (item.title || "").trim() || "Playlist",
+      imageUrl: item.imageUrl || null,
+      year: null,
+    }));
 
   const handlePlaySong = (index: number) => {
     if (!playbackQueue.length) return;
@@ -179,21 +148,17 @@ export default function Artist() {
           </div>
         </div>
 
-        {error ? (
-          <div className="mt-6 rounded-lg border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">{error}</div>
-        ) : null}
+        {error ? <div className="mt-6 rounded-lg border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">{error}</div> : null}
 
         {loading ? (
           <div className="mt-8 text-sm text-neutral-400">Loading artist...</div>
-        ) : showEmpty ? (
-          <div className="mt-10 rounded-lg border border-white/5 bg-white/5 p-4 text-sm text-neutral-300">No content available for this artist.</div>
         ) : (
           <div className="mt-10 space-y-8 md:space-y-10">
-            {renderSongs ? (
+            {songs.length > 0 ? (
               <section className="space-y-4">
                 <h2 className="text-lg font-semibold text-white md:text-xl">Popular songs</h2>
                 <div className="space-y-3">
-                  {topSongs.map((song, index) => (
+                  {songs.map((song, index) => (
                     <button
                       key={song.id}
                       type="button"
@@ -207,17 +172,14 @@ export default function Artist() {
                         <div className="truncate text-sm font-semibold text-white">{song.title}</div>
                         <div className="truncate text-xs text-white/65">{song.artist}</div>
                       </div>
-                      <div className="flex items-center gap-2 text-xs text-white/65">
-                        {song.playCount ? <span className="hidden sm:inline">{song.playCount}</span> : null}
-                        <MoreVertical className="h-4 w-4" />
-                      </div>
+                      <MoreVertical className="h-4 w-4 text-white/65" />
                     </button>
                   ))}
                 </div>
               </section>
             ) : null}
 
-            {renderAlbums ? (
+            {albums.length > 0 ? (
               <section className="space-y-4">
                 <h2 className="text-lg font-semibold text-white md:text-xl">Albums</h2>
                 <div className="overflow-x-auto pb-1">
@@ -243,7 +205,7 @@ export default function Artist() {
               </section>
             ) : null}
 
-            {renderPlaylists ? (
+            {playlists.length > 0 ? (
               <section className="space-y-4">
                 <h2 className="text-lg font-semibold text-white md:text-xl">Playlists</h2>
                 <div className="overflow-x-auto pb-1">
@@ -260,7 +222,6 @@ export default function Artist() {
                         </div>
                         <div className="mt-2 space-y-1" style={{ width: 160 }}>
                           <div className="truncate text-sm font-semibold text-white">{pl.title}</div>
-                          {pl.year ? <div className="truncate text-xs text-white/65">{pl.year}</div> : null}
                         </div>
                       </button>
                     ))}

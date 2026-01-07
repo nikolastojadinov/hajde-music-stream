@@ -1,4 +1,8 @@
+import { useMemo, useState } from "react";
 import { Play, Pause, SkipBack, SkipForward, Volume2, X, ChevronDown } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 import { Slider } from "@/components/ui/slider";
 import { usePlayer } from "@/contexts/PlayerContext";
 
@@ -12,6 +16,7 @@ const FullscreenPlayer = () => {
     currentTitle,
     currentArtist,
     isPlayerVisible,
+    queue,
     togglePlay,
     skipForward,
     skipBackward,
@@ -21,6 +26,21 @@ const FullscreenPlayer = () => {
     setIsFullscreen,
     setIsPlayerVisible,
   } = usePlayer();
+
+  const [exportOpen, setExportOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const exportTracks = useMemo(
+    () => queue.slice(0, 50).map((item) => ({
+      youtubeVideoId: item.youtubeVideoId,
+      title: item.title,
+      artist: item.artist,
+      thumbnailUrl: item.thumbnailUrl,
+    })),
+    [queue],
+  );
+
+  const exportJson = useMemo(() => JSON.stringify(exportTracks, null, 2), [exportTracks]);
 
   const handleClose = () => {
     if (isPlaying) togglePlay();
@@ -34,6 +54,17 @@ const FullscreenPlayer = () => {
   const handleProgressChange = (values: number[]) => {
     const newTime = (values[0] / 100) * duration;
     seekTo(newTime);
+  };
+
+  const handleCopy = async () => {
+    if (!exportTracks.length) return;
+    try {
+      await navigator.clipboard?.writeText(exportJson);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    } catch (err) {
+      setCopied(false);
+    }
   };
 
   const progressPercentage = duration > 0 ? (currentTime / duration) * 100 : 0;
@@ -95,7 +126,10 @@ const FullscreenPlayer = () => {
           </button>
         </div>
 
-        <div className="mt-8 w-full max-w-xl flex items-center justify-end">
+        <div className="mt-8 w-full max-w-xl flex items-center justify-between gap-3 flex-wrap">
+          <Button variant="secondary" size="sm" onClick={() => setExportOpen(true)} className="bg-white/10 text-white hover:bg-white/20">
+            Export playing playlist
+          </Button>
           <div className="flex items-center gap-3 w-40">
             <Volume2 className="w-5 h-5 text-[#8B86A3]" />
             <Slider
@@ -111,6 +145,36 @@ const FullscreenPlayer = () => {
           </div>
         </div>
       </div>
+
+      <Dialog open={exportOpen} onOpenChange={setExportOpen}>
+        <DialogContent className="bg-neutral-900 text-white border border-white/10">
+          <DialogHeader>
+            <DialogTitle>Export playing playlist</DialogTitle>
+            <DialogDescription className="text-white/70">
+              Showing the first {exportTracks.length} {exportTracks.length === 1 ? "track" : "tracks"} from the current queue
+              {queue.length > 50 ? " (limited to 50)" : ""}.
+            </DialogDescription>
+          </DialogHeader>
+          <Textarea
+            value={exportJson}
+            readOnly
+            className="min-h-[200px] font-mono text-xs bg-neutral-950 text-white border-white/10"
+          />
+          <div className="flex items-center justify-between text-xs text-white/70">
+            <span>
+              {exportTracks.length} of {queue.length} in playing queue
+            </span>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={() => setExportOpen(false)} className="border-white/20 text-white">
+                Close
+              </Button>
+              <Button variant="secondary" size="sm" onClick={handleCopy} disabled={!exportTracks.length} className="bg-white/10 text-white hover:bg-white/20">
+                {copied ? "Copied" : "Copy JSON"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
