@@ -59,6 +59,7 @@ function parseArtistFromFlexColumns(renderer: MusicResponsiveListItem): string |
   columns.forEach((col: any, idx: number) => {
     const text = pickRunsText(col?.musicResponsiveListItemFlexColumnRenderer?.text?.runs, ", ");
     if (!text) return;
+    // Only consider non-title columns as artist/byline text.
     if (idx > 0) artists.push(text);
   });
 
@@ -81,7 +82,7 @@ function parseArtistFromMenu(renderer: MusicResponsiveListItem): string | null {
     const afterArtist = labelRaw.toLowerCase().includes("artist")
       ? normalizeString(labelRaw.split(/artist/i)[1])
       : "";
-    const candidate = normalizeString(afterArtist) || normalizeString(nav.navigationEndpoint?.browseEndpoint?.browseId);
+    const candidate = normalizeString(afterArtist);
     if (candidate) return candidate;
   }
 
@@ -111,14 +112,15 @@ function extractArtist(renderer: MusicResponsiveListItem, microformatTitle: stri
 }
 
 function extractVideoId(renderer: MusicResponsiveListItem): string {
+  // Treat playlistItemData as authoritative when present.
+  const playlistData = normalizeString(renderer?.playlistItemData?.videoId);
+  if (looksLikeVideoId(playlistData)) return playlistData;
+
   const overlayNav = renderer?.overlay?.musicItemThumbnailOverlayRenderer?.content?.musicPlayButtonRenderer?.playNavigationEndpoint;
   const nav = overlayNav || renderer?.navigationEndpoint || renderer?.playNavigationEndpoint;
 
   const direct = normalizeString(nav?.watchEndpoint?.videoId || renderer?.watchEndpoint?.videoId || renderer?.videoId);
   if (looksLikeVideoId(direct)) return direct;
-
-  const playlistData = normalizeString(renderer?.playlistItemData?.videoId);
-  if (looksLikeVideoId(playlistData)) return playlistData;
 
   return "";
 }
