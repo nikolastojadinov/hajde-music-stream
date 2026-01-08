@@ -212,7 +212,7 @@ export default function Search() {
             </div>
 
             {suggestions.length > 0 && (
-              <div className="absolute left-0 right-0 top-full z-50 mt-2 max-h-80 overflow-y-auto rounded-xl border border-neutral-800 bg-neutral-950/95 shadow-xl">
+              <div className="absolute left-0 right-0 top-full z-50 mt-2 max-h-[70vh] overflow-y-auto rounded-xl border border-neutral-800 bg-neutral-950/95 shadow-xl">
                 <SearchSuggestList suggestions={suggestions} onSelect={handleSelect} />
               </div>
             )}
