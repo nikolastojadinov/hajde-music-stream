@@ -16,23 +16,33 @@ router.get('/', async (req, res) => {
   try {
     const data = await browsePlaylistById(browseId);
     if (!data) {
-      return res.json({ title: null, thumbnails: null, tracks: [] });
+      return res.json({ id: browseId, title: '', subtitle: '', thumbnail: '', tracks: [] });
     }
 
+    const id = data.playlistId
+      ? (() => {
+          const upper = data.playlistId.toUpperCase();
+          return upper.startsWith('VL') || upper.startsWith('MPRE') || upper.startsWith('OLAK')
+            ? data.playlistId
+            : `VL${data.playlistId}`;
+        })()
+      : browseId;
     const tracks = Array.isArray(data.tracks)
       ? data.tracks.map((t) => ({
-          videoId: t.videoId,
-          title: t.title,
-          artist: t.artist,
-          duration: t.duration ?? null,
-          thumbnails: t.thumbnail ? { default: t.thumbnail } : null,
+          videoId: normalizeString(t.videoId),
+          title: normalizeString(t.title),
+          artist: normalizeString(t.artist),
+          duration: t.duration ?? '',
+          thumbnail: normalizeString(t.thumbnail),
         }))
       : [];
 
     res.set('Cache-Control', 'no-store');
     return res.json({
-      title: data.title,
-      thumbnails: { cover: data.thumbnailUrl },
+      id,
+      title: normalizeString(data.title),
+      subtitle: normalizeString(data.subtitle),
+      thumbnail: normalizeString(data.thumbnailUrl),
       tracks,
     });
   } catch (err: any) {

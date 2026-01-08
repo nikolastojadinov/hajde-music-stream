@@ -39,12 +39,22 @@ function pickRunsText(runs: any): string {
 
 function pickThumbnail(thumbnails?: any): string | null {
   const arr = Array.isArray(thumbnails) ? thumbnails : thumbnails?.thumbnails;
-  if (!Array.isArray(arr)) return null;
-  for (const t of arr) {
-    const url = normalizeString(t?.url);
-    if (url) return url;
-  }
-  return null;
+  if (!Array.isArray(arr) || arr.length === 0) return null;
+
+  const scored = arr
+    .map((t: any) => {
+      const url = normalizeString(t?.url);
+      const width = Number(t?.width) || 0;
+      const height = Number(t?.height) || 0;
+      const area = width > 0 && height > 0 ? width * height : width || height;
+      return url ? { url, score: area } : null;
+    })
+    .filter(Boolean) as Array<{ url: string; score: number }>;
+
+  if (scored.length === 0) return null;
+
+  scored.sort((a, b) => b.score - a.score);
+  return scored[0].url;
 }
 
 export type MusicSearchSuggestion = {
@@ -535,6 +545,7 @@ export async function musicSearchRaw(queryRaw: string): Promise<any> {
 export type PlaylistBrowse = {
   playlistId: string;
   title: string;
+  subtitle: string;
   thumbnailUrl: string | null;
   tracks: Array<{ videoId: string; title: string; artist: string; duration?: string | null; thumbnail?: string | null }>;
 };
@@ -640,9 +651,11 @@ export async function browsePlaylistById(playlistIdRaw: string): Promise<Playlis
 
   const header = browseJson?.header?.musicDetailHeaderRenderer;
   const title = pickText(header?.title) || playlistId;
+  const subtitle = pickRunsText(header?.secondSubtitle?.runs) || "";
   const thumbnailUrl =
     pickThumbnail(header?.thumbnail?.croppedSquareThumbnailRenderer?.thumbnail?.thumbnails) ||
     pickThumbnail(header?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails) ||
+    pickThumbnail(browseJson?.background?.musicThumbnailRenderer?.thumbnail?.thumbnails) ||
     null;
 
   const tracks: PlaylistBrowse["tracks"] = [];
@@ -859,5 +872,5 @@ export async function browsePlaylistById(playlistIdRaw: string): Promise<Playlis
     sources: Array.from(renderSources),
   });
 
-  return { playlistId, title, thumbnailUrl, tracks: deduped };
+  return { playlistId, title, subtitle, thumbnailUrl, tracks: deduped };
 }
