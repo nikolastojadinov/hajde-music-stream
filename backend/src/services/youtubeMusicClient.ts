@@ -89,12 +89,21 @@ type ParsedSuggestion = {
   imageUrl?: string;
 };
 
+function emptySections(): MusicSearchSection[] {
+  return [
+    { kind: "songs", title: null, items: [] },
+    { kind: "artists", title: null, items: [] },
+    { kind: "albums", title: null, items: [] },
+    { kind: "playlists", title: null, items: [] },
+  ];
+}
+
 const DEFAULT_RESULTS: MusicSearchResults = {
   tracks: [],
   artists: [],
   albums: [],
   playlists: [],
-  sections: [],
+  sections: emptySections(),
   refinements: [],
   suggestions: [],
 };
@@ -751,7 +760,9 @@ export async function searchSuggestions(queryRaw: string): Promise<MusicSearchSu
 
 export async function musicSearch(queryRaw: string): Promise<MusicSearchResults> {
   const query = normalizeString(queryRaw);
-  if (!query) return { ...DEFAULT_RESULTS };
+  if (!query) {
+    return { ...DEFAULT_RESULTS, sections: emptySections() };
+  }
 
   try {
     const config = await loadConfigOrThrow();
@@ -762,21 +773,31 @@ export async function musicSearch(queryRaw: string): Promise<MusicSearchResults>
       ? (json as any).refinements.map((s: any) => String(s))
       : [];
 
-    const { sections, collected } = extractSearchSections(json);
+    const { collected } = extractSearchSections(json);
     const partitioned = partitionParsedItems(collected);
 
+    const tracks = Array.isArray(partitioned.tracks) ? partitioned.tracks : [];
+    const artists = Array.isArray(partitioned.artists) ? partitioned.artists : [];
+    const albums = Array.isArray(partitioned.albums) ? partitioned.albums : [];
+    const playlists = Array.isArray(partitioned.playlists) ? partitioned.playlists : [];
+
     return {
-      tracks: partitioned.tracks,
-      artists: partitioned.artists,
-      albums: partitioned.albums,
-      playlists: partitioned.playlists,
-      sections,
+      tracks,
+      artists,
+      albums,
+      playlists,
+      sections: [
+        { kind: "songs", title: null, items: tracks },
+        { kind: "artists", title: null, items: artists },
+        { kind: "albums", title: null, items: albums },
+        { kind: "playlists", title: null, items: playlists },
+      ],
       refinements,
       suggestions: [],
     };
   } catch (err) {
     logDebug("musicSearch_error", err instanceof Error ? err.message : String(err));
-    return { ...DEFAULT_RESULTS };
+    return { ...DEFAULT_RESULTS, sections: emptySections() };
   }
 }
 
