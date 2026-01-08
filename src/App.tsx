@@ -27,7 +27,7 @@ import ImportCSV from "@/pages/ImportCSV";
 import Library from "@/pages/Library";
 import License from "@/pages/License";
 import NotFound from "@/pages/NotFound";
-import Playlist from "@/pages/Playlist";
+import PlaylistPage from "@/pages/PlaylistPage";
 import Privacy from "@/pages/Privacy";
 import Search from "@/pages/Search";
 import Terms from "@/pages/Terms";
@@ -240,7 +240,7 @@ const AppRoutes = () => {
       <Route path="/search" element={<SearchErrorBoundary><Search /></SearchErrorBoundary>} />
       <Route path="/library" element={<Library />} />
       <Route path="/artist/:artistKey" element={<Artist />} />
-      <Route path="/playlist/:id" element={<Playlist />} />
+      <Route path="/playlist/:id" element={<PlaylistPage />} />
       <Route path="/create" element={<CreatePlaylist />} />
       <Route path="/edit/:id" element={<EditPlaylist />} />
       <Route path="/favorites" element={<Favorites />} />
