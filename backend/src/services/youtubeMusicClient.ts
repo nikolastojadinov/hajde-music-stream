@@ -1,4 +1,3 @@
-// target file: backend/src/services/youtubeMusicClient.ts
 import { CONSENT_COOKIES, fetchInnertubeConfig, type InnertubeConfig } from "./youtubeInnertubeConfig";
 import { parseArtistBrowseFromInnertube, type ArtistBrowse } from "./ytmArtistParser";
 
@@ -10,60 +9,14 @@ const YTM_USER_AGENT =
 const DEBUG = process.env.YTM_DEBUG === "1";
 const BROWSE_DEBUG = DEBUG || process.env.YTM_PLAYLIST_DEBUG === "1";
 
-function normalizeString(value: unknown): string {
-  return typeof value === "string" ? value.trim() : "";
-}
-
-function looksLikeVideoId(value: string): boolean {
-  const v = normalizeString(value);
-  return /^[A-Za-z0-9_-]{11}$/.test(v);
-}
-
-function isMusicPageType(pageType: unknown, match: string): boolean {
-  return typeof pageType === "string" && pageType.includes(match);
-}
-
-function pickText(node: any): string {
-  const runs = node?.runs;
-  if (Array.isArray(runs) && runs.length > 0) {
-    return normalizeString(runs.map((r: any) => r?.text ?? "").join(""));
-  }
-  const simple = node?.simpleText;
-  return normalizeString(simple);
-}
-
-function pickRunsText(runs: any): string {
-  if (!Array.isArray(runs) || runs.length === 0) return "";
-  return normalizeString(runs.map((r: any) => r?.text ?? "").join(""));
-}
-
-function pickThumbnail(thumbnails?: any): string | null {
-  const arr = Array.isArray(thumbnails) ? thumbnails : thumbnails?.thumbnails;
-  if (!Array.isArray(arr) || arr.length === 0) return null;
-
-  const scored = arr
-    .map((t: any) => {
-      const url = normalizeString(t?.url);
-      const width = Number(t?.width) || 0;
-      const height = Number(t?.height) || 0;
-      const area = width > 0 && height > 0 ? width * height : width || height;
-      return url ? { url, score: area } : null;
-    })
-    .filter(Boolean) as Array<{ url: string; score: number }>;
-
-  if (scored.length === 0) return null;
-
-  scored.sort((a, b) => b.score - a.score);
-  return scored[0].url;
-}
+type SuggestionType = "artist" | "track" | "album" | "playlist";
 
 export type MusicSearchSuggestion = {
-  type: "artist" | "track" | "album" | "playlist";
+  type: SuggestionType;
   id: string;
   name: string;
   subtitle?: string;
   imageUrl?: string;
-  artists?: string[];
 };
 
 export type MusicSearchTrack = {
@@ -112,27 +65,73 @@ export type MusicSearchResults = {
   suggestions: MusicSearchSuggestion[];
 };
 
-type ParsedItem =
-  | { variant: "track"; value: MusicSearchTrack }
-  | { variant: "artist"; value: MusicSearchArtist }
-  | { variant: "album"; value: MusicSearchAlbum }
-  | { variant: "playlist"; value: MusicSearchPlaylist };
+export type PlaylistBrowse = {
+  playlistId: string;
+  title: string;
+  subtitle: string;
+  thumbnailUrl: string | null;
+  tracks: Array<{ videoId: string; title: string; artist: string; duration?: string | null; thumbnail?: string | null }>;
+};
 
-function logKeys(label: string, obj: any): void {
-  if (!DEBUG) return;
-  try {
-    const keys = obj && typeof obj === "object" ? Object.keys(obj) : [];
-    console.log(`[YTM][debug] ${label} keys:`, keys);
-  } catch {
-    // ignore
-  }
+type ParsedItem = {
+  kind: SuggestionType;
+  id: string;
+  title: string;
+  subtitle?: string;
+  imageUrl?: string;
+};
+
+function normalizeString(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
 }
 
-function logArrayItem(label: string, index: number, obj: any): void {
+function looksLikeVideoId(value: string): boolean {
+  const v = normalizeString(value);
+  return /^[A-Za-z0-9_-]{11}$/.test(v);
+}
+
+function isMusicPageType(pageType: unknown, match: string): boolean {
+  return typeof pageType === "string" && pageType.includes(match);
+}
+
+function pickText(node: any): string {
+  const runs = node?.runs;
+  if (Array.isArray(runs) && runs.length > 0) {
+    return normalizeString(runs.map((r: any) => r?.text ?? "").join(""));
+  }
+  const simple = node?.simpleText;
+  return normalizeString(simple);
+}
+
+function pickRunsText(runs: any): string {
+  if (!Array.isArray(runs) || runs.length === 0) return "";
+  return normalizeString(runs.map((r: any) => r?.text ?? "").join(""));
+}
+
+function pickThumbnail(thumbnails?: any): string | null {
+  const arr = Array.isArray(thumbnails) ? thumbnails : thumbnails?.thumbnails;
+  if (!Array.isArray(arr) || arr.length === 0) return null;
+
+  const scored = arr
+    .map((t: any) => {
+      const url = normalizeString(t?.url);
+      const width = Number(t?.width) || 0;
+      const height = Number(t?.height) || 0;
+      const area = width > 0 && height > 0 ? width * height : width || height;
+      return url ? { url, score: area } : null;
+    })
+    .filter(Boolean) as Array<{ url: string; score: number }>;
+
+  if (scored.length === 0) return null;
+
+  scored.sort((a, b) => b.score - a.score);
+  return scored[0].url;
+}
+
+function logDebug(label: string, payload: unknown): void {
   if (!DEBUG) return;
   try {
-    const keys = obj && typeof obj === "object" ? Object.keys(obj) : [];
-    console.log(`[YTM][debug] ${label}[${index}] keys:`, keys);
+    console.log(`[YTM][debug] ${label}`, payload ?? {});
   } catch {
     // ignore
   }
@@ -204,378 +203,24 @@ async function callYoutubei<T = any>(config: InnertubeConfig, path: string, payl
   return json;
 }
 
-function parseListItem(item: any): ParsedItem | null {
-  logKeys("musicResponsiveListItemRenderer", item);
-
-  const title = pickText(item?.flexColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.[0]);
-  const subtitlesRuns = item?.flexColumns?.[1]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs;
-  const subtitle = Array.isArray(subtitlesRuns) ? subtitlesRuns.map((r: any) => r?.text ?? "").join("") : "";
-
+function extractNavigation(renderer: any): { browseId: string; pageType: string; videoId: string } {
   const navigation =
-    item?.navigationEndpoint ||
-    item?.overlay?.musicItemThumbnailOverlayRenderer?.content?.musicPlayButtonRenderer?.playNavigationEndpoint;
-  const browseEndpoint = navigation?.browseEndpoint;
-  const watchEndpoint = navigation?.watchEndpoint;
+    renderer?.navigationEndpoint ||
+    renderer?.playNavigationEndpoint ||
+    renderer?.overlay?.musicItemThumbnailOverlayRenderer?.content?.musicPlayButtonRenderer?.playNavigationEndpoint ||
+    renderer?.menu?.navigationItemRenderer?.navigationEndpoint;
 
-  const thumb = pickThumbnail(item?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails);
-
-  if (watchEndpoint?.videoId && looksLikeVideoId(watchEndpoint.videoId) && title) {
-    return {
-      variant: "track",
-      value: {
-        id: watchEndpoint.videoId,
-        title: title || "Unknown",
-        artist: subtitle || "",
-        youtubeId: watchEndpoint.videoId,
-        imageUrl: thumb || undefined,
-      },
-    };
-  }
-
+  const browseEndpoint = navigation?.browseEndpoint || renderer?.browseEndpoint;
+  const watchEndpoint = navigation?.watchEndpoint || renderer?.watchEndpoint;
   const browseId = normalizeString(browseEndpoint?.browseId);
-  const pageType = browseEndpoint?.browseEndpointContextSupportedConfigs?.browseEndpointContextMusicConfig?.pageType;
+  const pageType = normalizeString(
+    browseEndpoint?.browseEndpointContextSupportedConfigs?.browseEndpointContextMusicConfig?.pageType
+  );
+  const videoId = normalizeString(watchEndpoint?.videoId);
 
-  if (browseId && isMusicPageType(pageType, "MUSIC_PAGE_TYPE_ARTIST") && (title || subtitle)) {
-    return {
-      variant: "artist",
-      value: {
-        id: browseId,
-        name: title || subtitle || "",
-        imageUrl: thumb || undefined,
-      },
-    };
-  }
-
-  if (browseId && isMusicPageType(pageType, "MUSIC_PAGE_TYPE_ALBUM") && title) {
-    return {
-      variant: "album",
-      value: {
-        id: browseId,
-        title,
-        channelId: null,
-        channelTitle: subtitle || null,
-        imageUrl: thumb || undefined,
-      },
-    };
-  }
-
-  if (browseId && isMusicPageType(pageType, "MUSIC_PAGE_TYPE_PLAYLIST") && title) {
-    return {
-      variant: "playlist",
-      value: {
-        id: browseId,
-        title,
-        channelId: null,
-        channelTitle: subtitle || null,
-        imageUrl: thumb || undefined,
-      },
-    };
-  }
-
-  return null;
+  return { browseId, pageType, videoId };
 }
 
-function parseTwoRowItem(item: any): ParsedItem | null {
-  logKeys("musicTwoRowItemRenderer", item);
-
-  const title = pickText(item?.title) || "";
-  const subtitle = pickText(item?.subtitle) || "";
-  const thumb = pickThumbnail(item?.thumbnailRenderer?.musicThumbnailRenderer?.thumbnail?.thumbnails);
-
-  const browseEndpoint = item?.navigationEndpoint?.browseEndpoint;
-  const pageType = browseEndpoint?.browseEndpointContextSupportedConfigs?.browseEndpointContextMusicConfig?.pageType;
-  const browseId = normalizeString(browseEndpoint?.browseId);
-
-  if (!browseId || !title) return null;
-
-  if (isMusicPageType(pageType, "MUSIC_PAGE_TYPE_ALBUM")) {
-    return {
-      variant: "album",
-      value: {
-        id: browseId,
-        title,
-        channelId: null,
-        channelTitle: subtitle || null,
-        imageUrl: thumb || undefined,
-      },
-    };
-  }
-
-  if (isMusicPageType(pageType, "MUSIC_PAGE_TYPE_PLAYLIST")) {
-    return {
-      variant: "playlist",
-      value: {
-        id: browseId,
-        title,
-        channelId: null,
-        channelTitle: subtitle || null,
-        imageUrl: thumb || undefined,
-      },
-    };
-  }
-
-  if (isMusicPageType(pageType, "MUSIC_PAGE_TYPE_ARTIST")) {
-    return {
-      variant: "artist",
-      value: {
-        id: browseId,
-        name: title || subtitle || "",
-        imageUrl: thumb || undefined,
-      },
-    };
-  }
-
-  return null;
-}
-
-function inferKind(parsedItems: ParsedItem[]): string {
-  const variantSet = new Set(parsedItems.map((p) => p.variant));
-  if (variantSet.has("track")) return "songs";
-  if (variantSet.has("artist")) return "artists";
-  if (variantSet.has("album")) return "albums";
-  if (variantSet.has("playlist")) return "playlists";
-  return "unknown";
-}
-
-function parseShelfRenderer(shelf: any): { section: MusicSearchSection | null; collected: ParsedItem[] } {
-  logKeys("musicShelfRenderer", shelf);
-
-  const contents = Array.isArray(shelf?.contents) ? shelf.contents : [];
-  const parsedItems: ParsedItem[] = [];
-
-  contents.forEach((content: any, idx: number) => {
-    logArrayItem("musicShelfRenderer.contents", idx, content);
-    const renderer = content?.musicResponsiveListItemRenderer;
-    if (!renderer) return;
-    const parsed = parseListItem(renderer);
-    if (parsed) parsedItems.push(parsed);
-  });
-
-  if (parsedItems.length === 0) return { section: null, collected: [] };
-
-  const section: MusicSearchSection = {
-    kind: inferKind(parsedItems),
-    title: pickText(shelf?.title) || null,
-    items: parsedItems.map((p) => p.value),
-  };
-
-  return { section, collected: parsedItems };
-}
-
-function parseCarouselRenderer(carousel: any): { section: MusicSearchSection | null; collected: ParsedItem[] } {
-  logKeys("musicCarouselShelfRenderer", carousel);
-
-  const cards = Array.isArray(carousel?.contents) ? carousel.contents : [];
-  const parsedItems: ParsedItem[] = [];
-
-  cards.forEach((card: any, idx: number) => {
-    logArrayItem("musicCarouselShelfRenderer.contents", idx, card);
-    const renderer = card?.musicTwoRowItemRenderer;
-    if (!renderer) return;
-    const parsed = parseTwoRowItem(renderer);
-    if (parsed) parsedItems.push(parsed);
-  });
-
-  if (parsedItems.length === 0) return { section: null, collected: [] };
-
-  const section: MusicSearchSection = {
-    kind: inferKind(parsedItems),
-    title:
-      pickText(carousel?.header?.musicCarouselShelfBasicHeaderRenderer?.title) ||
-      pickText(carousel?.header?.musicCarouselShelfRenderer?.title) ||
-      null,
-    items: parsedItems.map((p) => p.value),
-  };
-
-  return { section, collected: parsedItems };
-}
-
-function parseCardShelfRenderer(cardShelf: any): { section: MusicSearchSection | null; collected: ParsedItem[] } {
-  logKeys("musicCardShelfRenderer", cardShelf);
-  const contents = Array.isArray(cardShelf?.contents) ? cardShelf.contents : [];
-  const parsedItems: ParsedItem[] = [];
-
-  contents.forEach((content: any, idx: number) => {
-    logArrayItem("musicCardShelfRenderer.contents", idx, content);
-    const twoRow = content?.musicTwoRowItemRenderer;
-    if (twoRow) {
-      const parsed = parseTwoRowItem(twoRow);
-      if (parsed) parsedItems.push(parsed);
-    }
-  });
-
-  if (parsedItems.length === 0) return { section: null, collected: [] };
-
-  const section: MusicSearchSection = {
-    kind: inferKind(parsedItems),
-    title: pickText(cardShelf?.header?.title) || null,
-    items: parsedItems.map((p) => p.value),
-  };
-
-  return { section, collected: parsedItems };
-}
-
-function extractSearchSections(root: any): { sections: MusicSearchSection[]; collected: ParsedItem[] } {
-  logKeys("root_keys", root || {});
-  const contents = root?.contents;
-  if (contents) logKeys("contents_keys", contents);
-  const tabbed = contents?.tabbedSearchResultsRenderer;
-  if (tabbed) logKeys("tabbedSearchResultsRenderer_keys", tabbed);
-
-  const sections: MusicSearchSection[] = [];
-  const collected: ParsedItem[] = [];
-
-  const tabs = tabbed?.tabs || [];
-  tabs.forEach((tab: any, tabIndex: number) => {
-    logArrayItem("tabs", tabIndex, tab);
-    const tabRenderer = tab?.tabRenderer;
-    if (tabRenderer) logKeys(`tabRenderer[${tabIndex}]`, tabRenderer);
-
-    const tabContent = tabRenderer?.content;
-    if (tabContent) logKeys(`tabRenderer.content[${tabIndex}]`, tabContent);
-
-    const sectionList = tabContent?.sectionListRenderer;
-    if (sectionList) logKeys(`sectionListRenderer[${tabIndex}]`, sectionList);
-
-    const sectionContents = sectionList?.contents || [];
-    sectionContents.forEach((section: any, sectionIndex: number) => {
-      logArrayItem(`sectionListRenderer.contents[${tabIndex}]`, sectionIndex, section);
-
-      if (section?.musicShelfRenderer) {
-        const parsed = parseShelfRenderer(section.musicShelfRenderer);
-        if (parsed.section) sections.push(parsed.section);
-        collected.push(...parsed.collected);
-      }
-
-      if (section?.musicCarouselShelfRenderer) {
-        const parsed = parseCarouselRenderer(section.musicCarouselShelfRenderer);
-        if (parsed.section) sections.push(parsed.section);
-        collected.push(...parsed.collected);
-      }
-
-      if (section?.musicCardShelfRenderer) {
-        const parsed = parseCardShelfRenderer(section.musicCardShelfRenderer);
-        if (parsed.section) sections.push(parsed.section);
-        collected.push(...parsed.collected);
-      }
-
-      if (section?.itemSectionRenderer) {
-        logKeys(`itemSectionRenderer[${tabIndex}-${sectionIndex}]`, section.itemSectionRenderer || {});
-        const items = section.itemSectionRenderer?.contents || [];
-        items.forEach((inner: any, innerIndex: number) => {
-          logArrayItem(`itemSectionRenderer.contents[${tabIndex}-${sectionIndex}]`, innerIndex, inner);
-
-          if (inner?.musicShelfRenderer) {
-            const parsed = parseShelfRenderer(inner.musicShelfRenderer);
-            if (parsed.section) sections.push(parsed.section);
-            collected.push(...parsed.collected);
-          }
-
-          if (inner?.musicCarouselShelfRenderer) {
-            const parsed = parseCarouselRenderer(inner.musicCarouselShelfRenderer);
-            if (parsed.section) sections.push(parsed.section);
-            collected.push(...parsed.collected);
-          }
-
-          if (inner?.musicCardShelfRenderer) {
-            const parsed = parseCardShelfRenderer(inner.musicCardShelfRenderer);
-            if (parsed.section) sections.push(parsed.section);
-            collected.push(...parsed.collected);
-          }
-
-          const responsive = inner?.musicResponsiveListItemRenderer;
-          if (responsive) {
-            const parsed = parseListItem(responsive);
-            if (parsed) {
-              collected.push(parsed);
-              sections.push({ kind: inferKind([parsed]), title: null, items: [parsed.value] });
-            }
-          }
-        });
-      }
-    });
-  });
-
-  return { sections, collected };
-}
-
-export async function musicSearch(queryRaw: string): Promise<MusicSearchResults> {
-  const query = normalizeString(queryRaw);
-  if (!query) throw new Error("Empty search query");
-
-  const config = await loadConfigOrThrow();
-
-  const payload = buildSearchBody(config, query);
-  const json = await callYoutubei<any>(config, "search", payload);
-
-  const refinements: string[] = Array.isArray((json as any)?.refinements)
-    ? (json as any).refinements.map((s: any) => String(s))
-    : [];
-
-  const { sections, collected } = extractSearchSections(json);
-
-  const tracks: MusicSearchTrack[] = [];
-  const artists: MusicSearchArtist[] = [];
-  const albums: MusicSearchAlbum[] = [];
-  const playlists: MusicSearchPlaylist[] = [];
-
-  for (const parsed of collected) {
-    if (parsed.variant === "track") tracks.push(parsed.value as MusicSearchTrack);
-    else if (parsed.variant === "artist") artists.push(parsed.value as MusicSearchArtist);
-    else if (parsed.variant === "album") albums.push(parsed.value as MusicSearchAlbum);
-    else if (parsed.variant === "playlist") playlists.push(parsed.value as MusicSearchPlaylist);
-  }
-
-  const suggestions: MusicSearchSuggestion[] = [];
-
-  return { tracks, artists, albums, playlists, sections, refinements, suggestions };
-}
-
-export async function musicSearchRaw(queryRaw: string): Promise<any> {
-  const query = normalizeString(queryRaw);
-  if (!query) throw new Error("Empty search query");
-
-  const config = await loadConfigOrThrow();
-
-  const payload = buildSearchBody(config, query);
-  const json = await callYoutubei<any>(config, "search", payload);
-  return json;
-}
-
-export type PlaylistBrowse = {
-  playlistId: string;
-  title: string;
-  subtitle: string;
-  thumbnailUrl: string | null;
-  tracks: Array<{ videoId: string; title: string; artist: string; duration?: string | null; thumbnail?: string | null }>;
-};
-
-export async function browseArtistById(browseIdRaw: string): Promise<ArtistBrowse | null> {
-  const browseId = normalizeString(browseIdRaw);
-  if (!browseId) return null;
-
-  const config = await fetchInnertubeConfig();
-  if (!config) return null;
-
-  const browseJson = await callYoutubei<any>(config, "browse", {
-    context: buildSearchBody(config, "").context,
-    browseId,
-  });
-  if (!browseJson) return null;
-
-  const result = parseArtistBrowseFromInnertube(browseJson, browseId);
-
-  console.info("[browse/artist] parsed", {
-    browseId,
-    topSongs: result.topSongs.length,
-    albums: result.albums.length,
-    playlists: result.playlists.length,
-  });
-
-  return result;
-}
-
-// --- FIX helpers for playlist/albums rows where videoId is only in menu.*.watchEndpoint ---
 function findFirstWatchVideoId(node: any, visited: WeakSet<object>): string {
   if (!node) return "";
   if (typeof node !== "object") return "";
@@ -583,10 +228,10 @@ function findFirstWatchVideoId(node: any, visited: WeakSet<object>): string {
   visited.add(node);
 
   const directPlayNav = normalizeString((node as any)?.playNavigationEndpoint?.watchEndpoint?.videoId);
-  if (directPlayNav && looksLikeVideoId(directPlayNav)) return directPlayNav;
+  if (looksLikeVideoId(directPlayNav)) return directPlayNav;
 
   const direct = normalizeString((node as any)?.watchEndpoint?.videoId);
-  if (direct && looksLikeVideoId(direct)) return direct;
+  if (looksLikeVideoId(direct)) return direct;
 
   if (Array.isArray(node)) {
     for (const item of node) {
@@ -626,12 +271,459 @@ function extractVideoIdFromResponsive(renderer: any): string {
   return "";
 }
 
-export async function browsePlaylistById(playlistIdRaw: string): Promise<PlaylistBrowse | null> {
-  const playlistId = normalizeString(playlistIdRaw);
-  if (!playlistId) return null;
+function parsedToEntity(parsed: ParsedItem): MusicSearchTrack | MusicSearchArtist | MusicSearchAlbum | MusicSearchPlaylist {
+  if (parsed.kind === "track") {
+    return {
+      id: parsed.id,
+      title: parsed.title,
+      artist: parsed.subtitle || "",
+      youtubeId: parsed.id,
+      imageUrl: parsed.imageUrl,
+    } satisfies MusicSearchTrack;
+  }
 
-  const upper = playlistId.toUpperCase();
-  const browseId = upper.startsWith("VL") || upper.startsWith("MPRE") || upper.startsWith("OLAK") ? playlistId : `VL${playlistId}`;
+  if (parsed.kind === "artist") {
+    return { id: parsed.id, name: parsed.title, imageUrl: parsed.imageUrl } satisfies MusicSearchArtist;
+  }
+
+  if (parsed.kind === "album") {
+    return {
+      id: parsed.id,
+      title: parsed.title,
+      channelId: null,
+      channelTitle: parsed.subtitle || null,
+      imageUrl: parsed.imageUrl,
+    } satisfies MusicSearchAlbum;
+  }
+
+  return {
+    id: parsed.id,
+    title: parsed.title,
+    channelId: null,
+    channelTitle: parsed.subtitle || null,
+    imageUrl: parsed.imageUrl,
+  } satisfies MusicSearchPlaylist;
+}
+
+function parseMusicResponsiveListItemRenderer(renderer: any): ParsedItem | null {
+  const title =
+    pickRunsText(renderer?.flexColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs) ||
+    pickText(renderer?.title) ||
+    "";
+  const subtitle = pickRunsText(renderer?.flexColumns?.[1]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs);
+  const thumb = pickThumbnail(renderer?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails);
+
+  const videoId = extractVideoIdFromResponsive(renderer);
+  if (looksLikeVideoId(videoId) && title) {
+    return { kind: "track", id: videoId, title, subtitle: subtitle || undefined, imageUrl: thumb || undefined };
+  }
+
+  const { browseId, pageType } = extractNavigation(renderer);
+  if (!browseId) return null;
+
+  if (isMusicPageType(pageType, "MUSIC_PAGE_TYPE_ARTIST") && (title || subtitle)) {
+    return {
+      kind: "artist",
+      id: browseId,
+      title: title || subtitle || browseId,
+      subtitle: subtitle || undefined,
+      imageUrl: thumb || undefined,
+    };
+  }
+
+  if (isMusicPageType(pageType, "MUSIC_PAGE_TYPE_ALBUM") && title) {
+    return { kind: "album", id: browseId, title, subtitle: subtitle || undefined, imageUrl: thumb || undefined };
+  }
+
+  if (isMusicPageType(pageType, "MUSIC_PAGE_TYPE_PLAYLIST") && title) {
+    return { kind: "playlist", id: browseId, title, subtitle: subtitle || undefined, imageUrl: thumb || undefined };
+  }
+
+  return null;
+}
+
+function parseMusicTwoRowItemRenderer(renderer: any): ParsedItem | null {
+  const title = pickText(renderer?.title) || "";
+  const subtitle = pickText(renderer?.subtitle) || "";
+  const thumb = pickThumbnail(renderer?.thumbnailRenderer?.musicThumbnailRenderer?.thumbnail?.thumbnails);
+
+  const browseEndpoint = renderer?.navigationEndpoint?.browseEndpoint;
+  const pageType = browseEndpoint?.browseEndpointContextSupportedConfigs?.browseEndpointContextMusicConfig?.pageType;
+  const browseId = normalizeString(browseEndpoint?.browseId);
+  if (!browseId || !title) return null;
+
+  if (isMusicPageType(pageType, "MUSIC_PAGE_TYPE_ALBUM")) {
+    return { kind: "album", id: browseId, title, subtitle: subtitle || undefined, imageUrl: thumb || undefined };
+  }
+
+  if (isMusicPageType(pageType, "MUSIC_PAGE_TYPE_PLAYLIST")) {
+    return { kind: "playlist", id: browseId, title, subtitle: subtitle || undefined, imageUrl: thumb || undefined };
+  }
+
+  if (isMusicPageType(pageType, "MUSIC_PAGE_TYPE_ARTIST")) {
+    return { kind: "artist", id: browseId, title: title || subtitle || browseId, subtitle: subtitle || undefined, imageUrl: thumb || undefined };
+  }
+
+  return null;
+}
+
+function inferKind(parsedItems: ParsedItem[]): string {
+  const variantSet = new Set(parsedItems.map((p) => p.kind));
+  if (variantSet.has("track")) return "songs";
+  if (variantSet.has("artist")) return "artists";
+  if (variantSet.has("album")) return "albums";
+  if (variantSet.has("playlist")) return "playlists";
+  return "unknown";
+}
+
+function parseShelfRenderer(shelf: any): { section: MusicSearchSection | null; collected: ParsedItem[] } {
+  const contents = Array.isArray(shelf?.contents) ? shelf.contents : [];
+  const parsedItems: ParsedItem[] = [];
+
+  contents.forEach((content: any) => {
+    const renderer = content?.musicResponsiveListItemRenderer;
+    if (!renderer) return;
+    const parsed = parseMusicResponsiveListItemRenderer(renderer);
+    if (parsed) parsedItems.push(parsed);
+  });
+
+  if (parsedItems.length === 0) return { section: null, collected: [] };
+
+  const section: MusicSearchSection = {
+    kind: inferKind(parsedItems),
+    title: pickText(shelf?.title) || null,
+    items: parsedItems.map(parsedToEntity),
+  };
+
+  return { section, collected: parsedItems };
+}
+
+function parseCarouselRenderer(carousel: any): { section: MusicSearchSection | null; collected: ParsedItem[] } {
+  const cards = Array.isArray(carousel?.contents) ? carousel.contents : [];
+  const parsedItems: ParsedItem[] = [];
+
+  cards.forEach((card: any) => {
+    const renderer = card?.musicTwoRowItemRenderer;
+    if (!renderer) return;
+    const parsed = parseMusicTwoRowItemRenderer(renderer);
+    if (parsed) parsedItems.push(parsed);
+  });
+
+  if (parsedItems.length === 0) return { section: null, collected: [] };
+
+  const section: MusicSearchSection = {
+    kind: inferKind(parsedItems),
+    title:
+      pickText(carousel?.header?.musicCarouselShelfBasicHeaderRenderer?.title) ||
+      pickText(carousel?.header?.musicCarouselShelfRenderer?.title) ||
+      null,
+    items: parsedItems.map(parsedToEntity),
+  };
+
+  return { section, collected: parsedItems };
+}
+
+function parseCardShelfRenderer(cardShelf: any): { section: MusicSearchSection | null; collected: ParsedItem[] } {
+  const contents = Array.isArray(cardShelf?.contents) ? cardShelf.contents : [];
+  const parsedItems: ParsedItem[] = [];
+
+  contents.forEach((content: any) => {
+    const twoRow = content?.musicTwoRowItemRenderer;
+    if (twoRow) {
+      const parsed = parseMusicTwoRowItemRenderer(twoRow);
+      if (parsed) parsedItems.push(parsed);
+    }
+  });
+
+  if (parsedItems.length === 0) return { section: null, collected: [] };
+
+  const section: MusicSearchSection = {
+    kind: inferKind(parsedItems),
+    title: pickText(cardShelf?.header?.title) || null,
+    items: parsedItems.map(parsedToEntity),
+  };
+
+  return { section, collected: parsedItems };
+}
+
+function parseSearchNode(node: any, sections: MusicSearchSection[], collected: ParsedItem[]): void {
+  if (!node) return;
+
+  if (node.musicShelfRenderer) {
+    const parsed = parseShelfRenderer(node.musicShelfRenderer);
+    if (parsed.section) sections.push(parsed.section);
+    collected.push(...parsed.collected);
+  }
+
+  if (node.musicCarouselShelfRenderer) {
+    const parsed = parseCarouselRenderer(node.musicCarouselShelfRenderer);
+    if (parsed.section) sections.push(parsed.section);
+    collected.push(...parsed.collected);
+  }
+
+  if (node.musicCardShelfRenderer) {
+    const parsed = parseCardShelfRenderer(node.musicCardShelfRenderer);
+    if (parsed.section) sections.push(parsed.section);
+    collected.push(...parsed.collected);
+  }
+
+  const responsive = node.musicResponsiveListItemRenderer;
+  if (responsive) {
+    const parsed = parseMusicResponsiveListItemRenderer(responsive);
+    if (parsed) {
+      collected.push(parsed);
+      sections.push({ kind: inferKind([parsed]), title: null, items: [parsedToEntity(parsed)] });
+    }
+  }
+
+  const twoRow = node.musicTwoRowItemRenderer;
+  if (twoRow) {
+    const parsed = parseMusicTwoRowItemRenderer(twoRow);
+    if (parsed) {
+      collected.push(parsed);
+      sections.push({ kind: inferKind([parsed]), title: null, items: [parsedToEntity(parsed)] });
+    }
+  }
+
+  const inner = node.itemSectionRenderer?.contents;
+  if (Array.isArray(inner)) {
+    inner.forEach((content: any) => parseSearchNode(content, sections, collected));
+  }
+}
+
+function extractSearchSections(root: any): { sections: MusicSearchSection[]; collected: ParsedItem[] } {
+  const sections: MusicSearchSection[] = [];
+  const collected: ParsedItem[] = [];
+
+  const tabs = root?.contents?.tabbedSearchResultsRenderer?.tabs || [];
+  tabs.forEach((tab: any, tabIndex: number) => {
+    const tabRenderer = tab?.tabRenderer;
+    const tabContent = tabRenderer?.content;
+    const sectionList = tabContent?.sectionListRenderer;
+    const sectionContents = sectionList?.contents || [];
+    logDebug("tab_keys", { tabIndex, keys: Object.keys(tabRenderer || {}) });
+
+    sectionContents.forEach((section: any, sectionIndex: number) => {
+      logDebug("section_keys", { tabIndex, sectionIndex, keys: Object.keys(section || {}) });
+      parseSearchNode(section, sections, collected);
+    });
+  });
+
+  return { sections, collected };
+}
+
+function partitionParsedItems(items: ParsedItem[]): MusicSearchResults {
+  const tracks: MusicSearchTrack[] = [];
+  const artists: MusicSearchArtist[] = [];
+  const albums: MusicSearchAlbum[] = [];
+  const playlists: MusicSearchPlaylist[] = [];
+
+  const seen = {
+    track: new Set<string>(),
+    artist: new Set<string>(),
+    album: new Set<string>(),
+    playlist: new Set<string>(),
+  };
+
+  items.forEach((parsed) => {
+    const id = normalizeString(parsed.id);
+    if (!id) return;
+
+    if (parsed.kind === "track") {
+      if (seen.track.has(id)) return;
+      seen.track.add(id);
+      tracks.push(parsedToEntity(parsed) as MusicSearchTrack);
+      return;
+    }
+
+    if (parsed.kind === "artist") {
+      if (seen.artist.has(id)) return;
+      seen.artist.add(id);
+      artists.push(parsedToEntity(parsed) as MusicSearchArtist);
+      return;
+    }
+
+    if (parsed.kind === "album") {
+      if (seen.album.has(id)) return;
+      seen.album.add(id);
+      albums.push(parsedToEntity(parsed) as MusicSearchAlbum);
+      return;
+    }
+
+    if (parsed.kind === "playlist") {
+      if (seen.playlist.has(id)) return;
+      seen.playlist.add(id);
+      playlists.push(parsedToEntity(parsed) as MusicSearchPlaylist);
+    }
+  });
+
+  return { tracks, artists, albums, playlists, sections: [], refinements: [], suggestions: [] };
+}
+
+function inferSuggestionType(pageType: string, browseId: string): SuggestionType | null {
+  if (isMusicPageType(pageType, "MUSIC_PAGE_TYPE_ARTIST")) return "artist";
+  if (isMusicPageType(pageType, "MUSIC_PAGE_TYPE_ALBUM")) return "album";
+  if (isMusicPageType(pageType, "MUSIC_PAGE_TYPE_PLAYLIST")) return "playlist";
+
+  const upper = browseId.toUpperCase();
+  if (!upper) return null;
+  if (upper.startsWith("VL") || upper.startsWith("PL") || upper.startsWith("OLAK") || upper.startsWith("RD")) return "playlist";
+  if (upper.startsWith("MPRE") || upper.startsWith("OLAK5")) return "album";
+  if (upper.startsWith("UC")) return "artist";
+  return null;
+}
+
+function parseSearchSuggestionRenderer(renderer: any): MusicSearchSuggestion | null {
+  const name = pickText(renderer?.suggestion);
+  const nav = renderer?.navigationEndpoint || renderer?.subtext?.navigationEndpoint;
+  const watchId = normalizeString(nav?.watchEndpoint?.videoId);
+  const browseId = normalizeString(nav?.browseEndpoint?.browseId);
+  const pageType = normalizeString(
+    nav?.browseEndpoint?.browseEndpointContextSupportedConfigs?.browseEndpointContextMusicConfig?.pageType
+  );
+  const thumb =
+    pickThumbnail(renderer?.thumbnail?.thumbnails) ||
+    pickThumbnail(renderer?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails);
+  const subtitle = pickText(renderer?.subtext) || undefined;
+
+  if (looksLikeVideoId(watchId) && name) {
+    return { type: "track", id: watchId, name, subtitle: subtitle || undefined, imageUrl: thumb || undefined };
+  }
+
+  if (browseId && name) {
+    const inferred = inferSuggestionType(pageType, browseId);
+    if (inferred) {
+      return { type: inferred, id: browseId, name, subtitle, imageUrl: thumb || undefined };
+    }
+  }
+
+  return null;
+}
+
+function parsedToSuggestion(parsed: ParsedItem): MusicSearchSuggestion {
+  return {
+    type: parsed.kind,
+    id: parsed.id,
+    name: parsed.title,
+    subtitle: parsed.subtitle,
+    imageUrl: parsed.imageUrl,
+  };
+}
+
+function collectSuggestions(root: any): MusicSearchSuggestion[] {
+  const results: MusicSearchSuggestion[] = [];
+  const seen = new Set<string>();
+
+  const push = (suggestion: MusicSearchSuggestion | null) => {
+    if (!suggestion) return;
+    const id = normalizeString(suggestion.id);
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    results.push(suggestion);
+  };
+
+  const walk = (node: any): void => {
+    if (!node) return;
+    if (Array.isArray(node)) {
+      node.forEach((item) => walk(item));
+      return;
+    }
+    if (typeof node !== "object") return;
+
+    if ((node as any).searchSuggestionRenderer) {
+      push(parseSearchSuggestionRenderer((node as any).searchSuggestionRenderer));
+    }
+
+    if ((node as any).musicShelfRenderer) {
+      const parsed = parseShelfRenderer((node as any).musicShelfRenderer);
+      parsed.collected.forEach((item) => push(parsedToSuggestion(item)));
+    }
+
+    if ((node as any).musicCarouselShelfRenderer) {
+      const parsed = parseCarouselRenderer((node as any).musicCarouselShelfRenderer);
+      parsed.collected.forEach((item) => push(parsedToSuggestion(item)));
+    }
+
+    if ((node as any).musicCardShelfRenderer) {
+      const parsed = parseCardShelfRenderer((node as any).musicCardShelfRenderer);
+      parsed.collected.forEach((item) => push(parsedToSuggestion(item)));
+    }
+
+    if ((node as any).musicResponsiveListItemRenderer) {
+      const parsed = parseMusicResponsiveListItemRenderer((node as any).musicResponsiveListItemRenderer);
+      if (parsed) push(parsedToSuggestion(parsed));
+    }
+
+    if ((node as any).musicTwoRowItemRenderer) {
+      const parsed = parseMusicTwoRowItemRenderer((node as any).musicTwoRowItemRenderer);
+      if (parsed) push(parsedToSuggestion(parsed));
+    }
+
+    const values = Object.values(node as Record<string, unknown>);
+    values.forEach((value) => walk(value));
+  };
+
+  walk(root);
+  return results;
+}
+
+export async function searchSuggestions(queryRaw: string): Promise<MusicSearchSuggestion[]> {
+  const query = normalizeString(queryRaw);
+  if (!query) return [];
+
+  const config = await loadConfigOrThrow();
+  const payload = { context: buildSearchBody(config, query).context, input: query };
+  const json = await callYoutubei<any>(config, "music/get_search_suggestions", payload);
+  const suggestions = collectSuggestions(json);
+  return suggestions;
+}
+
+export async function musicSearch(queryRaw: string): Promise<MusicSearchResults> {
+  const query = normalizeString(queryRaw);
+  if (!query) throw new Error("Empty search query");
+
+  const config = await loadConfigOrThrow();
+  const payload = buildSearchBody(config, query);
+  const json = await callYoutubei<any>(config, "search", payload);
+
+  const refinements: string[] = Array.isArray((json as any)?.refinements)
+    ? (json as any).refinements.map((s: any) => String(s))
+    : [];
+
+  const { sections, collected } = extractSearchSections(json);
+  const partitioned = partitionParsedItems(collected);
+
+  logDebug("search_partition", {
+    tracks: partitioned.tracks.length,
+    artists: partitioned.artists.length,
+    albums: partitioned.albums.length,
+    playlists: partitioned.playlists.length,
+  });
+
+  return {
+    tracks: partitioned.tracks,
+    artists: partitioned.artists,
+    albums: partitioned.albums,
+    playlists: partitioned.playlists,
+    sections,
+    refinements,
+    suggestions: [],
+  };
+}
+
+export async function musicSearchRaw(queryRaw: string): Promise<any> {
+  const query = normalizeString(queryRaw);
+  if (!query) throw new Error("Empty search query");
+
+  const config = await loadConfigOrThrow();
+  const payload = buildSearchBody(config, query);
+  const json = await callYoutubei<any>(config, "search", payload);
+  return json;
+}
+
+export async function browseArtistById(browseIdRaw: string): Promise<ArtistBrowse | null> {
+  const browseId = normalizeString(browseIdRaw);
+  if (!browseId) return null;
 
   const config = await fetchInnertubeConfig();
   if (!config) return null;
@@ -640,24 +732,21 @@ export async function browsePlaylistById(playlistIdRaw: string): Promise<Playlis
     context: buildSearchBody(config, "").context,
     browseId,
   });
-
-  if (DEBUG) {
-    console.log("[YT RAW PLAYLIST BROWSE] root keys:", Object.keys(browseJson || {}));
-    // WARNING: huge output; only in DEBUG
-    console.log("[YT RAW PLAYLIST BROWSE] contents:", JSON.stringify(browseJson?.contents ?? null, null, 2));
-  }
-
   if (!browseJson) return null;
 
-  const header = browseJson?.header?.musicDetailHeaderRenderer;
-  const title = pickText(header?.title) || playlistId;
-  const subtitle = pickRunsText(header?.secondSubtitle?.runs) || "";
-  const thumbnailUrl =
-    pickThumbnail(header?.thumbnail?.croppedSquareThumbnailRenderer?.thumbnail?.thumbnails) ||
-    pickThumbnail(header?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails) ||
-    pickThumbnail(browseJson?.background?.musicThumbnailRenderer?.thumbnail?.thumbnails) ||
-    null;
+  const result = parseArtistBrowseFromInnertube(browseJson, browseId);
 
+  console.info("[browse/artist] parsed", {
+    browseId,
+    topSongs: result.topSongs.length,
+    albums: result.albums.length,
+    playlists: result.playlists.length,
+  });
+
+  return result;
+}
+
+function parsePlaylistBrowseTracks(browseJson: any, browseId: string): PlaylistBrowse["tracks"] {
   const tracks: PlaylistBrowse["tracks"] = [];
   const renderSources = new Set<string>();
   const stats = {
@@ -672,7 +761,7 @@ export async function browsePlaylistById(playlistIdRaw: string): Promise<Playlis
     shelvesVisited: 0,
   };
 
-  const logDebug = (label: string, payload?: Record<string, unknown>) => {
+  const logBrowseDebug = (label: string, payload?: Record<string, unknown>) => {
     if (!BROWSE_DEBUG) return;
     console.info(`[browse/playlist][debug] ${label}`, payload ?? {});
   };
@@ -850,7 +939,7 @@ export async function browsePlaylistById(playlistIdRaw: string): Promise<Playlis
     deduped.push(t);
   }
 
-  logDebug("extraction_summary", {
+  logBrowseDebug("extraction_summary", {
     responsiveSeen: stats.responsiveSeen,
     responsiveParsed: stats.responsiveParsed,
     playlistVideoSeen: stats.playlistVideoSeen,
@@ -867,10 +956,47 @@ export async function browsePlaylistById(playlistIdRaw: string): Promise<Playlis
 
   console.info("[browse/playlist] parsed", {
     browseId,
-    title,
+    title: pickText(browseJson?.header?.musicDetailHeaderRenderer?.title) || browseId,
     count: deduped.length,
     sources: Array.from(renderSources),
   });
 
-  return { playlistId, title, subtitle, thumbnailUrl, tracks: deduped };
+  return deduped;
+}
+
+export async function browsePlaylistById(playlistIdRaw: string): Promise<PlaylistBrowse | null> {
+  const playlistId = normalizeString(playlistIdRaw);
+  if (!playlistId) return null;
+
+  const upper = playlistId.toUpperCase();
+  const browseId = upper.startsWith("VL") || upper.startsWith("MPRE") || upper.startsWith("OLAK") ? playlistId : `VL${playlistId}`;
+
+  const config = await fetchInnertubeConfig();
+  if (!config) return null;
+
+  const browseJson = await callYoutubei<any>(config, "browse", {
+    context: buildSearchBody(config, "").context,
+    browseId,
+  });
+
+  if (DEBUG) {
+    console.log("[YT RAW PLAYLIST BROWSE] root keys:", Object.keys(browseJson || {}));
+    // WARNING: huge output; only in DEBUG
+    console.log("[YT RAW PLAYLIST BROWSE] contents:", JSON.stringify(browseJson?.contents ?? null, null, 2));
+  }
+
+  if (!browseJson) return null;
+
+  const header = browseJson?.header?.musicDetailHeaderRenderer;
+  const title = pickText(header?.title) || playlistId;
+  const subtitle = pickRunsText(header?.secondSubtitle?.runs) || "";
+  const thumbnailUrl =
+    pickThumbnail(header?.thumbnail?.croppedSquareThumbnailRenderer?.thumbnail?.thumbnails) ||
+    pickThumbnail(header?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails) ||
+    pickThumbnail(browseJson?.background?.musicThumbnailRenderer?.thumbnail?.thumbnails) ||
+    null;
+
+  const tracks = parsePlaylistBrowseTracks(browseJson, browseId);
+
+  return { playlistId, title, subtitle, thumbnailUrl, tracks };
 }
