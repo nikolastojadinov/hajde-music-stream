@@ -194,35 +194,50 @@ function buildSections(live: { tracks: MusicSearchTrack[]; artists: MusicSearchA
   };
 }
 
+function safeSuggestResponse(q: string, suggestions: SearchSuggestItem[] = []): SearchSuggestResponse {
+  return { q, source: "youtube_live", suggestions } satisfies SearchSuggestResponse;
+}
+
+function safeResultsResponse(q: string, sections?: SearchResultsResponse["sections"]): SearchResultsResponse {
+  return {
+    q,
+    source: "youtube_live",
+    sections:
+      sections ?? {
+        songs: [],
+        artists: [],
+        albums: [],
+        playlists: [],
+      },
+  } satisfies SearchResultsResponse;
+}
+
 router.get("/suggest", async (req, res) => {
   const q = normalizeString(req.query.q);
-  if (q.length < MIN_QUERY_CHARS) {
-    return res.json({ q, source: "youtube_live", suggestions: [] } satisfies SearchSuggestResponse);
-  }
 
-  if (looksLikeBrowseId(q)) {
-    return res.status(400).json({ error: "invalid_query" });
+  if (q.length < MIN_QUERY_CHARS || looksLikeBrowseId(q)) {
+    res.set("Cache-Control", "no-store");
+    return res.json(safeSuggestResponse(q, []));
   }
 
   try {
     const raw = await searchSuggestions(q);
     const suggestions = interleaveSuggestions(raw);
     res.set("Cache-Control", "no-store");
-    return res.json({ q, source: "youtube_live", suggestions } satisfies SearchSuggestResponse);
+    return res.json(safeSuggestResponse(q, suggestions));
   } catch (err) {
     console.error("[search/suggest] failed", { q, error: err instanceof Error ? err.message : String(err) });
-    return res.status(500).json({ error: "suggest_failed" });
+    res.set("Cache-Control", "no-store");
+    return res.json(safeSuggestResponse(q, []));
   }
 });
 
 router.get("/results", async (req, res) => {
   const q = normalizeString(req.query.q);
-  if (q.length < MIN_QUERY_CHARS) {
-    return res.json({ q, source: "youtube_live", sections: { songs: [], artists: [], albums: [], playlists: [] } } satisfies SearchResultsResponse);
-  }
 
-  if (looksLikeBrowseId(q)) {
-    return res.status(400).json({ error: "invalid_query" });
+  if (q.length < MIN_QUERY_CHARS || looksLikeBrowseId(q)) {
+    res.set("Cache-Control", "no-store");
+    return res.json(safeResultsResponse(q));
   }
 
   try {
@@ -236,10 +251,11 @@ router.get("/results", async (req, res) => {
       playlists: sections.playlists.length,
     });
     res.set("Cache-Control", "no-store");
-    return res.json({ q, source: "youtube_live", sections } satisfies SearchResultsResponse);
+    return res.json(safeResultsResponse(q, sections));
   } catch (err) {
     console.error("[search/results] failed", { q, error: err instanceof Error ? err.message : String(err) });
-    return res.status(500).json({ error: "search_failed" });
+    res.set("Cache-Control", "no-store");
+    return res.json(safeResultsResponse(q));
   }
 });
 

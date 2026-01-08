@@ -557,7 +557,15 @@ function partitionParsedItems(items: ParsedItem[]): MusicSearchResults {
     }
   });
 
-  return { tracks, artists, albums, playlists, sections: [], refinements: [], suggestions: [] };
+  return {
+    tracks,
+    artists,
+    albums,
+    playlists,
+    sections: [],
+    refinements: [],
+    suggestions: [],
+  };
 }
 
 function inferSuggestionType(pageType: string, browseId: string): SuggestionType | null {
@@ -671,54 +679,87 @@ export async function searchSuggestions(queryRaw: string): Promise<MusicSearchSu
   const query = normalizeString(queryRaw);
   if (!query) return [];
 
-  const config = await loadConfigOrThrow();
-  const payload = { context: buildSearchBody(config, query).context, input: query };
-  const json = await callYoutubei<any>(config, "music/get_search_suggestions", payload);
-  const suggestions = collectSuggestions(json);
-  return suggestions;
+  try {
+    const config = await loadConfigOrThrow();
+    const payload = { context: buildSearchBody(config, query).context, input: query };
+    const json = await callYoutubei<any>(config, "music/get_search_suggestions", payload);
+    const suggestions = collectSuggestions(json);
+    return suggestions;
+  } catch (err) {
+    logDebug("searchSuggestions_error", err instanceof Error ? err.message : String(err));
+    return [];
+  }
 }
 
 export async function musicSearch(queryRaw: string): Promise<MusicSearchResults> {
   const query = normalizeString(queryRaw);
-  if (!query) throw new Error("Empty search query");
+  if (!query) {
+    return {
+      tracks: [],
+      artists: [],
+      albums: [],
+      playlists: [],
+      sections: [],
+      refinements: [],
+      suggestions: [],
+    };
+  }
 
-  const config = await loadConfigOrThrow();
-  const payload = buildSearchBody(config, query);
-  const json = await callYoutubei<any>(config, "search", payload);
+  try {
+    const config = await loadConfigOrThrow();
+    const payload = buildSearchBody(config, query);
+    const json = await callYoutubei<any>(config, "search", payload);
 
-  const refinements: string[] = Array.isArray((json as any)?.refinements)
-    ? (json as any).refinements.map((s: any) => String(s))
-    : [];
+    const refinements: string[] = Array.isArray((json as any)?.refinements)
+      ? (json as any).refinements.map((s: any) => String(s))
+      : [];
 
-  const { sections, collected } = extractSearchSections(json);
-  const partitioned = partitionParsedItems(collected);
+    const { sections, collected } = extractSearchSections(json);
+    const partitioned = partitionParsedItems(collected);
 
-  logDebug("search_partition", {
-    tracks: partitioned.tracks.length,
-    artists: partitioned.artists.length,
-    albums: partitioned.albums.length,
-    playlists: partitioned.playlists.length,
-  });
+    logDebug("search_partition", {
+      tracks: partitioned.tracks.length,
+      artists: partitioned.artists.length,
+      albums: partitioned.albums.length,
+      playlists: partitioned.playlists.length,
+    });
 
-  return {
-    tracks: partitioned.tracks,
-    artists: partitioned.artists,
-    albums: partitioned.albums,
-    playlists: partitioned.playlists,
-    sections,
-    refinements,
-    suggestions: [],
-  };
+    return {
+      tracks: partitioned.tracks,
+      artists: partitioned.artists,
+      albums: partitioned.albums,
+      playlists: partitioned.playlists,
+      sections,
+      refinements,
+      suggestions: [],
+    };
+  } catch (err) {
+    logDebug("musicSearch_error", err instanceof Error ? err.message : String(err));
+    return {
+      tracks: [],
+      artists: [],
+      albums: [],
+      playlists: [],
+      sections: [],
+      refinements: [],
+      suggestions: [],
+    };
+  }
 }
 
 export async function musicSearchRaw(queryRaw: string): Promise<any> {
   const query = normalizeString(queryRaw);
-  if (!query) throw new Error("Empty search query");
+  if (!query) return {};
 
-  const config = await loadConfigOrThrow();
-  const payload = buildSearchBody(config, query);
-  const json = await callYoutubei<any>(config, "search", payload);
-  return json;
+  try {
+    const config = await loadConfigOrThrow();
+    const payload = buildSearchBody(config, query);
+    const json = await callYoutubei<any>(config, "search", payload);
+    return json;
+  } catch (err) {
+    logDebug("musicSearchRaw_error", err instanceof Error ? err.message : String(err));
+    return {};
+  }
 }
 
 export async function browseArtistById(browseIdRaw: string): Promise<ArtistBrowse | null> {
@@ -981,7 +1022,6 @@ export async function browsePlaylistById(playlistIdRaw: string): Promise<Playlis
 
   if (DEBUG) {
     console.log("[YT RAW PLAYLIST BROWSE] root keys:", Object.keys(browseJson || {}));
-    // WARNING: huge output; only in DEBUG
     console.log("[YT RAW PLAYLIST BROWSE] contents:", JSON.stringify(browseJson?.contents ?? null, null, 2));
   }
 
