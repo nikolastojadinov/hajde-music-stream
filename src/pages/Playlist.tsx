@@ -1,23 +1,23 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Play, Shuffle } from "lucide-react";
+import { ArrowLeft, Music, Play, Shuffle } from "lucide-react";
 
 import { usePlayer } from "@/contexts/PlayerContext";
 import { withBackendOrigin } from "@/lib/backendUrl";
 
 type PlaylistTrack = {
-  videoId: string;
-  title: string;
+  videoId: string | null;
+  title: string | null;
   artist?: string | null;
   artistId?: string | null;
   duration?: number | string | null;
-  thumbnails?: string | string[] | null;
+  thumbnail?: string | null;
 };
 
 type BrowsePlaylistResponse = {
   title: string | null;
-  description?: string | null;
-  thumbnails?: { cover?: string | null } | string | null;
+  subtitle?: string | null;
+  thumbnail: string | null;
   tracks: PlaylistTrack[];
 };
 
@@ -32,14 +32,6 @@ type NormalizedTrack = {
 };
 
 const isVideoId = (value: string | undefined | null): value is string => typeof value === "string" && /^[A-Za-z0-9_-]{11}$/.test(value.trim());
-
-function pickFirstThumbnail(input?: string | string[] | { cover?: string | null } | null): string | null {
-  if (!input) return null;
-  if (typeof input === "string") return input;
-  if (Array.isArray(input)) return input.find((t) => t)?.toString() || null;
-  if (typeof input === "object" && "cover" in input) return input.cover || null;
-  return null;
-}
 
 function parseDurationToSeconds(duration: number | string | null | undefined): number | null {
   if (typeof duration === "number" && Number.isFinite(duration)) return Math.max(0, Math.trunc(duration));
@@ -104,7 +96,7 @@ export default function Playlist() {
       } catch (err: any) {
         if (err?.name === "AbortError") return;
         setError(err?.message || "Playlist fetch failed");
-        setData({ title: null, tracks: [] });
+        setData({ title: null, subtitle: null, thumbnail: null, tracks: [] });
       } finally {
         setLoading(false);
       }
@@ -125,7 +117,7 @@ export default function Playlist() {
           title: (t.title || "").trim(),
           artist: (t.artist || "").trim(),
           artistId: t.artistId || null,
-          thumbnail: pickFirstThumbnail(t.thumbnails),
+          thumbnail: t.thumbnail || null,
           durationLabel: duration.label,
           durationSeconds: duration.seconds ?? undefined,
         } satisfies NormalizedTrack;
@@ -133,9 +125,9 @@ export default function Playlist() {
       .filter(Boolean) as NormalizedTrack[];
   }, [data?.tracks]);
 
-  const coverImage = pickFirstThumbnail(data?.thumbnails) || tracks[0]?.thumbnail || null;
+  const coverImage = data?.thumbnail || null;
   const title = (data?.title || "").trim() || "Playlist";
-  const subtitle = data?.description?.trim();
+  const subtitle = (data?.subtitle || "").trim() || null;
   const totalDurationSeconds = tracks.reduce((acc, t) => (typeof t.durationSeconds === "number" ? acc + t.durationSeconds : acc), 0);
   const totalDurationLabel = totalDurationSeconds > 0 ? formatTotalDuration(totalDurationSeconds) : null;
 
@@ -197,9 +189,11 @@ export default function Playlist() {
           </div>
 
           <div className="relative flex flex-col gap-6 p-6 md:flex-row md:items-center md:gap-8 md:p-10">
-            <div className="h-64 w-64 overflow-hidden rounded-xl border border-white/15 bg-neutral-900 shadow-xl">
-              {coverImage ? <img src={coverImage} alt={title} className="h-full w-full object-cover" /> : null}
-            </div>
+            {coverImage ? (
+              <div className="aspect-square w-56 overflow-hidden rounded-[10px] border border-white/10 bg-neutral-900 shadow-xl md:w-64">
+                <img src={coverImage} alt={title} className="h-full w-full object-cover" />
+              </div>
+            ) : null}
 
             <div className="flex flex-1 flex-col gap-4">
               <div className="text-xs uppercase tracking-[0.3em] text-white/70">Playlist</div>
@@ -264,8 +258,12 @@ export default function Playlist() {
                   className="flex w-full items-center gap-4 px-6 py-4 text-left transition hover:bg-white/5"
                 >
                   <div className="w-6 shrink-0 text-center text-xs font-semibold text-neutral-400">{index + 1}</div>
-                  <div className="h-14 w-14 overflow-hidden rounded-md bg-neutral-800 shadow-inner">
-                    {track.thumbnail ? <img src={track.thumbnail} alt={track.title} className="h-full w-full object-cover" loading="lazy" /> : null}
+                  <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-md bg-neutral-800 shadow-inner">
+                    {track.thumbnail ? (
+                      <img src={track.thumbnail} alt={track.title} className="h-full w-full object-cover" loading="lazy" />
+                    ) : (
+                      <Music className="h-6 w-6 text-white/40" aria-hidden="true" />
+                    )}
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-semibold text-white">{track.title || "Unknown title"}</div>
@@ -290,11 +288,6 @@ export default function Playlist() {
               ))}
             </div>
           )}
-        </div>
-
-        <div className="mt-10 rounded-2xl border border-white/10 bg-white/5 px-6 py-6 text-white">
-          <div className="mb-4 text-lg font-semibold">Related playlists</div>
-          <div className="text-sm text-neutral-300">No related playlists available yet.</div>
         </div>
       </div>
     </div>
