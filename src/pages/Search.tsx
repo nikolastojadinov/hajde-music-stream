@@ -7,7 +7,7 @@ import { searchResolve, searchSuggest, type SearchResolveResponse, type SearchSu
 import { usePlayer } from "@/contexts/PlayerContext";
 
 const SUGGEST_DEBOUNCE_MS = 250;
-const MAX_SUGGESTIONS = 20;
+const MAX_SUGGESTIONS = 15;
 const typeLabel: Record<SearchResolveResponse["sections"][number]["kind"], string> = {
   songs: "Songs",
   artists: "Artists",
@@ -15,14 +15,39 @@ const typeLabel: Record<SearchResolveResponse["sections"][number]["kind"], strin
   playlists: "Playlists",
 };
 
+const allowedSuggestionTypes: SearchSuggestItem["type"][] = ["artist", "track", "album", "playlist"];
+
 const isVideoId = (id: string | undefined | null) => typeof id === "string" && /^[A-Za-z0-9_-]{11}$/.test(id.trim());
 
-function normalizeArtistName(raw: string): string {
-  const cleaned = raw.replace(/^Artist\s*•\s*/i, "").trim();
-  const [head] = cleaned.split("•");
-  const candidate = head?.trim();
-  return candidate || cleaned;
-}
+const normalizeString = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
+
+const normalizeSuggestions = (maybe: unknown): SearchSuggestItem[] => {
+  if (!Array.isArray(maybe)) return [];
+
+  const normalized: SearchSuggestItem[] = [];
+
+  for (const candidate of maybe) {
+    const type = (candidate as any)?.type;
+    const id = normalizeString((candidate as any)?.id);
+    const name = normalizeString((candidate as any)?.name);
+    if (!allowedSuggestionTypes.includes(type) || !id || !name) continue;
+
+    const imageUrlRaw = normalizeString((candidate as any)?.imageUrl);
+    const subtitleRaw = normalizeString((candidate as any)?.subtitle);
+
+    normalized.push({
+      type,
+      id,
+      name,
+      imageUrl: imageUrlRaw || undefined,
+      subtitle: subtitleRaw || undefined,
+    });
+
+    if (normalized.length >= MAX_SUGGESTIONS) break;
+  }
+
+  return normalized;
+};
 
 export default function Search() {
   const navigate = useNavigate();
@@ -49,7 +74,7 @@ export default function Search() {
   };
 
   const runSearch = async (value?: string) => {
-    const nextQuery = (value ?? query).trim();
+    const nextQuery = normalizeString(value ?? query);
     if (nextQuery.length < 2) {
       setSections([]);
       return;
@@ -60,7 +85,8 @@ export default function Search() {
 
     try {
       const response = await searchResolve({ q: nextQuery });
-      setSections(response?.sections ?? []);
+      const nextSections = Array.isArray(response?.sections) ? response.sections : [];
+      setSections(nextSections);
     } catch {
       setError("Unable to load search results.");
       setSections([]);
@@ -70,7 +96,7 @@ export default function Search() {
   };
 
   const scheduleSuggest = (value: string) => {
-    const trimmed = value.trim();
+    const trimmed = normalizeString(value);
 
     if (suggestTimeoutRef.current) {
       clearTimeout(suggestTimeoutRef.current);
@@ -89,16 +115,7 @@ export default function Search() {
 
       try {
         const res = await searchSuggest(trimmed, { signal: controller.signal });
-        const normalized = Array.isArray(res?.suggestions)
-          ? res.suggestions
-              .filter((s) => s?.type === "artist" && s?.id && s?.name && s?.imageUrl)
-              .slice(0, MAX_SUGGESTIONS)
-              .map((s) => ({
-                ...s,
-                name: normalizeArtistName(s.name),
-                subtitle: "Artist",
-              }))
-          : [];
+        const normalized = normalizeSuggestions(res?.suggestions);
         setSuggestions(normalized);
       } catch (err: any) {
         if (err?.name === "AbortError") return;
@@ -120,7 +137,20 @@ export default function Search() {
 
   const handleSelect = (item: SearchSuggestItem) => {
     clearSuggestions();
-    navigate(`/artist/${encodeURIComponent(item.id)}`);
+
+    if (item.type === "artist") {
+      navigate(`/artist/${encodeURIComponent(item.id)}`);
+      return;
+    }
+
+    if (item.type === "album" || item.type === "playlist") {
+      navigate(`/playlist/${encodeURIComponent(item.id)}`);
+      return;
+    }
+
+    if (item.type === "track" && isVideoId(item.id)) {
+      playVideo(item.id, item.name, item.subtitle, item.imageUrl);
+    }
   };
 
   const handleResultClick = (
