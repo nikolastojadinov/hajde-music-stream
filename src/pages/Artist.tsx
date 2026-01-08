@@ -176,7 +176,16 @@ export default function Artist() {
                       <button
                         key={album.id}
                         type="button"
-                        onClick={() => navigate(`/playlist/${encodeURIComponent(album.id)}`)}
+                        onClick={() =>
+                          navigate(`/playlist/${encodeURIComponent(album.id)}`, {
+                            state: {
+                              playlistId: album.id,
+                              playlistTitle: album.title,
+                              playlistCover: album.imageUrl,
+                              artistName,
+                            },
+                          })
+                        }
                         className="w-40 flex-shrink-0 text-left"
                       >
                         <div className="overflow-hidden rounded-[10px] border border-white/5 bg-neutral-800" style={{ width: 160, height: 160 }}>
@@ -202,7 +211,16 @@ export default function Artist() {
                       <button
                         key={pl.id}
                         type="button"
-                        onClick={() => navigate(`/playlist/${encodeURIComponent(pl.id)}`)}
+                        onClick={() =>
+                          navigate(`/playlist/${encodeURIComponent(pl.id)}`, {
+                            state: {
+                              playlistId: pl.id,
+                              playlistTitle: pl.title,
+                              playlistCover: pl.imageUrl,
+                              artistName,
+                            },
+                          })
+                        }
                         className="w-40 flex-shrink-0 text-left"
                       >
                         <div className="overflow-hidden rounded-[10px] border border-white/5 bg-neutral-800" style={{ width: 160, height: 160 }}>

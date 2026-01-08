@@ -1,8 +1,8 @@
 import { Play, Shuffle } from "lucide-react";
 
 type Props = {
-  title: string;
-  thumbnail: string | null;
+  title?: string;
+  thumbnail?: string | null;
   trackCount: number;
   onPlayAll?: () => void;
   onShuffle?: () => void;
@@ -10,6 +10,8 @@ type Props = {
 };
 
 export function PlaylistHeader({ title, thumbnail, trackCount, onPlayAll, onShuffle, disablePlayback }: Props) {
+  if (!title) return null;
+
   return (
     <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-neutral-900/90 via-neutral-900/70 to-black shadow-2xl">
       <div className="relative flex flex-col gap-6 p-6 md:flex-row md:items-center md:gap-8 md:p-10">

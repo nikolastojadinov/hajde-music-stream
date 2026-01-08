@@ -6,7 +6,7 @@ import { TrackRow } from "@/components/TrackRow";
 import { usePlayer } from "@/contexts/PlayerContext";
 import { withBackendOrigin } from "@/lib/backendUrl";
 
-type PlaylistTrack = {
+type ApiTrack = {
   videoId: string;
   title: string;
   artist: string | null;
@@ -14,24 +14,18 @@ type PlaylistTrack = {
   thumbnail: string | null;
 };
 
-type PlaylistResponse = {
+type PlaylistApiResponse = {
   id: string;
   title: string;
   thumbnail: string | null;
-  tracks: PlaylistTrack[];
+  tracks: ApiTrack[];
 };
 
 type LocationState = {
-  title?: string;
-  artist?: string;
-};
-
-const looksLikePlaylistId = (value: string | undefined | null, browseId?: string): boolean => {
-  if (typeof value !== "string") return false;
-  const trimmed = value.trim();
-  if (!trimmed) return false;
-  if (browseId && trimmed === browseId) return true;
-  return /^(MPRE|OLAK|VL|RDCLAK|PL)[A-Za-z0-9_-]+$/.test(trimmed);
+  playlistId?: string;
+  playlistTitle?: string;
+  playlistCover?: string | null;
+  artistName?: string;
 };
 
 const isVideoId = (value: string | undefined | null): value is string => typeof value === "string" && /^[A-Za-z0-9_-]{11}$/.test(value.trim());
@@ -44,12 +38,13 @@ export default function PlaylistPage() {
   const { playCollection } = usePlayer();
 
   const state = (location.state || {}) as LocationState;
-  const stateTitle = typeof state.title === "string" ? state.title.trim() : "";
-  const stateArtist = typeof state.artist === "string" ? state.artist.trim() : "";
+  const navTitle = typeof state.playlistTitle === "string" ? state.playlistTitle.trim() : "";
+  const navCover = state.playlistCover ?? null;
+  const navArtist = typeof state.artistName === "string" ? state.artistName.trim() : "";
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [playlist, setPlaylist] = useState<PlaylistResponse | null>(null);
+  const [tracks, setTracks] = useState<ApiTrack[]>([]);
 
   useEffect(() => {
     if (!browseId) return;
@@ -67,13 +62,13 @@ export default function PlaylistPage() {
           credentials: "include",
           signal: controller.signal,
         });
-        const json = await res.json().catch(() => ({} as PlaylistResponse));
+        const json = (await res.json().catch(() => ({}))) as Partial<PlaylistApiResponse>;
         if (!res.ok) throw new Error(typeof (json as any)?.error === "string" ? (json as any).error : "Playlist fetch failed");
-        setPlaylist(json as PlaylistResponse);
+        setTracks(Array.isArray(json.tracks) ? json.tracks : []);
       } catch (err: any) {
         if (err?.name === "AbortError") return;
         setError(err?.message || "Playlist fetch failed");
-        setPlaylist(null);
+        setTracks([]);
       } finally {
         setLoading(false);
       }
@@ -83,34 +78,23 @@ export default function PlaylistPage() {
     return () => controller.abort();
   }, [browseId]);
 
-  const playlistTitleRaw = (playlist?.title || "").trim();
-  const title =
-    looksLikePlaylistId(playlistTitleRaw, browseId) && stateTitle
-      ? stateTitle
-      : playlistTitleRaw && !looksLikePlaylistId(playlistTitleRaw, browseId)
-        ? playlistTitleRaw
-        : stateTitle;
-
-  const playlistArtist = stateArtist || "";
-
-  const tracks = useMemo(() => {
-    if (!Array.isArray(playlist?.tracks)) return [];
-    return playlist.tracks
+  const normalizedTracks = useMemo(() => {
+    return tracks
       .map((t) => {
         if (!isVideoId(t.videoId)) return null;
         return {
           videoId: t.videoId.trim(),
           title: (t.title || "").trim(),
-          artist: playlistArtist || (t.artist || "").trim(),
+          artist: navArtist,
           duration: (t.duration || "").trim(),
         };
       })
       .filter(Boolean) as Array<{ videoId: string; title: string; artist: string; duration: string }>;
-  }, [playlist?.tracks, playlistArtist]);
+  }, [tracks, navArtist]);
 
   const playbackQueue = useMemo(
-    () => tracks.map((t) => ({ youtubeVideoId: t.videoId, title: t.title, artist: t.artist, thumbnailUrl: undefined })),
-    [tracks],
+    () => normalizedTracks.map((t) => ({ youtubeVideoId: t.videoId, title: t.title, artist: t.artist, thumbnailUrl: undefined })),
+    [normalizedTracks],
   );
 
   const handlePlayAll = () => {
@@ -129,30 +113,7 @@ export default function PlaylistPage() {
     playCollection(playbackQueue, index, "playlist", browseId || null);
   };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gradient-to-b from-neutral-950 via-neutral-950 to-black text-white">
-        <div className="mx-auto max-w-6xl px-4 py-12 text-sm text-neutral-400">Loading playlist...</div>
-      </div>
-    );
-  }
-
-  if (!playlist || !title) {
-    return (
-      <div className="min-h-screen bg-gradient-to-b from-neutral-950 via-neutral-950 to-black text-white">
-        <div className="mx-auto max-w-6xl px-4 py-12 text-sm text-neutral-400">{error || "Playlist unavailable."}</div>
-        <div className="mx-auto max-w-6xl px-4">
-          <button
-            type="button"
-            onClick={() => navigate(-1)}
-            className="mt-4 rounded border border-white/20 px-3 py-2 text-sm text-white hover:bg-white/10"
-          >
-            Go back
-          </button>
-        </div>
-      </div>
-    );
-  }
+  const hasNavContext = Boolean(navTitle);
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-neutral-950 via-neutral-950 to-black text-white">
@@ -166,33 +127,41 @@ export default function PlaylistPage() {
           >
             ←
           </button>
-          <div className="truncate text-base font-semibold text-white md:text-lg">{title}</div>
+          <div className="truncate text-base font-semibold text-white md:text-lg">{navTitle}</div>
         </div>
 
-        <PlaylistHeader
-          title={title}
-          thumbnail={playlist.thumbnail}
-          trackCount={tracks.length}
-          onPlayAll={handlePlayAll}
-          onShuffle={handleShufflePlay}
-          disablePlayback={!playbackQueue.length}
-        />
+        {hasNavContext ? (
+          <PlaylistHeader
+            title={navTitle}
+            thumbnail={navCover}
+            trackCount={normalizedTracks.length}
+            onPlayAll={handlePlayAll}
+            onShuffle={handleShufflePlay}
+            disablePlayback={!playbackQueue.length}
+          />
+        ) : (
+          <div className="rounded-2xl border border-white/10 bg-neutral-900/60 px-6 py-6 text-sm text-neutral-300">
+            Playlist context missing.
+          </div>
+        )}
 
         {error ? (
           <div className="mt-6 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-100">{error}</div>
         ) : null}
 
         <div className="mt-8 rounded-2xl border border-white/10 bg-black/60 shadow-2xl">
-          {tracks.length === 0 ? (
+          {loading ? (
+            <div className="px-6 py-10 text-center text-sm text-neutral-400">Loading tracks...</div>
+          ) : normalizedTracks.length === 0 ? (
             <div className="px-6 py-10 text-center text-sm text-neutral-400">No tracks available for this playlist.</div>
           ) : (
             <div className="divide-y divide-white/5">
-              {tracks.map((track, index) => (
+              {normalizedTracks.map((track, index) => (
                 <TrackRow
                   key={track.videoId}
                   index={index}
                   title={track.title}
-                  artist={track.artist || undefined}
+                  artist={track.artist}
                   duration={track.duration}
                   onSelect={() => handlePlayTrack(index)}
                 />
