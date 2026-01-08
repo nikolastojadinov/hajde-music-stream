@@ -81,14 +81,6 @@ type ParsedItem = {
   imageUrl?: string;
 };
 
-type ParsedSuggestion = {
-  type: SuggestionType;
-  id: string;
-  name: string;
-  subtitle?: string;
-  imageUrl?: string;
-};
-
 function emptySections(): MusicSearchSection[] {
   return [
     { kind: "songs", title: null, items: [] },
@@ -121,6 +113,10 @@ function looksLikeBrowseId(value: string): boolean {
   const v = normalizeString(value);
   if (!v || v.includes(" ")) return false;
   return /^(OLAK|PL|VL|RD|MP|UU|LL|UC|OL|RV)[A-Za-z0-9_-]+$/i.test(v);
+}
+
+function toArray<T>(value: unknown): T[] {
+  return Array.isArray(value) ? (value as T[]) : [];
 }
 
 function isMusicPageType(pageType: unknown, match: string): boolean {
@@ -601,146 +597,71 @@ function partitionParsedItems(items: ParsedItem[]): MusicSearchResults {
   };
 }
 
-function inferSuggestionType(pageType: string, browseId: string): SuggestionType | null {
-  if (isMusicPageType(pageType, "MUSIC_PAGE_TYPE_ARTIST")) return "artist";
-  if (isMusicPageType(pageType, "MUSIC_PAGE_TYPE_ALBUM")) return "album";
-  if (isMusicPageType(pageType, "MUSIC_PAGE_TYPE_PLAYLIST")) return "playlist";
+const MAX_SUGGESTIONS_TOTAL = 20;
 
-  const upper = browseId.toUpperCase();
-  if (!upper) return null;
-  if (upper.startsWith("VL") || upper.startsWith("PL") || upper.startsWith("OLAK") || upper.startsWith("RD")) return "playlist";
-  if (upper.startsWith("MPRE") || upper.startsWith("OLAK5")) return "album";
-  if (upper.startsWith("UC")) return "artist";
-  return null;
-}
-
-function formatSubtitle(type: SuggestionType, raw?: string): string {
-  const cleaned = normalizeString(raw);
-  if (type === "track") {
-    const parts = ["Song"];
-    if (cleaned) parts.push(cleaned);
-    return parts.join(" • ");
-  }
-  if (type === "artist") {
-    return cleaned || "Artist";
-  }
-  if (type === "album") {
-    if (!cleaned) return "Album";
-    return cleaned.startsWith("Album") ? cleaned : `Album • ${cleaned}`;
-  }
-  if (type === "playlist") {
-    if (!cleaned) return "Playlist";
-    return cleaned.startsWith("Playlist") ? cleaned : `Playlist • ${cleaned}`;
-  }
-  return cleaned;
-}
-
-function parseSearchSuggestionRenderer(renderer: any): ParsedSuggestion | null {
-  const name = pickText(renderer?.suggestion);
-  const nav = renderer?.navigationEndpoint || renderer?.subtext?.navigationEndpoint;
-  const watchId = normalizeString(nav?.watchEndpoint?.videoId);
-  const browseId = normalizeString(nav?.browseEndpoint?.browseId);
-  const pageType = normalizeString(
-    nav?.browseEndpoint?.browseEndpointContextSupportedConfigs?.browseEndpointContextMusicConfig?.pageType
-  );
-  const thumb =
-    pickThumbnail(renderer?.thumbnail?.thumbnails) ||
-    pickThumbnail(renderer?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails);
-  const subtitleRaw = pickText(renderer?.subtext);
-
-  if (looksLikeVideoId(watchId) && name) {
-    return { type: "track", id: watchId, name, subtitle: subtitleRaw || undefined, imageUrl: thumb || undefined };
-  }
-
-  if (browseId && name) {
-    const inferred = inferSuggestionType(pageType, browseId);
-    if (inferred) {
-      return { type: inferred, id: browseId, name, subtitle: subtitleRaw || undefined, imageUrl: thumb || undefined };
-    }
-  }
-
-  return null;
-}
-
-function parsedToSuggestion(parsed: ParsedItem): ParsedSuggestion {
-  return {
-    type: parsed.kind,
-    id: parsed.id,
-    name: parsed.title,
-    subtitle: parsed.subtitle,
-    imageUrl: parsed.imageUrl,
-  };
-}
-
-function collectSuggestions(root: any): MusicSearchSuggestion[] {
-  const results: MusicSearchSuggestion[] = [];
+function buildSuggestionsFromPartition(partitioned: MusicSearchResults): MusicSearchSuggestion[] {
+  const suggestions: MusicSearchSuggestion[] = [];
   const seen = new Set<string>();
 
-  const push = (suggestion: ParsedSuggestion | null) => {
-    if (!suggestion) return;
-    const id = normalizeString(suggestion.id);
-    const name = normalizeString(suggestion.name);
+  const push = (item: MusicSearchSuggestion) => {
+    const id = normalizeString(item.id);
+    const name = normalizeString(item.name);
     if (!id || !name) return;
-
-    if (suggestion.type === "track" && !looksLikeVideoId(id)) return;
-    if (suggestion.type !== "track" && !looksLikeBrowseId(id)) return;
-
-    const key = `${suggestion.type}:${id}`;
+    const key = `${item.type}:${id}`;
     if (seen.has(key)) return;
     seen.add(key);
+    suggestions.push({ ...item, id, name });
+  };
 
-    results.push({
-      type: suggestion.type,
-      id,
-      name,
-      subtitle: formatSubtitle(suggestion.type, suggestion.subtitle),
-      imageUrl: normalizeString(suggestion.imageUrl) || undefined,
+  const artists = toArray<MusicSearchArtist>(partitioned.artists);
+  for (const artist of artists) {
+    push({
+      type: "artist",
+      id: artist.id,
+      name: artist.name,
+      subtitle: "Artist",
+      imageUrl: normalizeString(artist.imageUrl) || undefined,
     });
-  };
+    if (suggestions.length >= MAX_SUGGESTIONS_TOTAL) return suggestions;
+  }
 
-  const walk = (node: any): void => {
-    if (!node) return;
-    if (Array.isArray(node)) {
-      node.forEach((item) => walk(item));
-      return;
-    }
-    if (typeof node !== "object") return;
+  const tracks = toArray<MusicSearchTrack>(partitioned.tracks);
+  for (const track of tracks) {
+    push({
+      type: "track",
+      id: track.youtubeId,
+      name: track.title,
+      subtitle: normalizeString(track.artist) || undefined,
+      imageUrl: normalizeString(track.imageUrl) || undefined,
+    });
+    if (suggestions.length >= MAX_SUGGESTIONS_TOTAL) return suggestions;
+  }
 
-    if ((node as any).searchSuggestionRenderer) {
-      push(parseSearchSuggestionRenderer((node as any).searchSuggestionRenderer));
-    }
+  const albums = toArray<MusicSearchAlbum>(partitioned.albums);
+  for (const album of albums) {
+    push({
+      type: "album",
+      id: album.id,
+      name: album.title,
+      subtitle: "Album",
+      imageUrl: normalizeString(album.imageUrl) || undefined,
+    });
+    if (suggestions.length >= MAX_SUGGESTIONS_TOTAL) return suggestions;
+  }
 
-    if ((node as any).musicShelfRenderer) {
-      const parsed = parseShelfRenderer((node as any).musicShelfRenderer);
-      parsed.collected.forEach((item) => push(parsedToSuggestion(item)));
-    }
+  const playlists = toArray<MusicSearchPlaylist>(partitioned.playlists);
+  for (const playlist of playlists) {
+    push({
+      type: "playlist",
+      id: playlist.id,
+      name: playlist.title,
+      subtitle: "Playlist",
+      imageUrl: normalizeString(playlist.imageUrl) || undefined,
+    });
+    if (suggestions.length >= MAX_SUGGESTIONS_TOTAL) return suggestions;
+  }
 
-    if ((node as any).musicCarouselShelfRenderer) {
-      const parsed = parseCarouselRenderer((node as any).musicCarouselShelfRenderer);
-      parsed.collected.forEach((item) => push(parsedToSuggestion(item)));
-    }
-
-    if ((node as any).musicCardShelfRenderer) {
-      const parsed = parseCardShelfRenderer((node as any).musicCardShelfRenderer);
-      parsed.collected.forEach((item) => push(parsedToSuggestion(item)));
-    }
-
-    if ((node as any).musicResponsiveListItemRenderer) {
-      const parsed = parseMusicResponsiveListItemRenderer((node as any).musicResponsiveListItemRenderer);
-      if (parsed) push(parsedToSuggestion(parsed));
-    }
-
-    if ((node as any).musicTwoRowItemRenderer) {
-      const parsed = parseMusicTwoRowItemRenderer((node as any).musicTwoRowItemRenderer);
-      if (parsed) push(parsedToSuggestion(parsed));
-    }
-
-    const values = Object.values(node as Record<string, unknown>);
-    values.forEach((value) => walk(value));
-  };
-
-  walk(root);
-  return results;
+  return suggestions.slice(0, MAX_SUGGESTIONS_TOTAL);
 }
 
 export async function searchSuggestions(queryRaw: string): Promise<MusicSearchSuggestion[]> {
@@ -749,9 +670,11 @@ export async function searchSuggestions(queryRaw: string): Promise<MusicSearchSu
 
   try {
     const config = await loadConfigOrThrow();
-    const payload = { context: buildSearchBody(config, query).context, input: query };
-    const json = await callYoutubei<any>(config, "music/get_search_suggestions", payload);
-    return collectSuggestions(json);
+    const payload = buildSearchBody(config, query);
+    const json = await callYoutubei<any>(config, "search", payload);
+    const { collected } = extractSearchSections(json);
+    const partitioned = partitionParsedItems(collected);
+    return buildSuggestionsFromPartition(partitioned);
   } catch (err) {
     logDebug("searchSuggestions_error", err instanceof Error ? err.message : String(err));
     return [];
