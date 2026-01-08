@@ -6,6 +6,13 @@ type SearchSuggestListProps = {
 };
 
 export default function SearchSuggestList({ suggestions, onSelect }: SearchSuggestListProps) {
+  const fallbackLabel = (type: SearchSuggestItem["type"]): string => {
+    if (type === "artist") return "Artist";
+    if (type === "track") return "Song";
+    if (type === "album") return "Album";
+    return "Playlist";
+  };
+
   return (
     <div className="flex flex-col divide-y divide-neutral-800 text-sm">
       {suggestions.map((item) => (
@@ -23,7 +30,7 @@ export default function SearchSuggestList({ suggestions, onSelect }: SearchSugge
 
           <div className="flex min-w-0 flex-col">
             <span className="truncate font-semibold text-neutral-50">{item.name}</span>
-            <span className="truncate text-xs text-neutral-500">Artist</span>
+            <span className="truncate text-xs text-neutral-500">{item.subtitle || fallbackLabel(item.type)}</span>
           </div>
         </button>
       ))}

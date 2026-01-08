@@ -23,16 +23,17 @@ export type SearchResultItem = {
   endpointPayload: string;
 };
 
-export type SearchSection = {
-  kind: "songs" | "artists" | "albums" | "playlists";
-  title: string | null;
-  items: SearchResultItem[];
+export type SearchSections = {
+  songs: SearchResultItem[];
+  artists: SearchResultItem[];
+  albums: SearchResultItem[];
+  playlists: SearchResultItem[];
 };
 
 export type SearchResolveResponse = {
   q: string;
   source: string;
-  sections: SearchSection[];
+  sections: SearchSections;
 };
 
 async function readJson(response: Response): Promise<any> {

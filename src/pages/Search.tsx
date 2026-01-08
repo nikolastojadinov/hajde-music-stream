@@ -3,18 +3,19 @@ import { useNavigate } from "react-router-dom";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import SearchSuggestList from "@/components/search/SearchSuggestList";
-import { searchResolve, searchSuggest, type SearchResolveResponse, type SearchSuggestItem } from "@/lib/api/search";
+import {
+  searchResolve,
+  searchSuggest,
+  type SearchResolveResponse,
+  type SearchSuggestItem,
+  type SearchSections,
+} from "@/lib/api/search";
 import { usePlayer } from "@/contexts/PlayerContext";
 
 const SUGGEST_DEBOUNCE_MS = 250;
 const MAX_SUGGESTIONS = 15;
 
-const typeLabel: Record<SearchResolveResponse["sections"][number]["kind"], string> = {
-  songs: "Songs",
-  artists: "Artists",
-  albums: "Albums",
-  playlists: "Playlists",
-};
+const typeLabel: Record<keyof SearchSections, string> = { songs: "Songs", artists: "Artists", albums: "Albums", playlists: "Playlists" };
 
 const allowedSuggestionTypes: SearchSuggestItem["type"][] = ["artist", "track", "album", "playlist"];
 
@@ -48,7 +49,12 @@ export default function Search() {
   const { playTrack } = usePlayer();
 
   const [query, setQuery] = useState("");
-  const [sections, setSections] = useState<SearchResolveResponse["sections"]>([]);
+  const [sections, setSections] = useState<SearchResolveResponse["sections"]>({
+    songs: [],
+    artists: [],
+    albums: [],
+    playlists: [],
+  });
   const [suggestions, setSuggestions] = useState<SearchSuggestItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -67,10 +73,18 @@ export default function Search() {
     playTrack({ youtubeVideoId: videoId, title, artist: artist || title, thumbnailUrl: imageUrl || undefined }, "song");
   };
 
+  const normalizeSections = (value: unknown): SearchSections => {
+    const songs = Array.isArray((value as any)?.songs) ? (value as any).songs : [];
+    const artists = Array.isArray((value as any)?.artists) ? (value as any).artists : [];
+    const albums = Array.isArray((value as any)?.albums) ? (value as any).albums : [];
+    const playlists = Array.isArray((value as any)?.playlists) ? (value as any).playlists : [];
+    return { songs, artists, albums, playlists };
+  };
+
   const runSearch = async (value?: string) => {
     const nextQuery = normalizeString(value ?? query);
     if (nextQuery.length < 2) {
-      setSections([]);
+      setSections({ songs: [], artists: [], albums: [], playlists: [] });
       return;
     }
 
@@ -79,11 +93,11 @@ export default function Search() {
 
     try {
       const response = await searchResolve({ q: nextQuery });
-      const nextSections = Array.isArray(response?.sections) ? response.sections : [];
+      const nextSections = normalizeSections(response?.sections);
       setSections(nextSections);
     } catch {
       setError("Unable to load search results.");
-      setSections([]);
+      setSections({ songs: [], artists: [], albums: [], playlists: [] });
     } finally {
       setLoading(false);
     }
@@ -176,7 +190,7 @@ export default function Search() {
     };
   }, []);
 
-  const orderedSections = ["songs", "artists", "albums", "playlists"] as const;
+  const orderedSections: (keyof SearchSections)[] = ["songs", "artists", "albums", "playlists"];
 
   return (
     <div className="min-h-screen bg-neutral-950 pb-20 text-white">
@@ -211,13 +225,13 @@ export default function Search() {
 
         <div className="space-y-8">
           {orderedSections.map((kind) => {
-            const section = Array.isArray(sections) ? sections.find((s) => s.kind === kind) : undefined;
-            if (!section || !Array.isArray(section.items) || section.items.length === 0) return null;
+            const items = Array.isArray(sections?.[kind]) ? sections[kind] : [];
+            if (items.length === 0) return null;
             return (
               <div key={kind} className="space-y-3">
                 <h2 className="text-xl font-semibold text-neutral-100">{typeLabel[kind]}</h2>
                 <div className="flex gap-4 overflow-x-auto pb-2">
-                  {section.items.map((item) => (
+                  {items.map((item) => (
                     <button
                       key={item.id}
                       type="button"
