@@ -8,6 +8,7 @@ import { usePlayer } from "@/contexts/PlayerContext";
 
 const SUGGEST_DEBOUNCE_MS = 250;
 const MAX_SUGGESTIONS = 15;
+
 const typeLabel: Record<SearchResolveResponse["sections"][number]["kind"], string> = {
   songs: "Songs",
   artists: "Artists",
@@ -17,36 +18,29 @@ const typeLabel: Record<SearchResolveResponse["sections"][number]["kind"], strin
 
 const allowedSuggestionTypes: SearchSuggestItem["type"][] = ["artist", "track", "album", "playlist"];
 
-const isVideoId = (id: string | undefined | null) => typeof id === "string" && /^[A-Za-z0-9_-]{11}$/.test(id.trim());
+const isVideoId = (id: string | undefined | null): boolean => typeof id === "string" && /^[A-Za-z0-9_-]{11}$/.test(id.trim());
 
 const normalizeString = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
 
-const normalizeSuggestions = (maybe: unknown): SearchSuggestItem[] => {
-  if (!Array.isArray(maybe)) return [];
+const normalizeSuggestions = (value: unknown): SearchSuggestItem[] => {
+  if (!Array.isArray(value)) return [];
 
-  const normalized: SearchSuggestItem[] = [];
+  const out: SearchSuggestItem[] = [];
 
-  for (const candidate of maybe) {
-    const type = (candidate as any)?.type;
-    const id = normalizeString((candidate as any)?.id);
-    const name = normalizeString((candidate as any)?.name);
+  for (const raw of value) {
+    const type = (raw as any)?.type;
+    const id = normalizeString((raw as any)?.id);
+    const name = normalizeString((raw as any)?.name);
     if (!allowedSuggestionTypes.includes(type) || !id || !name) continue;
 
-    const imageUrlRaw = normalizeString((candidate as any)?.imageUrl);
-    const subtitleRaw = normalizeString((candidate as any)?.subtitle);
+    const imageUrl = normalizeString((raw as any)?.imageUrl) || undefined;
+    const subtitle = normalizeString((raw as any)?.subtitle) || undefined;
 
-    normalized.push({
-      type,
-      id,
-      name,
-      imageUrl: imageUrlRaw || undefined,
-      subtitle: subtitleRaw || undefined,
-    });
-
-    if (normalized.length >= MAX_SUGGESTIONS) break;
+    out.push({ type, id, name, imageUrl, subtitle });
+    if (out.length >= MAX_SUGGESTIONS) break;
   }
 
-  return normalized;
+  return out;
 };
 
 export default function Search() {
@@ -115,8 +109,7 @@ export default function Search() {
 
       try {
         const res = await searchSuggest(trimmed, { signal: controller.signal });
-        const normalized = normalizeSuggestions(res?.suggestions);
-        setSuggestions(normalized);
+        setSuggestions(normalizeSuggestions(res?.suggestions));
       } catch (err: any) {
         if (err?.name === "AbortError") return;
         setSuggestions([]);
@@ -218,8 +211,8 @@ export default function Search() {
 
         <div className="space-y-8">
           {orderedSections.map((kind) => {
-            const section = sections.find((s) => s.kind === kind);
-            if (!section || section.items.length === 0) return null;
+            const section = Array.isArray(sections) ? sections.find((s) => s.kind === kind) : undefined;
+            if (!section || !Array.isArray(section.items) || section.items.length === 0) return null;
             return (
               <div key={kind} className="space-y-3">
                 <h2 className="text-xl font-semibold text-neutral-100">{typeLabel[kind]}</h2>
