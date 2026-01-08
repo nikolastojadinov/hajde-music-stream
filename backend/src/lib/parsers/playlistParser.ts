@@ -10,17 +10,16 @@ type MusicResponsiveListItem = any;
 
 export type PlaylistTrack = {
   title: string;
-  artist: string;
+  artist: string | null;
   duration: string;
-  plays?: string;
   videoId: string;
+  thumbnail: string | null;
 };
 
 export type ParsedPlaylist = {
   title: string;
-  artist?: string;
-  trackCount: number;
-  totalDuration: string;
+  subtitle: string | null;
+  thumbnail: string | null;
   tracks: PlaylistTrack[];
 };
 
@@ -52,18 +51,33 @@ function pickText(node: any): string {
   return "";
 }
 
+function pickBestThumbnail(thumbnails?: any): string | null {
+  const arr = Array.isArray(thumbnails) ? thumbnails : thumbnails?.thumbnails;
+  if (!Array.isArray(arr) || arr.length === 0) return null;
+
+  const scored = arr
+    .map((t: any) => {
+      const url = normalizeString(t?.url);
+      if (!url) return null;
+      const width = Number(t?.width) || 0;
+      const height = Number(t?.height) || 0;
+      const score = width > 0 && height > 0 ? width * height : width || height;
+      return { url, score };
+    })
+    .filter(Boolean) as Array<{ url: string; score: number }>;
+
+  if (scored.length === 0) return null;
+  scored.sort((a, b) => b.score - a.score);
+  return scored[0].url;
+}
+
 function parseArtistFromFlexColumns(renderer: MusicResponsiveListItem): string | null {
   const columns = Array.isArray(renderer?.flexColumns) ? renderer.flexColumns : [];
-  const artists: string[] = [];
-
-  columns.forEach((col: any, idx: number) => {
-    const text = pickRunsText(col?.musicResponsiveListItemFlexColumnRenderer?.text?.runs, ", ");
-    if (!text) return;
-    // Only consider non-title columns as artist/byline text.
-    if (idx > 0) artists.push(text);
-  });
-
-  if (artists.length > 0) return artists.join(", ");
+  for (let i = 0; i < columns.length; i += 1) {
+    if (i === 0) continue; // first column is the title
+    const text = pickRunsText(columns[i]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs, " ");
+    if (text) return text;
+  }
   return null;
 }
 
@@ -75,40 +89,14 @@ function parseArtistFromMenu(renderer: MusicResponsiveListItem): string | null {
     const nav: MenuNavigationItem | undefined = item?.menuNavigationItemRenderer;
     if (!nav) continue;
 
-    const text = pickRunsText(nav.text?.runs, " ").toLowerCase();
-    if (!text.includes("go to artist")) continue;
+    const menuText = pickRunsText(nav.text?.runs, " ");
+    if (menuText.toLowerCase() !== "go to artist") continue;
 
-    const labelRaw = normalizeString(nav.accessibility?.accessibilityData?.label);
-    const afterArtist = labelRaw.toLowerCase().includes("artist")
-      ? normalizeString(labelRaw.split(/artist/i)[1])
-      : "";
-    const candidate = normalizeString(afterArtist);
+    const candidate = pickRunsText(nav.text?.runs, " ");
     if (candidate) return candidate;
   }
 
   return null;
-}
-
-function parseArtistFromMicroformat(title: string | null): string | null {
-  if (!title) return null;
-  const lower = title.toLowerCase();
-  const idx = lower.lastIndexOf(" by ");
-  if (idx === -1) return null;
-  const candidate = normalizeString(title.slice(idx + 4));
-  return candidate || null;
-}
-
-function extractArtist(renderer: MusicResponsiveListItem, microformatTitle: string | null): string {
-  const flexArtist = parseArtistFromFlexColumns(renderer);
-  if (flexArtist) return flexArtist;
-
-  const menuArtist = parseArtistFromMenu(renderer);
-  if (menuArtist) return menuArtist;
-
-  const microArtist = parseArtistFromMicroformat(microformatTitle);
-  if (microArtist) return microArtist;
-
-  return "Unknown artist";
 }
 
 function extractVideoId(renderer: MusicResponsiveListItem): string {
@@ -136,18 +124,7 @@ function extractDuration(renderer: MusicResponsiveListItem): string {
   return "";
 }
 
-function extractPlays(renderer: MusicResponsiveListItem): string | undefined {
-  const columns = Array.isArray(renderer?.flexColumns) ? renderer.flexColumns : [];
-  for (const col of columns) {
-    const text = pickRunsText(col?.musicResponsiveListItemFlexColumnRenderer?.text?.runs, " ");
-    if (!text) continue;
-    const match = text.match(/([0-9][0-9.,]*\s*[KMB]?)\s*plays?/i);
-    if (match) return normalizeString(match[0]);
-  }
-  return undefined;
-}
-
-function parseTrack(renderer: MusicResponsiveListItem, microformatTitle: string | null): PlaylistTrack | null {
+function parseTrack(renderer: MusicResponsiveListItem): PlaylistTrack | null {
   const videoId = extractVideoId(renderer);
   if (!looksLikeVideoId(videoId)) return null;
 
@@ -156,28 +133,17 @@ function parseTrack(renderer: MusicResponsiveListItem, microformatTitle: string 
     pickText(renderer?.title);
   if (!title) return null;
 
-  const artist = extractArtist(renderer, microformatTitle);
+  const artistFromFlex = parseArtistFromFlexColumns(renderer);
+  const artistFromMenu = artistFromFlex ? null : parseArtistFromMenu(renderer);
+  const artist = artistFromFlex || artistFromMenu || null;
+
   const duration = extractDuration(renderer);
-  const plays = extractPlays(renderer);
+  const thumbnail =
+    pickBestThumbnail(renderer?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails) ||
+    pickBestThumbnail(renderer?.thumbnail?.thumbnails) ||
+    null;
 
-  return { title, artist, duration, plays, videoId };
-}
-
-function parseTrackCountAndDuration(secondSubtitle: any): { trackCount: number; totalDuration: string } {
-  const text = pickText(secondSubtitle);
-  let trackCount = 0;
-  let totalDuration = "";
-
-  if (text) {
-    const countMatch = text.match(/(\d+)/);
-    if (countMatch) trackCount = Number.parseInt(countMatch[1], 10) || 0;
-
-    const parts = text.split(/[•·]/).map((p) => p.trim()).filter(Boolean);
-    const durationPart = parts.find((p) => /hour|minute|min|:\d{2}/i.test(p));
-    if (durationPart) totalDuration = durationPart;
-  }
-
-  return { trackCount, totalDuration };
+  return { title, artist, duration, videoId, thumbnail };
 }
 
 function collectResponsiveItems(root: any): MusicResponsiveListItem[] {
@@ -200,19 +166,22 @@ function collectResponsiveItems(root: any): MusicResponsiveListItem[] {
   return out;
 }
 
-export function parsePlaylistFromInnertube(browseJson: any): ParsedPlaylist {
+export function parsePlaylistFromInnertube(browseJson: any, browseId: string): ParsedPlaylist {
   const header = browseJson?.header?.musicDetailHeaderRenderer;
-  const playlistTitle = pickText(header?.title) || "";
-  const playlistArtist = pickText(header?.subtitle) || undefined;
-  const { trackCount, totalDuration } = parseTrackCountAndDuration(header?.secondSubtitle);
-  const microformatTitle = normalizeString(browseJson?.microformat?.microformatDataRenderer?.title) || null;
+  const playlistTitle = normalizeString(header?.title?.runs?.[0]?.text) || normalizeString(browseId);
+  const subtitleRaw = pickRunsText(header?.secondSubtitle?.runs);
+  const subtitle = subtitleRaw || null;
+  const thumbnail =
+    pickBestThumbnail(header?.thumbnail?.croppedSquareThumbnailRenderer?.thumbnail?.thumbnails) ||
+    pickBestThumbnail(browseJson?.background?.musicThumbnailRenderer?.thumbnail?.thumbnails) ||
+    null;
 
   const items = collectResponsiveItems(browseJson);
   const tracks: PlaylistTrack[] = [];
   const seen = new Set<string>();
 
   items.forEach((renderer) => {
-    const track = parseTrack(renderer, microformatTitle);
+    const track = parseTrack(renderer);
     if (!track) return;
     if (seen.has(track.videoId)) return;
     seen.add(track.videoId);
@@ -221,9 +190,8 @@ export function parsePlaylistFromInnertube(browseJson: any): ParsedPlaylist {
 
   return {
     title: playlistTitle,
-    artist: playlistArtist,
-    trackCount,
-    totalDuration,
+    subtitle,
+    thumbnail,
     tracks,
   };
 }
