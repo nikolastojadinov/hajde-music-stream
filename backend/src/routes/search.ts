@@ -39,15 +39,15 @@ export type SearchResultItem = {
   endpointPayload: string;
 };
 
+export type SearchSection = {
+  kind: "songs" | "artists" | "albums" | "playlists";
+  items: SearchResultItem[];
+};
+
 export type SearchResultsResponse = {
   q: string;
   source: "youtube_live";
-  sections: {
-    songs: SearchResultItem[];
-    artists: SearchResultItem[];
-    albums: SearchResultItem[];
-    playlists: SearchResultItem[];
-  };
+  sections: SearchSection[];
 };
 
 function normalizeString(value: unknown): string {
@@ -115,8 +115,9 @@ function interleaveSuggestions(raw: MusicSearchSuggestion[]): SearchSuggestItem[
       while (ptr < bucket.length && out.length < MAX_SUGGESTIONS) {
         const candidate = bucket[ptr];
         ptr += 1;
-        if (!seen.has(candidate.id)) {
-          seen.add(candidate.id);
+        const key = `${candidate.type}:${candidate.id}`;
+        if (!seen.has(key)) {
+          seen.add(key);
           out.push(candidate);
           progressed = true;
           break;
@@ -185,30 +186,39 @@ function mapPlaylists(playlists: MusicSearchPlaylist[]): SearchResultItem[] {
     }));
 }
 
-function buildSections(live: { tracks: MusicSearchTrack[]; artists: MusicSearchArtist[]; albums: MusicSearchAlbum[]; playlists: MusicSearchPlaylist[] }): SearchResultsResponse["sections"] {
-  return {
-    songs: mapTracks(live.tracks || []),
-    artists: mapArtists(live.artists || []),
-    albums: mapAlbums(live.albums || []),
-    playlists: mapPlaylists(live.playlists || []),
-  };
+function buildSections(live: {
+  tracks: MusicSearchTrack[];
+  artists: MusicSearchArtist[];
+  albums: MusicSearchAlbum[];
+  playlists: MusicSearchPlaylist[];
+}): SearchSection[] {
+  const sections: SearchSection[] = [
+    { kind: "songs", items: mapTracks(live.tracks || []) },
+    { kind: "artists", items: mapArtists(live.artists || []) },
+    { kind: "albums", items: mapAlbums(live.albums || []) },
+    { kind: "playlists", items: mapPlaylists(live.playlists || []) },
+  ];
+  return sections;
+}
+
+function buildEmptySections(): SearchSection[] {
+  return [
+    { kind: "songs", items: [] },
+    { kind: "artists", items: [] },
+    { kind: "albums", items: [] },
+    { kind: "playlists", items: [] },
+  ];
 }
 
 function safeSuggestResponse(q: string, suggestions: SearchSuggestItem[] = []): SearchSuggestResponse {
   return { q, source: "youtube_live", suggestions } satisfies SearchSuggestResponse;
 }
 
-function safeResultsResponse(q: string, sections?: SearchResultsResponse["sections"]): SearchResultsResponse {
+function safeResultsResponse(q: string, sections?: SearchSection[]): SearchResultsResponse {
   return {
     q,
     source: "youtube_live",
-    sections:
-      sections ?? {
-        songs: [],
-        artists: [],
-        albums: [],
-        playlists: [],
-      },
+    sections: sections ?? buildEmptySections(),
   } satisfies SearchResultsResponse;
 }
 
@@ -243,13 +253,6 @@ router.get("/results", async (req, res) => {
   try {
     const live = await musicSearch(q);
     const sections = buildSections(live);
-    console.info("[search/results] parsed_counts", {
-      q,
-      songs: sections.songs.length,
-      artists: sections.artists.length,
-      albums: sections.albums.length,
-      playlists: sections.playlists.length,
-    });
     res.set("Cache-Control", "no-store");
     return res.json(safeResultsResponse(q, sections));
   } catch (err) {

@@ -81,6 +81,24 @@ type ParsedItem = {
   imageUrl?: string;
 };
 
+type ParsedSuggestion = {
+  type: SuggestionType;
+  id: string;
+  name: string;
+  subtitle?: string;
+  imageUrl?: string;
+};
+
+const DEFAULT_RESULTS: MusicSearchResults = {
+  tracks: [],
+  artists: [],
+  albums: [],
+  playlists: [],
+  sections: [],
+  refinements: [],
+  suggestions: [],
+};
+
 function normalizeString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -88,6 +106,12 @@ function normalizeString(value: unknown): string {
 function looksLikeVideoId(value: string): boolean {
   const v = normalizeString(value);
   return /^[A-Za-z0-9_-]{11}$/.test(v);
+}
+
+function looksLikeBrowseId(value: string): boolean {
+  const v = normalizeString(value);
+  if (!v || v.includes(" ")) return false;
+  return /^(OLAK|PL|VL|RD|MP|UU|LL|UC|OL|RV)[A-Za-z0-9_-]+$/i.test(v);
 }
 
 function isMusicPageType(pageType: unknown, match: string): boolean {
@@ -581,7 +605,28 @@ function inferSuggestionType(pageType: string, browseId: string): SuggestionType
   return null;
 }
 
-function parseSearchSuggestionRenderer(renderer: any): MusicSearchSuggestion | null {
+function formatSubtitle(type: SuggestionType, raw?: string): string {
+  const cleaned = normalizeString(raw);
+  if (type === "track") {
+    const parts = ["Song"];
+    if (cleaned) parts.push(cleaned);
+    return parts.join(" • ");
+  }
+  if (type === "artist") {
+    return cleaned || "Artist";
+  }
+  if (type === "album") {
+    if (!cleaned) return "Album";
+    return cleaned.startsWith("Album") ? cleaned : `Album • ${cleaned}`;
+  }
+  if (type === "playlist") {
+    if (!cleaned) return "Playlist";
+    return cleaned.startsWith("Playlist") ? cleaned : `Playlist • ${cleaned}`;
+  }
+  return cleaned;
+}
+
+function parseSearchSuggestionRenderer(renderer: any): ParsedSuggestion | null {
   const name = pickText(renderer?.suggestion);
   const nav = renderer?.navigationEndpoint || renderer?.subtext?.navigationEndpoint;
   const watchId = normalizeString(nav?.watchEndpoint?.videoId);
@@ -592,23 +637,23 @@ function parseSearchSuggestionRenderer(renderer: any): MusicSearchSuggestion | n
   const thumb =
     pickThumbnail(renderer?.thumbnail?.thumbnails) ||
     pickThumbnail(renderer?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails);
-  const subtitle = pickText(renderer?.subtext) || undefined;
+  const subtitleRaw = pickText(renderer?.subtext);
 
   if (looksLikeVideoId(watchId) && name) {
-    return { type: "track", id: watchId, name, subtitle: subtitle || undefined, imageUrl: thumb || undefined };
+    return { type: "track", id: watchId, name, subtitle: subtitleRaw || undefined, imageUrl: thumb || undefined };
   }
 
   if (browseId && name) {
     const inferred = inferSuggestionType(pageType, browseId);
     if (inferred) {
-      return { type: inferred, id: browseId, name, subtitle, imageUrl: thumb || undefined };
+      return { type: inferred, id: browseId, name, subtitle: subtitleRaw || undefined, imageUrl: thumb || undefined };
     }
   }
 
   return null;
 }
 
-function parsedToSuggestion(parsed: ParsedItem): MusicSearchSuggestion {
+function parsedToSuggestion(parsed: ParsedItem): ParsedSuggestion {
   return {
     type: parsed.kind,
     id: parsed.id,
@@ -622,12 +667,26 @@ function collectSuggestions(root: any): MusicSearchSuggestion[] {
   const results: MusicSearchSuggestion[] = [];
   const seen = new Set<string>();
 
-  const push = (suggestion: MusicSearchSuggestion | null) => {
+  const push = (suggestion: ParsedSuggestion | null) => {
     if (!suggestion) return;
     const id = normalizeString(suggestion.id);
-    if (!id || seen.has(id)) return;
-    seen.add(id);
-    results.push(suggestion);
+    const name = normalizeString(suggestion.name);
+    if (!id || !name) return;
+
+    if (suggestion.type === "track" && !looksLikeVideoId(id)) return;
+    if (suggestion.type !== "track" && !looksLikeBrowseId(id)) return;
+
+    const key = `${suggestion.type}:${id}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+
+    results.push({
+      type: suggestion.type,
+      id,
+      name,
+      subtitle: formatSubtitle(suggestion.type, suggestion.subtitle),
+      imageUrl: normalizeString(suggestion.imageUrl) || undefined,
+    });
   };
 
   const walk = (node: any): void => {
@@ -683,8 +742,7 @@ export async function searchSuggestions(queryRaw: string): Promise<MusicSearchSu
     const config = await loadConfigOrThrow();
     const payload = { context: buildSearchBody(config, query).context, input: query };
     const json = await callYoutubei<any>(config, "music/get_search_suggestions", payload);
-    const suggestions = collectSuggestions(json);
-    return suggestions;
+    return collectSuggestions(json);
   } catch (err) {
     logDebug("searchSuggestions_error", err instanceof Error ? err.message : String(err));
     return [];
@@ -693,17 +751,7 @@ export async function searchSuggestions(queryRaw: string): Promise<MusicSearchSu
 
 export async function musicSearch(queryRaw: string): Promise<MusicSearchResults> {
   const query = normalizeString(queryRaw);
-  if (!query) {
-    return {
-      tracks: [],
-      artists: [],
-      albums: [],
-      playlists: [],
-      sections: [],
-      refinements: [],
-      suggestions: [],
-    };
-  }
+  if (!query) return { ...DEFAULT_RESULTS };
 
   try {
     const config = await loadConfigOrThrow();
@@ -717,13 +765,6 @@ export async function musicSearch(queryRaw: string): Promise<MusicSearchResults>
     const { sections, collected } = extractSearchSections(json);
     const partitioned = partitionParsedItems(collected);
 
-    logDebug("search_partition", {
-      tracks: partitioned.tracks.length,
-      artists: partitioned.artists.length,
-      albums: partitioned.albums.length,
-      playlists: partitioned.playlists.length,
-    });
-
     return {
       tracks: partitioned.tracks,
       artists: partitioned.artists,
@@ -735,15 +776,7 @@ export async function musicSearch(queryRaw: string): Promise<MusicSearchResults>
     };
   } catch (err) {
     logDebug("musicSearch_error", err instanceof Error ? err.message : String(err));
-    return {
-      tracks: [],
-      artists: [],
-      albums: [],
-      playlists: [],
-      sections: [],
-      refinements: [],
-      suggestions: [],
-    };
+    return { ...DEFAULT_RESULTS };
   }
 }
 
