@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, Music, Play, Shuffle } from "lucide-react";
 
 import { usePlayer } from "@/contexts/PlayerContext";
@@ -32,6 +32,13 @@ type NormalizedTrack = {
 };
 
 const isVideoId = (value: string | undefined | null): value is string => typeof value === "string" && /^[A-Za-z0-9_-]{11}$/.test(value.trim());
+const looksLikePlaylistId = (value: string | undefined | null, browseId?: string): boolean => {
+  if (typeof value !== "string") return false;
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  if (browseId && trimmed === browseId) return true;
+  return /^(MPRE|OLAK|VL|RDCLAK|PL)[A-Za-z0-9_-]+$/.test(trimmed);
+};
 
 function parseDurationToSeconds(duration: number | string | null | undefined): number | null {
   if (typeof duration === "number" && Number.isFinite(duration)) return Math.max(0, Math.trunc(duration));
@@ -65,6 +72,7 @@ function formatTotalDuration(seconds: number): string {
 export default function Playlist() {
   const { id: routeId, browseId: altBrowseId } = useParams();
   const browseId = (altBrowseId || routeId || "").trim();
+  const location = useLocation();
   const navigate = useNavigate();
   const { playCollection } = usePlayer();
 
@@ -106,6 +114,17 @@ export default function Playlist() {
     return () => controller.abort();
   }, [browseId, reloadKey]);
 
+  const playlistTitleRaw = (data?.title || "").trim();
+  const stateTitle = typeof (location.state as any)?.title === "string" ? ((location.state as any).title as string).trim() : "";
+  const title =
+    looksLikePlaylistId(playlistTitleRaw, browseId) && stateTitle
+      ? stateTitle
+      : playlistTitleRaw && !looksLikePlaylistId(playlistTitleRaw, browseId)
+        ? playlistTitleRaw
+        : stateTitle || "Playlist";
+
+  const playlistArtist = ((data?.subtitle || (location.state as any)?.artist || "") as string).trim();
+
   const tracks: NormalizedTrack[] = useMemo(() => {
     if (!Array.isArray(data?.tracks)) return [];
     return data.tracks
@@ -115,19 +134,18 @@ export default function Playlist() {
         return {
           videoId: t.videoId.trim(),
           title: (t.title || "").trim(),
-          artist: (t.artist || "").trim(),
-          artistId: t.artistId || null,
+          artist: playlistArtist,
+          artistId: null,
           thumbnail: t.thumbnail || null,
           durationLabel: duration.label,
           durationSeconds: duration.seconds ?? undefined,
         } satisfies NormalizedTrack;
       })
       .filter(Boolean) as NormalizedTrack[];
-  }, [data?.tracks]);
+  }, [data?.tracks, playlistArtist]);
 
   const coverImage = data?.thumbnail || null;
-  const title = (data?.title || "").trim() || "Playlist";
-  const subtitle = (data?.subtitle || "").trim() || null;
+  const subtitle = playlistArtist || null;
   const totalDurationSeconds = tracks.reduce((acc, t) => (typeof t.durationSeconds === "number" ? acc + t.durationSeconds : acc), 0);
   const totalDurationLabel = totalDurationSeconds > 0 ? formatTotalDuration(totalDurationSeconds) : null;
 
@@ -150,11 +168,6 @@ export default function Playlist() {
   const handlePlayTrack = (index: number) => {
     if (!playbackQueue.length) return;
     playCollection(playbackQueue, index, "playlist", browseId || null);
-  };
-
-  const handleArtistNavigate = (artistId?: string | null) => {
-    if (!artistId) return;
-    navigate(`/artist/${encodeURIComponent(artistId)}`);
   };
 
   const handleReload = () => setReloadKey((x) => x + 1);
@@ -267,21 +280,7 @@ export default function Playlist() {
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-semibold text-white">{track.title || "Unknown title"}</div>
-                    <div className="truncate text-xs text-neutral-400">
-                      {track.artistId ? (
-                        <span
-                          className="hover:text-white"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleArtistNavigate(track.artistId || undefined);
-                          }}
-                        >
-                          {track.artist || "Unknown artist"}
-                        </span>
-                      ) : (
-                        track.artist || "Unknown artist"
-                      )}
-                    </div>
+                    {track.artist ? <div className="truncate text-xs text-neutral-400">{track.artist}</div> : null}
                   </div>
                   <div className="shrink-0 text-xs tabular-nums text-neutral-300">{track.durationLabel || ""}</div>
                 </button>
