@@ -56,12 +56,12 @@ export default function TrendingNowSection({ snapshot, loading, error, onRetry }
         </div>
       ) : null}
 
-      <div className="grid gap-4 pb-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+      <div className="scrollbar-hide flex gap-4 overflow-x-auto pb-2 pr-2">
         {loading
           ? skeletonCards.map((_, idx) => (
               <div
                 key={`skeleton-${idx}`}
-                className="w-full animate-pulse rounded-[10px] border border-white/5 bg-white/5 p-3"
+                className="w-[180px] flex-shrink-0 animate-pulse rounded-[10px] border border-white/5 bg-white/5 p-3"
               >
                 <div className="mb-3 h-40 w-full rounded-md bg-white/10" />
                 <div className="mb-2 h-4 w-3/4 rounded bg-white/10" />
@@ -72,15 +72,16 @@ export default function TrendingNowSection({ snapshot, loading, error, onRetry }
 
         {!loading && hasItems
           ? snapshot?.items.map((item) => (
-              <PlaylistCard
-                key={item.id}
-                id={item.id}
-                title={item.title}
-                description={item.subtitle}
-                imageUrl={item.imageUrl ?? undefined}
-                viewCount={item.metrics?.views_7d}
-                linkState={{ from: "home-trending" }}
-              />
+              <div key={item.id} className="w-[180px] flex-shrink-0">
+                <PlaylistCard
+                  id={item.id}
+                  title={item.title}
+                  description={item.subtitle}
+                  imageUrl={item.imageUrl ?? undefined}
+                  viewCount={item.metrics?.views_7d}
+                  linkState={{ from: "home-trending" }}
+                />
+              </div>
             ))
           : null}
 
