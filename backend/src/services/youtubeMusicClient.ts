@@ -55,12 +55,18 @@ export type MusicSearchSection = {
   items: Array<MusicSearchTrack | MusicSearchArtist | MusicSearchAlbum | MusicSearchPlaylist>;
 };
 
+export type OrderedSearchItem = {
+  type: SuggestionType;
+  data: MusicSearchArtist | MusicSearchTrack | MusicSearchAlbum | MusicSearchPlaylist;
+};
+
 export type MusicSearchResults = {
   tracks: MusicSearchTrack[];
   artists: MusicSearchArtist[];
   albums: MusicSearchAlbum[];
   playlists: MusicSearchPlaylist[];
   sections: MusicSearchSection[];
+  orderedItems: OrderedSearchItem[];
   refinements: string[];
   suggestions: MusicSearchSuggestion[];
 };
@@ -90,12 +96,28 @@ function emptySections(): MusicSearchSection[] {
   ];
 }
 
+function sectionKindToSuggestionType(kind: string): SuggestionType | null {
+  if (kind === "songs") return "track";
+  if (kind === "artists") return "artist";
+  if (kind === "albums") return "album";
+  if (kind === "playlists") return "playlist";
+  return null;
+}
+
+function inferOrderedItemType(item: MusicSearchSection["items"][number]): SuggestionType {
+  if ((item as MusicSearchTrack).youtubeId) return "track";
+  if ((item as MusicSearchArtist).name && !(item as any).title) return "artist";
+  if ((item as MusicSearchAlbum).channelTitle || (item as MusicSearchAlbum).channelId) return "album";
+  return "playlist";
+}
+
 const DEFAULT_RESULTS: MusicSearchResults = {
   tracks: [],
   artists: [],
   albums: [],
   playlists: [],
   sections: emptySections(),
+  orderedItems: [],
   refinements: [],
   suggestions: [],
 };
@@ -592,6 +614,7 @@ function partitionParsedItems(items: ParsedItem[]): MusicSearchResults {
     albums,
     playlists,
     sections: [],
+    orderedItems: [],
     refinements: [],
     suggestions: [],
   };
@@ -701,6 +724,16 @@ export async function musicSearch(queryRaw: string): Promise<MusicSearchResults>
 
     const orderedSections = Array.isArray(sections) && sections.length > 0 ? sections : emptySections();
 
+    const orderedItems: OrderedSearchItem[] = [];
+    orderedSections.forEach((section) => {
+      const sectionType = sectionKindToSuggestionType(section.kind);
+      const items = Array.isArray(section.items) ? section.items : [];
+      items.forEach((item) => {
+        const itemType = sectionType || inferOrderedItemType(item);
+        orderedItems.push({ type: itemType, data: item });
+      });
+    });
+
     const tracks = Array.isArray(partitioned.tracks) ? partitioned.tracks : [];
     const artists = Array.isArray(partitioned.artists) ? partitioned.artists : [];
     const albums = Array.isArray(partitioned.albums) ? partitioned.albums : [];
@@ -712,6 +745,7 @@ export async function musicSearch(queryRaw: string): Promise<MusicSearchResults>
       albums,
       playlists,
       sections: orderedSections,
+      orderedItems,
       refinements,
       suggestions: [],
     };
