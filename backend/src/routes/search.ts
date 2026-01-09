@@ -42,7 +42,8 @@ router.get("/results", async (req, res) => {
     return res.json({
       q,
       source: "youtube_live",
-      sections: { top: [], songs: [], artists: [], albums: [], playlists: [] },
+      featured: null,
+      sections: { songs: [], artists: [], albums: [], playlists: [] },
     } satisfies SearchResultsPayload);
   }
 
@@ -56,7 +57,8 @@ router.get("/results", async (req, res) => {
     return res.json({
       q,
       source: "youtube_live",
-      sections: { top: [], songs: [], artists: [], albums: [], playlists: [] },
+      featured: null,
+      sections: { songs: [], artists: [], albums: [], playlists: [] },
     } satisfies SearchResultsPayload);
   }
 });

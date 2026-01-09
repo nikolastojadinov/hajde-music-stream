@@ -1,11 +1,7 @@
 import {
-  musicSearch as rawMusicSearch,
+  musicSearchRaw as fetchMusicSearchRaw,
   searchSuggestions as rawSearchSuggestions,
-  type MusicSearchAlbum,
-  type MusicSearchArtist,
-  type MusicSearchPlaylist,
   type MusicSearchSuggestion as RawSuggestion,
-  type MusicSearchTrack,
 } from "../services/youtubeMusicClient";
 
 export type SuggestionType = "track" | "artist" | "album" | "playlist";
@@ -26,7 +22,7 @@ export type SuggestResponse = {
   suggestions: SuggestionItem[];
 };
 
-export type ResultItem = {
+export type SearchResultItem = {
   id: string;
   title: string;
   imageUrl: string | null;
@@ -35,18 +31,18 @@ export type ResultItem = {
   endpointPayload: string;
 };
 
-export type ResultsSections = {
-  top: ResultItem[];
-  songs: ResultItem[];
-  artists: ResultItem[];
-  albums: ResultItem[];
-  playlists: ResultItem[];
+export type SearchSections = {
+  songs: SearchResultItem[];
+  artists: SearchResultItem[];
+  albums: SearchResultItem[];
+  playlists: SearchResultItem[];
 };
 
 export type SearchResultsPayload = {
   q: string;
   source: "youtube_live";
-  sections: ResultsSections;
+  featured: SearchResultItem | null;
+  sections: SearchSections;
 };
 
 const MIN_QUERY = 2;
@@ -71,6 +67,231 @@ function looksLikeBrowseId(value: string): boolean {
 
 function safeArray<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : [];
+}
+
+function pickText(node: any): string {
+  const runs = node?.runs;
+  if (Array.isArray(runs) && runs.length > 0) {
+    return normalizeString(runs.map((r: any) => r?.text ?? "").join(""));
+  }
+  const simple = node?.simpleText;
+  return normalizeString(simple);
+}
+
+function pickRunsText(runs: any): string {
+  if (!Array.isArray(runs) || runs.length === 0) return "";
+  return normalizeString(runs.map((r: any) => r?.text ?? "").join(""));
+}
+
+function pickThumbnail(thumbnails?: any): string | null {
+  const arr = Array.isArray(thumbnails) ? thumbnails : thumbnails?.thumbnails;
+  if (!Array.isArray(arr) || arr.length === 0) return null;
+
+  const scored = arr
+    .map((t: any) => {
+      const url = normalizeString(t?.url);
+      const width = Number(t?.width) || 0;
+      const height = Number(t?.height) || 0;
+      const area = width > 0 && height > 0 ? width * height : width || height;
+      return url ? { url, score: area } : null;
+    })
+    .filter(Boolean) as Array<{ url: string; score: number }>;
+
+  if (scored.length === 0) return null;
+  scored.sort((a, b) => b.score - a.score);
+  return scored[0].url;
+}
+
+type EndpointInfo = {
+  endpointType: "watch" | "browse";
+  payload: string;
+  pageType: string;
+};
+
+type ParsedKind = "song" | "artist" | "album" | "playlist";
+
+type ParsedItem = {
+  kind: ParsedKind;
+  item: SearchResultItem;
+};
+
+function extractNavigationEndpoint(renderer: any): { browseId: string; pageType: string; videoId: string } {
+  const navigation =
+    renderer?.navigationEndpoint ||
+    renderer?.playNavigationEndpoint ||
+    renderer?.overlay?.musicItemThumbnailOverlayRenderer?.content?.musicPlayButtonRenderer?.playNavigationEndpoint ||
+    renderer?.menu?.navigationItemRenderer?.navigationEndpoint ||
+    renderer?.onTap?.watchEndpoint;
+
+  const browseEndpoint = navigation?.browseEndpoint || renderer?.browseEndpoint;
+  const watchEndpoint = navigation?.watchEndpoint || renderer?.watchEndpoint;
+
+  const browseId = normalizeString(browseEndpoint?.browseId);
+  const pageType = normalizeString(
+    browseEndpoint?.browseEndpointContextSupportedConfigs?.browseEndpointContextMusicConfig?.pageType
+  );
+  const videoId = normalizeString(watchEndpoint?.videoId);
+
+  return { browseId, pageType, videoId };
+}
+
+function classifyEndpoint(nav: { browseId: string; pageType: string; videoId: string }): EndpointInfo | null {
+  if (looksLikeVideoId(nav.videoId)) {
+    return { endpointType: "watch", payload: nav.videoId, pageType: nav.pageType };
+  }
+
+  if (!looksLikeBrowseId(nav.browseId)) return null;
+
+  const pageType = nav.pageType;
+  if (pageType.includes("ARTIST")) return { endpointType: "browse", payload: nav.browseId, pageType };
+  if (pageType.includes("ALBUM")) return { endpointType: "browse", payload: nav.browseId, pageType };
+  if (pageType.includes("PLAYLIST")) return { endpointType: "browse", payload: nav.browseId, pageType };
+
+  if (nav.browseId.startsWith("UC")) return { endpointType: "browse", payload: nav.browseId, pageType: "MUSIC_PAGE_TYPE_ARTIST" };
+  if (nav.browseId.startsWith("MPRE")) return { endpointType: "browse", payload: nav.browseId, pageType: "MUSIC_PAGE_TYPE_ALBUM" };
+  if (nav.browseId.startsWith("OLAK") || nav.browseId.startsWith("VL") || nav.browseId.startsWith("PL")) {
+    return { endpointType: "browse", payload: nav.browseId, pageType: "MUSIC_PAGE_TYPE_PLAYLIST" };
+  }
+
+  return { endpointType: "browse", payload: nav.browseId, pageType };
+}
+
+function inferKind(info: EndpointInfo | null): ParsedKind | null {
+  if (!info) return null;
+  const { endpointType, pageType, payload } = info;
+
+  if (endpointType === "watch" && looksLikeVideoId(payload)) return "song";
+  if (pageType.includes("ARTIST")) return "artist";
+  if (pageType.includes("ALBUM")) return "album";
+  if (pageType.includes("PLAYLIST")) return "playlist";
+  if (payload.startsWith("UC")) return "artist";
+  if (payload.startsWith("MPRE")) return "album";
+  if (payload.startsWith("OLAK") || payload.startsWith("VL") || payload.startsWith("PL")) return "playlist";
+  return null;
+}
+
+function buildResultItem(title: string, subtitle: string, thumb: string | null, endpoint: EndpointInfo): SearchResultItem {
+  return {
+    id: endpoint.payload,
+    title,
+    imageUrl: thumb,
+    subtitle,
+    endpointType: endpoint.endpointType,
+    endpointPayload: endpoint.payload,
+  };
+}
+
+function parseMusicResponsiveListItemRenderer(renderer: any): ParsedItem | null {
+  const title =
+    pickRunsText(renderer?.flexColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs) ||
+    pickText(renderer?.title) ||
+    "";
+  if (!title) return null;
+
+  const subtitle =
+    pickRunsText(renderer?.flexColumns?.[1]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs) ||
+    pickText(renderer?.subtitle) ||
+    "";
+  const thumb =
+    pickThumbnail(renderer?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails) ||
+    pickThumbnail(renderer?.thumbnail?.thumbnails) ||
+    null;
+
+  const nav = extractNavigationEndpoint(renderer);
+  const endpoint = classifyEndpoint(nav);
+  const kind = inferKind(endpoint);
+  if (!endpoint || !kind) return null;
+
+  const defaultSubtitle = kind === "artist" ? "Artist" : kind === "album" ? "Album" : kind === "playlist" ? "Playlist" : "Song";
+  const item = buildResultItem(title, subtitle || defaultSubtitle, thumb, endpoint);
+  return { kind, item };
+}
+
+function parseMusicCardShelfRenderer(cardShelf: any): ParsedItem | null {
+  const title = pickText(cardShelf?.title) || pickText(cardShelf?.header?.title) || "";
+  if (!title) return null;
+
+  const subtitle = pickText(cardShelf?.subtitle) || pickText(cardShelf?.header?.subtitle) || "";
+  const thumb = pickThumbnail(cardShelf?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails) || null;
+
+  const nav = extractNavigationEndpoint(cardShelf);
+  const endpoint = classifyEndpoint(nav);
+  const kind = inferKind(endpoint);
+  if (!endpoint || !kind) return null;
+
+  const defaultSubtitle = kind === "artist" ? "Artist" : kind === "album" ? "Album" : kind === "playlist" ? "Playlist" : "Song";
+  const item = buildResultItem(title, subtitle || defaultSubtitle, thumb, endpoint);
+  return { kind, item };
+}
+
+function parseMusicShelfRenderer(shelf: any): ParsedItem[] {
+  const contents = Array.isArray(shelf?.contents) ? shelf.contents : [];
+  const parsed: ParsedItem[] = [];
+
+  contents.forEach((content: any) => {
+    const renderer = content?.musicResponsiveListItemRenderer;
+    if (!renderer) return;
+    const item = parseMusicResponsiveListItemRenderer(renderer);
+    if (item) parsed.push(item);
+  });
+
+  return parsed;
+}
+
+function emptySections(): SearchSections {
+  return { songs: [], artists: [], albums: [], playlists: [] };
+}
+
+function addToSections(target: SearchSections, parsed: ParsedItem, featuredKey: string | null): void {
+  const key = `${parsed.item.endpointType}:${parsed.item.endpointPayload}`;
+  if (featuredKey && key === featuredKey) return;
+
+  if (parsed.kind === "song") {
+    target.songs.push(parsed.item);
+    return;
+  }
+  if (parsed.kind === "artist") {
+    target.artists.push(parsed.item);
+    return;
+  }
+  if (parsed.kind === "album") {
+    target.albums.push(parsed.item);
+    return;
+  }
+  if (parsed.kind === "playlist") {
+    target.playlists.push(parsed.item);
+  }
+}
+
+function parseInnertubeSearch(root: any): { featured: SearchResultItem | null; sections: SearchSections } {
+  const sections = emptySections();
+  let featured: SearchResultItem | null = null;
+  let featuredKey: string | null = null;
+
+  const tabs = root?.contents?.tabbedSearchResultsRenderer?.tabs || [];
+  tabs.forEach((tab: any) => {
+    const tabRenderer = tab?.tabRenderer;
+    const tabContent = tabRenderer?.content;
+    const sectionList = tabContent?.sectionListRenderer;
+    const sectionContents = sectionList?.contents || [];
+
+    sectionContents.forEach((section: any) => {
+      if (!featured && section.musicCardShelfRenderer) {
+        const parsedHero = parseMusicCardShelfRenderer(section.musicCardShelfRenderer);
+        if (parsedHero) {
+          featured = parsedHero.item;
+          featuredKey = `${parsedHero.item.endpointType}:${parsedHero.item.endpointPayload}`;
+        }
+      }
+
+      if (section.musicShelfRenderer) {
+        const parsedItems = parseMusicShelfRenderer(section.musicShelfRenderer);
+        parsedItems.forEach((item) => addToSections(sections, item, featuredKey));
+      }
+    });
+  });
+
+  return { featured, sections };
 }
 
 function defaultSubtitleForType(type: SuggestionType): string {
@@ -177,147 +398,17 @@ export async function searchSuggestions(queryRaw: string): Promise<SuggestRespon
   }
 }
 
-function toResultItemFromTrack(track: MusicSearchTrack | undefined): ResultItem | null {
-  if (!track) return null;
-  if (!looksLikeVideoId(track.youtubeId)) return null;
-  const title = normalizeString(track.title);
-  if (!title) return null;
-  const subtitle = normalizeString(track.artist) || "Song";
-  const imageUrl = normalizeString(track.imageUrl) || null;
-  return {
-    id: track.youtubeId,
-    title,
-    imageUrl,
-    subtitle,
-    endpointType: "watch",
-    endpointPayload: track.youtubeId,
-  };
-}
-
-function toResultItemFromArtist(artist: MusicSearchArtist | undefined): ResultItem | null {
-  if (!artist) return null;
-  const id = normalizeString(artist.id);
-  const title = normalizeString(artist.name);
-  if (!id || !title) return null;
-  const imageUrl = normalizeString(artist.imageUrl) || null;
-  return {
-    id,
-    title,
-    imageUrl,
-    subtitle: "Artist",
-    endpointType: "browse",
-    endpointPayload: id,
-  };
-}
-
-function toResultItemFromAlbum(album: MusicSearchAlbum | undefined): ResultItem | null {
-  if (!album) return null;
-  const id = normalizeString(album.id);
-  const title = normalizeString(album.title);
-  if (!id || !title) return null;
-  const imageUrl = normalizeString(album.imageUrl) || null;
-  const subtitle = normalizeString(album.channelTitle) || "Album";
-  return {
-    id,
-    title,
-    imageUrl,
-    subtitle,
-    endpointType: "browse",
-    endpointPayload: id,
-  };
-}
-
-function toResultItemFromPlaylist(playlist: MusicSearchPlaylist | undefined): ResultItem | null {
-  if (!playlist) return null;
-  const id = normalizeString(playlist.id);
-  const title = normalizeString(playlist.title);
-  if (!id || !title) return null;
-  const imageUrl = normalizeString(playlist.imageUrl) || null;
-  const subtitle = normalizeString(playlist.channelTitle) || "Playlist";
-  return {
-    id,
-    title,
-    imageUrl,
-    subtitle,
-    endpointType: "browse",
-    endpointPayload: id,
-  };
-}
-
-function mapTracks(tracks: MusicSearchTrack[]): ResultItem[] {
-  const source = safeArray<MusicSearchTrack>(tracks);
-  const items: ResultItem[] = [];
-  for (const track of source) {
-    const mapped = toResultItemFromTrack(track);
-    if (mapped) items.push(mapped);
-  }
-  return items;
-}
-
-function mapArtists(artists: MusicSearchArtist[]): ResultItem[] {
-  const source = safeArray<MusicSearchArtist>(artists);
-  const items: ResultItem[] = [];
-  for (const artist of source) {
-    const mapped = toResultItemFromArtist(artist);
-    if (mapped) items.push(mapped);
-  }
-  return items;
-}
-
-function mapAlbums(albums: MusicSearchAlbum[]): ResultItem[] {
-  const source = safeArray<MusicSearchAlbum>(albums);
-  const items: ResultItem[] = [];
-  for (const album of source) {
-    const mapped = toResultItemFromAlbum(album);
-    if (mapped) items.push(mapped);
-  }
-  return items;
-}
-
-function mapPlaylists(playlists: MusicSearchPlaylist[]): ResultItem[] {
-  const source = safeArray<MusicSearchPlaylist>(playlists);
-  const items: ResultItem[] = [];
-  for (const playlist of source) {
-    const mapped = toResultItemFromPlaylist(playlist);
-    if (mapped) items.push(mapped);
-  }
-  return items;
-}
-
-function pickTopResult(sections: ResultsSections): ResultItem[] {
-  const firstTrack = sections.songs.length > 0 ? sections.songs[0] : null;
-  if (firstTrack) return [firstTrack];
-  const firstArtist = sections.artists.length > 0 ? sections.artists[0] : null;
-  if (firstArtist) return [firstArtist];
-  const firstAlbum = sections.albums.length > 0 ? sections.albums[0] : null;
-  if (firstAlbum) return [firstAlbum];
-  const firstPlaylist = sections.playlists.length > 0 ? sections.playlists[0] : null;
-  if (firstPlaylist) return [firstPlaylist];
-  return [];
-}
-
-function emptySections(): ResultsSections {
-  return { top: [], songs: [], artists: [], albums: [], playlists: [] };
-}
-
 export async function musicSearch(queryRaw: string): Promise<SearchResultsPayload> {
   const q = normalizeString(queryRaw);
   if (q.length < MIN_QUERY) {
-    return { q, source: "youtube_live", sections: emptySections() };
+    return { q, source: "youtube_live", featured: null, sections: emptySections() };
   }
 
   try {
-    const raw = await rawMusicSearch(q);
-    const sections: ResultsSections = {
-      top: [],
-      songs: mapTracks(raw.tracks),
-      artists: mapArtists(raw.artists),
-      albums: mapAlbums(raw.albums),
-      playlists: mapPlaylists(raw.playlists),
-    };
-    sections.top = pickTopResult(sections);
-    return { q, source: "youtube_live", sections };
+    const raw = await fetchMusicSearchRaw(q);
+    const parsed = parseInnertubeSearch(raw);
+    return { q, source: "youtube_live", featured: parsed.featured, sections: parsed.sections };
   } catch (err) {
-    return { q, source: "youtube_live", sections: emptySections() };
+    return { q, source: "youtube_live", featured: null, sections: emptySections() };
   }
 }
