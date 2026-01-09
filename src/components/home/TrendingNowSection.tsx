@@ -24,10 +24,10 @@ export default function TrendingNowSection({ snapshot, loading, error, onRetry }
   const updatedLabel = snapshot ? formatUpdatedAt(snapshot.generated_at) : "";
 
   return (
-    <section className="relative mx-auto mt-10 w-full max-w-6xl rounded-2xl p-6">
+    <section className="relative mx-auto mt-10 w-full max-w-6xl rounded-2xl px-3 py-5 sm:px-6">
       <div className="mb-5 flex items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold text-white">Trending Now</h2>
+          <h2 className="text-lg font-semibold text-[#F6C66D]">Trending Now</h2>
         </div>
         <div className="flex items-center gap-2 text-[11px] text-white/50">
           {updatedLabel ? <span className="hidden sm:inline">Osveženo: {updatedLabel}</span> : null}
@@ -56,14 +56,14 @@ export default function TrendingNowSection({ snapshot, loading, error, onRetry }
         </div>
       ) : null}
 
-      <div className="scrollbar-hide flex gap-4 overflow-x-auto pb-2 pr-2">
+      <div className="scrollbar-hide flex gap-3 overflow-x-auto pb-2 pr-1">
         {loading
           ? skeletonCards.map((_, idx) => (
               <div
                 key={`skeleton-${idx}`}
-                className="w-[150px] flex-shrink-0 animate-pulse rounded-[10px] border border-white/5 bg-white/5 p-3"
+                className="w-[120px] flex-shrink-0 animate-pulse rounded-[10px] border border-white/5 bg-white/5 p-3"
               >
-                <div className="mb-3 h-40 w-full rounded-md bg-white/10" />
+                <div className="mb-3 h-36 w-full rounded-md bg-white/10" />
                 <div className="mb-2 h-4 w-3/4 rounded bg-white/10" />
                 <div className="h-3 w-1/2 rounded bg-white/10" />
               </div>
@@ -72,7 +72,7 @@ export default function TrendingNowSection({ snapshot, loading, error, onRetry }
 
         {!loading && hasItems
           ? snapshot?.items.map((item) => (
-              <div key={item.id} className="w-[150px] flex-shrink-0">
+              <div key={item.id} className="w-[120px] flex-shrink-0">
                 <PlaylistCard
                   id={item.id}
                   title={item.title}
