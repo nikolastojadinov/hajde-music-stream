@@ -209,7 +209,9 @@ RETURNS TABLE (
     LEFT JOIN recent_dedup rd ON rd.playlist_id = p.id
     LEFT JOIN recent_views rv ON rv.playlist_id = p.id
     WHERE p.is_public IS NOT FALSE
-      AND p.source = 'youtube'
+      AND p.external_id IS NOT NULL
+      AND char_length(p.external_id) BETWEEN 10 AND 60
+      AND p.channel_id IS NOT NULL
       AND COALESCE(p.broken, false) = false
       AND COALESCE(p.is_empty, false) = false
   )
