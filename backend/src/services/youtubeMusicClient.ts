@@ -31,6 +31,8 @@ export type MusicSearchArtist = {
   id: string;
   name: string;
   imageUrl?: string;
+  isOfficial?: boolean;
+  pageType?: string;
 };
 
 export type MusicSearchAlbum = {
@@ -85,6 +87,8 @@ type ParsedItem = {
   title: string;
   subtitle?: string;
   imageUrl?: string;
+  pageType?: string;
+  isOfficialArtist?: boolean;
 };
 
 function emptySections(): MusicSearchSection[] {
@@ -334,7 +338,13 @@ function parsedToEntity(parsed: ParsedItem): MusicSearchTrack | MusicSearchArtis
   }
 
   if (parsed.kind === "artist") {
-    return { id: parsed.id, name: parsed.title, imageUrl: parsed.imageUrl } satisfies MusicSearchArtist;
+    return {
+      id: parsed.id,
+      name: parsed.title,
+      imageUrl: parsed.imageUrl,
+      isOfficial: Boolean(parsed.isOfficialArtist),
+      pageType: parsed.pageType,
+    } satisfies MusicSearchArtist;
   }
 
   if (parsed.kind === "album") {
@@ -379,6 +389,8 @@ function parseMusicResponsiveListItemRenderer(renderer: any): ParsedItem | null 
       title: title || subtitle || browseId,
       subtitle: subtitle || undefined,
       imageUrl: thumb || undefined,
+      pageType,
+      isOfficialArtist: browseId.startsWith("UC"),
     };
   }
 
@@ -412,7 +424,15 @@ function parseMusicTwoRowItemRenderer(renderer: any): ParsedItem | null {
   }
 
   if (isMusicPageType(pageType, "MUSIC_PAGE_TYPE_ARTIST")) {
-    return { kind: "artist", id: browseId, title: title || subtitle || browseId, subtitle: subtitle || undefined, imageUrl: thumb || undefined };
+    return {
+      kind: "artist",
+      id: browseId,
+      title: title || subtitle || browseId,
+      subtitle: subtitle || undefined,
+      imageUrl: thumb || undefined,
+      pageType,
+      isOfficialArtist: browseId.startsWith("UC"),
+    };
   }
 
   return null;
@@ -569,6 +589,8 @@ function partitionParsedItems(items: ParsedItem[]): MusicSearchResults {
   const albums: MusicSearchAlbum[] = [];
   const playlists: MusicSearchPlaylist[] = [];
 
+  const artistMap = new Map<string, MusicSearchArtist>();
+
   const seen = {
     track: new Set<string>(),
     artist: new Set<string>(),
@@ -588,9 +610,16 @@ function partitionParsedItems(items: ParsedItem[]): MusicSearchResults {
     }
 
     if (parsed.kind === "artist") {
-      if (seen.artist.has(id)) return;
+      const next = parsedToEntity(parsed) as MusicSearchArtist;
+      const existing = artistMap.get(id);
+      if (existing) {
+        existing.isOfficial = existing.isOfficial || next.isOfficial;
+        existing.pageType = existing.pageType || next.pageType;
+        return;
+      }
+      artistMap.set(id, next);
       seen.artist.add(id);
-      artists.push(parsedToEntity(parsed) as MusicSearchArtist);
+      artists.push(next);
       return;
     }
 
@@ -618,6 +647,102 @@ function partitionParsedItems(items: ParsedItem[]): MusicSearchResults {
     refinements: [],
     suggestions: [],
   };
+}
+
+function isLikelyNonMusicArtist(pageType: string): boolean {
+  const lower = normalizeString(pageType).toLowerCase();
+  if (!lower) return false;
+  return lower.includes("podcast") || lower.includes("episode") || lower.includes("show") || lower.includes("program");
+}
+
+async function validateArtistHasMusicContent(browseId: string, config: InnertubeConfig): Promise<boolean> {
+  if (!looksLikeBrowseId(browseId)) return false;
+
+  try {
+    const browseJson = await callYoutubei<any>(config, "browse", {
+      context: buildSearchBody(config, "").context,
+      browseId,
+    });
+
+    const parsed = parseArtistBrowseFromInnertube(browseJson, browseId);
+    const hasTopSongs = Array.isArray(parsed?.topSongs) && parsed.topSongs.length > 0;
+    const hasAlbums = Array.isArray(parsed?.albums) && parsed.albums.length > 0;
+    const hasPlaylists = Array.isArray(parsed?.playlists) && parsed.playlists.length > 0;
+    const hasArtistLayout = Array.isArray(browseJson?.contents?.singleColumnBrowseResultsRenderer?.tabs);
+
+    return hasTopSongs || hasAlbums || hasPlaylists || hasArtistLayout;
+  } catch (err) {
+    logDebug("artist_validate_error", err instanceof Error ? err.message : String(err));
+    return false;
+  }
+}
+
+async function sanitizeArtistsList(artists: MusicSearchArtist[], config: InnertubeConfig): Promise<MusicSearchArtist[]> {
+  const valid: MusicSearchArtist[] = [];
+
+  for (const artist of toArray<MusicSearchArtist>(artists)) {
+    const pageType = normalizeString(artist.pageType);
+    if (isLikelyNonMusicArtist(pageType)) continue;
+
+    if (artist.isOfficial) {
+      valid.push({ ...artist, isOfficial: true, pageType });
+      continue;
+    }
+
+    const hasMusic = await validateArtistHasMusicContent(artist.id, config);
+    if (hasMusic) {
+      valid.push({ ...artist, isOfficial: Boolean(artist.isOfficial), pageType });
+    }
+  }
+
+  return valid;
+}
+
+function buildCanonicalSections(
+  artists: MusicSearchArtist[],
+  tracks: MusicSearchTrack[],
+  albums: MusicSearchAlbum[],
+  playlists: MusicSearchPlaylist[]
+): MusicSearchSection[] {
+  return [
+    { kind: "artists", title: null, items: artists },
+    { kind: "songs", title: null, items: tracks },
+    { kind: "albums", title: null, items: albums },
+    { kind: "playlists", title: null, items: playlists },
+  ];
+}
+
+function buildPrioritizedOrderedItems(
+  query: string,
+  artists: MusicSearchArtist[],
+  tracks: MusicSearchTrack[],
+  albums: MusicSearchAlbum[],
+  playlists: MusicSearchPlaylist[]
+): OrderedSearchItem[] {
+  const normalizedQuery = normalizeString(query).toLowerCase();
+
+  const exactOfficial = artists.filter(
+    (artist) => artist.isOfficial && normalizeString(artist.name).toLowerCase() === normalizedQuery
+  );
+  const otherOfficial = artists.filter(
+    (artist) => artist.isOfficial && !exactOfficial.some((existing) => existing.id === artist.id)
+  );
+  const remainingArtists = artists.filter((artist) => !artist.isOfficial);
+
+  const ordered: OrderedSearchItem[] = [];
+  const pushArtists = (list: MusicSearchArtist[]) => {
+    list.forEach((artist) => ordered.push({ type: "artist", data: artist }));
+  };
+
+  pushArtists(exactOfficial);
+  pushArtists(otherOfficial);
+  pushArtists(remainingArtists);
+
+  tracks.forEach((track) => ordered.push({ type: "track", data: track }));
+  albums.forEach((album) => ordered.push({ type: "album", data: album }));
+  playlists.forEach((playlist) => ordered.push({ type: "playlist", data: playlist }));
+
+  return ordered;
 }
 
 const MAX_SUGGESTIONS_TOTAL = 20;
@@ -719,32 +844,23 @@ export async function musicSearch(queryRaw: string): Promise<MusicSearchResults>
       ? (json as any).refinements.map((s: any) => String(s))
       : [];
 
-    const { sections, collected } = extractSearchSections(json);
+    const { collected } = extractSearchSections(json);
     const partitioned = partitionParsedItems(collected);
 
-    const orderedSections = Array.isArray(sections) && sections.length > 0 ? sections : emptySections();
-
-    const orderedItems: OrderedSearchItem[] = [];
-    orderedSections.forEach((section) => {
-      const sectionType = sectionKindToSuggestionType(section.kind);
-      const items = Array.isArray(section.items) ? section.items : [];
-      items.forEach((item) => {
-        const itemType = sectionType || inferOrderedItemType(item);
-        orderedItems.push({ type: itemType, data: item });
-      });
-    });
-
     const tracks = Array.isArray(partitioned.tracks) ? partitioned.tracks : [];
-    const artists = Array.isArray(partitioned.artists) ? partitioned.artists : [];
+    const sanitizedArtists = await sanitizeArtistsList(Array.isArray(partitioned.artists) ? partitioned.artists : [], config);
     const albums = Array.isArray(partitioned.albums) ? partitioned.albums : [];
     const playlists = Array.isArray(partitioned.playlists) ? partitioned.playlists : [];
 
+    const sections = buildCanonicalSections(sanitizedArtists, tracks, albums, playlists);
+    const orderedItems = buildPrioritizedOrderedItems(query, sanitizedArtists, tracks, albums, playlists);
+
     return {
       tracks,
-      artists,
+      artists: sanitizedArtists,
       albums,
       playlists,
-      sections: orderedSections,
+      sections,
       orderedItems,
       refinements,
       suggestions: [],
