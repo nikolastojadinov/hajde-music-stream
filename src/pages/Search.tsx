@@ -2,7 +2,6 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { MoreHorizontal, Search as SearchIcon } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
 import SearchSuggestList from "@/components/search/SearchSuggestList";
 import {
   searchResolve,
@@ -216,12 +215,11 @@ export default function Search() {
   }, []);
 
   useEffect(() => {
-    const expanded = hasSubmitted && normalizeString(query).length >= 2;
-    document.body.classList.toggle("search-expanded", expanded);
+    document.body.classList.add("search-page", "search-expanded");
     return () => {
-      document.body.classList.remove("search-expanded");
+      document.body.classList.remove("search-page", "search-expanded");
     };
-  }, [hasSubmitted, query]);
+  }, []);
 
   const orderedSections: (keyof SearchSections)[] = ["songs", "artists", "albums", "playlists"];
   const mixedResults: MixedResultItem[] = orderedSections.flatMap((kind) =>
@@ -234,24 +232,16 @@ export default function Search() {
 
   return (
     <div className="min-h-screen bg-neutral-950 text-white">
-      <div className="mx-auto flex min-h-screen max-w-5xl flex-col px-4 pb-24 pt-6 md:px-6">
-        <form onSubmit={handleSubmit} className="sticky top-0 z-40 -mx-1 mb-4 bg-neutral-950/95 px-1 pb-3 pt-1 backdrop-blur-md">
-          <div className="flex items-center gap-3 rounded-2xl border border-neutral-800/80 bg-neutral-900/90 px-4 py-3 shadow-[0_18px_40px_rgba(0,0,0,0.35)] ring-1 ring-black/40">
-            <SearchIcon className="h-5 w-5 text-neutral-500" />
+      <div className="mx-auto flex min-h-screen max-w-5xl flex-col px-4 pb-24 pt-4 md:px-6">
+        <form onSubmit={handleSubmit} className="sticky top-0 z-40 -mx-1 mb-5 bg-neutral-950/95 px-1 pt-1 backdrop-blur-md">
+          <div className="relative flex items-center rounded-full border border-neutral-800/80 bg-neutral-900/90 px-4 py-3 shadow-[0_18px_40px_rgba(0,0,0,0.35)] ring-1 ring-black/40">
             <Input
               value={query}
               onChange={(e) => handleInputChange(e.target.value)}
               placeholder="Traži pesme, izvođače, albume..."
               className="h-11 flex-1 border-none bg-transparent text-base text-white placeholder:text-neutral-500 focus-visible:ring-0 focus-visible:ring-offset-0"
             />
-            <Button
-              type="submit"
-              variant="secondary"
-              className="h-10 rounded-full bg-white text-neutral-900 transition hover:bg-neutral-200"
-              disabled={loading}
-            >
-              {loading ? "Searching..." : "Search"}
-            </Button>
+            <SearchIcon className="ml-3 h-5 w-5 flex-shrink-0 text-neutral-500" />
           </div>
           {suggestions.length > 0 && (
             <div className="relative">
