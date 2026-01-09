@@ -69,8 +69,7 @@ BEGIN
   FROM public.playlists p
   LEFT JOIN recent_views rv ON rv.playlist_id = p.id
   LEFT JOIN all_time_views atv ON atv.playlist_id = p.id
-  WHERE p.source = 'youtube'
-    AND p.is_public IS NOT FALSE
+  WHERE p.is_public IS NOT FALSE
     AND p.external_id IS NOT NULL
     AND char_length(p.external_id) BETWEEN 10 AND 60
     AND p.channel_id IS NOT NULL
