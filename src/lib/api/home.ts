@@ -48,6 +48,31 @@ export type MostPopularSnapshot = {
   items: MostPopularSnapshotItem[];
 };
 
+export type NewReleasesSnapshotItem = {
+  type: "playlist";
+  id: string;
+  external_id: string | null;
+  title: string;
+  subtitle: string;
+  imageUrl: string | null;
+  metrics: {
+    views_total: number;
+    views_7d: number;
+    release_at: string | null;
+  };
+};
+
+export type NewReleasesSnapshot = {
+  section: "new_releases";
+  generated_at: string;
+  refresh_policy: {
+    type: "interval";
+    interval: "weekly";
+    preferred_window: "02:00-04:00 UTC";
+  };
+  items: NewReleasesSnapshotItem[];
+};
+
 export async function fetchTrendingNowSnapshot(options?: { signal?: AbortSignal }): Promise<TrendingSnapshot> {
   const endpoint = withBackendOrigin("/api/home/sections/trending-now");
   const res = await fetch(endpoint, {
@@ -82,4 +107,22 @@ export async function fetchMostPopularSnapshot(options?: { signal?: AbortSignal 
   }
 
   return (await res.json()) as MostPopularSnapshot;
+}
+
+export async function fetchNewReleasesSnapshot(options?: { signal?: AbortSignal }): Promise<NewReleasesSnapshot> {
+  const endpoint = withBackendOrigin("/api/home/sections/new-releases");
+  const res = await fetch(endpoint, {
+    method: "GET",
+    credentials: "include",
+    signal: options?.signal,
+    headers: {
+      Accept: "application/json",
+    },
+  });
+
+  if (!res.ok) {
+    throw new Error(`Failed to load NewReleases snapshot: ${res.status}`);
+  }
+
+  return (await res.json()) as NewReleasesSnapshot;
 }

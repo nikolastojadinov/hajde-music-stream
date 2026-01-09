@@ -24,6 +24,7 @@ import clientLogRouter from './routes/clientLog';
 import playlistRouter from './routes/playlist';
 import browsePlaylistRouter from './routes/browsePlaylist';
 import { scheduleMostPopularJob, warmMostPopularSnapshotIfMissing } from './jobs/mostPopularScheduler';
+import { scheduleNewReleasesJob, warmNewReleasesSnapshotIfMissing } from './jobs/newReleasesScheduler';
 import { scheduleTrendingNowJob, warmTrendingSnapshotIfMissing } from './jobs/trendingNowScheduler';
 
 declare global {
@@ -181,6 +182,8 @@ scheduleTrendingNowJob();
 void warmTrendingSnapshotIfMissing();
 scheduleMostPopularJob();
 void warmMostPopularSnapshotIfMissing();
+scheduleNewReleasesJob();
+void warmNewReleasesSnapshotIfMissing();
 
 
 // IV. Boot up the app:

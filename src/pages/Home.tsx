@@ -4,11 +4,14 @@ import { useNavigate } from "react-router-dom";
 import Footer from "@/components/Footer";
 import Header from "@/components/Header";
 import MostPopularSection from "@/components/home/MostPopularSection";
+import NewReleasesSection from "@/components/home/NewReleasesSection";
 import TrendingNowSection from "@/components/home/TrendingNowSection";
 import {
   fetchMostPopularSnapshot,
+  fetchNewReleasesSnapshot,
   fetchTrendingNowSnapshot,
   type MostPopularSnapshot,
+  type NewReleasesSnapshot,
   type TrendingSnapshot,
 } from "@/lib/api/home";
 
@@ -22,6 +25,10 @@ export default function Home() {
   const [popularSnapshot, setPopularSnapshot] = useState<MostPopularSnapshot | null>(null);
   const [loadingPopular, setLoadingPopular] = useState(true);
   const [popularError, setPopularError] = useState<string | null>(null);
+
+  const [newReleasesSnapshot, setNewReleasesSnapshot] = useState<NewReleasesSnapshot | null>(null);
+  const [loadingNewReleases, setLoadingNewReleases] = useState(true);
+  const [newReleasesError, setNewReleasesError] = useState<string | null>(null);
 
   const goToSearch = () => navigate("/search");
 
@@ -65,14 +72,37 @@ export default function Home() {
       });
   };
 
+  const loadNewReleases = (controller?: AbortController) => {
+    setLoadingNewReleases(true);
+    setNewReleasesError(null);
+
+    fetchNewReleasesSnapshot({ signal: controller?.signal })
+      .then((snapshot) => {
+        setNewReleasesSnapshot(snapshot);
+      })
+      .catch((err: any) => {
+        if (controller?.signal?.aborted) return;
+        console.warn("[Home] new-releases load failed", err?.message || err);
+        setNewReleasesSnapshot(null);
+        setNewReleasesError("Nije moguće učitati New Releases sekciju.");
+      })
+      .finally(() => {
+        if (controller?.signal?.aborted) return;
+        setLoadingNewReleases(false);
+      });
+  };
+
   useEffect(() => {
     const trendingController = new AbortController();
     const popularController = new AbortController();
+    const newReleasesController = new AbortController();
     loadTrending(trendingController);
     loadMostPopular(popularController);
+    loadNewReleases(newReleasesController);
     return () => {
       trendingController.abort();
       popularController.abort();
+      newReleasesController.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -105,6 +135,12 @@ export default function Home() {
             loading={loadingPopular}
             error={popularError}
             onRetry={() => loadMostPopular()}
+          />
+          <NewReleasesSection
+            snapshot={newReleasesSnapshot}
+            loading={loadingNewReleases}
+            error={newReleasesError}
+            onRetry={() => loadNewReleases()}
           />
         </div>
       </main>

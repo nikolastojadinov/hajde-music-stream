@@ -1,6 +1,7 @@
 import { Router } from 'express';
 
 import { getMostPopularSnapshot } from '../services/mostPopular';
+import { getNewReleasesSnapshot } from '../services/newReleases';
 import { getTrendingNowSnapshot } from '../services/trendingNow';
 
 const router = Router();
@@ -31,6 +32,21 @@ router.get('/sections/most-popular', async (_req, res) => {
     return res.json(snapshot);
   } catch (err: any) {
     console.error('[home/most-popular] failed', err?.message || err);
+    return res.status(500).json({ error: 'snapshot_failed' });
+  }
+});
+
+router.get('/sections/new-releases', async (_req, res) => {
+  try {
+    const snapshot = await getNewReleasesSnapshot();
+    if (!snapshot) {
+      return res.status(404).json({ error: 'snapshot_unavailable' });
+    }
+
+    res.setHeader('Cache-Control', 'public, max-age=300, stale-while-revalidate=900');
+    return res.json(snapshot);
+  } catch (err: any) {
+    console.error('[home/new-releases] failed', err?.message || err);
     return res.status(500).json({ error: 'snapshot_failed' });
   }
 });
