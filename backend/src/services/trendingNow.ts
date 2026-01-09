@@ -197,9 +197,11 @@ function buildSnapshotFromCandidates(rows: CandidateRow[], generatedAt: DateTime
 
   const trimmed = items.slice(0, DEFAULT_MAX_ITEMS);
 
+  const generatedAtIso = now.toISO() ?? new Date().toISOString();
+
   return {
     section: 'trending_now',
-    generated_at: now.toISO(),
+    generated_at: generatedAtIso,
     refresh_policy: REFRESH_POLICY,
     items: trimmed,
   };
@@ -218,7 +220,7 @@ async function expireOldSnapshots(client: SupabaseClient, generatedAtIso: string
 }
 
 async function insertSnapshot(client: SupabaseClient, snapshot: TrendingSnapshot, generatedAt: DateTime): Promise<void> {
-  const validUntil = generatedAt.plus({ days: DEFAULT_VALIDITY_DAYS }).toISO();
+  const validUntil = generatedAt.plus({ days: DEFAULT_VALIDITY_DAYS }).toISO() ?? null;
   const { error } = await client.from('home_section_snapshots').insert({
     section_key: SECTION_KEY,
     payload: snapshot,
