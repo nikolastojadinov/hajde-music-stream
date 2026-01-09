@@ -12,6 +12,7 @@ import mountNotificationEndpoints from './handlers/notifications';
 import mountHealthEndpoints from './handlers/health';
 import supabase from './services/supabaseClient';
 import usersRouter from './routes/users';
+import homeRouter from './routes/home';
 
 import piAuthRouter from './routes/pi/auth';
 import piPaymentsRouter from './routes/pi/payments';
@@ -22,6 +23,7 @@ import browseArtistRouter from './routes/browseArtist';
 import clientLogRouter from './routes/clientLog';
 import playlistRouter from './routes/playlist';
 import browsePlaylistRouter from './routes/browsePlaylist';
+import { scheduleTrendingNowJob, warmTrendingSnapshotIfMissing } from './jobs/trendingNowScheduler';
 
 declare global {
   namespace Express {
@@ -146,6 +148,9 @@ app.use('/api/users', usersRouter);
 // Intent-based search endpoints
 app.use('/api/search', searchRouter);
 
+// Home sections
+app.use('/api/home', homeRouter);
+
 // On-demand artist hydration + local bundle
 app.use('/api/artist', artistRouter);
 app.use('/api/browse/artist', browseArtistRouter);
@@ -170,7 +175,12 @@ app.get('/', async (_req: Request, res: Response) => {
 });
 
 
-// III. Boot up the app:
+// III. Background jobs (cron-compatible)
+scheduleTrendingNowJob();
+void warmTrendingSnapshotIfMissing();
+
+
+// IV. Boot up the app:
 
 app.listen(env.port, async () => {
   console.log(`Connected to Supabase at ${env.supabase_url}`);

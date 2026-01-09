@@ -1,0 +1,104 @@
+import { AlertCircle, RefreshCcw, Sparkles } from "lucide-react";
+
+import PlaylistCard from "@/components/PlaylistCard";
+import { TrendingSnapshot } from "@/lib/api/home";
+
+type Props = {
+  snapshot: TrendingSnapshot | null;
+  loading: boolean;
+  error?: string | null;
+  onRetry?: () => void;
+};
+
+const formatUpdatedAt = (iso: string | null): string => {
+  if (!iso) return "";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  return `${date.toUTCString()}`;
+};
+
+const skeletonCards = Array.from({ length: 6 });
+
+export default function TrendingNowSection({ snapshot, loading, error, onRetry }: Props) {
+  const hasItems = (snapshot?.items?.length ?? 0) > 0;
+  const updatedLabel = snapshot ? formatUpdatedAt(snapshot.generated_at) : "";
+
+  return (
+    <section className="relative mx-auto mt-10 w-full max-w-6xl overflow-hidden rounded-2xl border border-white/5 bg-gradient-to-r from-[#0D0B14] via-[#0C1424] to-[#0D0F1C] p-6 shadow-[0_24px_60px_rgba(0,0,0,0.45)]">
+      <div className="mb-5 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/5 text-amber-300 shadow-inner shadow-amber-400/10">
+            <Sparkles className="h-5 w-5" />
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold text-white">Trending Now</h2>
+            <p className="text-xs text-white/60">Najslušanije playliste ove nedelje.</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 text-[11px] text-white/50">
+          {updatedLabel ? <span className="hidden sm:inline">Osveženo: {updatedLabel}</span> : null}
+          {loading ? (
+            <span className="flex items-center gap-1"><RefreshCcw className="h-4 w-4 animate-spin" /> Učitavanje</span>
+          ) : null}
+        </div>
+      </div>
+
+      {error ? (
+        <div className="mb-4 flex items-center justify-between rounded-lg border border-red-500/30 bg-red-500/5 px-4 py-3 text-sm text-red-100">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="h-4 w-4" />
+            <span>{error}</span>
+          </div>
+          {onRetry ? (
+            <button
+              type="button"
+              onClick={onRetry}
+              className="flex items-center gap-2 rounded-full border border-red-500/40 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-red-100 transition hover:bg-red-500/10"
+            >
+              <RefreshCcw className="h-3 w-3" />
+              Pokušaj ponovo
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
+      <div className="overflow-x-auto pb-2">
+        <div className="flex gap-4 pr-2">
+          {loading
+            ? skeletonCards.map((_, idx) => (
+                <div
+                  key={`skeleton-${idx}`}
+                  className="w-[180px] animate-pulse rounded-[10px] border border-white/5 bg-white/5 p-3"
+                >
+                  <div className="mb-3 h-40 w-full rounded-md bg-white/10" />
+                  <div className="mb-2 h-4 w-3/4 rounded bg-white/10" />
+                  <div className="h-3 w-1/2 rounded bg-white/10" />
+                </div>
+              ))
+            : null}
+
+          {!loading && hasItems
+            ? snapshot?.items.map((item) => (
+                <div key={item.id} className="min-w-[180px] max-w-[200px]">
+                  <PlaylistCard
+                    id={item.id}
+                    title={item.title}
+                    description={item.subtitle}
+                    imageUrl={item.imageUrl ?? undefined}
+                    viewCount={item.metrics?.views_7d}
+                    linkState={{ from: "home-trending" }}
+                  />
+                </div>
+              ))
+            : null}
+
+          {!loading && !hasItems && !error ? (
+            <div className="w-full rounded-lg border border-white/10 bg-black/20 px-4 py-6 text-sm text-white/70">
+              Trenutno nema dovoljno podataka za Trending Now. Svratite uskoro.
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </section>
+  );
+}

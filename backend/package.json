@@ -8,7 +8,8 @@
   },
   "scripts": {
     "build": "tsc",
-    "start": "NODE_ENV=development ts-node-dev ./src/index.ts"
+    "start": "NODE_ENV=development ts-node-dev ./src/index.ts",
+    "refresh:trending-now": "NODE_ENV=development ts-node-dev ./src/scripts/refreshTrendingNow.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.43.5",
