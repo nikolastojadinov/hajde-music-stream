@@ -266,7 +266,7 @@ export default function Search() {
           <div className="mt-2 text-sm text-neutral-400">Pretražujemo...</div>
         )}
 
-        <div className="flex flex-1 flex-col gap-3 pb-10">
+        <div className="flex flex-1 flex-col gap-2 pb-10">
           {mixedResults.map((item) => (
             <div
               key={`${item.kind}-${item.id}`}
@@ -279,22 +279,22 @@ export default function Search() {
                   handleResultClick(item.kind, item);
                 }
               }}
-              className="group flex items-center gap-4 rounded-2xl border border-white/5 bg-neutral-900/80 px-3 py-2 shadow-[0_14px_30px_rgba(0,0,0,0.35)] transition hover:-translate-y-0.5 hover:border-white/10 hover:bg-neutral-900"
+              className="group flex items-center gap-3 px-2 py-2 transition hover:bg-neutral-900/50"
             >
-              <div className="relative h-16 w-16 overflow-hidden rounded-xl border border-white/5 bg-neutral-800">
+              <div className="relative h-12 w-12 overflow-hidden rounded-lg bg-neutral-800/80">
                 {item.imageUrl ? (
                   <img src={item.imageUrl} alt={item.title} className="h-full w-full object-cover" />
                 ) : (
-                  <div className="flex h-full w-full items-center justify-center text-lg font-semibold text-neutral-300">
+                  <div className="flex h-full w-full items-center justify-center text-sm font-semibold text-neutral-300">
                     {item.title.slice(0, 2)}
                   </div>
                 )}
               </div>
 
-              <div className="flex min-w-0 flex-1 flex-col gap-1">
+              <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                 <div className="flex items-center gap-2">
                   <span className="truncate text-sm font-semibold text-neutral-50">{item.title}</span>
-                  <span className="rounded-full border border-white/10 px-2 py-0.5 text-[11px] uppercase tracking-wide text-neutral-400">
+                  <span className="rounded-full bg-neutral-800/60 px-2 py-[3px] text-[10px] uppercase tracking-wide text-neutral-400">
                     {typeLabel[item.kind]}
                   </span>
                 </div>
@@ -304,7 +304,7 @@ export default function Search() {
               <button
                 type="button"
                 onClick={(evt) => evt.stopPropagation()}
-                className="flex h-10 w-10 items-center justify-center rounded-full border border-white/5 bg-neutral-900/80 text-neutral-300 opacity-80 transition hover:border-white/15 hover:bg-neutral-800 hover:text-white"
+                className="flex h-9 w-9 items-center justify-center text-neutral-300 transition hover:text-white"
                 aria-label="More actions"
               >
                 <MoreHorizontal className="h-5 w-5" />
