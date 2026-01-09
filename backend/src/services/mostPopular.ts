@@ -109,9 +109,9 @@ async function fetchCandidates(limit = DEFAULT_FETCH_LIMIT): Promise<CandidateRo
   const { data, error } = await client
     .from('most_popular_home_candidates')
     .select('playlist_id, external_id, title, cover_url, image_url, views_count, playlist_views_total, playlist_views_7d')
-    .order('views_count', { ascending: false, nullsLast: true })
-    .order('playlist_views_total', { ascending: false, nullsLast: true })
-    .order('playlist_views_7d', { ascending: false, nullsLast: true })
+    .order('views_count', { ascending: false })
+    .order('playlist_views_total', { ascending: false })
+    .order('playlist_views_7d', { ascending: false })
     .limit(limit);
 
   if (error) {
