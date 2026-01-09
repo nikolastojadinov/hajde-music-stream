@@ -21,7 +21,7 @@ const MiniPlayer = () => {
   const fallbackArtist = currentArtist || "YouTube Music";
 
   return (
-    <div className="fixed bottom-16 md:bottom-0 left-0 right-0 z-30">
+    <div className="fixed bottom-[70px] md:bottom-2 left-0 right-0 z-30">
       <div
         role="button"
         tabIndex={0}
