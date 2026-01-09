@@ -20,6 +20,17 @@ import { usePlayer } from "@/contexts/PlayerContext";
 const SUGGEST_DEBOUNCE_MS = 250;
 const MAX_SUGGESTIONS = 15;
 
+/**
+ * YT Music entity priority for HERO
+ * (critical difference vs naive exact-match)
+ */
+const HERO_PRIORITY: (keyof SearchSections)[] = [
+  "artists",
+  "songs",
+  "albums",
+  "playlists",
+];
+
 const typeLabel: Record<keyof SearchSections, string> = {
   songs: "Song",
   artists: "Artist",
@@ -58,8 +69,8 @@ export default function Search() {
   });
   const [suggestions, setSuggestions] = useState<SearchSuggestItem[]>([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const suggestAbort = useRef<AbortController | null>(null);
   const suggestTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -96,7 +107,9 @@ export default function Search() {
             ? res.suggestions.slice(0, MAX_SUGGESTIONS)
             : []
         );
-      } catch {}
+      } catch {
+        /* ignore */
+      }
     }, SUGGEST_DEBOUNCE_MS);
   };
 
@@ -134,7 +147,7 @@ export default function Search() {
   /* ===========================
      Build mixed list
      (ORIGINAL ORDER PRESERVED)
-  =========================== */
+=========================== */
 
   const orderedKinds: (keyof SearchSections)[] = [
     "songs",
@@ -150,26 +163,41 @@ export default function Search() {
   );
 
   /* ===========================
-     FEATURED RESULT (YT Music)
-     – first exact title match
-  =========================== */
+     HERO SELECTION (YT MUSIC)
+     ✔ exact match
+     ✔ entity priority
+=========================== */
 
   const normalizedQuery = normalize(query);
 
-  const featuredIndex = mixedResults.findIndex(
-    (item) => normalize(item.title) === normalizedQuery
-  );
+  const heroItem: MixedResultItem | null = (() => {
+    for (const kind of HERO_PRIORITY) {
+      const list = sections[kind];
+      if (!Array.isArray(list)) continue;
 
-  const featuredItem =
-    featuredIndex >= 0 ? mixedResults[featuredIndex] : null;
+      const match = list.find(
+        (item) => normalize(item.title) === normalizedQuery
+      );
 
-  const remainingResults =
-    featuredIndex >= 0
-      ? mixedResults.filter((_, i) => i !== featuredIndex)
-      : mixedResults;
+      if (match) {
+        return { ...match, kind };
+      }
+    }
+    return null;
+  })();
+
+  const remainingResults = heroItem
+    ? mixedResults.filter(
+        (item) =>
+          !(
+            item.kind === heroItem.kind &&
+            item.id === heroItem.id
+          )
+      )
+    : mixedResults;
 
   /* ===========================
-     Render helpers
+     Actions
   =========================== */
 
   const handleItemClick = (item: MixedResultItem) => {
@@ -234,22 +262,26 @@ export default function Search() {
           )}
         </form>
 
-        {/* Featured result */}
-        {featuredItem && (
+        {/* HERO (Featured entity) */}
+        {heroItem && (
           <div
-            onClick={() => handleItemClick(featuredItem)}
+            onClick={() => handleItemClick(heroItem)}
             className="mt-6 flex cursor-pointer items-center gap-4 rounded-2xl bg-neutral-900/60 p-4 hover:bg-neutral-900"
           >
             <img
-              src={featuredItem.imageUrl}
-              className="h-16 w-16 rounded-full object-cover"
+              src={heroItem.imageUrl}
+              className={`h-16 w-16 object-cover ${
+                heroItem.kind === "artists"
+                  ? "rounded-full"
+                  : "rounded-xl"
+              }`}
             />
             <div>
               <div className="text-lg font-bold">
-                {featuredItem.title}
+                {heroItem.title}
               </div>
               <div className="text-sm text-neutral-400">
-                {typeLabel[featuredItem.kind]}
+                {typeLabel[heroItem.kind]}
               </div>
             </div>
           </div>
@@ -296,9 +328,15 @@ export default function Search() {
           </div>
         )}
 
-        {!loading && submitted && remainingResults.length === 0 && !featuredItem && (
+        {!loading && submitted && remainingResults.length === 0 && !heroItem && (
           <div className="mt-4 text-sm text-neutral-500">
             No results found.
+          </div>
+        )}
+
+        {error && (
+          <div className="mt-4 text-sm text-red-400">
+            {error}
           </div>
         )}
       </div>
