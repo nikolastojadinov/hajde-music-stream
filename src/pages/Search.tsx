@@ -232,16 +232,16 @@ export default function Search() {
 
   return (
     <div className="min-h-screen bg-neutral-950 text-white">
-      <div className="mx-auto flex min-h-screen max-w-5xl flex-col px-4 pb-24 pt-4 md:px-6">
-        <form onSubmit={handleSubmit} className="sticky top-0 z-40 -mx-1 mb-5 bg-neutral-950/95 px-1 pt-1 backdrop-blur-md">
-          <div className="relative flex items-center rounded-full border border-neutral-800/80 bg-neutral-900/90 px-4 py-3 shadow-[0_18px_40px_rgba(0,0,0,0.35)] ring-1 ring-black/40">
+      <div className="mx-auto flex min-h-screen max-w-5xl flex-col px-4 pb-24 pt-3 md:px-6">
+        <form onSubmit={handleSubmit} className="sticky top-0 z-40 mb-4 bg-neutral-950/80 pt-1 backdrop-blur">
+          <div className="relative">
             <Input
               value={query}
               onChange={(e) => handleInputChange(e.target.value)}
               placeholder="Traži pesme, izvođače, albume..."
-              className="h-11 flex-1 border-none bg-transparent text-base text-white placeholder:text-neutral-500 focus-visible:ring-0 focus-visible:ring-offset-0"
+              className="h-11 w-full rounded-full border border-neutral-800 bg-neutral-900/85 pl-4 pr-11 text-sm text-white placeholder:text-neutral-500 focus-visible:ring-0 focus-visible:ring-offset-0"
             />
-            <SearchIcon className="ml-3 h-5 w-5 flex-shrink-0 text-neutral-500" />
+            <SearchIcon className="absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-neutral-500" />
           </div>
           {suggestions.length > 0 && (
             <div className="relative">
@@ -258,16 +258,12 @@ export default function Search() {
           </div>
         )}
 
-        {!readyForResults && !loading && !error && (
-          <div className="mt-6 text-sm text-neutral-500">Upiši makar 2 karaktera i pokreni pretragu.</div>
-        )}
-
         {readyForResults && !hasResults && !loading && !error && (
-          <div className="mt-6 text-sm text-neutral-500">Nema pronađenih rezultata za ovaj upit.</div>
+          <div className="mt-2 text-sm text-neutral-500">Nema pronađenih rezultata za ovaj upit.</div>
         )}
 
         {loading && (
-          <div className="mt-6 text-sm text-neutral-400">Pretražujemo...</div>
+          <div className="mt-2 text-sm text-neutral-400">Pretražujemo...</div>
         )}
 
         <div className="flex flex-1 flex-col gap-3 pb-10">
