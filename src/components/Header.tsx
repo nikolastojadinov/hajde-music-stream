@@ -182,9 +182,11 @@ const Header = () => {
     >
       <div className="h-full px-4 md:px-6 flex items-center justify-between gap-4">
         <Link to="/" className="flex items-center gap-3 group">
-          <div className="flex h-14 w-14 items-center justify-center rounded-[18px] bg-[#141126] border border-white/10 shadow-[inset_0_0_18px_rgba(255,255,255,0.05)]">
-            <img src={appLogo} alt="PurpleMusic" className="h-9 w-9" />
-          </div>
+          <img
+            src={appLogo}
+            alt="PurpleMusic"
+            className="h-12 w-12 flex-shrink-0 drop-shadow-[0_4px_18px_rgba(246,198,109,0.28)]"
+          />
           <span className="text-[22px] font-bold text-[#F6C66D] tracking-tight group-hover:drop-shadow-[0_0_12px_rgba(246,198,109,0.38)]">
             PurpleMusic
           </span>
