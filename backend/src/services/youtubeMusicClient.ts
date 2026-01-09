@@ -696,8 +696,10 @@ export async function musicSearch(queryRaw: string): Promise<MusicSearchResults>
       ? (json as any).refinements.map((s: any) => String(s))
       : [];
 
-    const { collected } = extractSearchSections(json);
+    const { sections, collected } = extractSearchSections(json);
     const partitioned = partitionParsedItems(collected);
+
+    const orderedSections = Array.isArray(sections) && sections.length > 0 ? sections : emptySections();
 
     const tracks = Array.isArray(partitioned.tracks) ? partitioned.tracks : [];
     const artists = Array.isArray(partitioned.artists) ? partitioned.artists : [];
@@ -709,12 +711,7 @@ export async function musicSearch(queryRaw: string): Promise<MusicSearchResults>
       artists,
       albums,
       playlists,
-      sections: [
-        { kind: "songs", title: null, items: tracks },
-        { kind: "artists", title: null, items: artists },
-        { kind: "albums", title: null, items: albums },
-        { kind: "playlists", title: null, items: playlists },
-      ],
+      sections: orderedSections,
       refinements,
       suggestions: [],
     };
