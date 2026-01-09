@@ -24,7 +24,7 @@ export default function TrendingNowSection({ snapshot, loading, error, onRetry }
   const updatedLabel = snapshot ? formatUpdatedAt(snapshot.generated_at) : "";
 
   return (
-    <section className="relative mx-auto mt-10 w-full max-w-6xl rounded-2xl border border-white/5 bg-gradient-to-r from-[#0D0B14] via-[#0C1424] to-[#0D0F1C] p-6 shadow-[0_24px_60px_rgba(0,0,0,0.45)]">
+    <section className="relative mx-auto mt-10 w-full max-w-6xl rounded-2xl p-6">
       <div className="mb-5 flex items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold text-white">Trending Now</h2>
@@ -61,7 +61,7 @@ export default function TrendingNowSection({ snapshot, loading, error, onRetry }
           ? skeletonCards.map((_, idx) => (
               <div
                 key={`skeleton-${idx}`}
-                className="w-[180px] flex-shrink-0 animate-pulse rounded-[10px] border border-white/5 bg-white/5 p-3"
+                className="w-[150px] flex-shrink-0 animate-pulse rounded-[10px] border border-white/5 bg-white/5 p-3"
               >
                 <div className="mb-3 h-40 w-full rounded-md bg-white/10" />
                 <div className="mb-2 h-4 w-3/4 rounded bg-white/10" />
@@ -72,7 +72,7 @@ export default function TrendingNowSection({ snapshot, loading, error, onRetry }
 
         {!loading && hasItems
           ? snapshot?.items.map((item) => (
-              <div key={item.id} className="w-[180px] flex-shrink-0">
+              <div key={item.id} className="w-[150px] flex-shrink-0">
                 <PlaylistCard
                   id={item.id}
                   title={item.title}
