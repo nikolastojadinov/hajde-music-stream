@@ -80,6 +80,17 @@ All colors MUST be HSL.
     min-height: 100vh;
   }
 
+  body.search-expanded [data-app-header="main"] {
+    transform: translateY(-120%);
+    opacity: 0;
+    pointer-events: none;
+    box-shadow: none;
+  }
+
+  body.search-expanded main {
+    padding-top: 0 !important;
+  }
+
   .glass-surface {
     background: var(--glass);
     border: 1px solid var(--glass-border);

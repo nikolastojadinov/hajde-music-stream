@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
+import { MoreHorizontal, Search as SearchIcon } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -7,6 +8,7 @@ import {
   searchResolve,
   searchSuggest,
   type SearchResolveResponse,
+  type SearchResultItem,
   type SearchSuggestItem,
   type SearchSections,
 } from "@/lib/api/search";
@@ -15,9 +17,16 @@ import { usePlayer } from "@/contexts/PlayerContext";
 const SUGGEST_DEBOUNCE_MS = 250;
 const MAX_SUGGESTIONS = 15;
 
-const typeLabel: Record<keyof SearchSections, string> = { songs: "Songs", artists: "Artists", albums: "Albums", playlists: "Playlists" };
+const typeLabel: Record<keyof SearchSections, string> = {
+  songs: "Song",
+  artists: "Artist",
+  albums: "Album",
+  playlists: "Playlist",
+};
 
 const allowedSuggestionTypes: SearchSuggestItem["type"][] = ["artist", "track", "album", "playlist"];
+
+type MixedResultItem = SearchResultItem & { kind: keyof SearchSections };
 
 const isVideoId = (id: string | undefined | null): boolean => typeof id === "string" && /^[A-Za-z0-9_-]{11}$/.test(id.trim());
 
@@ -58,6 +67,7 @@ export default function Search() {
   const [suggestions, setSuggestions] = useState<SearchSuggestItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hasSubmitted, setHasSubmitted] = useState(false);
 
   const suggestAbortRef = useRef<AbortController | null>(null);
   const suggestTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -66,6 +76,11 @@ export default function Search() {
     suggestAbortRef.current?.abort();
     suggestAbortRef.current = null;
     setSuggestions([]);
+  };
+
+  const resetResults = () => {
+    setSections({ songs: [], artists: [], albums: [], playlists: [] });
+    setError(null);
   };
 
   const playVideo = (videoId: string, title: string, artist?: string, imageUrl?: string) => {
@@ -84,7 +99,7 @@ export default function Search() {
   const runSearch = async (value?: string) => {
     const nextQuery = normalizeString(value ?? query);
     if (nextQuery.length < 2) {
-      setSections({ songs: [], artists: [], albums: [], playlists: [] });
+      resetResults();
       return;
     }
 
@@ -134,12 +149,25 @@ export default function Search() {
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     clearSuggestions();
-    void runSearch();
+    const trimmed = normalizeString(query);
+    if (trimmed.length < 2) {
+      setHasSubmitted(false);
+      resetResults();
+      return;
+    }
+
+    setHasSubmitted(true);
+    void runSearch(trimmed);
   };
 
   const handleInputChange = (value: string) => {
     setQuery(value);
     scheduleSuggest(value);
+
+    if (normalizeString(value).length === 0) {
+      setHasSubmitted(false);
+      resetResults();
+    }
   };
 
   const handleSelect = (item: SearchSuggestItem) => {
@@ -160,10 +188,7 @@ export default function Search() {
     }
   };
 
-  const handleResultClick = (
-    sectionKind: SearchResolveResponse["sections"][number]["kind"],
-    item: SearchResolveResponse["sections"][number]["items"][number]
-  ) => {
+  const handleResultClick = (sectionKind: MixedResultItem["kind"], item: MixedResultItem) => {
     if (item.endpointType === "watch" && isVideoId(item.endpointPayload)) {
       playVideo(item.endpointPayload, item.title, item.subtitle, item.imageUrl);
       return;
@@ -190,71 +215,116 @@ export default function Search() {
     };
   }, []);
 
+  useEffect(() => {
+    const expanded = hasSubmitted && normalizeString(query).length >= 2;
+    document.body.classList.toggle("search-expanded", expanded);
+    return () => {
+      document.body.classList.remove("search-expanded");
+    };
+  }, [hasSubmitted, query]);
+
   const orderedSections: (keyof SearchSections)[] = ["songs", "artists", "albums", "playlists"];
+  const mixedResults: MixedResultItem[] = orderedSections.flatMap((kind) =>
+    Array.isArray(sections?.[kind])
+      ? sections[kind].map((item) => ({ ...item, kind }))
+      : []
+  );
+  const hasResults = mixedResults.length > 0;
+  const readyForResults = hasSubmitted && normalizeString(query).length >= 2;
 
   return (
-    <div className="min-h-screen bg-neutral-950 pb-20 text-white">
-      <div className="mx-auto max-w-6xl px-4 py-8 space-y-6">
-        <form onSubmit={handleSubmit} className="space-y-3">
-          <div className="relative flex flex-col gap-3 rounded-xl border border-neutral-800 bg-neutral-900/70 p-4">
+    <div className="min-h-screen bg-neutral-950 text-white">
+      <div className="mx-auto flex min-h-screen max-w-5xl flex-col px-4 pb-24 pt-6 md:px-6">
+        <form onSubmit={handleSubmit} className="sticky top-0 z-40 -mx-1 mb-4 bg-neutral-950/95 px-1 pb-3 pt-1 backdrop-blur-md">
+          <div className="flex items-center gap-3 rounded-2xl border border-neutral-800/80 bg-neutral-900/90 px-4 py-3 shadow-[0_18px_40px_rgba(0,0,0,0.35)] ring-1 ring-black/40">
+            <SearchIcon className="h-5 w-5 text-neutral-500" />
             <Input
               value={query}
               onChange={(e) => handleInputChange(e.target.value)}
-              placeholder="Search songs, artists, albums..."
-              className="border-neutral-700 bg-neutral-950 text-white placeholder:text-neutral-500 focus-visible:ring-neutral-500"
+              placeholder="Traži pesme, izvođače, albume..."
+              className="h-11 flex-1 border-none bg-transparent text-base text-white placeholder:text-neutral-500 focus-visible:ring-0 focus-visible:ring-offset-0"
             />
-
-            <div className="flex items-center gap-3">
-              <Button type="submit" className="bg-neutral-100 text-neutral-900 hover:bg-white" disabled={loading}>
-                {loading ? "Searching..." : "Search"}
-              </Button>
-              <span className="text-xs text-neutral-500">Type at least 2 characters to search</span>
-            </div>
-
-            {suggestions.length > 0 && (
-              <div className="absolute left-0 right-0 top-full z-50 mt-2 max-h-[70vh] overflow-y-auto rounded-xl border border-neutral-800 bg-neutral-950/95 shadow-xl">
+            <Button
+              type="submit"
+              variant="secondary"
+              className="h-10 rounded-full bg-white text-neutral-900 transition hover:bg-neutral-200"
+              disabled={loading}
+            >
+              {loading ? "Searching..." : "Search"}
+            </Button>
+          </div>
+          {suggestions.length > 0 && (
+            <div className="relative">
+              <div className="absolute left-0 right-0 top-2 z-40 max-h-[60vh] overflow-y-auto rounded-2xl border border-neutral-800 bg-neutral-950/95 shadow-2xl">
                 <SearchSuggestList suggestions={suggestions} onSelect={handleSelect} />
               </div>
-            )}
-          </div>
+            </div>
+          )}
         </form>
 
-        {error && <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-100">{error}</div>}
+        {error && (
+          <div className="mb-4 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+            {error}
+          </div>
+        )}
 
-        {!loading && sections.length === 0 && !error && <div className="text-sm text-neutral-500">Start typing to see results.</div>}
+        {!readyForResults && !loading && !error && (
+          <div className="mt-6 text-sm text-neutral-500">Upiši makar 2 karaktera i pokreni pretragu.</div>
+        )}
 
-        <div className="space-y-8">
-          {orderedSections.map((kind) => {
-            const items = Array.isArray(sections?.[kind]) ? sections[kind] : [];
-            if (items.length === 0) return null;
-            return (
-              <div key={kind} className="space-y-3">
-                <h2 className="text-xl font-semibold text-neutral-100">{typeLabel[kind]}</h2>
-                <div className="flex gap-4 overflow-x-auto pb-2">
-                  {items.map((item) => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => handleResultClick(kind, item)}
-                      className="w-44 shrink-0 text-left"
-                    >
-                      <div className="h-44 w-full overflow-hidden rounded-xl border border-white/5 bg-neutral-900">
-                        {item.imageUrl ? (
-                          <img src={item.imageUrl} alt={item.title} className="h-full w-full object-cover" />
-                        ) : (
-                          <div className="flex h-full items-center justify-center text-lg font-semibold text-neutral-400">{item.title.slice(0, 2)}</div>
-                        )}
-                      </div>
-                      <div className="mt-2 space-y-1">
-                        <div className="truncate text-sm font-semibold text-neutral-50">{item.title}</div>
-                        {item.subtitle ? <div className="truncate text-xs text-neutral-400">{item.subtitle}</div> : null}
-                      </div>
-                    </button>
-                  ))}
-                </div>
+        {readyForResults && !hasResults && !loading && !error && (
+          <div className="mt-6 text-sm text-neutral-500">Nema pronađenih rezultata za ovaj upit.</div>
+        )}
+
+        {loading && (
+          <div className="mt-6 text-sm text-neutral-400">Pretražujemo...</div>
+        )}
+
+        <div className="flex flex-1 flex-col gap-3 pb-10">
+          {mixedResults.map((item) => (
+            <div
+              key={`${item.kind}-${item.id}`}
+              role="button"
+              tabIndex={0}
+              onClick={() => handleResultClick(item.kind, item)}
+              onKeyDown={(evt) => {
+                if (evt.key === "Enter" || evt.key === " ") {
+                  evt.preventDefault();
+                  handleResultClick(item.kind, item);
+                }
+              }}
+              className="group flex items-center gap-4 rounded-2xl border border-white/5 bg-neutral-900/80 px-3 py-2 shadow-[0_14px_30px_rgba(0,0,0,0.35)] transition hover:-translate-y-0.5 hover:border-white/10 hover:bg-neutral-900"
+            >
+              <div className="relative h-16 w-16 overflow-hidden rounded-xl border border-white/5 bg-neutral-800">
+                {item.imageUrl ? (
+                  <img src={item.imageUrl} alt={item.title} className="h-full w-full object-cover" />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center text-lg font-semibold text-neutral-300">
+                    {item.title.slice(0, 2)}
+                  </div>
+                )}
               </div>
-            );
-          })}
+
+              <div className="flex min-w-0 flex-1 flex-col gap-1">
+                <div className="flex items-center gap-2">
+                  <span className="truncate text-sm font-semibold text-neutral-50">{item.title}</span>
+                  <span className="rounded-full border border-white/10 px-2 py-0.5 text-[11px] uppercase tracking-wide text-neutral-400">
+                    {typeLabel[item.kind]}
+                  </span>
+                </div>
+                {item.subtitle ? <p className="truncate text-xs text-neutral-400">{item.subtitle}</p> : null}
+              </div>
+
+              <button
+                type="button"
+                onClick={(evt) => evt.stopPropagation()}
+                className="flex h-10 w-10 items-center justify-center rounded-full border border-white/5 bg-neutral-900/80 text-neutral-300 opacity-80 transition hover:border-white/15 hover:bg-neutral-800 hover:text-white"
+                aria-label="More actions"
+              >
+                <MoreHorizontal className="h-5 w-5" />
+              </button>
+            </div>
+          ))}
         </div>
       </div>
     </div>

@@ -176,7 +176,10 @@ const Header = () => {
   };
 
   return (
-    <header className="fixed top-0 left-0 right-0 z-50 h-16 bg-[rgba(7,6,11,0.9)] backdrop-blur-2xl border-b border-white/10 shadow-[0_10px_30px_rgba(0,0,0,0.55)]">
+    <header
+      data-app-header="main"
+      className="fixed top-0 left-0 right-0 z-50 h-16 border-b border-white/10 bg-[rgba(7,6,11,0.9)] shadow-[0_10px_30px_rgba(0,0,0,0.55)] backdrop-blur-2xl transition-all duration-300 ease-out"
+    >
       <div className="h-full px-4 md:px-6 flex items-center justify-between gap-4">
         <Link to="/" className="flex items-center gap-3 group">
           <div className="flex h-14 w-14 items-center justify-center rounded-[18px] bg-[#141126] border border-white/10 shadow-[inset_0_0_18px_rgba(255,255,255,0.05)]">
