@@ -24,6 +24,30 @@ export type TrendingSnapshot = {
   items: TrendingSnapshotItem[];
 };
 
+export type MostPopularSnapshotItem = {
+  type: "playlist";
+  id: string;
+  external_id: string | null;
+  title: string;
+  subtitle: string;
+  imageUrl: string | null;
+  metrics: {
+    views_total: number;
+    views_7d: number;
+  };
+};
+
+export type MostPopularSnapshot = {
+  section: "most_popular";
+  generated_at: string;
+  refresh_policy: {
+    type: "interval";
+    interval: "weekly";
+    preferred_window: "02:00-04:00 UTC";
+  };
+  items: MostPopularSnapshotItem[];
+};
+
 export async function fetchTrendingNowSnapshot(options?: { signal?: AbortSignal }): Promise<TrendingSnapshot> {
   const endpoint = withBackendOrigin("/api/home/sections/trending-now");
   const res = await fetch(endpoint, {
@@ -31,7 +55,7 @@ export async function fetchTrendingNowSnapshot(options?: { signal?: AbortSignal 
     credentials: "include",
     signal: options?.signal,
     headers: {
-      "Accept": "application/json",
+      Accept: "application/json",
     },
   });
 
@@ -40,4 +64,22 @@ export async function fetchTrendingNowSnapshot(options?: { signal?: AbortSignal 
   }
 
   return (await res.json()) as TrendingSnapshot;
+}
+
+export async function fetchMostPopularSnapshot(options?: { signal?: AbortSignal }): Promise<MostPopularSnapshot> {
+  const endpoint = withBackendOrigin("/api/home/sections/most-popular");
+  const res = await fetch(endpoint, {
+    method: "GET",
+    credentials: "include",
+    signal: options?.signal,
+    headers: {
+      Accept: "application/json",
+    },
+  });
+
+  if (!res.ok) {
+    throw new Error(`Failed to load MostPopular snapshot: ${res.status}`);
+  }
+
+  return (await res.json()) as MostPopularSnapshot;
 }

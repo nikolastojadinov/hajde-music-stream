@@ -3,8 +3,14 @@ import { Search as SearchIcon } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import Footer from "@/components/Footer";
 import Header from "@/components/Header";
+import MostPopularSection from "@/components/home/MostPopularSection";
 import TrendingNowSection from "@/components/home/TrendingNowSection";
-import { fetchTrendingNowSnapshot, type TrendingSnapshot } from "@/lib/api/home";
+import {
+  fetchMostPopularSnapshot,
+  fetchTrendingNowSnapshot,
+  type MostPopularSnapshot,
+  type TrendingSnapshot,
+} from "@/lib/api/home";
 
 export default function Home() {
   const navigate = useNavigate();
@@ -12,6 +18,10 @@ export default function Home() {
   const [trendingSnapshot, setTrendingSnapshot] = useState<TrendingSnapshot | null>(null);
   const [loadingTrending, setLoadingTrending] = useState(true);
   const [trendingError, setTrendingError] = useState<string | null>(null);
+
+  const [popularSnapshot, setPopularSnapshot] = useState<MostPopularSnapshot | null>(null);
+  const [loadingPopular, setLoadingPopular] = useState(true);
+  const [popularError, setPopularError] = useState<string | null>(null);
 
   const goToSearch = () => navigate("/search");
 
@@ -35,10 +45,35 @@ export default function Home() {
       });
   };
 
+  const loadMostPopular = (controller?: AbortController) => {
+    setLoadingPopular(true);
+    setPopularError(null);
+
+    fetchMostPopularSnapshot({ signal: controller?.signal })
+      .then((snapshot) => {
+        setPopularSnapshot(snapshot);
+      })
+      .catch((err: any) => {
+        if (controller?.signal?.aborted) return;
+        console.warn("[Home] most-popular load failed", err?.message || err);
+        setPopularSnapshot(null);
+        setPopularError("Nije moguće učitati Most Popular sekciju.");
+      })
+      .finally(() => {
+        if (controller?.signal?.aborted) return;
+        setLoadingPopular(false);
+      });
+  };
+
   useEffect(() => {
-    const controller = new AbortController();
-    loadTrending(controller);
-    return () => controller.abort();
+    const trendingController = new AbortController();
+    const popularController = new AbortController();
+    loadTrending(trendingController);
+    loadMostPopular(popularController);
+    return () => {
+      trendingController.abort();
+      popularController.abort();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -64,6 +99,12 @@ export default function Home() {
             loading={loadingTrending}
             error={trendingError}
             onRetry={() => loadTrending()}
+          />
+          <MostPopularSection
+            snapshot={popularSnapshot}
+            loading={loadingPopular}
+            error={popularError}
+            onRetry={() => loadMostPopular()}
           />
         </div>
       </main>
