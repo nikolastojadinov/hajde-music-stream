@@ -13,6 +13,10 @@ import {
 } from "@/lib/api/search";
 import { usePlayer } from "@/contexts/PlayerContext";
 
+/* ===========================
+   Constants
+=========================== */
+
 const SUGGEST_DEBOUNCE_MS = 250;
 const MAX_SUGGESTIONS = 15;
 
@@ -23,34 +27,23 @@ const typeLabel: Record<keyof SearchSections, string> = {
   playlists: "Playlist",
 };
 
-const allowedSuggestionTypes: SearchSuggestItem["type"][] = ["artist", "track", "album", "playlist"];
-
-type MixedResultItem = SearchResultItem & { kind: keyof SearchSections };
-
-const isVideoId = (id: string | undefined | null): boolean => typeof id === "string" && /^[A-Za-z0-9_-]{11}$/.test(id.trim());
-
-const normalizeString = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
-
-const normalizeSuggestions = (value: unknown): SearchSuggestItem[] => {
-  if (!Array.isArray(value)) return [];
-
-  const out: SearchSuggestItem[] = [];
-
-  for (const raw of value) {
-    const type = (raw as any)?.type;
-    const id = normalizeString((raw as any)?.id);
-    const name = normalizeString((raw as any)?.name);
-    if (!allowedSuggestionTypes.includes(type) || !id || !name) continue;
-
-    const imageUrl = normalizeString((raw as any)?.imageUrl) || undefined;
-    const subtitle = normalizeString((raw as any)?.subtitle) || undefined;
-
-    out.push({ type, id, name, imageUrl, subtitle });
-    if (out.length >= MAX_SUGGESTIONS) break;
-  }
-
-  return out;
+type MixedResultItem = SearchResultItem & {
+  kind: keyof SearchSections;
 };
+
+/* ===========================
+   Utils
+=========================== */
+
+const normalize = (v: unknown) =>
+  typeof v === "string" ? v.trim().toLowerCase() : "";
+
+const isVideoId = (id?: string | null) =>
+  typeof id === "string" && /^[A-Za-z0-9_-]{11}$/.test(id);
+
+/* ===========================
+   Component
+=========================== */
 
 export default function Search() {
   const navigate = useNavigate();
@@ -66,252 +59,248 @@ export default function Search() {
   const [suggestions, setSuggestions] = useState<SearchSuggestItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [hasSubmitted, setHasSubmitted] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
 
-  const suggestAbortRef = useRef<AbortController | null>(null);
-  const suggestTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const suggestAbort = useRef<AbortController | null>(null);
+  const suggestTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /* ===========================
+     Suggestions
+  =========================== */
 
   const clearSuggestions = () => {
-    suggestAbortRef.current?.abort();
-    suggestAbortRef.current = null;
+    suggestAbort.current?.abort();
+    suggestAbort.current = null;
     setSuggestions([]);
   };
 
-  const resetResults = () => {
-    setSections({ songs: [], artists: [], albums: [], playlists: [] });
-    setError(null);
-  };
+  const scheduleSuggest = (value: string) => {
+    const q = value.trim();
 
-  const playVideo = (videoId: string, title: string, artist?: string, imageUrl?: string) => {
-    if (!isVideoId(videoId)) return;
-    playTrack({ youtubeVideoId: videoId, title, artist: artist || title, thumbnailUrl: imageUrl || undefined }, "song");
-  };
+    if (suggestTimer.current) clearTimeout(suggestTimer.current);
 
-  const normalizeSections = (value: unknown): SearchSections => {
-    const songs = Array.isArray((value as any)?.songs) ? (value as any).songs : [];
-    const artists = Array.isArray((value as any)?.artists) ? (value as any).artists : [];
-    const albums = Array.isArray((value as any)?.albums) ? (value as any).albums : [];
-    const playlists = Array.isArray((value as any)?.playlists) ? (value as any).playlists : [];
-    return { songs, artists, albums, playlists };
-  };
-
-  const runSearch = async (value?: string) => {
-    const nextQuery = normalizeString(value ?? query);
-    if (nextQuery.length < 2) {
-      resetResults();
+    if (q.length < 2) {
+      clearSuggestions();
       return;
     }
+
+    suggestTimer.current = setTimeout(async () => {
+      suggestAbort.current?.abort();
+      const controller = new AbortController();
+      suggestAbort.current = controller;
+
+      try {
+        const res = await searchSuggest(q, { signal: controller.signal });
+        setSuggestions(
+          Array.isArray(res?.suggestions)
+            ? res.suggestions.slice(0, MAX_SUGGESTIONS)
+            : []
+        );
+      } catch {}
+    }, SUGGEST_DEBOUNCE_MS);
+  };
+
+  /* ===========================
+     Search
+  =========================== */
+
+  const runSearch = async (q: string) => {
+    if (q.length < 2) return;
 
     setLoading(true);
     setError(null);
 
     try {
-      const response = await searchResolve({ q: nextQuery });
-      const nextSections = normalizeSections(response?.sections);
-      setSections(nextSections);
+      const res = await searchResolve({ q });
+      setSections(res?.sections ?? sections);
     } catch {
       setError("Unable to load search results.");
-      setSections({ songs: [], artists: [], albums: [], playlists: [] });
     } finally {
       setLoading(false);
     }
   };
 
-  const scheduleSuggest = (value: string) => {
-    const trimmed = normalizeString(value);
-
-    if (suggestTimeoutRef.current) {
-      clearTimeout(suggestTimeoutRef.current);
-      suggestTimeoutRef.current = null;
-    }
-
-    if (trimmed.length < 2) {
-      clearSuggestions();
-      return;
-    }
-
-    suggestTimeoutRef.current = setTimeout(async () => {
-      suggestAbortRef.current?.abort();
-      const controller = new AbortController();
-      suggestAbortRef.current = controller;
-
-      try {
-        const res = await searchSuggest(trimmed, { signal: controller.signal });
-        setSuggestions(normalizeSuggestions(res?.suggestions));
-      } catch (err: any) {
-        if (err?.name === "AbortError") return;
-        setSuggestions([]);
-      }
-    }, SUGGEST_DEBOUNCE_MS);
-  };
-
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    clearSuggestions();
-    const trimmed = normalizeString(query);
-    if (trimmed.length < 2) {
-      setHasSubmitted(false);
-      resetResults();
-      return;
-    }
-
-    setHasSubmitted(true);
-    void runSearch(trimmed);
-  };
-
-  const handleInputChange = (value: string) => {
-    setQuery(value);
-    scheduleSuggest(value);
-
-    if (normalizeString(value).length === 0) {
-      setHasSubmitted(false);
-      resetResults();
-    }
-  };
-
-  const handleSelect = (item: SearchSuggestItem) => {
+  const handleSubmit = (e: FormEvent) => {
+    e.preventDefault();
     clearSuggestions();
 
-    if (item.type === "artist") {
-      navigate(`/artist/${encodeURIComponent(item.id)}`);
-      return;
-    }
+    const q = query.trim();
+    if (q.length < 2) return;
 
-    if (item.type === "album" || item.type === "playlist") {
-      navigate(`/playlist/${encodeURIComponent(item.id)}`);
-      return;
-    }
-
-    if (item.type === "track" && isVideoId(item.id)) {
-      playVideo(item.id, item.name, item.subtitle, item.imageUrl);
-    }
+    setSubmitted(true);
+    runSearch(q);
   };
 
-  const handleResultClick = (sectionKind: MixedResultItem["kind"], item: MixedResultItem) => {
+  /* ===========================
+     Build mixed list
+     (ORIGINAL ORDER PRESERVED)
+  =========================== */
+
+  const orderedKinds: (keyof SearchSections)[] = [
+    "songs",
+    "artists",
+    "albums",
+    "playlists",
+  ];
+
+  const mixedResults: MixedResultItem[] = orderedKinds.flatMap((kind) =>
+    Array.isArray(sections[kind])
+      ? sections[kind].map((item) => ({ ...item, kind }))
+      : []
+  );
+
+  /* ===========================
+     FEATURED RESULT (YT Music)
+     – first exact title match
+  =========================== */
+
+  const normalizedQuery = normalize(query);
+
+  const featuredIndex = mixedResults.findIndex(
+    (item) => normalize(item.title) === normalizedQuery
+  );
+
+  const featuredItem =
+    featuredIndex >= 0 ? mixedResults[featuredIndex] : null;
+
+  const remainingResults =
+    featuredIndex >= 0
+      ? mixedResults.filter((_, i) => i !== featuredIndex)
+      : mixedResults;
+
+  /* ===========================
+     Render helpers
+  =========================== */
+
+  const handleItemClick = (item: MixedResultItem) => {
     if (item.endpointType === "watch" && isVideoId(item.endpointPayload)) {
-      playVideo(item.endpointPayload, item.title, item.subtitle, item.imageUrl);
+      playTrack(
+        {
+          youtubeVideoId: item.endpointPayload,
+          title: item.title,
+          artist: item.subtitle || item.title,
+          thumbnailUrl: item.imageUrl,
+        },
+        "song"
+      );
       return;
     }
 
     if (item.endpointType === "browse") {
-      if (sectionKind === "artists") {
+      if (item.kind === "artists") {
         navigate(`/artist/${encodeURIComponent(item.endpointPayload)}`);
-        return;
-      }
-
-      if (sectionKind === "albums" || sectionKind === "playlists") {
+      } else {
         navigate(`/playlist/${encodeURIComponent(item.endpointPayload)}`);
       }
     }
   };
 
-  useEffect(() => {
-    return () => {
-      if (suggestTimeoutRef.current) {
-        clearTimeout(suggestTimeoutRef.current);
-      }
-      clearSuggestions();
-    };
-  }, []);
-
-  useEffect(() => {
-    document.body.classList.add("search-page", "search-expanded");
-    return () => {
-      document.body.classList.remove("search-page", "search-expanded");
-    };
-  }, []);
-
-  const orderedSections: (keyof SearchSections)[] = ["songs", "artists", "albums", "playlists"];
-  const mixedResults: MixedResultItem[] = orderedSections.flatMap((kind) =>
-    Array.isArray(sections?.[kind])
-      ? sections[kind].map((item) => ({ ...item, kind }))
-      : []
-  );
-  const hasResults = mixedResults.length > 0;
-  const readyForResults = hasSubmitted && normalizeString(query).length >= 2;
+  /* ===========================
+     Render
+  =========================== */
 
   return (
     <div className="min-h-screen bg-neutral-950 text-white">
-      <div className="mx-auto flex min-h-screen max-w-5xl flex-col px-4 pb-24 pt-3 md:px-6">
-        <form onSubmit={handleSubmit} className="sticky top-0 z-40 mb-4 bg-neutral-950/80 pt-1 backdrop-blur">
+      <div className="mx-auto max-w-5xl px-4 pb-24 pt-3">
+
+        {/* Search bar */}
+        <form
+          onSubmit={handleSubmit}
+          className="sticky top-0 z-40 bg-neutral-950/90 backdrop-blur"
+        >
           <div className="relative">
             <Input
               value={query}
-              onChange={(e) => handleInputChange(e.target.value)}
-              placeholder="Traži pesme, izvođače, albume..."
-              className="h-11 w-full rounded-full border border-neutral-800 bg-neutral-900/85 pl-4 pr-11 text-sm text-white placeholder:text-neutral-500 focus-visible:ring-0 focus-visible:ring-offset-0"
+              onChange={(e) => {
+                setQuery(e.target.value);
+                scheduleSuggest(e.target.value);
+              }}
+              placeholder="Search songs, artists, albums…"
+              className="h-11 rounded-full bg-neutral-900 pl-4 pr-10"
             />
             <SearchIcon className="absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-neutral-500" />
           </div>
+
           {suggestions.length > 0 && (
-            <div className="relative">
-              <div className="absolute left-0 right-0 top-2 z-40 max-h-[60vh] overflow-y-auto rounded-2xl border border-neutral-800 bg-neutral-950/95 shadow-2xl">
-                <SearchSuggestList suggestions={suggestions} onSelect={handleSelect} />
-              </div>
-            </div>
+            <SearchSuggestList
+              suggestions={suggestions}
+              onSelect={(item) => {
+                clearSuggestions();
+                if (item.type === "artist") {
+                  navigate(`/artist/${item.id}`);
+                }
+              }}
+            />
           )}
         </form>
 
-        {error && (
-          <div className="mb-4 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-100">
-            {error}
+        {/* Featured result */}
+        {featuredItem && (
+          <div
+            onClick={() => handleItemClick(featuredItem)}
+            className="mt-6 flex cursor-pointer items-center gap-4 rounded-2xl bg-neutral-900/60 p-4 hover:bg-neutral-900"
+          >
+            <img
+              src={featuredItem.imageUrl}
+              className="h-16 w-16 rounded-full object-cover"
+            />
+            <div>
+              <div className="text-lg font-bold">
+                {featuredItem.title}
+              </div>
+              <div className="text-sm text-neutral-400">
+                {typeLabel[featuredItem.kind]}
+              </div>
+            </div>
           </div>
         )}
 
-        {readyForResults && !hasResults && !loading && !error && (
-          <div className="mt-2 text-sm text-neutral-500">Nema pronađenih rezultata za ovaj upit.</div>
+        {/* Results */}
+        {submitted && (
+          <div className="mt-6 flex flex-col gap-2">
+            {remainingResults.map((item) => (
+              <div
+                key={`${item.kind}-${item.id}`}
+                onClick={() => handleItemClick(item)}
+                className="flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2 hover:bg-neutral-900"
+              >
+                <img
+                  src={item.imageUrl}
+                  className="h-12 w-12 rounded-lg object-cover"
+                />
+
+                <div className="flex-1 min-w-0">
+                  <div className="truncate font-semibold">
+                    {item.title}
+                  </div>
+                  {item.subtitle && (
+                    <div className="truncate text-xs text-neutral-400">
+                      {item.subtitle}
+                    </div>
+                  )}
+                </div>
+
+                <span className="rounded-full bg-neutral-800 px-2 py-1 text-xs">
+                  {typeLabel[item.kind]}
+                </span>
+
+                <MoreHorizontal className="h-5 w-5 text-neutral-400" />
+              </div>
+            ))}
+          </div>
         )}
 
         {loading && (
-          <div className="mt-2 text-sm text-neutral-400">Pretražujemo...</div>
+          <div className="mt-4 text-sm text-neutral-400">
+            Searching…
+          </div>
         )}
 
-        <div className="flex flex-1 flex-col gap-2 pb-10">
-          {mixedResults.map((item) => (
-            <div
-              key={`${item.kind}-${item.id}`}
-              role="button"
-              tabIndex={0}
-              onClick={() => handleResultClick(item.kind, item)}
-              onKeyDown={(evt) => {
-                if (evt.key === "Enter" || evt.key === " ") {
-                  evt.preventDefault();
-                  handleResultClick(item.kind, item);
-                }
-              }}
-              className="group flex items-center gap-3 px-2 py-2 transition hover:bg-neutral-900/50"
-            >
-              <div className="relative h-12 w-12 overflow-hidden rounded-lg bg-neutral-800/80">
-                {item.imageUrl ? (
-                  <img src={item.imageUrl} alt={item.title} className="h-full w-full object-cover" />
-                ) : (
-                  <div className="flex h-full w-full items-center justify-center text-sm font-semibold text-neutral-300">
-                    {item.title.slice(0, 2)}
-                  </div>
-                )}
-              </div>
-
-              <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                <div className="flex items-center gap-2">
-                  <span className="truncate text-sm font-semibold text-neutral-50">{item.title}</span>
-                  <span className="rounded-full bg-neutral-800/60 px-2 py-[3px] text-[10px] uppercase tracking-wide text-neutral-400">
-                    {typeLabel[item.kind]}
-                  </span>
-                </div>
-                {item.subtitle ? <p className="truncate text-xs text-neutral-400">{item.subtitle}</p> : null}
-              </div>
-
-              <button
-                type="button"
-                onClick={(evt) => evt.stopPropagation()}
-                className="flex h-9 w-9 items-center justify-center text-neutral-300 transition hover:text-white"
-                aria-label="More actions"
-              >
-                <MoreHorizontal className="h-5 w-5" />
-              </button>
-            </div>
-          ))}
-        </div>
+        {!loading && submitted && remainingResults.length === 0 && !featuredItem && (
+          <div className="mt-4 text-sm text-neutral-500">
+            No results found.
+          </div>
+        )}
       </div>
     </div>
   );
