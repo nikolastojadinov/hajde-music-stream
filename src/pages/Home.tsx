@@ -58,7 +58,7 @@ export default function Home() {
           </button>
         </div>
 
-        <div className="mx-auto max-w-6xl px-4 pt-6 md:px-6">
+        <div className="mx-auto max-w-6xl px-0 pt-6 md:px-0">
           <TrendingNowSection
             snapshot={trendingSnapshot}
             loading={loadingTrending}
