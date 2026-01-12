@@ -57,6 +57,11 @@ function normalizeString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function normalizeLoose(value: unknown): string {
+  const base = normalizeString(value).toLowerCase();
+  return base.replace(/[^a-z0-9]+/g, "");
+}
+
 function looksLikeVideoId(value: string): boolean {
   const v = normalizeString(value);
   return /^[A-Za-z0-9_-]{11}$/.test(v);
@@ -320,6 +325,22 @@ export function parseInnertubeSearch(root: any): { featured: SearchResultItem | 
 
     sectionContents.forEach((section: any) => walkNode(section));
   });
+
+  // Fallback: if hero card missing, promote exact-match artist to featured
+  if (!featured && sections.artists.length > 0) {
+    const normalizedTitles = sections.artists.map((a) => ({
+      item: a,
+      norm: normalizeLoose(a.title),
+    }));
+
+    const queryNorm = normalizeLoose(root?.query || root?.originalQuery || "");
+    const best = normalizedTitles.find((x) => x.norm && x.norm === queryNorm);
+    if (best) {
+      featured = best.item;
+      featuredKey = `${best.item.endpointType}:${best.item.endpointPayload}`;
+      sections.artists = sections.artists.filter((a) => a !== best.item);
+    }
+  }
 
   return { featured, sections };
 }
