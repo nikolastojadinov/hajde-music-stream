@@ -91,6 +91,53 @@ function tryBuildItemFromNode(node: any): ParsedItem | null {
   return { kind, item };
 }
 
+function findHeroInTree(root: any, queryNorm?: string): SearchResultItem | null {
+  let firstArtist: SearchResultItem | null = null;
+
+  const visit = (node: any): SearchResultItem | null => {
+    if (!node || typeof node !== "object") return null;
+
+    if (node.musicCardShelfRenderer) {
+      const parsed = parseMusicCardShelfRenderer(node.musicCardShelfRenderer);
+      if (parsed && parsed.kind === "artist") {
+        if (!firstArtist) firstArtist = parsed.item;
+        if (queryNorm) {
+          const titleNorm = normalizeLoose(parsed.item.title);
+          if (titleNorm && titleNorm === queryNorm) return parsed.item;
+        } else {
+          return parsed.item;
+        }
+      }
+    }
+
+    const parsedSelf = tryBuildItemFromNode(node);
+    if (parsedSelf && parsedSelf.kind === "artist") {
+      if (!firstArtist) firstArtist = parsedSelf.item;
+      if (queryNorm) {
+        const titleNorm = normalizeLoose(parsedSelf.item.title);
+        if (titleNorm && titleNorm === queryNorm) return parsedSelf.item;
+      }
+    }
+
+    for (const key of Object.keys(node)) {
+      const val = (node as any)[key];
+      if (Array.isArray(val)) {
+        for (const child of val) {
+          const found = visit(child);
+          if (found) return found;
+        }
+      } else if (val && typeof val === "object") {
+        const found = visit(val);
+        if (found) return found;
+      }
+    }
+    return null;
+  };
+
+  const exact = visit(root);
+  return exact || firstArtist;
+}
+
 function looksLikeVideoId(value: string): boolean {
   const v = normalizeString(value);
   return /^[A-Za-z0-9_-]{11}$/.test(v);
@@ -357,35 +404,9 @@ export function parseInnertubeSearch(root: any): { featured: SearchResultItem | 
 
   const queryNorm = normalizeLoose(root?.query || root?.originalQuery || "");
 
-  // Deep fallback: search entire tree for an artist whose title matches the query when hero is missing
-  const deepFind = (node: any): SearchResultItem | null => {
-    if (!node || typeof node !== "object") return null;
-
-    const parsed = tryBuildItemFromNode(node);
-    if (parsed && parsed.kind === "artist") {
-      const titleNorm = normalizeLoose(parsed.item.title);
-      if (titleNorm && queryNorm && titleNorm === queryNorm) {
-        return parsed.item;
-      }
-    }
-
-    for (const key of Object.keys(node)) {
-      const val = (node as any)[key];
-      if (Array.isArray(val)) {
-        for (const child of val) {
-          const found = deepFind(child);
-          if (found) return found;
-        }
-      } else if (val && typeof val === "object") {
-        const found = deepFind(val);
-        if (found) return found;
-      }
-    }
-    return null;
-  };
-
-  if (!featured && queryNorm) {
-    const heroFromDeep = deepFind(root);
+  // Global search: find hero card or any artist matching query; if no query, take first artist found
+  if (!featured) {
+    const heroFromDeep = findHeroInTree(root, queryNorm);
     if (heroFromDeep) {
       featured = heroFromDeep;
       featuredKey = `${heroFromDeep.endpointType}:${heroFromDeep.endpointPayload}`;
@@ -398,7 +419,7 @@ export function parseInnertubeSearch(root: any): { featured: SearchResultItem | 
       item: a,
       norm: normalizeLoose(a.title),
     }));
-    const best = normalizedTitles.find((x) => x.norm && x.norm === queryNorm);
+    const best = queryNorm ? normalizedTitles.find((x) => x.norm && x.norm === queryNorm) : normalizedTitles[0];
     if (best) {
       featured = best.item;
       featuredKey = `${best.item.endpointType}:${best.item.endpointPayload}`;
