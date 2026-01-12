@@ -300,18 +300,153 @@ async function markError(rowId: string, message: string): Promise<void> {
 
 async function ingest(row: RawPayloadRow, bundle: EntityBundle): Promise<void> {
   if (!supabase) throw new Error('supabase_not_configured');
-  const { error } = await supabase.rpc('ingest_innertube_entities', {
-    p_payload_id: row.id,
-    p_artists: bundle.artists,
-    p_albums: bundle.albums,
-    p_tracks: bundle.tracks,
-    p_playlists: bundle.playlists,
-    p_playlist_tracks: bundle.playlistTracks,
-  });
 
-  if (error) {
-    throw new Error(error.message);
+  const now = new Date().toISOString();
+
+  // Artists
+  if (bundle.artists.length > 0) {
+    const artistRows = bundle.artists.map((a) => ({
+      artist_key: a.artist_key,
+      artist: a.artist,
+      normalized_name: a.normalized_name,
+      youtube_channel_id: a.youtube_channel_id,
+      subscriber_count: a.subscriber_count,
+      view_count: a.view_count,
+      thumbnails: a.thumbnails,
+      country: a.country,
+      updated_at: now,
+    }));
+
+    const { error } = await supabase.from('artists').upsert(artistRows, { onConflict: 'artist_key' });
+    if (error) throw new Error(error.message);
   }
+
+  // Albums
+  if (bundle.albums.length > 0) {
+    const albumRows = bundle.albums.map((al) => ({
+      external_id: al.external_id,
+      title: al.title,
+      artist_key: al.artist_key,
+      thumbnail_url: al.thumbnail_url,
+      release_date: al.release_date,
+      track_count: al.track_count,
+      total_duration_seconds: al.total_duration_seconds,
+      updated_at: now,
+    }));
+
+    const { error } = await supabase.from('albums').upsert(albumRows, { onConflict: 'external_id' });
+    if (error) throw new Error(error.message);
+  }
+
+  // Map album external_id -> id for track linkage
+  let albumIdMap: Record<string, string> = {};
+  if (bundle.albums.length > 0) {
+    const albumIds = bundle.albums.map((a) => a.external_id).filter(Boolean);
+    const { data, error } = await supabase
+      .from('albums')
+      .select('id, external_id')
+      .in('external_id', albumIds);
+    if (error) throw new Error(error.message);
+    albumIdMap = Object.fromEntries((data || []).map((row: any) => [row.external_id, row.id]));
+  }
+
+  // Tracks
+  if (bundle.tracks.length > 0) {
+    const trackRows = bundle.tracks.map((t) => ({
+      youtube_id: t.youtube_id,
+      title: t.title,
+      artist: t.artist,
+      artist_key: t.artist_key,
+      artist_channel_id: t.artist_channel_id,
+      album_id: t.album_external_id ? albumIdMap[t.album_external_id] || null : null,
+      duration: t.duration,
+      cover_url: t.cover_url,
+      image_url: t.image_url,
+      published_at: t.published_at,
+      region: t.region,
+      category: t.category,
+      sync_status: 'active',
+      last_synced_at: now,
+      last_updated_at: now,
+    }));
+
+    const { error } = await supabase.from('tracks').upsert(trackRows, { onConflict: 'youtube_id' });
+    if (error) throw new Error(error.message);
+  }
+
+  // Playlists
+  if (bundle.playlists.length > 0) {
+    const playlistRows = bundle.playlists.map((p) => ({
+      external_id: p.external_id,
+      title: p.title,
+      description: p.description,
+      cover_url: p.cover_url,
+      image_url: p.image_url,
+      channel_id: p.channel_id,
+      item_count: p.item_count,
+      region: p.region,
+      country: p.country,
+      view_count: p.view_count,
+      quality_score: p.quality_score,
+      is_public: p.is_public ?? true,
+      last_refreshed_on: now,
+      last_etag: p.last_etag,
+      validated: p.validated ?? true,
+      validated_on: p.validated_on ?? now,
+      updated_at: now,
+    }));
+
+    const { error } = await supabase.from('playlists').upsert(playlistRows, { onConflict: 'external_id' });
+    if (error) throw new Error(error.message);
+  }
+
+  // Map playlist external_id -> id for playlist_tracks
+  let playlistIdMap: Record<string, string> = {};
+  if (bundle.playlists.length > 0) {
+    const playlistIds = bundle.playlists.map((p) => p.external_id).filter(Boolean);
+    const { data, error } = await supabase
+      .from('playlists')
+      .select('id, external_id')
+      .in('external_id', playlistIds);
+    if (error) throw new Error(error.message);
+    playlistIdMap = Object.fromEntries((data || []).map((row: any) => [row.external_id, row.id]));
+  }
+
+  // Map track youtube_id -> id for playlist_tracks
+  let trackIdMap: Record<string, string> = {};
+  if (bundle.tracks.length > 0) {
+    const trackIds = bundle.tracks.map((t) => t.youtube_id).filter(Boolean);
+    const { data, error } = await supabase
+      .from('tracks')
+      .select('id, youtube_id')
+      .in('youtube_id', trackIds);
+    if (error) throw new Error(error.message);
+    trackIdMap = Object.fromEntries((data || []).map((row: any) => [row.youtube_id, row.id]));
+  }
+
+  // Playlist-track links
+  if (bundle.playlistTracks.length > 0) {
+    const linkRows = bundle.playlistTracks
+      .map((pt) => {
+        const playlist_id = playlistIdMap[pt.playlist_external_id];
+        const track_id = trackIdMap[pt.youtube_id];
+        if (!playlist_id || !track_id) return null;
+        return { playlist_id, track_id, position: pt.position ?? 0 };
+      })
+      .filter(Boolean) as Array<{ playlist_id: string; track_id: string; position: number }>;
+
+    if (linkRows.length > 0) {
+      const { error } = await supabase.from('playlist_tracks').upsert(linkRows, { onConflict: 'playlist_id,track_id' });
+      if (error) throw new Error(error.message);
+    }
+  }
+
+  // Mark payload processed
+  const { error: updateError } = await supabase
+    .from('innertube_raw_payloads')
+    .update({ status: 'processed', processed_at: now, error_message: null })
+    .eq('id', row.id);
+  if (updateError) throw new Error(updateError.message);
 }
 
 export async function runInnertubeDecoderOnce(): Promise<void> {
