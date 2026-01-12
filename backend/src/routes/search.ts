@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { musicSearch, searchSuggestions, type SearchResultsPayload, type SuggestResponse } from "../lib/youtubeMusicClient";
+import { indexSuggestFromSearch } from "../services/suggestIndexer";
 
 const router = Router();
 
@@ -49,6 +50,7 @@ router.get("/results", async (req, res) => {
 
   try {
     const payload = await musicSearch(q);
+    void indexSuggestFromSearch(q, payload);
     res.set("Cache-Control", CACHE_HEADER);
     return res.json(payload satisfies SearchResultsPayload);
   } catch (err) {
