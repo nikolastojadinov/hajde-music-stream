@@ -13,10 +13,9 @@ type SuggestRow = {
 };
 
 const MIN_QUERY_LEN = 2;
-const MAX_PREFIXES = 20; // protects from excessively long inputs
+const MAX_PREFIXES = 20; // safety cap
 
 function normalizeQuery(input: string): string {
-  // Fold to ASCII-compatible and drop any non-ASCII chars without using Unicode regex flags
   const lowered = input.toLowerCase().normalize("NFKD");
   const asciiOnly = lowered.replace(/[^\x00-\x7F]+/g, "");
   return asciiOnly.trim().replace(/\s+/g, " ");
@@ -31,15 +30,17 @@ function prefixes(query: string): string[] {
   return result;
 }
 
-function flattenEntities(payload: SearchResultsPayload): Array<{ kind: EntityKind; item: SearchResultItem }> {
+function flattenEntities(
+  payload: SearchResultsPayload
+): Array<{ kind: EntityKind; item: SearchResultItem }> {
   const { featured, sections } = payload;
   const items: Array<{ kind: EntityKind; item: SearchResultItem }> = [];
 
   if (featured) items.push({ kind: "track", item: featured });
-  sections.songs.forEach((item) => items.push({ kind: "track", item }));
-  sections.artists.forEach((item) => items.push({ kind: "artist", item }));
-  sections.albums.forEach((item) => items.push({ kind: "album", item }));
-  sections.playlists.forEach((item) => items.push({ kind: "playlist", item }));
+  sections.songs.forEach((i) => items.push({ kind: "track", item: i }));
+  sections.artists.forEach((i) => items.push({ kind: "artist", item: i }));
+  sections.albums.forEach((i) => items.push({ kind: "album", item: i }));
+  sections.playlists.forEach((i) => items.push({ kind: "playlist", item: i }));
 
   return items;
 }
@@ -73,26 +74,69 @@ function buildRows(rawQuery: string, payload: SearchResultsPayload): SuggestRow[
   return rows;
 }
 
-async function insertRows(rows: SuggestRow[]): Promise<void> {
-  if (!supabase) return;
-  const CHUNK = 500;
+async function insertSuggestRows(rows: SuggestRow[]): Promise<void> {
+  if (!supabase || rows.length === 0) return;
 
+  const CHUNK = 500;
   for (let i = 0; i < rows.length; i += CHUNK) {
     const slice = rows.slice(i, i + CHUNK);
     const { error } = await supabase.from("suggest_entries").insert(slice);
     if (error) {
-      console.error("[suggest-indexer] insert failed", { error: error.message });
+      console.error("[suggest-indexer] insert failed", error.message);
       return;
     }
   }
 }
 
-export async function indexSuggestFromSearch(queryRaw: string, payload: SearchResultsPayload): Promise<void> {
+/**
+ * MAIN ENTRY
+ * - dedupe by FULL normalized query
+ * - only ENTER searches reach this function
+ */
+export async function indexSuggestFromSearch(
+  queryRaw: string,
+  payload: SearchResultsPayload
+): Promise<void> {
+  if (!supabase) return;
+
   try {
-    const rows = buildRows(queryRaw, payload);
+    const normalized = normalizeQuery(queryRaw);
+    if (!normalized || normalized.length < MIN_QUERY_LEN) return;
+
+    /**
+     * STEP 1:
+     * Try to register the full query.
+     * If it already exists → ON CONFLICT DO NOTHING
+     */
+    const { error: insertQueryError, data } = await supabase
+      .from("suggest_queries")
+      .insert({ normalized_query: normalized })
+      .select("normalized_query");
+
+    /**
+     * If no row was returned, query already existed → STOP
+     */
+    if (insertQueryError) {
+      console.error("[suggest-indexer] query insert failed", insertQueryError.message);
+      return;
+    }
+
+    if (!data || data.length === 0) {
+      // query already processed before → do NOTHING
+      return;
+    }
+
+    /**
+     * STEP 2:
+     * First time this query is seen → build and insert prefixes
+     */
+    const rows = buildRows(normalized, payload);
     if (rows.length === 0) return;
-    await insertRows(rows);
+
+    await insertSuggestRows(rows);
   } catch (err) {
-    console.error("[suggest-indexer] failed", { error: err instanceof Error ? err.message : String(err) });
+    console.error("[suggest-indexer] failed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 }
