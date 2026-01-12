@@ -16,10 +16,10 @@ const MIN_QUERY_LEN = 2;
 const MAX_PREFIXES = 20; // protects from excessively long inputs
 
 function normalizeQuery(input: string): string {
-  const ascii = input
-    .normalize("NFKD")
-    .replace(/[^\p{ASCII}]/gu, "");
-  return ascii.toLowerCase().trim().replace(/\s+/g, " ");
+  // Fold to ASCII-compatible and drop any non-ASCII chars without using Unicode regex flags
+  const lowered = input.toLowerCase().normalize("NFKD");
+  const asciiOnly = lowered.replace(/[^\x00-\x7F]+/g, "");
+  return asciiOnly.trim().replace(/\s+/g, " ");
 }
 
 function prefixes(query: string): string[] {
