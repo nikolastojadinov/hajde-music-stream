@@ -19,6 +19,7 @@ export type MostPopularSnapshotItem = {
   metrics: {
     views_total: number;
     views_7d: number;
+    track_count: number | null;
   };
 };
 
@@ -49,6 +50,7 @@ type CandidateRow = {
   playlist_views_total?: number | null;
   playlist_views_7d?: number | null;
   last_viewed_at?: string | null;
+  track_count?: number | null;
 };
 
 const REFRESH_POLICY = {
@@ -131,6 +133,15 @@ function normalizeImage(row: CandidateRow): string | null {
   return (row.cover_url || row.image_url || null) ?? null;
 }
 
+function readTrackCount(row: CandidateRow): number | null {
+  const raw = (row as any)?.track_count ?? null;
+  if (raw === null || raw === undefined) return null;
+  const num = Number(raw);
+  if (!Number.isFinite(num)) return null;
+  if (num <= 0) return 0;
+  return Math.round(num);
+}
+
 function buildSnapshotFromCandidates(rows: CandidateRow[], generatedAt: DateTime): MostPopularSnapshot {
   const items: MostPopularSnapshotItem[] = [];
   const seen = new Set<string>();
@@ -145,6 +156,8 @@ function buildSnapshotFromCandidates(rows: CandidateRow[], generatedAt: DateTime
 
     const totalViews = Math.max(0, toNumber(row.views_count, 0), toNumber(row.playlist_views_total, 0));
     const views7d = Math.max(0, toNumber(row.playlist_views_7d, 0));
+    const trackCount = readTrackCount(row);
+    if (trackCount === 0) continue;
 
     items.push({
       type: 'playlist',
@@ -156,6 +169,7 @@ function buildSnapshotFromCandidates(rows: CandidateRow[], generatedAt: DateTime
       metrics: {
         views_total: Math.round(totalViews),
         views_7d: Math.round(views7d),
+        track_count: trackCount,
       },
     });
   }

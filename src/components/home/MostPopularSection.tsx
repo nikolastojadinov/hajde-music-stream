@@ -63,19 +63,16 @@ export default function MostPopularSection({ snapshot, loading, error, onRetry }
         </div>
       ) : null}
 
-      <div className="flex flex-col gap-2">
+      <div className="scrollbar-hide flex gap-3 overflow-x-auto pb-2 pr-1">
         {loading
           ? skeletonItems.map((_, idx) => (
               <div
                 key={`skeleton-${idx}`}
-                className="flex items-center gap-3 rounded-lg border border-white/5 bg-white/5 px-3 py-2 animate-pulse"
+                className="w-[150px] flex-shrink-0 animate-pulse rounded-[10px] border border-white/5 bg-white/5 p-3"
               >
-                <div className="h-12 w-12 rounded-lg bg-white/10" />
-                <div className="flex-1 space-y-2">
-                  <div className="h-4 w-2/3 rounded bg-white/10" />
-                  <div className="h-3 w-1/2 rounded bg-white/10" />
-                </div>
-                <div className="h-5 w-16 rounded-full bg-white/10" />
+                <div className="mb-3 h-32 w-full rounded-md bg-white/10" />
+                <div className="mb-2 h-4 w-3/4 rounded bg-white/10" />
+                <div className="h-3 w-1/2 rounded bg-white/10" />
               </div>
             ))
           : null}
@@ -83,18 +80,19 @@ export default function MostPopularSection({ snapshot, loading, error, onRetry }
         {!loading && hasItems
           ? normalizedItems.map((item) =>
               item ? (
-                <PlaylistListItem
-                  key={item.browseId}
-                  title={item.title}
-                  subtitle={item.subtitle}
-                  imageUrl={item.imageUrl}
-                  badge={item.badge}
-                  onSelect={() =>
-                    navigate(`/playlist/${encodeURIComponent(item.browseId)}`, {
-                      state: item.navState,
-                    })
-                  }
-                />
+                <div key={item.browseId} className="w-[150px] flex-shrink-0">
+                  <PlaylistListItem
+                    title={item.title}
+                    subtitle={item.subtitle}
+                    imageUrl={item.imageUrl}
+                    badge={item.badge}
+                    onSelect={() =>
+                      navigate(`/playlist/${encodeURIComponent(item.browseId)}`, {
+                        state: item.navState,
+                      })
+                    }
+                  />
+                </div>
               ) : null,
             )
           : null}

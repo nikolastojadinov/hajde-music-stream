@@ -87,13 +87,14 @@ export default function PlaylistPage() {
           title: (t.title || "").trim(),
           artist: navArtist,
           duration: (t.duration || "").trim(),
+          thumbnailUrl: t.thumbnail ?? null,
         };
       })
-      .filter(Boolean) as Array<{ videoId: string; title: string; artist: string; duration: string }>;
+      .filter(Boolean) as Array<{ videoId: string; title: string; artist: string; duration: string; thumbnailUrl: string | null }>;
   }, [tracks, navArtist]);
 
   const playbackQueue = useMemo(
-    () => normalizedTracks.map((t) => ({ youtubeVideoId: t.videoId, title: t.title, artist: t.artist, thumbnailUrl: undefined })),
+    () => normalizedTracks.map((t) => ({ youtubeVideoId: t.videoId, title: t.title, artist: t.artist, thumbnailUrl: t.thumbnailUrl ?? undefined })),
     [normalizedTracks],
   );
 
@@ -163,6 +164,7 @@ export default function PlaylistPage() {
                   title={track.title}
                   artist={track.artist}
                   duration={track.duration}
+                  thumbnailUrl={track.thumbnailUrl ?? undefined}
                   onSelect={() => handlePlayTrack(index)}
                 />
               ))}

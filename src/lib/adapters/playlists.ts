@@ -4,6 +4,7 @@ export type UIPlaylist = {
   subtitle: string | null;
   imageUrl: string | null;
   badge?: string | null;
+  trackCount?: number | null;
   navState: {
     playlistId: string;
     playlistTitle: string;
@@ -26,9 +27,12 @@ const normalizeText = (value: string | null | undefined, fallback: string | null
   return trimmed.length > 0 ? trimmed : fallback;
 };
 
-export function adaptTrendingSnapshotItem(item: { id: string; external_id: string | null; title: string; subtitle: string; imageUrl: string | null }): UIPlaylist | null {
+export function adaptTrendingSnapshotItem(item: { id: string; external_id: string | null; title: string; subtitle: string; imageUrl: string | null; metrics?: { track_count?: number | null } }): UIPlaylist | null {
   const browseId = normalizeId(item.external_id, item.id);
   if (!browseId) return null;
+
+  const trackCount = item.metrics?.track_count ?? null;
+  if (trackCount !== null && trackCount <= 0) return null;
 
   return {
     browseId,
@@ -36,6 +40,7 @@ export function adaptTrendingSnapshotItem(item: { id: string; external_id: strin
     subtitle: normalizeText(item.subtitle, null),
     imageUrl: item.imageUrl ?? null,
     badge: "Playlist",
+    trackCount,
     navState: {
       playlistId: browseId,
       playlistTitle: normalizeText(item.title),
@@ -44,9 +49,12 @@ export function adaptTrendingSnapshotItem(item: { id: string; external_id: strin
   };
 }
 
-export function adaptMostPopularSnapshotItem(item: { id: string; external_id: string | null; title: string; subtitle: string; imageUrl: string | null }): UIPlaylist | null {
+export function adaptMostPopularSnapshotItem(item: { id: string; external_id: string | null; title: string; subtitle: string; imageUrl: string | null; metrics?: { track_count?: number | null } }): UIPlaylist | null {
   const browseId = normalizeId(item.external_id, item.id);
   if (!browseId) return null;
+
+  const trackCount = item.metrics?.track_count ?? null;
+  if (trackCount !== null && trackCount <= 0) return null;
 
   return {
     browseId,
@@ -54,6 +62,7 @@ export function adaptMostPopularSnapshotItem(item: { id: string; external_id: st
     subtitle: normalizeText(item.subtitle, null),
     imageUrl: item.imageUrl ?? null,
     badge: "Playlist",
+    trackCount,
     navState: {
       playlistId: browseId,
       playlistTitle: normalizeText(item.title),
@@ -62,9 +71,12 @@ export function adaptMostPopularSnapshotItem(item: { id: string; external_id: st
   };
 }
 
-export function adaptNewReleasesSnapshotItem(item: { id: string; external_id: string | null; title: string; subtitle: string; imageUrl: string | null }): UIPlaylist | null {
+export function adaptNewReleasesSnapshotItem(item: { id: string; external_id: string | null; title: string; subtitle: string; imageUrl: string | null; metrics?: { track_count?: number | null } }): UIPlaylist | null {
   const browseId = normalizeId(item.external_id, item.id);
   if (!browseId) return null;
+
+  const trackCount = item.metrics?.track_count ?? null;
+  if (trackCount !== null && trackCount <= 0) return null;
 
   return {
     browseId,
@@ -72,6 +84,7 @@ export function adaptNewReleasesSnapshotItem(item: { id: string; external_id: st
     subtitle: normalizeText(item.subtitle, null),
     imageUrl: item.imageUrl ?? null,
     badge: "Playlist",
+    trackCount,
     navState: {
       playlistId: browseId,
       playlistTitle: normalizeText(item.title),
@@ -90,6 +103,7 @@ export function adaptSearchPlaylistResult(item: { id: string; title: string; sub
     subtitle: normalizeText(item.subtitle ?? null, null),
     imageUrl: item.imageUrl ?? null,
     badge: "Playlist",
+    trackCount: null,
     navState: {
       playlistId: browseId,
       playlistTitle: normalizeText(item.title),

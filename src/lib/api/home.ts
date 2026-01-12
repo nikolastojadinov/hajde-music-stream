@@ -10,6 +10,7 @@ export type TrendingSnapshotItem = {
   metrics: {
     views_7d: number;
     trend_score: number;
+    track_count?: number | null;
   };
 };
 
@@ -34,6 +35,7 @@ export type MostPopularSnapshotItem = {
   metrics: {
     views_total: number;
     views_7d: number;
+    track_count?: number | null;
   };
 };
 
@@ -59,6 +61,7 @@ export type NewReleasesSnapshotItem = {
     views_total: number;
     views_7d: number;
     release_at: string | null;
+    track_count?: number | null;
   };
 };
 

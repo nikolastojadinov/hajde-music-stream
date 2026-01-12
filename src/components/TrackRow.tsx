@@ -5,10 +5,11 @@ type Props = {
   title: string;
   artist?: string;
   duration?: string;
+  thumbnailUrl?: string | null;
   onSelect?: () => void;
 };
 
-export function TrackRow({ index, title, artist, duration, onSelect }: Props) {
+export function TrackRow({ index, title, artist, duration, thumbnailUrl, onSelect }: Props) {
   return (
     <button
       type="button"
@@ -17,7 +18,11 @@ export function TrackRow({ index, title, artist, duration, onSelect }: Props) {
     >
       <div className="w-6 shrink-0 text-center text-xs font-semibold text-neutral-400">{index + 1}</div>
       <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-md bg-neutral-800 shadow-inner">
-        <Music className="h-6 w-6 text-white/40" aria-hidden="true" />
+        {thumbnailUrl ? (
+          <img src={thumbnailUrl} alt={title} className="h-full w-full object-cover" loading="lazy" decoding="async" />
+        ) : (
+          <Music className="h-6 w-6 text-white/40" aria-hidden="true" />
+        )}
       </div>
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm font-semibold text-white">{title || ""}</div>

@@ -19,6 +19,7 @@ export type TrendingSnapshotItem = {
   metrics: {
     views_7d: number;
     trend_score: number;
+    track_count: number | null;
   };
 };
 
@@ -52,6 +53,7 @@ type CandidateRow = {
   dedup_views_7d?: number | null;
   playlist_views_7d?: number | null;
   recent_viewed_at?: string | null;
+  track_count?: number | null;
 };
 
 const REFRESH_POLICY = {
@@ -135,6 +137,15 @@ function sanitizeTitle(raw: string | null | undefined): string | null {
   return trimmed.length ? trimmed : null;
 }
 
+function readTrackCount(row: CandidateRow): number | null {
+  const raw = (row as any)?.track_count ?? null;
+  if (raw === null || raw === undefined) return null;
+  const num = Number(raw);
+  if (!Number.isFinite(num)) return null;
+  if (num <= 0) return 0;
+  return Math.round(num);
+}
+
 async function ensureSectionRow(client: SupabaseClient): Promise<void> {
   const { error } = await client
     .from('home_sections')
@@ -177,6 +188,9 @@ function buildSnapshotFromCandidates(rows: CandidateRow[], generatedAt: DateTime
       toNumber(row.playlist_views_7d, 0)
     );
 
+    const trackCount = readTrackCount(row);
+    if (trackCount === 0) continue;
+
     const trendScore = computeTrendScore(row, views7d, now);
 
     items.push({
@@ -189,6 +203,7 @@ function buildSnapshotFromCandidates(rows: CandidateRow[], generatedAt: DateTime
       metrics: {
         views_7d: Math.max(0, Math.round(views7d)),
         trend_score: trendScore,
+        track_count: trackCount,
       },
     });
   }
