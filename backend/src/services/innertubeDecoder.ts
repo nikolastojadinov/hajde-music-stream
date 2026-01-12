@@ -19,7 +19,7 @@ type RawPayloadRow = {
 
 type ArtistEntity = {
   artist_key: string;
-  display_name: string;
+  artist: string;
   normalized_name: string;
   youtube_channel_id?: string | null;
   subscriber_count?: number | null;
@@ -103,12 +103,12 @@ function normalizeTitle(value: string | null | undefined): string | null {
   return t || null;
 }
 
-function deriveArtistFromName(nameRaw: string | null | undefined): { artist_key: string; display_name: string; normalized_name: string } | null {
-  const display = canonicalArtistName(nameRaw || '');
-  if (!display) return null;
-  const key = normalizeArtistKey(display);
+function deriveArtistFromName(nameRaw: string | null | undefined): { artist_key: string; artist: string; normalized_name: string } | null {
+  const artist = canonicalArtistName(nameRaw || '');
+  if (!artist) return null;
+  const key = normalizeArtistKey(artist);
   if (!key) return null;
-  return { artist_key: key, display_name: display, normalized_name: display.toLowerCase() };
+  return { artist_key: key, artist, normalized_name: artist.toLowerCase() };
 }
 
 function decodeSearchPayload(row: RawPayloadRow): EntityBundle {
