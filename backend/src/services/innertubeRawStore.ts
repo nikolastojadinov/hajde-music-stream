@@ -1,6 +1,6 @@
 import supabase from './supabaseClient';
 
-export type InnertubeRequestType = 'search' | 'browse' | 'playlist' | 'artist' | 'album';
+export type InnertubeRequestType = 'search' | 'playlist' | 'artist' | 'album' | 'browse';
 
 function safePayload(payload: any): any {
   if (payload === undefined) return null;
@@ -14,12 +14,17 @@ export async function recordInnertubePayload(requestType: InnertubeRequestType, 
   }
 
   try {
-    const { error } = await supabase.from('innertube_raw_payloads').insert({
+    const row = {
       request_type: requestType,
       request_key: requestKey,
+      source: 'innertube',
+      endpoint: requestType,
+      query: requestKey,
       payload: safePayload(payload),
       status: 'pending',
-    });
+    } as Record<string, any>;
+
+    const { error } = await supabase.from('innertube_raw_payloads').insert(row);
 
     if (error) {
       console.error('[innertubeRawStore] failed to insert payload', { requestType, requestKey, error: error.message });

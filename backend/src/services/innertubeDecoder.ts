@@ -8,8 +8,12 @@ const BATCH_LIMIT = 5;
 
 type RawPayloadRow = {
   id: string;
-  request_type: string;
-  request_key: string | null;
+  request_type?: string | null;
+  request_key?: string | null;
+  endpoint?: string | null;
+  source?: string | null;
+  query?: string | null;
+  artist_key?: string | null;
   payload: any;
 };
 
@@ -267,10 +271,22 @@ function decodeArtistPayload(row: RawPayloadRow): EntityBundle {
   };
 }
 
+function resolveType(row: RawPayloadRow): string | null {
+  return row.request_type || row.endpoint || row.source || null;
+}
+
+function resolveKey(row: RawPayloadRow): string | null {
+  return row.request_key || row.query || row.artist_key || null;
+}
+
 function decodePayload(row: RawPayloadRow): EntityBundle {
-  if (row.request_type === 'search') return decodeSearchPayload(row);
-  if (row.request_type === 'playlist') return decodePlaylistPayload(row);
-  if (row.request_type === 'artist') return decodeArtistPayload(row);
+  const requestType = resolveType(row);
+  const requestKey = resolveKey(row);
+  const shapedRow: RawPayloadRow = { ...row, request_type: requestType || undefined, request_key: requestKey || undefined };
+
+  if (requestType === 'search') return decodeSearchPayload(shapedRow);
+  if (requestType === 'playlist') return decodePlaylistPayload(shapedRow);
+  if (requestType === 'artist') return decodeArtistPayload(shapedRow);
   return { artists: [], albums: [], tracks: [], playlists: [], playlistTracks: [] };
 }
 
@@ -306,7 +322,7 @@ export async function runInnertubeDecoderOnce(): Promise<void> {
 
   const { data, error } = await supabase
     .from('innertube_raw_payloads')
-    .select('id, request_type, request_key, payload')
+    .select('id, request_type, request_key, endpoint, source, query, artist_key, payload')
     .eq('status', 'pending')
     .order('created_at', { ascending: true })
     .limit(BATCH_LIMIT);
@@ -317,10 +333,16 @@ export async function runInnertubeDecoderOnce(): Promise<void> {
   }
 
   for (const row of data as RawPayloadRow[]) {
+    const type = resolveType(row);
+    if (!type) {
+      await markError(row.id, 'unknown_request_type');
+      continue;
+    }
+
     try {
       const bundle = decodePayload(row);
       await ingest(row, bundle);
-      console.info('[innertubeDecoder] processed payload', { id: row.id, type: row.request_type });
+      console.info('[innertubeDecoder] processed payload', { id: row.id, type });
     } catch (err: any) {
       console.error('[innertubeDecoder] payload failed', { id: row.id, type: row.request_type, message: err?.message });
       await markError(row.id, err?.message || 'decode_failed');
