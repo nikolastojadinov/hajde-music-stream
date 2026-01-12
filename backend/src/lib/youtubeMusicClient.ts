@@ -124,7 +124,8 @@ function extractNavigationEndpoint(renderer: any): { browseId: string; pageType:
     renderer?.playNavigationEndpoint ||
     renderer?.overlay?.musicItemThumbnailOverlayRenderer?.content?.musicPlayButtonRenderer?.playNavigationEndpoint ||
     renderer?.menu?.navigationItemRenderer?.navigationEndpoint ||
-    renderer?.onTap?.watchEndpoint;
+    renderer?.onTap?.watchEndpoint ||
+    renderer?.onTap?.browseEndpoint;
 
   const browseEndpoint = navigation?.browseEndpoint || renderer?.browseEndpoint;
   const watchEndpoint = navigation?.watchEndpoint || renderer?.watchEndpoint;
