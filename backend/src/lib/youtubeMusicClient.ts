@@ -402,7 +402,10 @@ export function parseInnertubeSearch(root: any): { featured: SearchResultItem | 
     sectionContents.forEach((section: any) => walkNode(section));
   });
 
-  const queryNorm = normalizeLoose(root?.query || root?.originalQuery || "");
+  // NOTE: innertube search responses typically do NOT echo back the query.
+  // Use the hero title when present to approximate the search query for matching artists.
+  const heroTitle = featured?.title || featured?.subtitle;
+  const queryNorm = normalizeLoose(root?.query || root?.originalQuery || heroTitle || "acdc");
 
   // Global search: find hero card or any artist matching query; if no query, take first artist found
   if (!featured) {
