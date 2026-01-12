@@ -55,7 +55,7 @@ router.get('/', async (req, res) => {
         kind,
         title: data.title,
         subtitle: data.subtitle,
-        thumbnailUrl: data.thumbnail,
+        thumbnailUrl: data.thumbnailUrl,
         tracks: tracks.map((t) => ({
           videoId: t.videoId,
           title: t.title,
