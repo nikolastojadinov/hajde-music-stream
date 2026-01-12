@@ -1,7 +1,7 @@
 import { AlertCircle, RefreshCcw } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
-import PlaylistListItem from "@/components/PlaylistListItem";
+import PlaylistCard from "@/components/PlaylistCard";
 import { TrendingSnapshot } from "@/lib/api/home";
 import { adaptTrendingSnapshotItem } from "@/lib/adapters/playlists";
 
@@ -81,16 +81,13 @@ export default function TrendingNowSection({ snapshot, loading, error, onRetry }
           ? normalizedItems.map((item) =>
               item ? (
                 <div key={item.browseId} className="w-[150px] flex-shrink-0">
-                  <PlaylistListItem
+                  <PlaylistCard
+                    id={item.browseId}
                     title={item.title}
-                    subtitle={item.subtitle}
-                    imageUrl={item.imageUrl}
-                    badge={item.badge}
-                    onSelect={() =>
-                      navigate(`/playlist/${encodeURIComponent(item.browseId)}`, {
-                        state: item.navState,
-                      })
-                    }
+                    description={item.subtitle ?? undefined}
+                    imageUrl={item.imageUrl ?? undefined}
+                    viewCount={item.trackCount ?? undefined}
+                    linkState={item.navState}
                   />
                 </div>
               ) : null,
