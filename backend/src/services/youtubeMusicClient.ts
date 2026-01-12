@@ -1,5 +1,6 @@
 import { CONSENT_COOKIES, fetchInnertubeConfig, type InnertubeConfig } from "./youtubeInnertubeConfig";
 import { parseArtistBrowseFromInnertube, type ArtistBrowse } from "./ytmArtistParser";
+import { recordInnertubePayload } from "./innertubeRawStore";
 
 export type { ArtistBrowse } from "./ytmArtistParser";
 
@@ -898,6 +899,8 @@ export async function browseArtistById(browseIdRaw: string): Promise<ArtistBrows
     browseId,
   });
   if (!browseJson) return null;
+
+  void recordInnertubePayload("artist", browseId, browseJson);
 
   const result = parseArtistBrowseFromInnertube(browseJson, browseId);
 

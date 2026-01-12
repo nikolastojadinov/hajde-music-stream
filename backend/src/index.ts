@@ -26,6 +26,7 @@ import browsePlaylistRouter from './routes/browsePlaylist';
 import { scheduleMostPopularJob, warmMostPopularSnapshotIfMissing } from './jobs/mostPopularScheduler';
 import { scheduleNewReleasesJob, warmNewReleasesSnapshotIfMissing } from './jobs/newReleasesScheduler';
 import { scheduleTrendingNowJob, warmTrendingSnapshotIfMissing } from './jobs/trendingNowScheduler';
+import { scheduleInnertubeDecoderJob } from './jobs/innertubeDecoderScheduler';
 
 declare global {
   namespace Express {
@@ -184,6 +185,7 @@ scheduleMostPopularJob();
 void warmMostPopularSnapshotIfMissing();
 scheduleNewReleasesJob();
 void warmNewReleasesSnapshotIfMissing();
+scheduleInnertubeDecoderJob();
 
 
 // IV. Boot up the app:

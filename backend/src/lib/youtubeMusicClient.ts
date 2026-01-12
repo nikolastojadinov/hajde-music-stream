@@ -3,6 +3,7 @@ import {
   searchSuggestions as rawSearchSuggestions,
   type MusicSearchSuggestion as RawSuggestion,
 } from "../services/youtubeMusicClient";
+import { recordInnertubePayload } from "../services/innertubeRawStore";
 
 export type SuggestionType = "track" | "artist" | "album" | "playlist";
 
@@ -263,7 +264,7 @@ function addToSections(target: SearchSections, parsed: ParsedItem, featuredKey: 
   }
 }
 
-function parseInnertubeSearch(root: any): { featured: SearchResultItem | null; sections: SearchSections } {
+export function parseInnertubeSearch(root: any): { featured: SearchResultItem | null; sections: SearchSections } {
   const sections = emptySections();
   let featured: SearchResultItem | null = null;
   let featuredKey: string | null = null;
@@ -406,6 +407,7 @@ export async function musicSearch(queryRaw: string): Promise<SearchResultsPayloa
 
   try {
     const raw = await fetchMusicSearchRaw(q);
+    await recordInnertubePayload("search", q, raw);
     const parsed = parseInnertubeSearch(raw);
     return { q, source: "youtube_live", featured: parsed.featured, sections: parsed.sections };
   } catch (err) {

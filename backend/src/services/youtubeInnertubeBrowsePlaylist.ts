@@ -1,4 +1,5 @@
 import { CONSENT_COOKIES, fetchInnertubeConfig, type InnertubeConfig } from "./youtubeInnertubeConfig";
+import { recordInnertubePayload } from "./innertubeRawStore";
 
 function normalizeString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
@@ -132,6 +133,8 @@ export async function youtubeInnertubeBrowsePlaylist(
       console.info("[youtubeInnertubeBrowsePlaylist] browse_invalid_json", { playlistId });
       return null;
     }
+
+    void recordInnertubePayload("playlist", playlistId, json);
 
     const ids = extractVideoIdsFromTree(json, max);
     if (ids.length === 0) {
