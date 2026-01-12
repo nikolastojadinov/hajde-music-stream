@@ -549,3 +549,43 @@ export async function musicSearch(queryRaw: string): Promise<SearchResultsPayloa
     return { q, source: "youtube_live", featured: null, sections: emptySections() };
   }
 }
+  
+      // Fallback 2: if hero still missing but songs/albums have artist info, derive an artist entity
+      if (!featured) {
+        const deriveArtistFromSubtitle = (subtitle?: string | null): SearchResultItem | null => {
+          if (!subtitle) return null;
+          const primary = subtitle.split("·")[0]?.trim();
+          if (!primary) return null;
+          const titleNorm = normalizeLoose(primary);
+          if (queryNorm && titleNorm !== queryNorm) return null;
+          return {
+            id: primary,
+            title: primary,
+            imageUrl: null,
+            subtitle: "Artist",
+            endpointType: "browse",
+            endpointPayload: primary,
+            kind: "artist",
+            pageType: "MUSIC_PAGE_TYPE_ARTIST",
+          };
+        };
+    
+        let derived: SearchResultItem | null = null;
+    
+        if (!derived) {
+          derived = sections.songs
+            .map((s) => deriveArtistFromSubtitle(s.subtitle))
+            .filter((x): x is SearchResultItem => Boolean(x))[0] || null;
+        }
+    
+        if (!derived) {
+          derived = sections.albums
+            .map((s) => deriveArtistFromSubtitle(s.subtitle))
+            .filter((x): x is SearchResultItem => Boolean(x))[0] || null;
+        }
+    
+        if (derived) {
+          featured = derived;
+          featuredKey = `${derived.endpointType}:${derived.endpointPayload}`;
+        }
+      }
