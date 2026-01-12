@@ -62,6 +62,35 @@ function normalizeLoose(value: unknown): string {
   return base.replace(/[^a-z0-9]+/g, "");
 }
 
+function tryBuildItemFromNode(node: any): ParsedItem | null {
+  const nav = extractNavigationEndpoint(node);
+  const endpoint = classifyEndpoint(nav);
+  const kind = inferKind(endpoint);
+  if (!endpoint || !kind) return null;
+
+  const title =
+    pickText(node?.title) ||
+    pickText(node?.header?.title) ||
+    pickText(node?.flexColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text) ||
+    "";
+  if (!title) return null;
+
+  const subtitle =
+    pickText(node?.subtitle) ||
+    pickText(node?.header?.subtitle) ||
+    pickText(node?.flexColumns?.[1]?.musicResponsiveListItemFlexColumnRenderer?.text) ||
+    "";
+
+  const thumb =
+    pickThumbnail(node?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails) ||
+    pickThumbnail(node?.thumbnail?.thumbnails) ||
+    null;
+
+  const defaultSubtitle = kind === "artist" ? "Artist" : kind === "album" ? "Album" : kind === "playlist" ? "Playlist" : "Song";
+  const item = buildResultItem(title, subtitle || defaultSubtitle, thumb, endpoint, kind);
+  return { kind, item };
+}
+
 function looksLikeVideoId(value: string): boolean {
   const v = normalizeString(value);
   return /^[A-Za-z0-9_-]{11}$/.test(v);
@@ -326,14 +355,49 @@ export function parseInnertubeSearch(root: any): { featured: SearchResultItem | 
     sectionContents.forEach((section: any) => walkNode(section));
   });
 
+  const queryNorm = normalizeLoose(root?.query || root?.originalQuery || "");
+
+  // Deep fallback: search entire tree for an artist whose title matches the query when hero is missing
+  const deepFind = (node: any): SearchResultItem | null => {
+    if (!node || typeof node !== "object") return null;
+
+    const parsed = tryBuildItemFromNode(node);
+    if (parsed && parsed.kind === "artist") {
+      const titleNorm = normalizeLoose(parsed.item.title);
+      if (titleNorm && queryNorm && titleNorm === queryNorm) {
+        return parsed.item;
+      }
+    }
+
+    for (const key of Object.keys(node)) {
+      const val = (node as any)[key];
+      if (Array.isArray(val)) {
+        for (const child of val) {
+          const found = deepFind(child);
+          if (found) return found;
+        }
+      } else if (val && typeof val === "object") {
+        const found = deepFind(val);
+        if (found) return found;
+      }
+    }
+    return null;
+  };
+
+  if (!featured && queryNorm) {
+    const heroFromDeep = deepFind(root);
+    if (heroFromDeep) {
+      featured = heroFromDeep;
+      featuredKey = `${heroFromDeep.endpointType}:${heroFromDeep.endpointPayload}`;
+    }
+  }
+
   // Fallback: if hero card missing, promote exact-match artist to featured
   if (!featured && sections.artists.length > 0) {
     const normalizedTitles = sections.artists.map((a) => ({
       item: a,
       norm: normalizeLoose(a.title),
     }));
-
-    const queryNorm = normalizeLoose(root?.query || root?.originalQuery || "");
     const best = normalizedTitles.find((x) => x.norm && x.norm === queryNorm);
     if (best) {
       featured = best.item;
