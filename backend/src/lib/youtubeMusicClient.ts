@@ -300,6 +300,11 @@ export function parseInnertubeSearch(root: any): { featured: SearchResultItem | 
       parsedItems.forEach((item) => addToSections(sections, item, featuredKey));
     }
 
+    const contents = node.contents;
+    if (Array.isArray(contents)) {
+      contents.forEach((child: any) => walkNode(child));
+    }
+
     const itemSection = node.itemSectionRenderer?.contents;
     if (Array.isArray(itemSection)) {
       itemSection.forEach((child: any) => walkNode(child));
