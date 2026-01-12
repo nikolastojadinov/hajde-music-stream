@@ -1,7 +1,9 @@
 import { AlertCircle, RefreshCcw } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
-import PlaylistCard from "@/components/PlaylistCard";
+import PlaylistListItem from "@/components/PlaylistListItem";
 import { TrendingSnapshot } from "@/lib/api/home";
+import { adaptTrendingSnapshotItem } from "@/lib/adapters/playlists";
 
 type Props = {
   snapshot: TrendingSnapshot | null;
@@ -17,11 +19,16 @@ const formatUpdatedAt = (iso: string | null): string => {
   return `${date.toUTCString()}`;
 };
 
-const skeletonCards = Array.from({ length: 6 });
+const skeletonItems = Array.from({ length: 6 });
 
 export default function TrendingNowSection({ snapshot, loading, error, onRetry }: Props) {
-  const hasItems = (snapshot?.items?.length ?? 0) > 0;
+  const normalizedItems = (snapshot?.items || [])
+    .map(adaptTrendingSnapshotItem)
+    .filter(Boolean);
+
+  const hasItems = normalizedItems.length > 0;
   const updatedLabel = snapshot ? formatUpdatedAt(snapshot.generated_at) : "";
+  const navigate = useNavigate();
 
   return (
     <section className="relative mx-auto mt-10 w-full max-w-6xl rounded-2xl px-3 py-5 sm:px-6">
@@ -56,33 +63,40 @@ export default function TrendingNowSection({ snapshot, loading, error, onRetry }
         </div>
       ) : null}
 
-      <div className="scrollbar-hide flex gap-3 overflow-x-auto pb-2 pr-1">
+      <div className="flex flex-col gap-2">
         {loading
-          ? skeletonCards.map((_, idx) => (
+          ? skeletonItems.map((_, idx) => (
               <div
                 key={`skeleton-${idx}`}
-                className="w-[120px] flex-shrink-0 animate-pulse rounded-[10px] border border-white/5 bg-white/5 p-3"
+                className="flex items-center gap-3 rounded-lg border border-white/5 bg-white/5 px-3 py-2 animate-pulse"
               >
-                <div className="mb-3 h-36 w-full rounded-md bg-white/10" />
-                <div className="mb-2 h-4 w-3/4 rounded bg-white/10" />
-                <div className="h-3 w-1/2 rounded bg-white/10" />
+                <div className="h-12 w-12 rounded-lg bg-white/10" />
+                <div className="flex-1 space-y-2">
+                  <div className="h-4 w-2/3 rounded bg-white/10" />
+                  <div className="h-3 w-1/2 rounded bg-white/10" />
+                </div>
+                <div className="h-5 w-16 rounded-full bg-white/10" />
               </div>
             ))
           : null}
 
         {!loading && hasItems
-          ? snapshot?.items.map((item) => (
-              <div key={item.id} className="w-[120px] flex-shrink-0">
-                <PlaylistCard
-                  id={item.id}
+          ? normalizedItems.map((item) =>
+              item ? (
+                <PlaylistListItem
+                  key={item.browseId}
                   title={item.title}
-                  description={item.subtitle}
-                  imageUrl={item.imageUrl ?? undefined}
-                  viewCount={item.metrics?.views_7d}
-                  linkState={{ from: "home-trending" }}
+                  subtitle={item.subtitle}
+                  imageUrl={item.imageUrl}
+                  badge={item.badge}
+                  onSelect={() =>
+                    navigate(`/playlist/${encodeURIComponent(item.browseId)}`, {
+                      state: item.navState,
+                    })
+                  }
                 />
-              </div>
-            ))
+              ) : null,
+            )
           : null}
 
         {!loading && !hasItems && !error ? (

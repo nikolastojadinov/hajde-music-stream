@@ -2,7 +2,9 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { MoreHorizontal, Search as SearchIcon } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Input } from "@/components/ui/input";
+import PlaylistListItem from "@/components/PlaylistListItem";
 import SearchSuggestList from "@/components/search/SearchSuggestList";
+import { adaptSearchPlaylistResult } from "@/lib/adapters/playlists";
 import {
   searchResolve,
   searchSuggest,
@@ -215,10 +217,19 @@ export default function Search() {
     }
 
     if (item.endpointType === "browse") {
+      const browseId = (item.endpointPayload || "").trim();
+      if (!browseId) return;
+
       if (item.kind === "artists") {
-        navigate(`/artist/${encodeURIComponent(item.endpointPayload)}`);
+        navigate(`/artist/${encodeURIComponent(browseId)}`);
       } else {
-        navigate(`/playlist/${encodeURIComponent(item.endpointPayload)}`);
+        navigate(`/playlist/${encodeURIComponent(browseId)}`, {
+          state: {
+            playlistId: browseId,
+            playlistTitle: item.title,
+            playlistCover: item.imageUrl ?? null,
+          },
+        });
       }
     }
   };
@@ -290,35 +301,64 @@ export default function Search() {
         {/* Results */}
         {submitted && (
           <div className="mt-6 flex flex-col gap-2">
-            {remainingResults.map((item) => (
-              <div
-                key={`${item.kind}-${item.id}`}
-                onClick={() => handleItemClick(item)}
-                className="flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2 hover:bg-neutral-900"
-              >
-                <img
-                  src={item.imageUrl}
-                  className="h-12 w-12 rounded-lg object-cover"
-                />
+            {remainingResults.map((item) => {
+              if (item.kind === "playlists") {
+                const normalized = adaptSearchPlaylistResult({
+                  id: item.id,
+                  title: item.title,
+                  subtitle: item.subtitle,
+                  imageUrl: item.imageUrl,
+                  endpointPayload: item.endpointPayload,
+                });
 
-                <div className="flex-1 min-w-0">
-                  <div className="truncate font-semibold">
-                    {item.title}
-                  </div>
-                  {item.subtitle && (
-                    <div className="truncate text-xs text-neutral-400">
-                      {item.subtitle}
+                if (!normalized) return null;
+
+                return (
+                  <PlaylistListItem
+                    key={`${item.kind}-${item.id}`}
+                    title={normalized.title}
+                    subtitle={normalized.subtitle}
+                    imageUrl={normalized.imageUrl ?? undefined}
+                    badge={normalized.badge}
+                    onSelect={() =>
+                      navigate(`/playlist/${encodeURIComponent(normalized.browseId)}`, {
+                        state: normalized.navState,
+                      })
+                    }
+                  />
+                );
+              }
+
+              return (
+                <div
+                  key={`${item.kind}-${item.id}`}
+                  onClick={() => handleItemClick(item)}
+                  className="flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2 hover:bg-neutral-900"
+                >
+                  <img
+                    src={item.imageUrl}
+                    className="h-12 w-12 rounded-lg object-cover"
+                  />
+
+                  <div className="flex-1 min-w-0">
+                    <div className="truncate font-semibold">
+                      {item.title}
                     </div>
-                  )}
+                    {item.subtitle && (
+                      <div className="truncate text-xs text-neutral-400">
+                        {item.subtitle}
+                      </div>
+                    )}
+                  </div>
+
+                  <span className="rounded-full bg-neutral-800 px-2 py-1 text-xs">
+                    {typeLabel[item.kind]}
+                  </span>
+
+                  <MoreHorizontal className="h-5 w-5 text-neutral-400" />
                 </div>
-
-                <span className="rounded-full bg-neutral-800 px-2 py-1 text-xs">
-                  {typeLabel[item.kind]}
-                </span>
-
-                <MoreHorizontal className="h-5 w-5 text-neutral-400" />
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
