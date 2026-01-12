@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { browseArtistById } from '../services/youtubeMusicClient';
+import { ingestArtistBrowse } from '../services/entityIngestion';
 
 const router = Router();
 
@@ -13,6 +14,9 @@ router.get('/', async (req, res) => {
 
   try {
     const data = await browseArtistById(browseId);
+    if (data) {
+      await ingestArtistBrowse(data);
+    }
     const payload = {
       artistName: data?.artist.name ?? null,
       thumbnails: { avatar: data?.artist.thumbnailUrl ?? null, banner: data?.artist.bannerUrl ?? null },

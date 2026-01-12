@@ -1,6 +1,7 @@
 import { Router } from 'express';
 
 import { browseArtistById } from '../services/youtubeMusicClient';
+import { ingestArtistBrowse } from '../services/entityIngestion';
 
 const router = Router();
 
@@ -33,6 +34,8 @@ router.get('/', async (req, res) => {
         artist_name: browse.artist.name,
         created_at: null,
       }));
+
+    await ingestArtistBrowse(browse);
 
     res.set('Cache-Control', 'no-store');
     return res.json({

@@ -25,6 +25,7 @@ interface Environment {
   supabase_jwt_secret: string;
   frontend_url: string;
   enable_run_jobs: boolean;
+  enable_innertube_decoder: boolean;
 }
 
 // Map only supported Supabase vars (external_* removed).
@@ -39,6 +40,7 @@ const env: Environment = {
   supabase_jwt_secret: process.env.SUPABASE_JWT_SECRET || '',
   frontend_url: process.env.FRONTEND_URL || 'http://localhost:3314',
   enable_run_jobs: (process.env.ENABLE_RUN_JOBS || 'true').toLowerCase() !== 'false',
+  enable_innertube_decoder: (process.env.ENABLE_INNERTUBE_DECODER || 'false').toLowerCase() === 'true',
 };
 
 export default env;

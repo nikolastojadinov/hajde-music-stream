@@ -32,6 +32,14 @@ export type SearchSections = {
   playlists: SearchResultItem[];
 };
 
+export type SearchSelectionPayload = {
+  type: "artist" | "song" | "video" | "album" | "playlist" | "episode";
+  id: string;
+  title?: string;
+  subtitle?: string | null;
+  imageUrl?: string | null;
+};
+
 export type SearchResolveResponse = {
   q: string;
   source: string;
@@ -89,4 +97,23 @@ export async function searchResolve(payload: { q: string }, options?: { signal?:
 
   const json = await readJson(response);
   return json as SearchResolveResponse;
+}
+
+export async function ingestSearchSelection(payload: SearchSelectionPayload): Promise<void> {
+  const url = withBackendOrigin("/api/search/ingest");
+
+  await fetch(url, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({
+      type: payload.type,
+      id: payload.id,
+      title: payload.title,
+      subtitle: payload.subtitle,
+      imageUrl: payload.imageUrl,
+    }),
+  }).catch(() => {
+    /* swallow ingest errors on client */
+  });
 }

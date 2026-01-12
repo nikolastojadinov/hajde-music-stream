@@ -8,6 +8,7 @@ import { adaptSearchPlaylistResult } from "@/lib/adapters/playlists";
 import {
   searchResolve,
   searchSuggest,
+  ingestSearchSelection,
   type SearchResolveResponse,
   type SearchResultItem,
   type SearchSuggestItem,
@@ -223,7 +224,18 @@ export default function Search() {
   =========================== */
 
   const handleItemClick = (item: MixedResultItem) => {
+    const enqueueIngest = (type: "song" | "video" | "album" | "playlist" | "artist" | "episode") => {
+      void ingestSearchSelection({
+        type,
+        id: item.endpointPayload,
+        title: item.title,
+        subtitle: item.subtitle,
+        imageUrl: item.imageUrl,
+      });
+    };
+
     if (item.endpointType === "watch" && isVideoId(item.endpointPayload)) {
+      enqueueIngest("song");
       playTrack(
         {
           youtubeVideoId: item.endpointPayload,
@@ -241,8 +253,10 @@ export default function Search() {
       if (!browseId) return;
 
       if (item.container === "artists") {
+        enqueueIngest("artist");
         navigate(`/artist/${encodeURIComponent(browseId)}`);
       } else {
+        enqueueIngest(item.container === "albums" ? "album" : "playlist");
         navigate(`/playlist/${encodeURIComponent(browseId)}`, {
           state: {
             playlistId: browseId,

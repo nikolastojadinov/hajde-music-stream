@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { youtubeInnertubeBrowsePlaylist } from '../services/youtubeInnertubeBrowsePlaylist';
+import { ingestPlaylistOrAlbum } from '../services/entityIngestion';
 
 const router = Router();
 
@@ -21,6 +22,21 @@ router.get('/', async (req, res) => {
     if (!result) {
       return res.status(404).json({ error: 'playlist_not_found' });
     }
+
+    await ingestPlaylistOrAlbum({
+      browseId: playlistId,
+      kind: 'playlist',
+      title: result.title,
+      subtitle: result.subtitle,
+      thumbnailUrl: result.thumbnailUrl,
+      tracks: result.tracks.map((t) => ({
+        videoId: t.videoId,
+        title: t.title,
+        artist: t.artist,
+        duration: t.duration ?? null,
+        thumbnail: t.thumbnail ?? null,
+      })),
+    });
 
     res.set('Cache-Control', 'no-store');
     return res.json(result);

@@ -12,6 +12,11 @@ export function scheduleInnertubeDecoderJob() {
     return;
   }
 
+  if (!env.enable_innertube_decoder) {
+    console.log('[InnertubeDecoder] Scheduling disabled via ENABLE_INNERTUBE_DECODER=false');
+    return;
+  }
+
   if (scheduled) return;
 
   cron.schedule('* * * * *', async () => {

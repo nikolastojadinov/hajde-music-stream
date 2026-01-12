@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { browsePlaylistById } from '../services/youtubeMusicClient';
+import { ingestPlaylistOrAlbum, type PlaylistIngestKind } from '../services/entityIngestion';
 
 const router = Router();
 
@@ -7,8 +8,19 @@ function normalizeString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function resolveKind(raw: string | undefined | null, browseId: string): PlaylistIngestKind {
+  const normalized = normalizeString(raw).toLowerCase();
+  if (normalized === 'album') return 'album';
+  if (normalized === 'playlist') return 'playlist';
+
+  const upper = browseId.toUpperCase();
+  if (upper.startsWith('MPRE')) return 'album';
+  return 'playlist';
+}
+
 router.get('/', async (req, res) => {
   const browseId = normalizeString((req.query.browseId as string) || (req.query.playlistId as string) || (req.query.id as string));
+  const kind = resolveKind(req.query.kind as string | undefined, browseId);
   if (!browseId) {
     return res.status(400).json({ error: 'playlist_id_required' });
   }
@@ -36,6 +48,23 @@ router.get('/', async (req, res) => {
           thumbnail: normalizeString(t.thumbnail),
         }))
       : [];
+
+    if (data) {
+      await ingestPlaylistOrAlbum({
+        browseId,
+        kind,
+        title: data.title,
+        subtitle: data.subtitle,
+        thumbnailUrl: data.thumbnail,
+        tracks: tracks.map((t) => ({
+          videoId: t.videoId,
+          title: t.title,
+          artist: t.artist,
+          duration: t.duration,
+          thumbnail: t.thumbnail,
+        })),
+      });
+    }
 
     res.set('Cache-Control', 'no-store');
     return res.json({
