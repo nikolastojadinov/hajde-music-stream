@@ -36,11 +36,19 @@ function flattenEntities(
   const { featured, sections } = payload;
   const items: Array<{ kind: EntityKind; item: SearchResultItem }> = [];
 
-  if (featured) items.push({ kind: "track", item: featured });
-  sections.songs.forEach((i) => items.push({ kind: "track", item: i }));
-  sections.artists.forEach((i) => items.push({ kind: "artist", item: i }));
-  sections.albums.forEach((i) => items.push({ kind: "album", item: i }));
-  sections.playlists.forEach((i) => items.push({ kind: "playlist", item: i }));
+  const toKind = (item: SearchResultItem, fallback: EntityKind): EntityKind => {
+    if (item.kind === "song") return "track";
+    if (item.kind === "artist") return "artist";
+    if (item.kind === "album") return "album";
+    if (item.kind === "playlist") return "playlist";
+    return fallback;
+  };
+
+  if (featured) items.push({ kind: toKind(featured, "track"), item: featured });
+  sections.songs.forEach((item) => items.push({ kind: toKind(item, "track"), item }));
+  sections.artists.forEach((item) => items.push({ kind: toKind(item, "artist"), item }));
+  sections.albums.forEach((item) => items.push({ kind: toKind(item, "album"), item }));
+  sections.playlists.forEach((item) => items.push({ kind: toKind(item, "playlist"), item }));
 
   return items;
 }

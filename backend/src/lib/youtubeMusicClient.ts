@@ -30,6 +30,8 @@ export type SearchResultItem = {
   subtitle: string;
   endpointType: "watch" | "browse";
   endpointPayload: string;
+  kind: ParsedKind;
+  pageType?: string;
 };
 
 export type SearchSections = {
@@ -171,7 +173,13 @@ function inferKind(info: EndpointInfo | null): ParsedKind | null {
   return null;
 }
 
-function buildResultItem(title: string, subtitle: string, thumb: string | null, endpoint: EndpointInfo): SearchResultItem {
+function buildResultItem(
+  title: string,
+  subtitle: string,
+  thumb: string | null,
+  endpoint: EndpointInfo,
+  kind: ParsedKind
+): SearchResultItem {
   return {
     id: endpoint.payload,
     title,
@@ -179,6 +187,8 @@ function buildResultItem(title: string, subtitle: string, thumb: string | null, 
     subtitle,
     endpointType: endpoint.endpointType,
     endpointPayload: endpoint.payload,
+    kind,
+    pageType: endpoint.pageType,
   };
 }
 
@@ -204,7 +214,7 @@ function parseMusicResponsiveListItemRenderer(renderer: any): ParsedItem | null 
   if (!endpoint || !kind) return null;
 
   const defaultSubtitle = kind === "artist" ? "Artist" : kind === "album" ? "Album" : kind === "playlist" ? "Playlist" : "Song";
-  const item = buildResultItem(title, subtitle || defaultSubtitle, thumb, endpoint);
+  const item = buildResultItem(title, subtitle || defaultSubtitle, thumb, endpoint, kind);
   return { kind, item };
 }
 
@@ -221,7 +231,7 @@ function parseMusicCardShelfRenderer(cardShelf: any): ParsedItem | null {
   if (!endpoint || !kind) return null;
 
   const defaultSubtitle = kind === "artist" ? "Artist" : kind === "album" ? "Album" : kind === "playlist" ? "Playlist" : "Song";
-  const item = buildResultItem(title, subtitle || defaultSubtitle, thumb, endpoint);
+  const item = buildResultItem(title, subtitle || defaultSubtitle, thumb, endpoint, kind);
   return { kind, item };
 }
 

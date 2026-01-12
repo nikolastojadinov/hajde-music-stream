@@ -40,8 +40,22 @@ const typeLabel: Record<keyof SearchSections, string> = {
   playlists: "Playlist",
 };
 
+const heroLabel = (kind: SearchResultItem["kind"]): string => {
+  if (kind === "artist") return "Artist";
+  if (kind === "album") return "Album";
+  if (kind === "playlist") return "Playlist";
+  return "Song";
+};
+
+const kindToContainer = (kind: SearchResultItem["kind"]): keyof SearchSections => {
+  if (kind === "artist") return "artists";
+  if (kind === "album") return "albums";
+  if (kind === "playlist") return "playlists";
+  return "songs";
+};
+
 type MixedResultItem = SearchResultItem & {
-  kind: keyof SearchSections;
+  container: keyof SearchSections;
 };
 
 /* ===========================
@@ -69,6 +83,7 @@ export default function Search() {
     albums: [],
     playlists: [],
   });
+  const [featured, setFeatured] = useState<SearchResultItem | null>(null);
   const [suggestions, setSuggestions] = useState<SearchSuggestItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -128,6 +143,7 @@ export default function Search() {
     try {
       const res = await searchResolve({ q });
       setSections(res?.sections ?? sections);
+      setFeatured(res?.featured ?? null);
     } catch {
       setError("Unable to load search results.");
     } finally {
@@ -160,7 +176,7 @@ export default function Search() {
 
   const mixedResults: MixedResultItem[] = orderedKinds.flatMap((kind) =>
     Array.isArray(sections[kind])
-      ? sections[kind].map((item) => ({ ...item, kind }))
+      ? sections[kind].map((item) => ({ ...item, container: kind }))
       : []
   );
 
@@ -173,6 +189,10 @@ export default function Search() {
   const normalizedQuery = normalize(query);
 
   const heroItem: MixedResultItem | null = (() => {
+    if (featured) {
+      return { ...featured, container: kindToContainer(featured.kind) };
+    }
+
     for (const kind of HERO_PRIORITY) {
       const list = sections[kind];
       if (!Array.isArray(list)) continue;
@@ -182,7 +202,7 @@ export default function Search() {
       );
 
       if (match) {
-        return { ...match, kind };
+        return { ...match, container: kind };
       }
     }
     return null;
@@ -192,7 +212,7 @@ export default function Search() {
     ? mixedResults.filter(
         (item) =>
           !(
-            item.kind === heroItem.kind &&
+            item.container === heroItem.container &&
             item.id === heroItem.id
           )
       )
@@ -220,7 +240,7 @@ export default function Search() {
       const browseId = (item.endpointPayload || "").trim();
       if (!browseId) return;
 
-      if (item.kind === "artists") {
+      if (item.container === "artists") {
         navigate(`/artist/${encodeURIComponent(browseId)}`);
       } else {
         navigate(`/playlist/${encodeURIComponent(browseId)}`, {
@@ -282,7 +302,7 @@ export default function Search() {
             <img
               src={heroItem.imageUrl}
               className={`h-16 w-16 object-cover ${
-                heroItem.kind === "artists"
+                heroItem.container === "artists"
                   ? "rounded-full"
                   : "rounded-xl"
               }`}
@@ -292,7 +312,7 @@ export default function Search() {
                 {heroItem.title}
               </div>
               <div className="text-sm text-neutral-400">
-                {typeLabel[heroItem.kind]}
+                {heroLabel(heroItem.kind)}
               </div>
             </div>
           </div>
@@ -302,7 +322,7 @@ export default function Search() {
         {submitted && (
           <div className="mt-6 flex flex-col gap-2">
             {remainingResults.map((item) => {
-              if (item.kind === "playlists") {
+              if (item.container === "playlists") {
                 const normalized = adaptSearchPlaylistResult({
                   id: item.id,
                   title: item.title,
@@ -315,7 +335,7 @@ export default function Search() {
 
                 return (
                   <PlaylistListItem
-                    key={`${item.kind}-${item.id}`}
+                    key={`${item.container}-${item.id}`}
                     title={normalized.title}
                     subtitle={normalized.subtitle}
                     imageUrl={normalized.imageUrl ?? undefined}
@@ -331,7 +351,7 @@ export default function Search() {
 
               return (
                 <div
-                  key={`${item.kind}-${item.id}`}
+                  key={`${item.container}-${item.id}`}
                   onClick={() => handleItemClick(item)}
                   className="flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2 hover:bg-neutral-900"
                 >
@@ -352,7 +372,7 @@ export default function Search() {
                   </div>
 
                   <span className="rounded-full bg-neutral-800 px-2 py-1 text-xs">
-                    {typeLabel[item.kind]}
+                    {typeLabel[item.container]}
                   </span>
 
                   <MoreHorizontal className="h-5 w-5 text-neutral-400" />

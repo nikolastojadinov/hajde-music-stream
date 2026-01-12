@@ -17,10 +17,12 @@ export type SearchSuggestResponse = {
 export type SearchResultItem = {
   id: string;
   title: string;
-  imageUrl?: string;
-  subtitle?: string;
+  imageUrl: string | null;
+  subtitle?: string | null;
   endpointType: "watch" | "browse";
   endpointPayload: string;
+   kind: "song" | "artist" | "album" | "playlist";
+   pageType?: string;
 };
 
 export type SearchSections = {
@@ -33,6 +35,7 @@ export type SearchSections = {
 export type SearchResolveResponse = {
   q: string;
   source: string;
+  featured: SearchResultItem | null;
   sections: SearchSections;
 };
 
