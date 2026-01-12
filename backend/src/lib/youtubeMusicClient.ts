@@ -280,6 +280,32 @@ export function parseInnertubeSearch(root: any): { featured: SearchResultItem | 
   let featured: SearchResultItem | null = null;
   let featuredKey: string | null = null;
 
+  const tryParseHero = (node: any): void => {
+    if (featured) return;
+    const card = node?.musicCardShelfRenderer;
+    if (!card) return;
+    const parsedHero = parseMusicCardShelfRenderer(card);
+    if (!parsedHero) return;
+    featured = parsedHero.item;
+    featuredKey = `${parsedHero.item.endpointType}:${parsedHero.item.endpointPayload}`;
+  };
+
+  const walkNode = (node: any): void => {
+    if (!node) return;
+
+    tryParseHero(node);
+
+    if (node.musicShelfRenderer) {
+      const parsedItems = parseMusicShelfRenderer(node.musicShelfRenderer);
+      parsedItems.forEach((item) => addToSections(sections, item, featuredKey));
+    }
+
+    const itemSection = node.itemSectionRenderer?.contents;
+    if (Array.isArray(itemSection)) {
+      itemSection.forEach((child: any) => walkNode(child));
+    }
+  };
+
   const tabs = root?.contents?.tabbedSearchResultsRenderer?.tabs || [];
   tabs.forEach((tab: any) => {
     const tabRenderer = tab?.tabRenderer;
@@ -287,20 +313,7 @@ export function parseInnertubeSearch(root: any): { featured: SearchResultItem | 
     const sectionList = tabContent?.sectionListRenderer;
     const sectionContents = sectionList?.contents || [];
 
-    sectionContents.forEach((section: any) => {
-      if (!featured && section.musicCardShelfRenderer) {
-        const parsedHero = parseMusicCardShelfRenderer(section.musicCardShelfRenderer);
-        if (parsedHero) {
-          featured = parsedHero.item;
-          featuredKey = `${parsedHero.item.endpointType}:${parsedHero.item.endpointPayload}`;
-        }
-      }
-
-      if (section.musicShelfRenderer) {
-        const parsedItems = parseMusicShelfRenderer(section.musicShelfRenderer);
-        parsedItems.forEach((item) => addToSections(sections, item, featuredKey));
-      }
-    });
+    sectionContents.forEach((section: any) => walkNode(section));
   });
 
   return { featured, sections };
