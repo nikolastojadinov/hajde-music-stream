@@ -426,7 +426,14 @@ export async function ingestPlaylistOrAlbum(payload: PlaylistOrAlbumIngest): Pro
         ...trackInputs.flatMap((t) => t.artistNames),
       ]),
     );
+
     const artistKeys = await upsertArtists(allArtistNames.map((name) => ({ name })));
+
+    if (payload.kind === 'album' && artistKeys.length === 0) {
+      const fallbackName = normalize(payload.subtitle) || normalize(payload.title) || payload.browseId || 'Unknown artist';
+      const fallbackKeys = await upsertArtists([{ name: fallbackName }]);
+      artistKeys.push(...fallbackKeys);
+    }
 
     const albumMap = payload.kind === 'album'
       ? await upsertAlbums([
