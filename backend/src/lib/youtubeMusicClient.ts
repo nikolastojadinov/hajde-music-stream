@@ -212,6 +212,17 @@ function isNonMusicPageType(pageType: string): boolean {
   );
 }
 
+function isNonMusicLabel(label: string): boolean {
+  const lower = normalizeString(label).toLowerCase();
+  if (!lower) return false;
+  return (
+    lower.includes("podcast") ||
+    lower.includes("episode") ||
+    lower.includes("profile") ||
+    lower.includes("show")
+  );
+}
+
 function extractNavigationEndpoint(renderer: any): { browseId: string; pageType: string; videoId: string } {
   const navigation =
     renderer?.navigationEndpoint ||
@@ -311,6 +322,7 @@ function parseMusicResponsiveListItemRenderer(renderer: any): ParsedItem | null 
   if (!endpoint || !kind) return null;
 
   if (isNonMusicPageType(endpoint.pageType)) return null;
+  if (isNonMusicLabel(subtitle)) return null;
 
   const defaultSubtitle = kind === "artist" ? "Artist" : kind === "album" ? "Album" : kind === "playlist" ? "Playlist" : "Song";
   const item = buildResultItem(
@@ -337,6 +349,7 @@ function parseMusicCardShelfRenderer(cardShelf: any): ParsedItem | null {
   if (!endpoint || !kind) return null;
 
   if (isNonMusicPageType(endpoint.pageType)) return null;
+  if (isNonMusicLabel(subtitle)) return null;
 
   const defaultSubtitle = kind === "artist" ? "Artist" : kind === "album" ? "Album" : kind === "playlist" ? "Playlist" : "Song";
   const item = buildResultItem(
