@@ -102,7 +102,7 @@ export default function Search() {
     try {
       const res = await searchResolve({ q });
       setSections(normalizeSearchSections(res?.sections));
-      setTopResult(pickTopResult(res));
+      setTopResult(pickTopResult(res, q));
       const next = new URLSearchParams(searchParams);
       next.set("q", q);
       setSearchParams(next);

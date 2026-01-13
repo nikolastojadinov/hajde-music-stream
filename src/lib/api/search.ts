@@ -181,6 +181,8 @@ const isProfileLike = (value: string | null | undefined): boolean => {
   return lower.includes("profile") || lower.includes("podcast") || lower.includes("episode") || lower.includes("show");
 };
 
+const normalizeLoose = (value: string | null | undefined): string => normalizeString(value).toLowerCase().replace(/[^a-z0-9]+/g, "");
+
 const isValidTopCandidate = (item: SearchResultItem | null | undefined): item is SearchResultItem => {
   if (!item) return false;
   if (isProfileLike(item.subtitle)) return false;
@@ -188,8 +190,10 @@ const isValidTopCandidate = (item: SearchResultItem | null | undefined): item is
   return true;
 };
 
-export function pickTopResult(payload: SearchResolveResponse | null): SearchResultItem | null {
+export function pickTopResult(payload: SearchResolveResponse | null, query?: string | null): SearchResultItem | null {
   if (!payload) return null;
+
+  const qLoose = normalizeLoose(query || payload.q || "");
 
   const ordered: Array<SearchResultItem | null | undefined> = [
     payload.featured,
@@ -200,7 +204,21 @@ export function pickTopResult(payload: SearchResolveResponse | null): SearchResu
     ...(payload.sections?.playlists ?? []),
   ];
 
-  const artistPick = ordered.find((item) => isValidTopCandidate(item) && item.kind === "artist");
+  const byLooseMatch = (item: SearchResultItem | null | undefined) => {
+    if (!isValidTopCandidate(item)) return false;
+    if (!qLoose) return false;
+    const titleLoose = normalizeLoose(item.title);
+    const subtitleLoose = normalizeLoose(item.subtitle || "");
+    return titleLoose === qLoose || subtitleLoose === qLoose;
+  };
+
+  const exactArtist = ordered.find((item) => byLooseMatch(item) && item?.kind === "artist");
+  if (exactArtist) return exactArtist;
+
+  const exactAny = ordered.find(byLooseMatch);
+  if (exactAny) return exactAny;
+
+  const artistPick = ordered.find((item) => isValidTopCandidate(item) && item?.kind === "artist");
   if (artistPick) return artistPick;
 
   const firstValid = ordered.find(isValidTopCandidate);
