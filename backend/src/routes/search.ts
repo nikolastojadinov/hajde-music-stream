@@ -50,6 +50,7 @@ router.get("/results", async (req, res) => {
       q,
       source: "youtube_live",
       featured: null,
+      orderedItems: [],
       sections: { songs: [], artists: [], albums: [], playlists: [] },
     } satisfies SearchResultsPayload);
   }
@@ -66,6 +67,7 @@ router.get("/results", async (req, res) => {
       q,
       source: "youtube_live",
       featured: null,
+      orderedItems: [],
       sections: { songs: [], artists: [], albums: [], playlists: [] },
     } satisfies SearchResultsPayload);
   }

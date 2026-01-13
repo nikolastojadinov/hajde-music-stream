@@ -23,6 +23,7 @@ export type SearchResultItem = {
   endpointPayload: string;
    kind: "song" | "artist" | "album" | "playlist";
    pageType?: string;
+    isOfficial?: boolean;
 };
 
 export type SearchSections = {
@@ -44,6 +45,7 @@ export type SearchResolveResponse = {
   q: string;
   source: string;
   featured: SearchResultItem | null;
+  orderedItems: SearchResultItem[];
   sections: SearchSections;
 };
 

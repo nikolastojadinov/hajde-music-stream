@@ -32,6 +32,7 @@ export type SearchResultItem = {
   endpointPayload: string;
   kind: ParsedKind;
   pageType?: string;
+  isOfficial?: boolean;
 };
 
 export type SearchSections = {
@@ -45,6 +46,7 @@ export type SearchResultsPayload = {
   q: string;
   source: "youtube_live";
   featured: SearchResultItem | null;
+  orderedItems: SearchResultItem[];
   sections: SearchSections;
 };
 
@@ -199,6 +201,17 @@ type ParsedItem = {
   item: SearchResultItem;
 };
 
+function isNonMusicPageType(pageType: string): boolean {
+  const lower = normalizeString(pageType).toLowerCase();
+  return (
+    lower.includes("podcast") ||
+    lower.includes("episode") ||
+    lower.includes("show") ||
+    lower.includes("program") ||
+    lower.includes("profile")
+  );
+}
+
 function extractNavigationEndpoint(renderer: any): { browseId: string; pageType: string; videoId: string } {
   const navigation =
     renderer?.navigationEndpoint ||
@@ -260,7 +273,8 @@ function buildResultItem(
   subtitle: string,
   thumb: string | null,
   endpoint: EndpointInfo,
-  kind: ParsedKind
+  kind: ParsedKind,
+  isOfficial?: boolean
 ): SearchResultItem {
   return {
     id: endpoint.payload,
@@ -271,6 +285,7 @@ function buildResultItem(
     endpointPayload: endpoint.payload,
     kind,
     pageType: endpoint.pageType,
+    isOfficial,
   };
 }
 
@@ -295,8 +310,17 @@ function parseMusicResponsiveListItemRenderer(renderer: any): ParsedItem | null 
   const kind = inferKind(endpoint);
   if (!endpoint || !kind) return null;
 
+  if (isNonMusicPageType(endpoint.pageType)) return null;
+
   const defaultSubtitle = kind === "artist" ? "Artist" : kind === "album" ? "Album" : kind === "playlist" ? "Playlist" : "Song";
-  const item = buildResultItem(title, subtitle || defaultSubtitle, thumb, endpoint, kind);
+  const item = buildResultItem(
+    title,
+    subtitle || defaultSubtitle,
+    thumb,
+    endpoint,
+    kind,
+    kind === "artist" && endpoint.payload.startsWith("UC")
+  );
   return { kind, item };
 }
 
@@ -312,8 +336,17 @@ function parseMusicCardShelfRenderer(cardShelf: any): ParsedItem | null {
   const kind = inferKind(endpoint);
   if (!endpoint || !kind) return null;
 
+  if (isNonMusicPageType(endpoint.pageType)) return null;
+
   const defaultSubtitle = kind === "artist" ? "Artist" : kind === "album" ? "Album" : kind === "playlist" ? "Playlist" : "Song";
-  const item = buildResultItem(title, subtitle || defaultSubtitle, thumb, endpoint, kind);
+  const item = buildResultItem(
+    title,
+    subtitle || defaultSubtitle,
+    thumb,
+    endpoint,
+    kind,
+    kind === "artist" && endpoint.payload.startsWith("UC")
+  );
   return { kind, item };
 }
 
@@ -356,10 +389,16 @@ function addToSections(target: SearchSections, parsed: ParsedItem, featuredKey: 
   }
 }
 
-export function parseInnertubeSearch(root: any): { featured: SearchResultItem | null; sections: SearchSections } {
+export function parseInnertubeSearch(root: any): { featured: SearchResultItem | null; sections: SearchSections; orderedItems: SearchResultItem[] } {
   const sections = emptySections();
   let featured: SearchResultItem | null = null;
   let featuredKey: string | null = null;
+  const orderedItems: SearchResultItem[] = [];
+
+  const pushOrdered = (parsed: ParsedItem | null) => {
+    if (!parsed) return;
+    orderedItems.push(parsed.item);
+  };
 
   const tryParseHero = (node: any): void => {
     if (featured) return;
@@ -367,6 +406,7 @@ export function parseInnertubeSearch(root: any): { featured: SearchResultItem | 
     if (!card) return;
     const parsedHero = parseMusicCardShelfRenderer(card);
     if (!parsedHero) return;
+    pushOrdered(parsedHero);
     featured = parsedHero.item;
     featuredKey = `${parsedHero.item.endpointType}:${parsedHero.item.endpointPayload}`;
   };
@@ -378,7 +418,18 @@ export function parseInnertubeSearch(root: any): { featured: SearchResultItem | 
 
     if (node.musicShelfRenderer) {
       const parsedItems = parseMusicShelfRenderer(node.musicShelfRenderer);
-      parsedItems.forEach((item) => addToSections(sections, item, featuredKey));
+      parsedItems.forEach((item) => {
+        pushOrdered(item);
+        addToSections(sections, item, featuredKey);
+      });
+    }
+
+    if (node.musicCardShelfRenderer) {
+      const parsed = parseMusicCardShelfRenderer(node.musicCardShelfRenderer);
+      if (parsed) {
+        pushOrdered(parsed);
+        addToSections(sections, parsed, featuredKey);
+      }
     }
 
     const contents = node.contents;
@@ -471,7 +522,7 @@ export function parseInnertubeSearch(root: any): { featured: SearchResultItem | 
     }
   }
 
-  return { featured, sections };
+  return { featured, sections, orderedItems };
 }
 
 function defaultSubtitleForType(type: SuggestionType): string {
@@ -581,16 +632,16 @@ export async function searchSuggestions(queryRaw: string): Promise<SuggestRespon
 export async function musicSearch(queryRaw: string): Promise<SearchResultsPayload> {
   const q = normalizeString(queryRaw);
   if (q.length < MIN_QUERY) {
-    return { q, source: "youtube_live", featured: null, sections: emptySections() };
+    return { q, source: "youtube_live", featured: null, orderedItems: [], sections: emptySections() };
   }
 
   try {
     const raw = await fetchMusicSearchRaw(q);
     await recordInnertubePayload("search", q, raw);
     const parsed = parseInnertubeSearch(raw);
-    return { q, source: "youtube_live", featured: parsed.featured, sections: parsed.sections };
+    return { q, source: "youtube_live", featured: parsed.featured, orderedItems: parsed.orderedItems, sections: parsed.sections };
   } catch (err) {
-    return { q, source: "youtube_live", featured: null, sections: emptySections() };
+    return { q, source: "youtube_live", featured: null, orderedItems: [], sections: emptySections() };
   }
 }
   

@@ -85,6 +85,7 @@ export default function Search() {
     playlists: [],
   });
   const [featured, setFeatured] = useState<SearchResultItem | null>(null);
+  const [orderedItems, setOrderedItems] = useState<SearchResultItem[]>([]);
   const [suggestions, setSuggestions] = useState<SearchSuggestItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -145,8 +146,10 @@ export default function Search() {
       const res = await searchResolve({ q });
       setSections(res?.sections ?? sections);
       setFeatured(res?.featured ?? null);
+      setOrderedItems(Array.isArray(res?.orderedItems) ? res.orderedItems : []);
     } catch {
       setError("Unable to load search results.");
+      setOrderedItems([]);
     } finally {
       setLoading(false);
     }
@@ -181,6 +184,11 @@ export default function Search() {
       : []
   );
 
+  const primaryList: MixedResultItem[] = (orderedItems.length > 0 ? orderedItems : mixedResults).map((item) => ({
+    ...item,
+    container: kindToContainer(item.kind),
+  }));
+
   /* ===========================
      HERO SELECTION (YT MUSIC)
      ✔ exact match
@@ -195,29 +203,26 @@ export default function Search() {
     }
 
     for (const kind of HERO_PRIORITY) {
-      const list = sections[kind];
-      if (!Array.isArray(list)) continue;
-
-      const match = list.find(
-        (item) => normalize(item.title) === normalizedQuery
+      const match = primaryList.find(
+        (item) => item.container === kind && normalize(item.title) === normalizedQuery
       );
 
       if (match) {
-        return { ...match, container: kind };
+        return match;
       }
     }
     return null;
   })();
 
   const remainingResults = heroItem
-    ? mixedResults.filter(
+    ? primaryList.filter(
         (item) =>
           !(
             item.container === heroItem.container &&
             item.id === heroItem.id
           )
       )
-    : mixedResults;
+    : primaryList;
 
   /* ===========================
      Actions
