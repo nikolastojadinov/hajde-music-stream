@@ -7,7 +7,6 @@ export async function testConnection() {
     }
     const res = await fetch(`${base.replace(/\/$/, '')}/health`);
     const data = await res.json();
-    // eslint-disable-next-line no-console
     console.log('Backend health:', data);
   } catch (e) {
     console.warn('Backend health check failed', e);

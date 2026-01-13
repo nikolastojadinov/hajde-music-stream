@@ -12,7 +12,9 @@ export function isPiBrowser(): boolean {
     if ((window as any).__PI_AUTH__ !== undefined) {
       return true;
     }
-  } catch (_) {}
+  } catch (_err) {
+    return false;
+  }
 
   return false;
 }

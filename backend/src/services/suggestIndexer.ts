@@ -17,7 +17,7 @@ const MAX_PREFIXES = 20; // safety cap
 
 function normalizeQuery(input: string): string {
   const lowered = input.toLowerCase().normalize("NFKD");
-  const asciiOnly = lowered.replace(/[^\x00-\x7F]+/g, "");
+  const asciiOnly = lowered.replace(/[^\p{ASCII}]+/gu, "");
   return asciiOnly.trim().replace(/\s+/g, " ");
 }
 

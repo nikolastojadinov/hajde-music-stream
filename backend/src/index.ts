@@ -29,6 +29,8 @@ import { scheduleTrendingNowJob, warmTrendingSnapshotIfMissing } from './jobs/tr
 import { scheduleInnertubeDecoderJob } from './jobs/innertubeDecoderScheduler';
 
 declare global {
+  // Namespace extension required by Express request augmentation.
+  // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace Express {
     interface Request {
       currentUser?: { uid: string; username: string; roles: string[] } | null;

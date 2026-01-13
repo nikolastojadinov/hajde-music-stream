@@ -34,9 +34,9 @@ function sanitizeErrorMessage(message: unknown): string | null {
   // Best-effort redaction: avoid leaking obvious secrets in error strings.
   // We never log headers/tokens directly; this protects against accidental inclusion.
   return str
-    .replace(/Bearer\s+[A-Za-z0-9._\-]+/gi, 'Bearer [redacted]')
-    .replace(/key=([A-Za-z0-9_\-]+)/gi, 'key=[redacted]')
-    .replace(/client_secret=([A-Za-z0-9_\-]+)/gi, 'client_secret=[redacted]');
+    .replace(/Bearer\s+[A-Za-z0-9._-]+/gi, 'Bearer [redacted]')
+    .replace(/key=([A-Za-z0-9_-]+)/gi, 'key=[redacted]')
+    .replace(/client_secret=([A-Za-z0-9_-]+)/gi, 'client_secret=[redacted]');
 }
 
 export function hashApiKeyOrIdentifier(value: string | null | undefined): string {
