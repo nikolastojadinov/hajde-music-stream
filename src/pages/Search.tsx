@@ -41,6 +41,13 @@ const typeLabel: Record<keyof SearchSections, string> = {
   playlists: "Playlist",
 };
 
+const kindLabel: Record<SearchResultItem["kind"], string> = {
+  song: "Song",
+  artist: "Artist",
+  album: "Album",
+  playlist: "Playlist",
+};
+
 const heroLabel = (kind: SearchResultItem["kind"]): string => {
   if (kind === "artist") return "Artist";
   if (kind === "album") return "Album";
@@ -68,6 +75,8 @@ const normalize = (v: unknown) =>
 
 const isVideoId = (id?: string | null) =>
   typeof id === "string" && /^[A-Za-z0-9_-]{11}$/.test(id);
+
+const allowedKinds: SearchResultItem["kind"][] = ["song", "artist", "album", "playlist"];
 
 /* ===========================
    Component
@@ -184,7 +193,11 @@ export default function Search() {
       : []
   );
 
-  const primaryList: MixedResultItem[] = (orderedItems.length > 0 ? orderedItems : mixedResults).map((item) => ({
+  const sourceList = (orderedItems.length > 0 ? orderedItems : mixedResults).filter((item) =>
+    allowedKinds.includes(item.kind)
+  );
+
+  const primaryList: MixedResultItem[] = sourceList.map((item) => ({
     ...item,
     container: kindToContainer(item.kind),
   }));
@@ -229,7 +242,7 @@ export default function Search() {
   =========================== */
 
   const handleItemClick = (item: MixedResultItem) => {
-    const enqueueIngest = (type: "song" | "video" | "album" | "playlist" | "artist" | "episode") => {
+    const enqueueIngest = (type: "song" | "video" | "album" | "playlist" | "artist") => {
       void ingestSearchSelection({
         type,
         id: item.endpointPayload,
@@ -260,8 +273,11 @@ export default function Search() {
       if (item.container === "artists") {
         enqueueIngest("artist");
         navigate(`/artist/${encodeURIComponent(browseId)}`);
-      } else {
-        enqueueIngest(item.container === "albums" ? "album" : "playlist");
+        return;
+      }
+
+      if (item.container === "albums") {
+        enqueueIngest("album");
         navigate(`/playlist/${encodeURIComponent(browseId)}`, {
           state: {
             playlistId: browseId,
@@ -269,7 +285,18 @@ export default function Search() {
             playlistCover: item.imageUrl ?? null,
           },
         });
+        return;
       }
+
+      // playlists
+      enqueueIngest("playlist");
+      navigate(`/playlist/${encodeURIComponent(browseId)}`, {
+        state: {
+          playlistId: browseId,
+          playlistTitle: item.title,
+          playlistCover: item.imageUrl ?? null,
+        },
+      });
     }
   };
 
@@ -391,7 +418,7 @@ export default function Search() {
                   </div>
 
                   <span className="rounded-full bg-neutral-800 px-2 py-1 text-xs">
-                    {typeLabel[item.container]}
+                    {kindLabel[item.kind]}
                   </span>
 
                   <MoreHorizontal className="h-5 w-5 text-neutral-400" />

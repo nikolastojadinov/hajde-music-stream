@@ -220,7 +220,7 @@ function isNonMusicLabel(label: string): boolean {
     lower.includes("episode") ||
     lower.includes("profile") ||
     lower.includes("show") ||
-    lower.includes("live") && lower.includes("profile")
+    (lower.includes("live") && lower.includes("profile"))
   );
 }
 
