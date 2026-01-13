@@ -224,24 +224,42 @@ function isNonMusicLabel(label: string): boolean {
   );
 }
 
-function isNonMusicItem(parsed: ParsedItem | null): boolean {
+const matchesQuery = (value: string, queryNorm?: string): boolean => {
+  if (!queryNorm) return false;
+  return normalizeLoose(value) === queryNorm;
+};
+
+function isNonMusicItem(parsed: ParsedItem | null, queryNorm?: string): boolean {
   if (!parsed) return true;
   const { kind, item } = parsed;
   const subtitle = normalizeString(item.subtitle);
   const title = normalizeString(item.title);
+  const pageType = item.pageType || "";
+
+  const isQueryArtistMatch = kind === "artist" && (matchesQuery(title, queryNorm) || matchesQuery(subtitle, queryNorm));
 
   // Filter by label/subtitle hints
-  if (isNonMusicLabel(subtitle)) return true;
+  if (isNonMusicLabel(subtitle)) {
+    const isProfile = subtitle.toLowerCase().includes("profile");
+    if (isProfile && isQueryArtistMatch) {
+      // allow profile-labeled artist when it matches the query
+    } else {
+      return true;
+    }
+  }
 
   // Profiles sometimes arrive as ARTIST pageType but carry "Profile" subtitle
-  if (kind === "artist" && subtitle.toLowerCase().includes("profile")) return true;
+  if (kind === "artist" && subtitle.toLowerCase().includes("profile") && !isQueryArtistMatch) return true;
 
   // If pageType signals non-music, skip
-  if (isNonMusicPageType(item.pageType || "")) return true;
+  if (isNonMusicPageType(pageType)) {
+    const isProfilePage = normalizeString(pageType).toLowerCase().includes("profile");
+    if (!(isProfilePage && isQueryArtistMatch)) return true;
+  }
 
   // Browse IDs that are clearly not music entities (exclude watch: handled via kind)
   const id = normalizeString(item.id);
-  if (kind === "artist" && id.startsWith("UC") && subtitle.toLowerCase().includes("profile")) return true;
+  if (kind === "artist" && id.startsWith("UC") && subtitle.toLowerCase().includes("profile") && !isQueryArtistMatch) return true;
 
   // Episodes that slipped as watch/songs with Episode in title
   if (kind === "song" && (title.toLowerCase().includes("episode") || subtitle.toLowerCase().includes("episode"))) return true;
@@ -326,7 +344,7 @@ function buildResultItem(
   };
 }
 
-function parseMusicResponsiveListItemRenderer(renderer: any): ParsedItem | null {
+function parseMusicResponsiveListItemRenderer(renderer: any, queryNorm?: string): ParsedItem | null {
   const title =
     pickRunsText(renderer?.flexColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs) ||
     pickText(renderer?.title) ||
@@ -348,7 +366,7 @@ function parseMusicResponsiveListItemRenderer(renderer: any): ParsedItem | null 
   if (!endpoint || !kind) return null;
 
   if (isNonMusicPageType(endpoint.pageType)) return null;
-  if (isNonMusicLabel(subtitle)) return null;
+  if (isNonMusicLabel(subtitle) && !(normalizeString(subtitle).toLowerCase().includes("profile") && queryNorm && matchesQuery(title, queryNorm))) return null;
 
   const defaultSubtitle = kind === "artist" ? "Artist" : kind === "album" ? "Album" : kind === "playlist" ? "Playlist" : "Song";
   const item = buildResultItem(
@@ -360,11 +378,11 @@ function parseMusicResponsiveListItemRenderer(renderer: any): ParsedItem | null 
     kind === "artist" && endpoint.payload.startsWith("UC")
   );
   const parsed: ParsedItem = { kind, item };
-  if (isNonMusicItem(parsed)) return null;
+  if (isNonMusicItem(parsed, queryNorm)) return null;
   return parsed;
 }
 
-function parseMusicCardShelfRenderer(cardShelf: any): ParsedItem | null {
+function parseMusicCardShelfRenderer(cardShelf: any, queryNorm?: string): ParsedItem | null {
   const title = pickText(cardShelf?.title) || pickText(cardShelf?.header?.title) || "";
   if (!title) return null;
 
@@ -377,7 +395,7 @@ function parseMusicCardShelfRenderer(cardShelf: any): ParsedItem | null {
   if (!endpoint || !kind) return null;
 
   if (isNonMusicPageType(endpoint.pageType)) return null;
-  if (isNonMusicLabel(subtitle)) return null;
+  if (isNonMusicLabel(subtitle) && !(normalizeString(subtitle).toLowerCase().includes("profile") && queryNorm && matchesQuery(title, queryNorm))) return null;
 
   const defaultSubtitle = kind === "artist" ? "Artist" : kind === "album" ? "Album" : kind === "playlist" ? "Playlist" : "Song";
   const item = buildResultItem(
@@ -389,18 +407,18 @@ function parseMusicCardShelfRenderer(cardShelf: any): ParsedItem | null {
     kind === "artist" && endpoint.payload.startsWith("UC")
   );
   const parsed: ParsedItem = { kind, item };
-  if (isNonMusicItem(parsed)) return null;
+  if (isNonMusicItem(parsed, queryNorm)) return null;
   return parsed;
 }
 
-function parseMusicShelfRenderer(shelf: any): ParsedItem[] {
+function parseMusicShelfRenderer(shelf: any, queryNorm?: string): ParsedItem[] {
   const contents = Array.isArray(shelf?.contents) ? shelf.contents : [];
   const parsed: ParsedItem[] = [];
 
   contents.forEach((content: any) => {
     const renderer = content?.musicResponsiveListItemRenderer;
     if (!renderer) return;
-    const item = parseMusicResponsiveListItemRenderer(renderer);
+    const item = parseMusicResponsiveListItemRenderer(renderer, queryNorm);
     if (item) parsed.push(item);
   });
 
@@ -432,7 +450,11 @@ function addToSections(target: SearchSections, parsed: ParsedItem, featuredKey: 
   }
 }
 
-export function parseInnertubeSearch(root: any): { featured: SearchResultItem | null; sections: SearchSections; orderedItems: SearchResultItem[] } {
+export function parseInnertubeSearch(
+  root: any,
+  queryRaw?: string
+): { featured: SearchResultItem | null; sections: SearchSections; orderedItems: SearchResultItem[] } {
+  const queryNorm = normalizeLoose(queryRaw || root?.query || root?.originalQuery || "");
   const sections = emptySections();
   let featured: SearchResultItem | null = null;
   let featuredKey: string | null = null;
@@ -440,7 +462,7 @@ export function parseInnertubeSearch(root: any): { featured: SearchResultItem | 
 
   const pushOrdered = (parsed: ParsedItem | null) => {
     if (!parsed) return;
-    if (isNonMusicItem(parsed)) return;
+    if (isNonMusicItem(parsed, queryNorm)) return;
     orderedItems.push(parsed.item);
   };
 
@@ -448,7 +470,7 @@ export function parseInnertubeSearch(root: any): { featured: SearchResultItem | 
     if (featured) return;
     const card = node?.musicCardShelfRenderer;
     if (!card) return;
-    const parsedHero = parseMusicCardShelfRenderer(card);
+    const parsedHero = parseMusicCardShelfRenderer(card, queryNorm);
     if (!parsedHero) return;
     pushOrdered(parsedHero);
     featured = parsedHero.item;
@@ -461,7 +483,7 @@ export function parseInnertubeSearch(root: any): { featured: SearchResultItem | 
     tryParseHero(node);
 
     if (node.musicShelfRenderer) {
-      const parsedItems = parseMusicShelfRenderer(node.musicShelfRenderer);
+      const parsedItems = parseMusicShelfRenderer(node.musicShelfRenderer, queryNorm);
       parsedItems.forEach((item) => {
         pushOrdered(item);
         addToSections(sections, item, featuredKey);
@@ -469,7 +491,7 @@ export function parseInnertubeSearch(root: any): { featured: SearchResultItem | 
     }
 
     if (node.musicCardShelfRenderer) {
-      const parsed = parseMusicCardShelfRenderer(node.musicCardShelfRenderer);
+      const parsed = parseMusicCardShelfRenderer(node.musicCardShelfRenderer, queryNorm);
       if (parsed) {
         pushOrdered(parsed);
         addToSections(sections, parsed, featuredKey);
@@ -498,14 +520,14 @@ export function parseInnertubeSearch(root: any): { featured: SearchResultItem | 
   });
 
   // NOTE: innertube search responses typically do NOT echo back the query.
-  // Use the hero title when present to approximate the search query for matching artists.
+  // Use the hero title when present to approximate the search query for matching artists when queryRaw missing.
   const heroSource = featured as SearchResultItem | null; // explicit to avoid TS narrowing to never
   const heroTitle = heroSource?.title || heroSource?.subtitle;
-  const queryNorm = normalizeLoose(root?.query || root?.originalQuery || heroTitle || "acdc");
+  const heroOrQueryNorm = queryNorm || normalizeLoose(heroTitle || "");
 
   // Global search: find hero card or any artist matching query; if no query, take first artist found
   if (!featured) {
-    const heroFromDeep = findHeroInTree(root, queryNorm);
+    const heroFromDeep = findHeroInTree(root, heroOrQueryNorm);
     if (heroFromDeep) {
       featured = heroFromDeep;
       featuredKey = `${heroFromDeep.endpointType}:${heroFromDeep.endpointPayload}`;
@@ -518,7 +540,7 @@ export function parseInnertubeSearch(root: any): { featured: SearchResultItem | 
       item: a,
       norm: normalizeLoose(a.title),
     }));
-    const best = queryNorm ? normalizedTitles.find((x) => x.norm && x.norm === queryNorm) : normalizedTitles[0];
+    const best = heroOrQueryNorm ? normalizedTitles.find((x) => x.norm && x.norm === heroOrQueryNorm) : normalizedTitles[0];
     if (best) {
       featured = best.item;
       featuredKey = `${best.item.endpointType}:${best.item.endpointPayload}`;
@@ -533,7 +555,7 @@ export function parseInnertubeSearch(root: any): { featured: SearchResultItem | 
       const primary = subtitle.split("·")[0]?.trim();
       if (!primary) return null;
       const titleNorm = normalizeLoose(primary);
-      if (queryNorm && titleNorm !== queryNorm) return null;
+      if (heroOrQueryNorm && titleNorm !== heroOrQueryNorm) return null;
       return {
         id: primary,
         title: primary,
@@ -682,7 +704,7 @@ export async function musicSearch(queryRaw: string): Promise<SearchResultsPayloa
   try {
     const raw = await fetchMusicSearchRaw(q);
     await recordInnertubePayload("search", q, raw);
-    const parsed = parseInnertubeSearch(raw);
+    const parsed = parseInnertubeSearch(raw, q);
     return { q, source: "youtube_live", featured: parsed.featured, orderedItems: parsed.orderedItems, sections: parsed.sections };
   } catch (err) {
     return { q, source: "youtube_live", featured: null, orderedItems: [], sections: emptySections() };

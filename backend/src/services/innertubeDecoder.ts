@@ -112,7 +112,7 @@ function deriveArtistFromName(nameRaw: string | null | undefined): { artist_key:
 }
 
 function decodeSearchPayload(row: RawPayloadRow): EntityBundle {
-  const parsed = parseInnertubeSearch(row.payload || {});
+  const parsed = parseInnertubeSearch(row.payload || {}, row.query || undefined);
   const artists: ArtistEntity[] = [];
   const albums: AlbumEntity[] = [];
   const tracks: TrackEntity[] = [];
