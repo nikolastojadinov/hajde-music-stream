@@ -156,20 +156,47 @@ const toPlaylist = (item: SearchResultItem): SearchPlaylistItem | null => {
   return { id, title, subtitle: item.subtitle ?? null, imageUrl: item.imageUrl ?? null };
 };
 
-export function normalizeSearchSections(sections?: SearchSections | null): SearchSection[] {
+const uniqBy = <T, K>(items: (T | null)[], key: (item: T) => K): T[] => {
+  const seen = new Set<K>();
+  const out: T[] = [];
+  items.forEach((item) => {
+    if (!item) return;
+    const k = key(item);
+    if (seen.has(k)) return;
+    seen.add(k);
+    out.push(item);
+  });
+  return out;
+};
+
+export function normalizeSearchSections(sections?: SearchSections | null, orderedItems?: SearchResultItem[] | null): SearchSection[] {
   const payload = sections ?? DEFAULT_SECTIONS;
   const normalized: SearchSection[] = [];
 
-  const songs = (payload.songs || []).map(toTrack).filter(Boolean) as SearchTrackItem[];
+  const ordered = Array.isArray(orderedItems) ? orderedItems : [];
+
+  const songs = uniqBy(
+    [...(payload.songs || []), ...ordered.filter((i) => i?.kind === "song")].map(toTrack),
+    (t) => t.youtubeVideoId || t.id
+  ) as SearchTrackItem[];
   if (songs.length > 0) normalized.push({ kind: "songs", title: "Songs", items: songs });
 
-  const artists = (payload.artists || []).map(toArtist).filter(Boolean) as SearchArtistItem[];
+  const artists = uniqBy(
+    [...(payload.artists || []), ...ordered.filter((i) => i?.kind === "artist")].map(toArtist),
+    (a) => a.id
+  ) as SearchArtistItem[];
   if (artists.length > 0) normalized.push({ kind: "artists", title: "Artists", items: artists });
 
-  const albums = (payload.albums || []).map(toAlbum).filter(Boolean) as SearchAlbumItem[];
+  const albums = uniqBy(
+    [...(payload.albums || []), ...ordered.filter((i) => i?.kind === "album")].map(toAlbum),
+    (a) => a.id
+  ) as SearchAlbumItem[];
   if (albums.length > 0) normalized.push({ kind: "albums", title: "Albums", items: albums });
 
-  const playlists = (payload.playlists || []).map(toPlaylist).filter(Boolean) as SearchPlaylistItem[];
+  const playlists = uniqBy(
+    [...(payload.playlists || []), ...ordered.filter((i) => i?.kind === "playlist")].map(toPlaylist),
+    (p) => p.id
+  ) as SearchPlaylistItem[];
   if (playlists.length > 0) normalized.push({ kind: "playlists", title: "Playlists", items: playlists });
 
   return normalized;
@@ -183,10 +210,9 @@ const isProfileLike = (value: string | null | undefined): boolean => {
 
 const normalizeLoose = (value: string | null | undefined): string => normalizeString(value).toLowerCase().replace(/[^a-z0-9]+/g, "");
 
-const isValidTopCandidate = (item: SearchResultItem | null | undefined): item is SearchResultItem => {
+const isValidTopCandidate = (item: SearchResultItem | null | undefined, allowProfile: boolean): item is SearchResultItem => {
   if (!item) return false;
-  if (isProfileLike(item.subtitle)) return false;
-  if (isProfileLike(item.pageType)) return false;
+  if (!allowProfile && (isProfileLike(item.subtitle) || isProfileLike(item.pageType))) return false;
   return true;
 };
 
@@ -204,24 +230,25 @@ export function pickTopResult(payload: SearchResolveResponse | null, query?: str
     ...(payload.sections?.playlists ?? []),
   ];
 
-  const byLooseMatch = (item: SearchResultItem | null | undefined) => {
-    if (!isValidTopCandidate(item)) return false;
+  const byLooseMatch = (item: SearchResultItem | null | undefined, allowProfile: boolean) => {
+    if (!item) return false;
     if (!qLoose) return false;
     const titleLoose = normalizeLoose(item.title);
     const subtitleLoose = normalizeLoose(item.subtitle || "");
-    return titleLoose === qLoose || subtitleLoose === qLoose;
+    if (!(titleLoose === qLoose || subtitleLoose === qLoose)) return false;
+    return isValidTopCandidate(item, allowProfile);
   };
 
-  const exactArtist = ordered.find((item) => byLooseMatch(item) && item?.kind === "artist");
+  const exactArtist = ordered.find((item) => byLooseMatch(item, true) && item?.kind === "artist");
   if (exactArtist) return exactArtist;
 
-  const exactAny = ordered.find(byLooseMatch);
+  const exactAny = ordered.find((item) => byLooseMatch(item, true));
   if (exactAny) return exactAny;
 
-  const artistPick = ordered.find((item) => isValidTopCandidate(item) && item?.kind === "artist");
+  const artistPick = ordered.find((item) => isValidTopCandidate(item, false) && item?.kind === "artist");
   if (artistPick) return artistPick;
 
-  const firstValid = ordered.find(isValidTopCandidate);
+  const firstValid = ordered.find((item) => isValidTopCandidate(item, false));
   return firstValid ?? null;
 }
 
