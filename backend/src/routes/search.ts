@@ -1,46 +1,82 @@
+// src/lib/api/search.ts
+
 import { useEffect, useState } from "react";
 
-const BACKEND_URL =
-  import.meta.env.VITE_BACKEND_URL ||
-  import.meta.env.VITE_API_URL ||
-  "";
+/* ===========================
+   Types
+=========================== */
 
-export type SearchItemType =
-  | "song"
-  | "video"
-  | "artist"
-  | "album"
-  | "playlist";
-
-export interface SearchItem {
-  type: SearchItemType;
+export type SearchResultItem = {
+  type: "artist" | "song" | "album" | "playlist" | "video";
   id: string;
   title: string;
   subtitle?: string;
   imageUrl?: string;
   isOfficial?: boolean;
-}
+};
 
-export interface SearchResults {
+export type SearchSections = {
+  artists: SearchResultItem[];
+  songs: SearchResultItem[];
+  albums: SearchResultItem[];
+  playlists: SearchResultItem[];
+};
+
+export type SearchResolveResponse = {
   q: string;
   source: string;
-  orderedItems: SearchItem[];
-  sections?: {
-    songs?: SearchItem[];
-    artists?: SearchItem[];
-    albums?: SearchItem[];
-    playlists?: SearchItem[];
-  };
-  featured?: SearchItem | null;
+  featured?: SearchResultItem | null;
+  orderedItems?: SearchResultItem[];
+  sections: SearchSections;
+};
+
+export type SearchSuggestItem = {
+  id: string;
+  title: string;
+  subtitle?: string;
+  imageUrl?: string;
+  type: "artist" | "song" | "album" | "playlist";
+};
+
+/* ===========================
+   Low-level API calls
+=========================== */
+
+const API_BASE = import.meta.env.VITE_BACKEND_URL;
+
+export async function searchResolve(query: string): Promise<SearchResolveResponse> {
+  const res = await fetch(`${API_BASE}/api/search/results?q=${encodeURIComponent(query)}`, {
+    credentials: "include",
+  });
+
+  if (!res.ok) {
+    throw new Error("searchResolve failed");
+  }
+
+  return res.json();
 }
 
-/**
- * React hook used by Search.tsx
- */
+export async function searchSuggest(query: string): Promise<SearchSuggestItem[]> {
+  const res = await fetch(`${API_BASE}/api/search/suggest?q=${encodeURIComponent(query)}`, {
+    credentials: "include",
+  });
+
+  if (!res.ok) {
+    return [];
+  }
+
+  const json = await res.json();
+  return Array.isArray(json.suggestions) ? json.suggestions : [];
+}
+
+/* ===========================
+   React hook (FIX za build)
+=========================== */
+
 export function useSearchResults(query: string) {
-  const [data, setData] = useState<SearchResults | null>(null);
+  const [data, setData] = useState<SearchResolveResponse | null>(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Error | null>(null);
 
   useEffect(() => {
     if (!query || query.trim().length < 2) {
@@ -48,40 +84,24 @@ export function useSearchResults(query: string) {
       return;
     }
 
-    const controller = new AbortController();
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
 
-    async function run() {
-      setLoading(true);
-      setError(null);
+    searchResolve(query)
+      .then((res) => {
+        if (!cancelled) setData(res);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
 
-      try {
-        const res = await fetch(
-          `${BACKEND_URL}/api/search/results?q=${encodeURIComponent(query)}`,
-          {
-            signal: controller.signal,
-            headers: {
-              Accept: "application/json",
-            },
-          }
-        );
-
-        if (!res.ok) {
-          throw new Error(`Search request failed (${res.status})`);
-        }
-
-        const json = await res.json();
-        setData(json);
-      } catch (err: any) {
-        if (err.name === "AbortError") return;
-        setError(err.message || "Search failed");
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    run();
-
-    return () => controller.abort();
+    return () => {
+      cancelled = true;
+    };
   }, [query]);
 
   return {
