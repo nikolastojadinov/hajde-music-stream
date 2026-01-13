@@ -219,8 +219,34 @@ function isNonMusicLabel(label: string): boolean {
     lower.includes("podcast") ||
     lower.includes("episode") ||
     lower.includes("profile") ||
-    lower.includes("show")
+    lower.includes("show") ||
+    lower.includes("live") && lower.includes("profile")
   );
+}
+
+function isNonMusicItem(parsed: ParsedItem | null): boolean {
+  if (!parsed) return true;
+  const { kind, item } = parsed;
+  const subtitle = normalizeString(item.subtitle);
+  const title = normalizeString(item.title);
+
+  // Filter by label/subtitle hints
+  if (isNonMusicLabel(subtitle)) return true;
+
+  // Profiles sometimes arrive as ARTIST pageType but carry "Profile" subtitle
+  if (kind === "artist" && subtitle.toLowerCase().includes("profile")) return true;
+
+  // If pageType signals non-music, skip
+  if (isNonMusicPageType(item.pageType || "")) return true;
+
+  // Browse IDs that are clearly not music entities (exclude watch: handled via kind)
+  const id = normalizeString(item.id);
+  if (kind === "artist" && id.startsWith("UC") && subtitle.toLowerCase().includes("profile")) return true;
+
+  // Episodes that slipped as watch/songs with Episode in title
+  if (kind === "song" && (title.toLowerCase().includes("episode") || subtitle.toLowerCase().includes("episode"))) return true;
+
+  return false;
 }
 
 function extractNavigationEndpoint(renderer: any): { browseId: string; pageType: string; videoId: string } {
@@ -333,7 +359,9 @@ function parseMusicResponsiveListItemRenderer(renderer: any): ParsedItem | null 
     kind,
     kind === "artist" && endpoint.payload.startsWith("UC")
   );
-  return { kind, item };
+  const parsed: ParsedItem = { kind, item };
+  if (isNonMusicItem(parsed)) return null;
+  return parsed;
 }
 
 function parseMusicCardShelfRenderer(cardShelf: any): ParsedItem | null {
@@ -360,7 +388,9 @@ function parseMusicCardShelfRenderer(cardShelf: any): ParsedItem | null {
     kind,
     kind === "artist" && endpoint.payload.startsWith("UC")
   );
-  return { kind, item };
+  const parsed: ParsedItem = { kind, item };
+  if (isNonMusicItem(parsed)) return null;
+  return parsed;
 }
 
 function parseMusicShelfRenderer(shelf: any): ParsedItem[] {
@@ -410,6 +440,7 @@ export function parseInnertubeSearch(root: any): { featured: SearchResultItem | 
 
   const pushOrdered = (parsed: ParsedItem | null) => {
     if (!parsed) return;
+    if (isNonMusicItem(parsed)) return;
     orderedItems.push(parsed.item);
   };
 
