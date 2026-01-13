@@ -175,18 +175,36 @@ export function normalizeSearchSections(sections?: SearchSections | null): Searc
   return normalized;
 }
 
+const isProfileLike = (value: string | null | undefined): boolean => {
+  const lower = normalizeString(value).toLowerCase();
+  if (!lower) return false;
+  return lower.includes("profile") || lower.includes("podcast") || lower.includes("episode") || lower.includes("show");
+};
+
+const isValidTopCandidate = (item: SearchResultItem | null | undefined): item is SearchResultItem => {
+  if (!item) return false;
+  if (isProfileLike(item.subtitle)) return false;
+  if (isProfileLike(item.pageType)) return false;
+  return true;
+};
+
 export function pickTopResult(payload: SearchResolveResponse | null): SearchResultItem | null {
   if (!payload) return null;
-  if (payload.featured) return payload.featured;
 
-  const firstOrdered = Array.isArray(payload.orderedItems) ? payload.orderedItems.find(Boolean) : null;
-  if (firstOrdered) return firstOrdered;
+  const ordered: Array<SearchResultItem | null | undefined> = [
+    payload.featured,
+    ...(Array.isArray(payload.orderedItems) ? payload.orderedItems : []),
+    ...(payload.sections?.artists ?? []),
+    ...(payload.sections?.songs ?? []),
+    ...(payload.sections?.albums ?? []),
+    ...(payload.sections?.playlists ?? []),
+  ];
 
-  const fallbackSection = payload.sections?.songs?.[0]
-    || payload.sections?.artists?.[0]
-    || payload.sections?.albums?.[0]
-    || payload.sections?.playlists?.[0];
-  return fallbackSection ?? null;
+  const artistPick = ordered.find((item) => isValidTopCandidate(item) && item.kind === "artist");
+  if (artistPick) return artistPick;
+
+  const firstValid = ordered.find(isValidTopCandidate);
+  return firstValid ?? null;
 }
 
 export async function searchSuggest(q: string, options?: { signal?: AbortSignal }): Promise<SearchSuggestResponse> {
