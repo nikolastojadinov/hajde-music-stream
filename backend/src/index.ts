@@ -75,10 +75,17 @@ const allowedOrigins = [
   'null'
 ];
 
+// Allow localhost/127.0.0.1 on any port for local dev
+const devOriginRegexes = [
+  /^https?:\/\/localhost(?::\d+)?$/,
+  /^https?:\/\/127\.0\.0\.1(?::\d+)?$/
+];
+
 app.use(cors({
   origin: (origin: string | undefined, cb: (err: Error | null, allowed?: boolean) => void) => {
     if (!origin) return cb(null, true);
     if (allowedOrigins.includes(origin)) return cb(null, true);
+    if (devOriginRegexes.some((pattern) => pattern.test(origin))) return cb(null, true);
     return cb(new Error('Not allowed by CORS: ' + origin), false);
   },
   credentials: true

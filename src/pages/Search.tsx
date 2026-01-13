@@ -291,7 +291,7 @@ export default function Search() {
 
   return (
     <div className="min-h-screen bg-neutral-950 text-white">
-      <div className="mx-auto max-w-5xl px-4 pb-24 pt-3">
+      <div className="mx-auto max-w-xl px-3 pb-24 pt-3">
 
         {/* Search bar */}
         <form
@@ -305,8 +305,8 @@ export default function Search() {
                 setQuery(e.target.value);
                 scheduleSuggest(e.target.value);
               }}
-              placeholder="Search songs, artists, albums…"
-              className="h-11 rounded-full bg-neutral-900 pl-4 pr-10"
+              placeholder="Search"
+              className="h-11 rounded-full bg-neutral-900 pl-4 pr-10 text-sm"
             />
             <SearchIcon className="absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-neutral-500" />
           </div>
@@ -328,31 +328,37 @@ export default function Search() {
         {heroItem && (
           <div
             onClick={() => handleItemClick(heroItem)}
-            className="mt-6 flex cursor-pointer items-center gap-4 rounded-2xl bg-neutral-900/60 p-4 hover:bg-neutral-900"
+            className="mt-6 cursor-pointer rounded-3xl bg-gradient-to-r from-neutral-900 to-neutral-800 p-4 shadow-lg"
           >
-            {heroItem.imageUrl ? (
-              <img
-                src={heroItem.imageUrl}
-                className={`h-16 w-16 object-cover ${
-                  heroItem.container === "artists"
-                    ? "rounded-full"
-                    : "rounded-xl"
-                }`}
-              />
-            ) : (
-              <div
-                className={`h-16 w-16 bg-neutral-800 ${
-                  heroItem.container === "artists" ? "rounded-full" : "rounded-xl"
-                }`}
-              />
-            )}
-            <div>
-              <div className="text-lg font-bold">
-                {heroItem.title}
+            <div className="flex items-center gap-4">
+              {heroItem.imageUrl ? (
+                <img
+                  src={heroItem.imageUrl}
+                  className={`h-16 w-16 object-cover ${
+                    heroItem.container === "artists"
+                      ? "rounded-full"
+                      : "rounded-xl"
+                  }`}
+                />
+              ) : (
+                <div
+                  className={`h-16 w-16 bg-neutral-800 ${
+                    heroItem.container === "artists" ? "rounded-full" : "rounded-xl"
+                  }`}
+                />
+              )}
+              <div className="flex-1">
+                <div className="text-lg font-bold leading-tight">{heroItem.title}</div>
+                <div className="text-sm text-neutral-400">{heroLabel(heroItem)}</div>
               </div>
-              <div className="text-sm text-neutral-400">
-                {heroLabel(heroItem)}
-              </div>
+            </div>
+            <div className="mt-4 flex gap-3 text-sm">
+              <button className="flex flex-1 items-center justify-center gap-2 rounded-full bg-white/10 px-3 py-2 text-white hover:bg-white/20">
+                ▶ Play
+              </button>
+              <button className="flex flex-1 items-center justify-center gap-2 rounded-full bg-neutral-800 px-3 py-2 text-white hover:bg-neutral-700">
+                🎧 Radio
+              </button>
             </div>
           </div>
         )}
@@ -397,21 +403,21 @@ export default function Search() {
                 <div
                   key={`${item.container}-${item.id}`}
                   onClick={() => handleItemClick(item)}
-                  className="flex cursor-pointer items-center gap-3 rounded-xl bg-neutral-900/60 px-3 py-3 hover:bg-neutral-900"
+                  className="flex cursor-pointer items-center gap-3 rounded-2xl bg-neutral-900/70 px-3 py-3 hover:bg-neutral-800"
                 >
                   {item.imageUrl ? (
                     <img
                       src={item.imageUrl}
-                      className={`h-14 w-14 object-cover ${isArtist ? "rounded-full" : "rounded-lg"}`}
+                      className={`h-12 w-12 object-cover ${isArtist ? "rounded-full" : "rounded-xl"}`}
                     />
                   ) : (
                     <div
-                      className={`h-14 w-14 bg-neutral-800 ${isArtist ? "rounded-full" : "rounded-lg"}`}
+                      className={`h-12 w-12 bg-neutral-800 ${isArtist ? "rounded-full" : "rounded-xl"}`}
                     />
                   )}
 
                   <div className="flex-1 min-w-0">
-                    <div className="truncate text-sm font-semibold">
+                    <div className="truncate text-[15px] font-semibold leading-tight">
                       {item.title}
                     </div>
                     {item.subtitle && (
@@ -421,7 +427,7 @@ export default function Search() {
                     )}
                   </div>
 
-                  <span className="rounded-full border border-neutral-800 px-2 py-1 text-[11px] uppercase tracking-wide text-neutral-200">
+                  <span className="rounded-full border border-neutral-800 px-2 py-1 text-[10px] uppercase tracking-wide text-neutral-200">
                     {badge}
                   </span>
 
