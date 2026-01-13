@@ -48,11 +48,9 @@ const kindLabel: Record<SearchResultItem["kind"], string> = {
   playlist: "Playlist",
 };
 
-const heroLabel = (kind: SearchResultItem["kind"]): string => {
-  if (kind === "artist") return "Artist";
-  if (kind === "album") return "Album";
-  if (kind === "playlist") return "Playlist";
-  return "Song";
+const heroLabel = (item: SearchResultItem): string => {
+  if (item.endpointType === "watch" && normalize(item.subtitle).includes("video")) return "Video";
+  return kindLabel[item.kind] || "Song";
 };
 
 const kindToContainer = (kind: SearchResultItem["kind"]): keyof SearchSections => {
@@ -153,9 +151,9 @@ export default function Search() {
 
     try {
       const res = await searchResolve({ q });
-      setSections(res?.sections ?? sections);
-      setFeatured(res?.featured ?? null);
+      setSections(res?.sections ?? { songs: [], artists: [], albums: [], playlists: [] });
       setOrderedItems(Array.isArray(res?.orderedItems) ? res.orderedItems : []);
+      setFeatured(res?.featured ?? null);
     } catch {
       setError("Unable to load search results.");
       setOrderedItems([]);
@@ -180,22 +178,17 @@ export default function Search() {
      (ORIGINAL ORDER PRESERVED)
 =========================== */
 
-  const orderedKinds: (keyof SearchSections)[] = [
-    "songs",
-    "artists",
-    "albums",
-    "playlists",
-  ];
+  const orderedKinds: (keyof SearchSections)[] = ["songs", "artists", "albums", "playlists"];
 
+  // Fallback to sections only if orderedItems missing (should rarely happen)
   const mixedResults: MixedResultItem[] = orderedKinds.flatMap((kind) =>
     Array.isArray(sections[kind])
       ? sections[kind].map((item) => ({ ...item, container: kind }))
       : []
   );
 
-  const sourceList = (orderedItems.length > 0 ? orderedItems : mixedResults).filter((item) =>
-    allowedKinds.includes(item.kind)
-  );
+  const sourceList = (orderedItems.length > 0 ? orderedItems : mixedResults)
+    .filter((item) => allowedKinds.includes(item.kind));
 
   const primaryList: MixedResultItem[] = sourceList.map((item) => ({
     ...item,
@@ -214,16 +207,7 @@ export default function Search() {
     if (featured) {
       return { ...featured, container: kindToContainer(featured.kind) };
     }
-
-    for (const kind of HERO_PRIORITY) {
-      const match = primaryList.find(
-        (item) => item.container === kind && normalize(item.title) === normalizedQuery
-      );
-
-      if (match) {
-        return match;
-      }
-    }
+    if (primaryList.length > 0) return primaryList[0];
     return null;
   })();
 
@@ -253,7 +237,8 @@ export default function Search() {
     };
 
     if (item.endpointType === "watch" && isVideoId(item.endpointPayload)) {
-      enqueueIngest("song");
+      const isVideo = normalize(item.subtitle).includes("video");
+      enqueueIngest(isVideo ? "video" : "song");
       playTrack(
         {
           youtubeVideoId: item.endpointPayload,
@@ -345,20 +330,28 @@ export default function Search() {
             onClick={() => handleItemClick(heroItem)}
             className="mt-6 flex cursor-pointer items-center gap-4 rounded-2xl bg-neutral-900/60 p-4 hover:bg-neutral-900"
           >
-            <img
-              src={heroItem.imageUrl}
-              className={`h-16 w-16 object-cover ${
-                heroItem.container === "artists"
-                  ? "rounded-full"
-                  : "rounded-xl"
-              }`}
-            />
+            {heroItem.imageUrl ? (
+              <img
+                src={heroItem.imageUrl}
+                className={`h-16 w-16 object-cover ${
+                  heroItem.container === "artists"
+                    ? "rounded-full"
+                    : "rounded-xl"
+                }`}
+              />
+            ) : (
+              <div
+                className={`h-16 w-16 bg-neutral-800 ${
+                  heroItem.container === "artists" ? "rounded-full" : "rounded-xl"
+                }`}
+              />
+            )}
             <div>
               <div className="text-lg font-bold">
                 {heroItem.title}
               </div>
               <div className="text-sm text-neutral-400">
-                {heroLabel(heroItem.kind)}
+                {heroLabel(heroItem)}
               </div>
             </div>
           </div>
@@ -395,19 +388,30 @@ export default function Search() {
                 );
               }
 
+              const isArtist = item.container === "artists";
+              const badge = item.endpointType === "watch" && normalize(item.subtitle).includes("video")
+                ? "Video"
+                : kindLabel[item.kind];
+
               return (
                 <div
                   key={`${item.container}-${item.id}`}
                   onClick={() => handleItemClick(item)}
-                  className="flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2 hover:bg-neutral-900"
+                  className="flex cursor-pointer items-center gap-3 rounded-xl bg-neutral-900/60 px-3 py-3 hover:bg-neutral-900"
                 >
-                  <img
-                    src={item.imageUrl}
-                    className="h-12 w-12 rounded-lg object-cover"
-                  />
+                  {item.imageUrl ? (
+                    <img
+                      src={item.imageUrl}
+                      className={`h-14 w-14 object-cover ${isArtist ? "rounded-full" : "rounded-lg"}`}
+                    />
+                  ) : (
+                    <div
+                      className={`h-14 w-14 bg-neutral-800 ${isArtist ? "rounded-full" : "rounded-lg"}`}
+                    />
+                  )}
 
                   <div className="flex-1 min-w-0">
-                    <div className="truncate font-semibold">
+                    <div className="truncate text-sm font-semibold">
                       {item.title}
                     </div>
                     {item.subtitle && (
@@ -417,11 +421,11 @@ export default function Search() {
                     )}
                   </div>
 
-                  <span className="rounded-full bg-neutral-800 px-2 py-1 text-xs">
-                    {kindLabel[item.kind]}
+                  <span className="rounded-full border border-neutral-800 px-2 py-1 text-[11px] uppercase tracking-wide text-neutral-200">
+                    {badge}
                   </span>
 
-                  <MoreHorizontal className="h-5 w-5 text-neutral-400" />
+                  <MoreHorizontal className="h-5 w-5 text-neutral-500" />
                 </div>
               );
             })}
