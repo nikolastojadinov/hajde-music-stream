@@ -647,20 +647,56 @@ function scoreSuggestionMatch(item: SuggestionItem, query: string): number {
 }
 
 function deriveArtistFromLabel(label: string | null | undefined, query: string): SuggestionItem | null {
-  const nameRaw = normalizeString(label);
-  if (!nameRaw) return null;
+  const base = normalizeString(label);
   const q = normalizeLoose(query);
-  const nameNorm = normalizeLoose(nameRaw);
-  if (!q || (!nameNorm.includes(q) && !q.includes(nameNorm))) return null;
+  if (!base || !q) return null;
+
+  const candidates: string[] = [];
+  const push = (value: string | null | undefined) => {
+    const v = normalizeString(value);
+    if (v) candidates.push(v);
+  };
+
+  push(base);
+  base.split(/[•·|]/).forEach(push);
+  base.split(/[-–—:]/).forEach(push);
+  base.split(/[\\/]/).forEach(push);
+
+  const best = Array.from(new Set(candidates))
+    .map((name) => ({ name, norm: normalizeLoose(name) }))
+    .filter((c) => c.norm && (c.norm === q || c.norm.includes(q) || q.includes(c.norm)))
+    .sort((a, b) => {
+      const aExact = a.norm === q;
+      const bExact = b.norm === q;
+      if (aExact !== bExact) return aExact ? -1 : 1;
+      return b.norm.length - a.norm.length;
+    })[0];
+
+  if (!best) return null;
+
   return {
     type: "artist",
-    id: nameRaw,
-    name: nameRaw,
+    id: best.name,
+    name: best.name,
     imageUrl: null,
     subtitle: "Artist",
     endpointType: "browse",
-    endpointPayload: nameRaw,
+    endpointPayload: best.name,
   } satisfies SuggestionItem;
+}
+
+function deriveBestArtistFromLabels(labels: string[], query: string): SuggestionItem | null {
+  const derived = labels
+    .map((lbl) => deriveArtistFromLabel(lbl, query))
+    .filter((x): x is SuggestionItem => Boolean(x));
+
+  if (derived.length === 0) return null;
+
+  const best = derived
+    .map((item) => ({ item, score: scoreSuggestionMatch(item, query) }))
+    .sort((a, b) => b.score - a.score)[0];
+
+  return best?.item ?? null;
 }
 
 function buildSectionsFromArtistBrowse(browse: ArtistBrowse, artistPayload: SearchResultItem): SearchSections {
@@ -811,31 +847,33 @@ export async function searchSuggestions(queryRaw: string): Promise<SuggestRespon
     const buckets = bucketSuggestions(raw);
     let suggestions = interleaveSuggestions(buckets);
 
-    // Promote best-matching artist to the top of suggestions
-    const bestArtist = suggestions
-      .filter((s) => s.type === "artist")
-      .sort((a, b) => scoreSuggestionMatch(b, q) - scoreSuggestionMatch(a, q))[0];
-
-    if (bestArtist) {
-      const key = `${bestArtist.type}:${bestArtist.id}`;
-      const deduped = suggestions.filter((s) => `${s.type}:${s.id}` !== key);
-      suggestions = [bestArtist, ...deduped].slice(0, MAX_SUGGESTIONS_TOTAL);
-    } else {
-      // If we did not get an artist match, try to derive one from song/album subtitles
-      const labels: string[] = [];
-      suggestions.forEach((s) => {
-        if (s.type === "track" || s.type === "album" || s.type === "playlist") {
-          if (s.subtitle) labels.push(s.subtitle);
-          if (s.name) labels.push(s.name);
-        }
-      });
-      const derived = labels
-        .map((lbl) => deriveArtistFromLabel(lbl, q))
-        .filter((x): x is SuggestionItem => Boolean(x))[0];
-      if (derived) {
-        const deduped = suggestions.filter((s) => `${s.type}:${s.id}` !== `${derived.type}:${derived.id}`);
-        suggestions = [derived, ...deduped].slice(0, MAX_SUGGESTIONS_TOTAL);
+    const labels: string[] = [];
+    suggestions.forEach((s) => {
+      if (s.type === "track" || s.type === "album" || s.type === "playlist") {
+        if (s.subtitle) labels.push(s.subtitle);
+        if (s.name) labels.push(s.name);
       }
+    });
+
+    const derivedArtist = deriveBestArtistFromLabels(labels, q);
+
+    const candidates = suggestions
+      .filter((s) => s.type === "artist")
+      .map((item) => ({ item, score: scoreSuggestionMatch(item, q) }))
+      .filter((entry) => entry.score > 0);
+
+    if (derivedArtist) {
+      candidates.push({ item: derivedArtist, score: scoreSuggestionMatch(derivedArtist, q) });
+    }
+
+    const best = candidates.sort((a, b) => b.score - a.score)[0];
+
+    if (best) {
+      const key = `${best.item.type}:${best.item.id}`;
+      const deduped = suggestions.filter((s) => `${s.type}:${s.id}` !== key);
+      // Ensure the derived artist (if chosen) is present even if it was not in the original list
+      const withBest = [best.item, ...deduped];
+      suggestions = withBest.slice(0, MAX_SUGGESTIONS_TOTAL);
     }
 
     return { q, source: "youtube_live", suggestions };
