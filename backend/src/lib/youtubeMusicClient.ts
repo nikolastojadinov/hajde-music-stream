@@ -1,7 +1,9 @@
 import {
   musicSearchRaw as fetchMusicSearchRaw,
   searchSuggestions as rawSearchSuggestions,
+  browseArtistById,
   type MusicSearchSuggestion as RawSuggestion,
+  type ArtistBrowse,
 } from "../services/youtubeMusicClient";
 import { recordInnertubePayload } from "../services/innertubeRawStore";
 
@@ -429,6 +431,16 @@ function emptySections(): SearchSections {
   return { songs: [], artists: [], albums: [], playlists: [] };
 }
 
+function areSectionsEmpty(sections: SearchSections | null | undefined): boolean {
+  if (!sections) return true;
+  return (
+    (!sections.songs || sections.songs.length === 0) &&
+    (!sections.artists || sections.artists.length === 0) &&
+    (!sections.albums || sections.albums.length === 0) &&
+    (!sections.playlists || sections.playlists.length === 0)
+  );
+}
+
 function addToSections(target: SearchSections, parsed: ParsedItem, featuredKey: string | null): void {
   const key = `${parsed.item.endpointType}:${parsed.item.endpointPayload}`;
   if (featuredKey && key === featuredKey) return;
@@ -591,6 +603,63 @@ export function parseInnertubeSearch(
   return { featured, sections, orderedItems };
 }
 
+function isArtistResult(item: SearchResultItem | null | undefined): item is SearchResultItem {
+  if (!item) return false;
+  if (item.kind !== "artist") return false;
+  const pageType = normalizeString(item.pageType).toUpperCase();
+  const id = normalizeString(item.endpointPayload || item.id).toUpperCase();
+  return pageType.includes("ARTIST") || id.startsWith("UC");
+}
+
+function buildSectionsFromArtistBrowse(browse: ArtistBrowse, artistPayload: SearchResultItem): SearchSections {
+  const baseArtist: SearchResultItem = {
+    ...artistPayload,
+    title: browse.artist.name || artistPayload.title,
+    subtitle: "Artist",
+    imageUrl: browse.artist.thumbnailUrl ?? artistPayload.imageUrl ?? null,
+  };
+
+  const songs: SearchResultItem[] = (browse.topSongs || []).map((song) => ({
+    id: song.id,
+    title: song.title,
+    imageUrl: song.imageUrl,
+    subtitle: browse.artist.name,
+    endpointType: "watch",
+    endpointPayload: song.id,
+    kind: "song",
+    pageType: "MUSIC_PAGE_TYPE_SONG",
+  }));
+
+  const albums: SearchResultItem[] = (browse.albums || []).map((album) => ({
+    id: album.id,
+    title: album.title,
+    imageUrl: album.imageUrl,
+    subtitle: album.year || browse.artist.name,
+    endpointType: "browse",
+    endpointPayload: album.id,
+    kind: "album",
+    pageType: "MUSIC_PAGE_TYPE_ALBUM",
+  }));
+
+  const playlists: SearchResultItem[] = (browse.playlists || []).map((pl) => ({
+    id: pl.id,
+    title: pl.title,
+    imageUrl: pl.imageUrl,
+    subtitle: browse.artist.name,
+    endpointType: "browse",
+    endpointPayload: pl.id,
+    kind: "playlist",
+    pageType: "MUSIC_PAGE_TYPE_PLAYLIST",
+  }));
+
+  return {
+    artists: [baseArtist],
+    songs,
+    albums,
+    playlists,
+  };
+}
+
 function defaultSubtitleForType(type: SuggestionType): string {
   if (type === "artist") return "Artist";
   if (type === "album") return "Album";
@@ -705,7 +774,39 @@ export async function musicSearch(queryRaw: string): Promise<SearchResultsPayloa
     const raw = await fetchMusicSearchRaw(q);
     await recordInnertubePayload("search", q, raw);
     const parsed = parseInnertubeSearch(raw, q);
-    return { q, source: "youtube_live", featured: parsed.featured, orderedItems: parsed.orderedItems, sections: parsed.sections };
+
+    let featured = parsed.featured;
+    let orderedItems = parsed.orderedItems;
+    let sections = parsed.sections;
+
+    const heroArtist = isArtistResult(featured) ? featured : orderedItems.find((item) => isArtistResult(item));
+    const shouldHydrateArtistBrowse = areSectionsEmpty(sections) && heroArtist;
+
+    if (shouldHydrateArtistBrowse && heroArtist) {
+      const browse = await browseArtistById(heroArtist.endpointPayload);
+      if (browse) {
+        const hydratedSections = buildSectionsFromArtistBrowse(browse, heroArtist);
+        if (!areSectionsEmpty(hydratedSections)) {
+          sections = hydratedSections;
+          featured = featured || heroArtist;
+          const fromSections = [
+            ...hydratedSections.artists,
+            ...hydratedSections.songs,
+            ...hydratedSections.albums,
+            ...hydratedSections.playlists,
+          ];
+          const seen = new Set<string>();
+          orderedItems = [heroArtist, ...fromSections].filter((item) => {
+            const key = `${item.endpointType}:${item.endpointPayload}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          });
+        }
+      }
+    }
+
+    return { q, source: "youtube_live", featured, orderedItems, sections };
   } catch (err) {
     return { q, source: "youtube_live", featured: null, orderedItems: [], sections: emptySections() };
   }
