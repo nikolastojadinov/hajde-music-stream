@@ -649,24 +649,26 @@ function scoreSuggestionMatch(item: SuggestionItem, query: string): number {
 
 async function resolveBestArtistFromSearch(query: string): Promise<SuggestionItem | null> {
   const search = await fetchMusicSearch(query);
-  const artists = search.sections?.artists || [];
-  if (!artists.length) return null;
+  const artists = Array.isArray(search.artists) ? search.artists : [];
+  if (artists.length === 0) return null;
 
   const best = artists
-    .map((artist) => ({ artist, score: scoreArtistMatch(artist, query) }))
+    .map((artist) => {
+      const item: SuggestionItem = {
+        type: "artist",
+        id: artist.id,
+        name: artist.name,
+        imageUrl: artist.imageUrl ?? null,
+        subtitle: normalizeString((artist as any).subtitle) || "Artist",
+        endpointType: "browse",
+        endpointPayload: artist.id,
+      };
+      return { item, score: scoreSuggestionMatch(item, query) };
+    })
     .sort((a, b) => b.score - a.score)[0];
 
   if (!best || best.score <= 0) return null;
-
-  return {
-    type: "artist",
-    id: best.artist.id,
-    name: best.artist.title,
-    imageUrl: best.artist.imageUrl,
-    subtitle: best.artist.subtitle || "Artist",
-    endpointType: "browse",
-    endpointPayload: best.artist.endpointPayload,
-  } satisfies SuggestionItem;
+  return best.item;
 }
 
 function buildSectionsFromArtistBrowse(browse: ArtistBrowse, artistPayload: SearchResultItem): SearchSections {
