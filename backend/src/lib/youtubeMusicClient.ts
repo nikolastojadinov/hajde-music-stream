@@ -5,6 +5,7 @@ import {
   type MusicSearchSuggestion as RawSuggestion,
   type ArtistBrowse,
 } from "../services/youtubeMusicClient";
+import { musicSearch as fetchMusicSearch } from "../services/youtubeMusicClient";
 import { recordInnertubePayload } from "../services/innertubeRawStore";
 
 export type SuggestionType = "track" | "artist" | "album" | "playlist";
@@ -646,6 +647,28 @@ function scoreSuggestionMatch(item: SuggestionItem, query: string): number {
   return score;
 }
 
+async function resolveBestArtistFromSearch(query: string): Promise<SuggestionItem | null> {
+  const search = await fetchMusicSearch(query);
+  const artists = search.sections?.artists || [];
+  if (!artists.length) return null;
+
+  const best = artists
+    .map((artist) => ({ artist, score: scoreArtistMatch(artist, query) }))
+    .sort((a, b) => b.score - a.score)[0];
+
+  if (!best || best.score <= 0) return null;
+
+  return {
+    type: "artist",
+    id: best.artist.id,
+    name: best.artist.title,
+    imageUrl: best.artist.imageUrl,
+    subtitle: best.artist.subtitle || "Artist",
+    endpointType: "browse",
+    endpointPayload: best.artist.endpointPayload,
+  } satisfies SuggestionItem;
+}
+
 function buildSectionsFromArtistBrowse(browse: ArtistBrowse, artistPayload: SearchResultItem): SearchSections {
   const baseArtist: SearchResultItem = {
     ...artistPayload,
@@ -794,10 +817,17 @@ export async function searchSuggestions(queryRaw: string): Promise<SuggestRespon
     const buckets = bucketSuggestions(raw);
     let suggestions = interleaveSuggestions(buckets);
 
-    const best = suggestions
+    let best = suggestions
       .filter((s) => s.type === "artist")
       .map((item) => ({ item, score: scoreSuggestionMatch(item, q) }))
       .sort((a, b) => b.score - a.score)[0];
+
+    if (!best || best.score <= 0) {
+      const resolved = await resolveBestArtistFromSearch(q);
+      if (resolved) {
+        best = { item: resolved, score: scoreSuggestionMatch(resolved, q) };
+      }
+    }
 
     if (best && best.score > 0) {
       const key = `${best.item.type}:${best.item.id}`;
