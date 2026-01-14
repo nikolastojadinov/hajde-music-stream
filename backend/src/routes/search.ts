@@ -48,6 +48,7 @@ router.get("/suggest", async (req, res) => {
 
 router.get("/results", async (req, res) => {
   const q = normalizeString(req.query.q);
+  const qLower = q.toLowerCase();
 
   const safeResponse = (payload: SearchResultsPayload) => {
     res.set("Cache-Control", CACHE_HEADER);
@@ -60,8 +61,32 @@ router.get("/results", async (req, res) => {
 
   try {
     const payload = await musicSearch(q);
-    void indexSuggestFromSearch(q, payload);
-    return safeResponse(payload);
+
+    // FEATURED ARTIST FIX:
+    // pick exact-match artist as hero if exists
+    const featuredArtist =
+      payload.artists?.find(
+        (a) => a.isOfficial && a.name.toLowerCase() === qLower
+      ) ||
+      payload.artists?.find((a) => a.name.toLowerCase() === qLower) ||
+      null;
+
+    const response: SearchResultsPayload = {
+      ...payload,
+      q,
+      source: "youtube_live",
+      featured: featuredArtist
+        ? {
+            type: "artist",
+            id: featuredArtist.id,
+            title: featuredArtist.name,
+            imageUrl: featuredArtist.imageUrl ?? null,
+          }
+        : null,
+    };
+
+    void indexSuggestFromSearch(q, response);
+    return safeResponse(response);
   } catch (err) {
     console.error("[search/results] failed", { q, error: err instanceof Error ? err.message : String(err) });
     return safeResponse({ ...EMPTY_RESULTS, q });
