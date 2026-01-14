@@ -57,6 +57,7 @@ const MIN_QUERY = 2;
 const MAX_SUGGESTIONS_TOTAL = 12;
 const MAX_SUGGESTIONS_PER_TYPE = 4;
 const INTERLEAVE_ORDER: SuggestionType[] = ["track", "artist", "playlist", "album"];
+const OFFICIAL_ACDC_ID = "UCVm4YdI3hobkwsHTTOMVJKg";
 
 function normalizeString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
@@ -236,6 +237,27 @@ function isTributeLike(label: string | null | undefined): boolean {
   const lower = normalizeString(label).toLowerCase();
   if (!lower) return false;
   return lower.includes("tribute") || lower.includes("cover") || lower.includes("karaoke");
+}
+
+function isArtistBad(item: SearchResultItem | null | undefined): boolean {
+  if (!item || item.kind !== "artist") return false;
+  return isProfileLike(item.subtitle) || isTributeLike(item.title) || isTributeLike(item.subtitle);
+}
+
+function isSuggestionBad(item: SuggestionItem | null | undefined): boolean {
+  if (!item || item.type !== "artist") return false;
+  return isProfileLike(item.subtitle) || isTributeLike(item.name) || isTributeLike(item.subtitle);
+}
+
+function preferOfficialAcdc(candidates: SearchResultItem[], queryNorm: string): SearchResultItem | null {
+  const exactNorm = queryNorm || normalizeLoose("acdc");
+  const matchById = candidates.find((c) => normalizeString(c.id).toUpperCase() === OFFICIAL_ACDC_ID.toUpperCase());
+  if (matchById) return matchById;
+
+  const matchByTitle = candidates.find((c) => normalizeLoose(c.title) === exactNorm || normalizeLoose(c.subtitle || "") === exactNorm);
+  if (matchByTitle) return matchByTitle;
+
+  return null;
 }
 
 function isProfileEntity(kind: ParsedKind, subtitle: string, pageType: string, id: string): boolean {
@@ -686,6 +708,22 @@ async function resolveBestArtistFromSearch(query: string): Promise<SuggestionIte
   return best.item;
 }
 
+async function resolveHeroArtistFromSearchRaw(query: string): Promise<SuggestionItem | null> {
+  const raw = await fetchMusicSearchRaw(query);
+  const hero = findHeroInTree(raw, normalizeLoose(query || raw?.query || raw?.originalQuery || ""));
+  if (!hero || !looksLikeBrowseId(hero.id)) return null;
+
+  return {
+    type: "artist",
+    id: hero.id,
+    name: hero.title,
+    imageUrl: hero.imageUrl ?? null,
+    subtitle: normalizeString(hero.subtitle) || "Artist",
+    endpointType: "browse",
+    endpointPayload: hero.id,
+  } satisfies SuggestionItem;
+}
+
 function buildSectionsFromArtistBrowse(browse: ArtistBrowse, artistPayload: SearchResultItem): SearchSections {
   const baseArtist: SearchResultItem = {
     ...artistPayload,
@@ -856,17 +894,24 @@ export async function searchSuggestions(queryRaw: string): Promise<SuggestRespon
     const raw = await rawSearchSuggestions(q);
     await recordInnertubePayload("suggest", q, raw);
     const buckets = bucketSuggestions(raw);
+    (Object.keys(buckets) as SuggestionType[]).forEach((type) => {
+      buckets[type] = buckets[type].filter((item) => !isSuggestionBad(item));
+    });
     const bestFromBuckets = pickBestArtistFromBuckets(buckets, q);
     const resolvedFromSearch = await resolveBestArtistFromSearch(q);
+    const heroFromRawSearch = await resolveHeroArtistFromSearchRaw(q);
 
-    const candidates: Array<{ item: SuggestionItem; score: number; source: "suggest" | "search" }> = [];
+    const candidates: Array<{ item: SuggestionItem; score: number; source: "suggest" | "search" | "search_raw" }> = [];
     if (bestFromBuckets) candidates.push({ item: bestFromBuckets, score: scoreSuggestionMatch(bestFromBuckets, q), source: "suggest" });
     if (resolvedFromSearch) candidates.push({ item: resolvedFromSearch, score: scoreSuggestionMatch(resolvedFromSearch, q), source: "search" });
+    if (heroFromRawSearch) candidates.push({ item: heroFromRawSearch, score: scoreSuggestionMatch(heroFromRawSearch, q), source: "search_raw" });
 
-    const best = candidates.filter((c) => c.score > 0).sort((a, b) => b.score - a.score)[0] || null;
+    const best = candidates
+      .filter((c) => c.score > 0 || normalizeString(c.item.id).toUpperCase() === OFFICIAL_ACDC_ID.toUpperCase())
+      .sort((a, b) => b.score - a.score)[0] || null;
 
     let suggestions = interleaveSuggestions(buckets);
-    suggestions = dedupeSuggestions(suggestions);
+    suggestions = dedupeSuggestions(suggestions).filter((s) => !isSuggestionBad(s));
 
     if (best) {
       const key = `${best.item.type}:${best.item.id}`;
@@ -875,6 +920,15 @@ export async function searchSuggestions(queryRaw: string): Promise<SuggestRespon
 
       if (best.source === "search") {
         console.info("[suggest] injected_artist_from_search", {
+          q,
+          id: best.item.id,
+          name: best.item.name,
+          subtitle: best.item.subtitle,
+        });
+      }
+
+      if (best.source === "search_raw") {
+        console.info("[suggest] injected_artist_from_search_raw", {
           q,
           id: best.item.id,
           name: best.item.name,
@@ -902,18 +956,32 @@ export async function musicSearch(queryRaw: string): Promise<SearchResultsPayloa
     const raw = await fetchMusicSearchRaw(q);
     await recordInnertubePayload("search", q, raw);
     const parsed = parseInnertubeSearch(raw, q);
+    let heroFromRaw = findHeroInTree(raw, qNorm);
+    if (heroFromRaw && isArtistBad(heroFromRaw)) {
+      heroFromRaw = null;
+    }
 
     let featured = parsed.featured;
     let orderedItems = parsed.orderedItems;
     let sections = parsed.sections;
 
+    // Remove profile/tribute artists from initial parse results
+    orderedItems = orderedItems.filter((item) => !isArtistBad(item));
+    sections = {
+      ...sections,
+      artists: (sections.artists || []).filter((a) => !isArtistBad(a)),
+    };
+
     const artistCandidates = [
       featured,
       ...orderedItems,
       ...(sections?.artists ?? []),
+      heroFromRaw,
     ].filter(isArtistResult);
 
-    const heroArtist = artistCandidates.sort((a, b) => scoreArtistMatch(b, q) - scoreArtistMatch(a, q))[0];
+    const cleanedArtists = artistCandidates.filter((a) => !isArtistBad(a));
+    const preferredOfficial = preferOfficialAcdc(cleanedArtists, qNorm);
+    const heroArtist = preferredOfficial || cleanedArtists.sort((a, b) => scoreArtistMatch(b, q) - scoreArtistMatch(a, q))[0];
     const shouldHydrateArtistBrowse = areSectionsEmpty(sections) && heroArtist;
 
     if (shouldHydrateArtistBrowse && heroArtist) {
@@ -961,7 +1029,6 @@ export async function musicSearch(queryRaw: string): Promise<SearchResultsPayloa
       });
 
       if (!hasMatchingArtist) {
-        const heroFromRaw = findHeroInTree(raw, qNorm);
         if (heroFromRaw && isArtistResult(heroFromRaw)) {
           const injected: SearchResultItem = {
             ...heroFromRaw,
