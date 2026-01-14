@@ -54,11 +54,7 @@ router.get("/suggest", async (req, res) => {
   };
 
   if (q.length < MIN_QUERY_LENGTH || looksLikeBrowseId(q)) {
-    return safeResponse({
-      q,
-      source: "youtube_live",
-      suggestions: [],
-    });
+    return safeResponse({ q, source: "youtube_live", suggestions: [] });
   }
 
   try {
@@ -69,11 +65,7 @@ router.get("/suggest", async (req, res) => {
       q,
       error: err instanceof Error ? err.message : String(err),
     });
-    return safeResponse({
-      q,
-      source: "youtube_live",
-      suggestions: [],
-    });
+    return safeResponse({ q, source: "youtube_live", suggestions: [] });
   }
 });
 
@@ -97,23 +89,21 @@ router.get("/results", async (req, res) => {
   try {
     const payload = await musicSearch(q);
 
-    // ⬇⬇⬇ KLJUČNA ISPRAVKA ⬇⬇⬇
-    const artists = Array.isArray(payload.sections?.artists)
-      ? payload.sections.artists
-      : [];
+    /**
+     * FEATURED ARTIST LOGIC
+     * – radi ISKLJUČIVO nad sections.artists
+     * – koristi `title`, ne `name`
+     */
+    const artistItems = payload.sections.artists;
 
-    // HERO / FEATURED ARTIST
     const featuredArtist =
-      artists.find(
+      artistItems.find(
         (a) =>
           a.isOfficial === true &&
-          typeof a.name === "string" &&
-          a.name.toLowerCase() === qLower
+          a.title.toLowerCase() === qLower
       ) ||
-      artists.find(
-        (a) =>
-          typeof a.name === "string" &&
-          a.name.toLowerCase() === qLower
+      artistItems.find(
+        (a) => a.title.toLowerCase() === qLower
       ) ||
       null;
 
@@ -121,7 +111,14 @@ router.get("/results", async (req, res) => {
       ...payload,
       q,
       source: "youtube_live",
-      featured: featuredArtist,
+      featured: featuredArtist
+        ? {
+            type: "artist",
+            id: featuredArtist.id,
+            title: featuredArtist.title,
+            imageUrl: featuredArtist.imageUrl ?? null,
+          }
+        : null,
     };
 
     void indexSuggestFromSearch(q, response);
