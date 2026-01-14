@@ -635,6 +635,17 @@ function scoreArtistMatch(candidate: SearchResultItem, query: string): number {
   return score;
 }
 
+function scoreSuggestionMatch(item: SuggestionItem, query: string): number {
+  const q = normalizeLoose(query);
+  const name = normalizeLoose(item.name);
+  const subtitle = normalizeLoose(item.subtitle || "");
+  let score = 0;
+  if (item.type === "artist" && q && (name === q || subtitle === q)) score += 220;
+  if (item.type === "artist" && q && (name.includes(q) || q.includes(name))) score += 40;
+  if (isProfileLike(item.subtitle)) score -= 120;
+  return score;
+}
+
 function buildSectionsFromArtistBrowse(browse: ArtistBrowse, artistPayload: SearchResultItem): SearchSections {
   const baseArtist: SearchResultItem = {
     ...artistPayload,
@@ -781,7 +792,19 @@ export async function searchSuggestions(queryRaw: string): Promise<SuggestRespon
   try {
     const raw = await rawSearchSuggestions(q);
     const buckets = bucketSuggestions(raw);
-    const suggestions = interleaveSuggestions(buckets);
+    let suggestions = interleaveSuggestions(buckets);
+
+    // Promote best-matching artist to the top of suggestions
+    const bestArtist = suggestions
+      .filter((s) => s.type === "artist")
+      .sort((a, b) => scoreSuggestionMatch(b, q) - scoreSuggestionMatch(a, q))[0];
+
+    if (bestArtist) {
+      const key = `${bestArtist.type}:${bestArtist.id}`;
+      const deduped = suggestions.filter((s) => `${s.type}:${s.id}` !== key);
+      suggestions = [bestArtist, ...deduped].slice(0, MAX_SUGGESTIONS_TOTAL);
+    }
+
     return { q, source: "youtube_live", suggestions };
   } catch (err) {
     return { q, source: "youtube_live", suggestions: [] };
@@ -836,8 +859,15 @@ export async function musicSearch(queryRaw: string): Promise<SearchResultsPayloa
       }
     }
 
-    // If we selected a better hero artist than the originally parsed featured, promote it
-    if (heroArtist && featured && featured !== heroArtist) {
+    // Ensure orderedItems starts with the best artist match when available
+    if (heroArtist) {
+      const key = `${heroArtist.endpointType}:${heroArtist.endpointPayload}`;
+      const rest = orderedItems.filter((item) => `${item.endpointType}:${item.endpointPayload}` !== key);
+      orderedItems = [heroArtist, ...rest];
+    }
+
+    // Keep artists section starting with hero if present
+    if (heroArtist) {
       const key = `${heroArtist.endpointType}:${heroArtist.endpointPayload}`;
       const filteredArtists = (sections.artists || []).filter((a) => `${a.endpointType}:${a.endpointPayload}` !== key);
       sections = { ...sections, artists: [heroArtist, ...filteredArtists] };
