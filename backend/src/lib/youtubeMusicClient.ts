@@ -232,6 +232,12 @@ function isProfileLike(label: string | null | undefined): boolean {
   return lower.includes("profile");
 }
 
+function isTributeLike(label: string | null | undefined): boolean {
+  const lower = normalizeString(label).toLowerCase();
+  if (!lower) return false;
+  return lower.includes("tribute") || lower.includes("cover") || lower.includes("karaoke");
+}
+
 function isProfileEntity(kind: ParsedKind, subtitle: string, pageType: string, id: string): boolean {
   const subtitleProfile = isProfileLike(subtitle);
   const pageLower = normalizeString(pageType).toLowerCase();
@@ -637,6 +643,7 @@ function scoreArtistMatch(candidate: SearchResultItem, query: string): number {
   if (normalizeString(candidate.pageType).toUpperCase().includes("ARTIST")) score += 30;
   if (candidate.endpointPayload?.startsWith("UC")) score += 10;
   if (isProfileLike(candidate.subtitle)) score -= 1000;
+  if (isTributeLike(candidate.title) || isTributeLike(candidate.subtitle)) score -= 200;
   return score;
 }
 
@@ -648,6 +655,7 @@ function scoreSuggestionMatch(item: SuggestionItem, query: string): number {
   if (item.type === "artist" && q && (name === q || subtitle === q)) score += 220;
   if (item.type === "artist" && q && (name.includes(q) || q.includes(name))) score += 40;
   if (isProfileLike(item.subtitle)) score -= 1000;
+  if (isTributeLike(item.name) || isTributeLike(item.subtitle)) score -= 200;
   return score;
 }
 
@@ -788,7 +796,8 @@ function dedupeSuggestions(list: SuggestionItem[]): SuggestionItem[] {
   const seen = new Set<string>();
   const result: SuggestionItem[] = [];
   for (const item of list) {
-    const key = `${item.type}:${item.id}`;
+    const nameKey = normalizeLoose(item.name) || item.id;
+    const key = `${item.type}:${nameKey}`;
     if (seen.has(key)) continue;
     seen.add(key);
     result.push(item);
