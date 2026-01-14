@@ -849,16 +849,17 @@ export async function musicSearch(queryRaw: string): Promise<MusicSearchResults>
     const partitioned = partitionParsedItems(collected);
 
     const tracks = Array.isArray(partitioned.tracks) ? partitioned.tracks : [];
-    const sanitizedArtists = await sanitizeArtistsList(Array.isArray(partitioned.artists) ? partitioned.artists : [], config);
+    // IMPORTANT: do NOT sanitize artists here â YT Music search already returns valid music artists
+    const artists = Array.isArray(partitioned.artists) ? partitioned.artists : [];
     const albums = Array.isArray(partitioned.albums) ? partitioned.albums : [];
     const playlists = Array.isArray(partitioned.playlists) ? partitioned.playlists : [];
 
-    const sections = buildCanonicalSections(sanitizedArtists, tracks, albums, playlists);
-    const orderedItems = buildPrioritizedOrderedItems(query, sanitizedArtists, tracks, albums, playlists);
+    const sections = buildCanonicalSections(artists, tracks, albums, playlists);
+    const orderedItems = buildPrioritizedOrderedItems(query, artists, tracks, albums, playlists);
 
     return {
       tracks,
-      artists: sanitizedArtists,
+      artists,
       albums,
       playlists,
       sections,
