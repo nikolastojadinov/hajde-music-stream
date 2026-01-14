@@ -269,7 +269,16 @@ export function pickTopResult(payload: SearchResolveResponse | null, query?: str
   ) {
     return officialCandidate as SearchResultItem;
   }
+const exactArtist = ordered.find(
+    (item) =>
+      item?.kind === "artist" &&
+      normalizeLoose(item.title) === qLoose &&
+      !isArtistBad({ id: item.id, name: item.title, pageType: item.pageType })
+  );
 
+  if (exactArtist) {
+    return exactArtist;
+  }
   const scoreCandidate = (item: SearchResultItem | null | undefined, index: number): number => {
     if (!item) return -1;
 
