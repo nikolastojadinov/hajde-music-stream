@@ -22,12 +22,12 @@ function pickBestArtistMatch(artists: MusicSearchArtist[], query: string): Music
       const nameNorm = normalizeLoose(artist.name);
       const subtitle = normalizeString((artist as any).subtitle || (artist as any).channelTitle || '');
       let score = 0;
+      if (containsWords(subtitle, ['profile'])) score -= 1000;
       if (nameNorm === q) score += 200;
       if (nameNorm.includes(q) || q.includes(nameNorm)) score += 40;
       if (artist.isOfficial) score += 40;
       if (containsWords(artist.name, ['tribute', 'cover'])) score -= 120;
       if (containsWords(subtitle, ['tribute', 'cover'])) score -= 80;
-      if (containsWords(subtitle, ['profile'])) score -= 40;
       return { artist, score };
     })
     .filter((entry) => entry.score > 0)

@@ -221,7 +221,6 @@ function isNonMusicLabel(label: string): boolean {
   return (
     lower.includes("podcast") ||
     lower.includes("episode") ||
-    lower.includes("profile") ||
     lower.includes("show") ||
     (lower.includes("live") && lower.includes("profile"))
   );
@@ -231,6 +230,20 @@ function isProfileLike(label: string | null | undefined): boolean {
   const lower = normalizeString(label).toLowerCase();
   if (!lower) return false;
   return lower.includes("profile");
+}
+
+function isProfileEntity(kind: ParsedKind, subtitle: string, pageType: string, id: string): boolean {
+  const subtitleProfile = isProfileLike(subtitle);
+  const pageLower = normalizeString(pageType).toLowerCase();
+  const pageProfile = pageLower.includes("profile");
+  const pageChannel = pageLower.includes("channel");
+  const isChannelArtist = kind === "artist" && id.startsWith("UC");
+
+  // Profiles are always banned, even if they appear to match the query
+  if (subtitleProfile || pageProfile) return true;
+  if (kind === "artist" && pageChannel) return true;
+  if (isChannelArtist && subtitleProfile) return true;
+  return false;
 }
 
 const matchesQuery = (value: string, queryNorm?: string): boolean => {
@@ -244,31 +257,14 @@ function isNonMusicItem(parsed: ParsedItem | null, queryNorm?: string): boolean 
   const subtitle = normalizeString(item.subtitle);
   const title = normalizeString(item.title);
   const pageType = item.pageType || "";
-
-  const isQueryArtistMatch = kind === "artist" && (matchesQuery(title, queryNorm) || matchesQuery(subtitle, queryNorm));
-
-  // Filter by label/subtitle hints
-  if (isNonMusicLabel(subtitle)) {
-    const isProfile = subtitle.toLowerCase().includes("profile");
-    if (isProfile && isQueryArtistMatch) {
-      // allow profile-labeled artist when it matches the query
-    } else {
-      return true;
-    }
-  }
-
-  // Profiles sometimes arrive as ARTIST pageType but carry "Profile" subtitle
-  if (kind === "artist" && subtitle.toLowerCase().includes("profile") && !isQueryArtistMatch) return true;
-
-  // If pageType signals non-music, skip
-  if (isNonMusicPageType(pageType)) {
-    const isProfilePage = normalizeString(pageType).toLowerCase().includes("profile");
-    if (!(isProfilePage && isQueryArtistMatch)) return true;
-  }
-
-  // Browse IDs that are clearly not music entities (exclude watch: handled via kind)
   const id = normalizeString(item.id);
-  if (kind === "artist" && id.startsWith("UC") && subtitle.toLowerCase().includes("profile") && !isQueryArtistMatch) return true;
+
+  if (isProfileEntity(kind, subtitle, pageType, id)) return true;
+
+  if (isNonMusicLabel(subtitle)) return true;
+
+  // If pageType signals non-music, skip outright
+  if (isNonMusicPageType(pageType)) return true;
 
   // Episodes that slipped as watch/songs with Episode in title
   if (kind === "song" && (title.toLowerCase().includes("episode") || subtitle.toLowerCase().includes("episode"))) return true;
@@ -374,9 +370,9 @@ function parseMusicResponsiveListItemRenderer(renderer: any, queryNorm?: string)
   const kind = inferKind(endpoint);
   if (!endpoint || !kind) return null;
 
+  if (isProfileLike(subtitle)) return null;
   if (isNonMusicPageType(endpoint.pageType)) return null;
-  const profileSubtitle = isProfileLike(subtitle);
-  if (isNonMusicLabel(subtitle) && !(profileSubtitle && queryNorm && matchesQuery(title, queryNorm))) return null;
+  if (isNonMusicLabel(subtitle)) return null;
 
   const defaultSubtitle = kind === "artist" ? "Artist" : kind === "album" ? "Album" : kind === "playlist" ? "Playlist" : "Song";
   const item = buildResultItem(
@@ -388,7 +384,6 @@ function parseMusicResponsiveListItemRenderer(renderer: any, queryNorm?: string)
     kind === "artist" && endpoint.payload.startsWith("UC")
   );
   const parsed: ParsedItem = { kind, item };
-  if (profileSubtitle && queryNorm && !matchesQuery(title, queryNorm)) return null;
   if (isNonMusicItem(parsed, queryNorm)) return null;
   return parsed;
 }
@@ -405,9 +400,9 @@ function parseMusicCardShelfRenderer(cardShelf: any, queryNorm?: string): Parsed
   const kind = inferKind(endpoint);
   if (!endpoint || !kind) return null;
 
+  if (isProfileLike(subtitle)) return null;
   if (isNonMusicPageType(endpoint.pageType)) return null;
-  const profileSubtitle = isProfileLike(subtitle);
-  if (isNonMusicLabel(subtitle) && !(profileSubtitle && queryNorm && matchesQuery(title, queryNorm))) return null;
+  if (isNonMusicLabel(subtitle)) return null;
 
   const defaultSubtitle = kind === "artist" ? "Artist" : kind === "album" ? "Album" : kind === "playlist" ? "Playlist" : "Song";
   const item = buildResultItem(
@@ -419,7 +414,6 @@ function parseMusicCardShelfRenderer(cardShelf: any, queryNorm?: string): Parsed
     kind === "artist" && endpoint.payload.startsWith("UC")
   );
   const parsed: ParsedItem = { kind, item };
-  if (profileSubtitle && queryNorm && !matchesQuery(title, queryNorm)) return null;
   if (isNonMusicItem(parsed, queryNorm)) return null;
   return parsed;
 }
@@ -632,7 +626,7 @@ function scoreArtistMatch(candidate: SearchResultItem, query: string): number {
   if (candidate.isOfficial) score += 40;
   if (normalizeString(candidate.pageType).toUpperCase().includes("ARTIST")) score += 30;
   if (candidate.endpointPayload?.startsWith("UC")) score += 10;
-  if (isProfileLike(candidate.subtitle)) score -= 160;
+  if (isProfileLike(candidate.subtitle)) score -= 1000;
   return score;
 }
 
@@ -643,7 +637,7 @@ function scoreSuggestionMatch(item: SuggestionItem, query: string): number {
   let score = 0;
   if (item.type === "artist" && q && (name === q || subtitle === q)) score += 220;
   if (item.type === "artist" && q && (name.includes(q) || q.includes(name))) score += 40;
-  if (isProfileLike(item.subtitle)) score -= 120;
+  if (isProfileLike(item.subtitle)) score -= 1000;
   return score;
 }
 
@@ -654,6 +648,7 @@ async function resolveBestArtistFromSearch(query: string): Promise<SuggestionIte
 
   const best = artists
     .map((artist) => {
+      if (!looksLikeBrowseId(artist.id)) return null;
       const item: SuggestionItem = {
         type: "artist",
         id: artist.id,
@@ -665,6 +660,8 @@ async function resolveBestArtistFromSearch(query: string): Promise<SuggestionIte
       };
       return { item, score: scoreSuggestionMatch(item, query) };
     })
+    .filter((entry): entry is { item: SuggestionItem; score: number } => Boolean(entry))
+    .filter((entry) => entry.score > 0)
     .sort((a, b) => b.score - a.score)[0];
 
   if (!best || best.score <= 0) return null;
@@ -738,6 +735,8 @@ function toSuggestionItem(raw: RawSuggestion): SuggestionItem | null {
   const subtitle = normalizeString(raw.subtitle) || defaultSubtitleForType(raw.type);
   const imageUrl = normalizeString(raw.imageUrl) || null;
 
+  if (isProfileLike(subtitle)) return null;
+
   return {
     type: raw.type,
     id,
@@ -765,6 +764,26 @@ function bucketSuggestions(raw: RawSuggestion[]): Record<SuggestionType, Suggest
   }
 
   return buckets;
+}
+
+function pickBestArtistFromBuckets(buckets: Record<SuggestionType, SuggestionItem[]>, query: string): SuggestionItem | null {
+  const scored = buckets.artist
+    .map((artist) => ({ item: artist, score: scoreSuggestionMatch(artist, query) }))
+    .filter((entry) => entry.score > 0)
+    .sort((a, b) => b.score - a.score);
+  return scored[0]?.item ?? null;
+}
+
+function dedupeSuggestions(list: SuggestionItem[]): SuggestionItem[] {
+  const seen = new Set<string>();
+  const result: SuggestionItem[] = [];
+  for (const item of list) {
+    const key = `${item.type}:${item.id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(item);
+  }
+  return result;
 }
 
 function interleaveSuggestions(buckets: Record<SuggestionType, SuggestionItem[]>): SuggestionItem[] {
@@ -818,30 +837,33 @@ export async function searchSuggestions(queryRaw: string): Promise<SuggestRespon
     const raw = await rawSearchSuggestions(q);
     await recordInnertubePayload("suggest", q, raw);
     const buckets = bucketSuggestions(raw);
+    const bestFromBuckets = pickBestArtistFromBuckets(buckets, q);
+    const resolvedFromSearch = await resolveBestArtistFromSearch(q);
+
+    const candidates: Array<{ item: SuggestionItem; score: number; source: "suggest" | "search" }> = [];
+    if (bestFromBuckets) candidates.push({ item: bestFromBuckets, score: scoreSuggestionMatch(bestFromBuckets, q), source: "suggest" });
+    if (resolvedFromSearch) candidates.push({ item: resolvedFromSearch, score: scoreSuggestionMatch(resolvedFromSearch, q), source: "search" });
+
+    const best = candidates.filter((c) => c.score > 0).sort((a, b) => b.score - a.score)[0] || null;
+
     let suggestions = interleaveSuggestions(buckets);
+    suggestions = dedupeSuggestions(suggestions);
 
-    let best = suggestions
-      .filter((s) => s.type === "artist")
-      .map((item) => ({ item, score: scoreSuggestionMatch(item, q) }))
-      .sort((a, b) => b.score - a.score)[0];
+    if (best) {
+      const key = `${best.item.type}:${best.item.id}`;
+      const withoutBest = suggestions.filter((s) => `${s.type}:${s.id}` !== key);
+      suggestions = [best.item, ...withoutBest].slice(0, MAX_SUGGESTIONS_TOTAL);
 
-    if (!best || best.score <= 0) {
-      const resolved = await resolveBestArtistFromSearch(q);
-      if (resolved) {
-        best = { item: resolved, score: scoreSuggestionMatch(resolved, q) };
-        console.info("[suggest] resolved_best_artist_from_search", {
+      if (best.source === "search") {
+        console.info("[suggest] injected_artist_from_search", {
           q,
-          id: resolved.id,
-          name: resolved.name,
-          subtitle: resolved.subtitle,
+          id: best.item.id,
+          name: best.item.name,
+          subtitle: best.item.subtitle,
         });
       }
-    }
-
-    if (best && best.score > 0) {
-      const key = `${best.item.type}:${best.item.id}`;
-      const deduped = suggestions.filter((s) => `${s.type}:${s.id}` !== key);
-      suggestions = [best.item, ...deduped].slice(0, MAX_SUGGESTIONS_TOTAL);
+    } else {
+      suggestions = suggestions.slice(0, MAX_SUGGESTIONS_TOTAL);
     }
 
     return { q, source: "youtube_live", suggestions };
