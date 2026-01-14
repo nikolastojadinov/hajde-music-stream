@@ -51,9 +51,9 @@ async function resolveArtistBrowseId(query: string): Promise<string | null> {
 
   for (const variant of variants) {
     const search = await musicSearch(variant);
-    const songs = Array.isArray(search.sections?.songs) ? search.sections.songs : [];
-    const artistHints = songs
-      .map((s: any) => normalizeString(s.subtitle?.split('•')?.[1] || s.subtitle || ''))
+    const tracks = Array.isArray(search.tracks) ? search.tracks : [];
+    const artistHints = tracks
+      .map((t: any) => normalizeString(t.artist || t.subtitle || ''))
       .filter(Boolean);
 
     const artists = search.artists || [];
