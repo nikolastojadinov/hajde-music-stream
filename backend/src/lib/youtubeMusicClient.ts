@@ -626,11 +626,12 @@ function scoreArtistMatch(candidate: SearchResultItem, query: string): number {
   const titleNorm = normalizeLoose(candidate.title);
   const subtitleNorm = normalizeLoose(candidate.subtitle || "");
   let score = 0;
-  if (q && (titleNorm === q || subtitleNorm === q)) score += 200;
+  if (q && (titleNorm === q || subtitleNorm === q)) score += 220;
+  if (q && (titleNorm.includes(q) || q.includes(titleNorm))) score += 40;
   if (candidate.isOfficial) score += 40;
   if (normalizeString(candidate.pageType).toUpperCase().includes("ARTIST")) score += 30;
   if (candidate.endpointPayload?.startsWith("UC")) score += 10;
-  if (isProfileLike(candidate.subtitle)) score -= 80;
+  if (isProfileLike(candidate.subtitle)) score -= 160;
   return score;
 }
 
@@ -802,7 +803,12 @@ export async function musicSearch(queryRaw: string): Promise<SearchResultsPayloa
     let orderedItems = parsed.orderedItems;
     let sections = parsed.sections;
 
-    const artistCandidates = [featured, ...orderedItems].filter(isArtistResult);
+    const artistCandidates = [
+      featured,
+      ...orderedItems,
+      ...(sections?.artists ?? []),
+    ].filter(isArtistResult);
+
     const heroArtist = artistCandidates.sort((a, b) => scoreArtistMatch(b, q) - scoreArtistMatch(a, q))[0];
     const shouldHydrateArtistBrowse = areSectionsEmpty(sections) && heroArtist;
 
@@ -812,7 +818,7 @@ export async function musicSearch(queryRaw: string): Promise<SearchResultsPayloa
         const hydratedSections = buildSectionsFromArtistBrowse(browse, heroArtist);
         if (!areSectionsEmpty(hydratedSections)) {
           sections = hydratedSections;
-          featured = featured || heroArtist;
+          featured = heroArtist;
           const fromSections = [
             ...hydratedSections.artists,
             ...hydratedSections.songs,
@@ -828,6 +834,14 @@ export async function musicSearch(queryRaw: string): Promise<SearchResultsPayloa
           });
         }
       }
+    }
+
+    // If we selected a better hero artist than the originally parsed featured, promote it
+    if (heroArtist && featured && featured !== heroArtist) {
+      const key = `${heroArtist.endpointType}:${heroArtist.endpointPayload}`;
+      const filteredArtists = (sections.artists || []).filter((a) => `${a.endpointType}:${a.endpointPayload}` !== key);
+      sections = { ...sections, artists: [heroArtist, ...filteredArtists] };
+      featured = heroArtist;
     }
 
     return { q, source: "youtube_live", featured, orderedItems, sections };
