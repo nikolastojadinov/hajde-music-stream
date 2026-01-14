@@ -816,6 +816,7 @@ export async function searchSuggestions(queryRaw: string): Promise<SuggestRespon
 
   try {
     const raw = await rawSearchSuggestions(q);
+    await recordInnertubePayload("suggest", q, raw);
     const buckets = bucketSuggestions(raw);
     let suggestions = interleaveSuggestions(buckets);
 
@@ -828,6 +829,12 @@ export async function searchSuggestions(queryRaw: string): Promise<SuggestRespon
       const resolved = await resolveBestArtistFromSearch(q);
       if (resolved) {
         best = { item: resolved, score: scoreSuggestionMatch(resolved, q) };
+        console.info("[suggest] resolved_best_artist_from_search", {
+          q,
+          id: resolved.id,
+          name: resolved.name,
+          subtitle: resolved.subtitle,
+        });
       }
     }
 
