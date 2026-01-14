@@ -236,12 +236,10 @@ function isProfileEntity(kind: ParsedKind, subtitle: string, pageType: string, i
   const subtitleProfile = isProfileLike(subtitle);
   const pageLower = normalizeString(pageType).toLowerCase();
   const pageProfile = pageLower.includes("profile");
-  const pageChannel = pageLower.includes("channel");
   const isChannelArtist = kind === "artist" && id.startsWith("UC");
 
   // Profiles are always banned, even if they appear to match the query
   if (subtitleProfile || pageProfile) return true;
-  if (kind === "artist" && pageChannel) return true;
   if (isChannelArtist && subtitleProfile) return true;
   return false;
 }
@@ -355,6 +353,7 @@ function parseMusicResponsiveListItemRenderer(renderer: any, queryNorm?: string)
     pickText(renderer?.title) ||
     "";
   if (!title) return null;
+  const titleNorm = normalizeLoose(title);
 
   const subtitle =
     pickRunsText(renderer?.flexColumns?.[1]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs) ||
@@ -370,9 +369,14 @@ function parseMusicResponsiveListItemRenderer(renderer: any, queryNorm?: string)
   const kind = inferKind(endpoint);
   if (!endpoint || !kind) return null;
 
-  if (isProfileLike(subtitle)) return null;
-  if (isNonMusicPageType(endpoint.pageType)) return null;
-  if (isNonMusicLabel(subtitle)) return null;
+  const artistEndpoint = kind === "artist" && (normalizeString(endpoint.pageType).toUpperCase().includes("ARTIST") || endpoint.payload.startsWith("UC"));
+  const exactArtistQuery = Boolean(queryNorm && titleNorm && titleNorm === queryNorm && artistEndpoint);
+
+  if (!exactArtistQuery) {
+    if (isProfileLike(subtitle)) return null;
+    if (isNonMusicPageType(endpoint.pageType)) return null;
+    if (isNonMusicLabel(subtitle)) return null;
+  }
 
   const defaultSubtitle = kind === "artist" ? "Artist" : kind === "album" ? "Album" : kind === "playlist" ? "Playlist" : "Song";
   const item = buildResultItem(
@@ -384,13 +388,14 @@ function parseMusicResponsiveListItemRenderer(renderer: any, queryNorm?: string)
     kind === "artist" && endpoint.payload.startsWith("UC")
   );
   const parsed: ParsedItem = { kind, item };
-  if (isNonMusicItem(parsed, queryNorm)) return null;
+  if (!exactArtistQuery && isNonMusicItem(parsed, queryNorm)) return null;
   return parsed;
 }
 
 function parseMusicCardShelfRenderer(cardShelf: any, queryNorm?: string): ParsedItem | null {
   const title = pickText(cardShelf?.title) || pickText(cardShelf?.header?.title) || "";
   if (!title) return null;
+  const titleNorm = normalizeLoose(title);
 
   const subtitle = pickText(cardShelf?.subtitle) || pickText(cardShelf?.header?.subtitle) || "";
   const thumb = pickThumbnail(cardShelf?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails) || null;
@@ -400,9 +405,14 @@ function parseMusicCardShelfRenderer(cardShelf: any, queryNorm?: string): Parsed
   const kind = inferKind(endpoint);
   if (!endpoint || !kind) return null;
 
-  if (isProfileLike(subtitle)) return null;
-  if (isNonMusicPageType(endpoint.pageType)) return null;
-  if (isNonMusicLabel(subtitle)) return null;
+  const artistEndpoint = kind === "artist" && (normalizeString(endpoint.pageType).toUpperCase().includes("ARTIST") || endpoint.payload.startsWith("UC"));
+  const exactArtistQuery = Boolean(queryNorm && titleNorm && titleNorm === queryNorm && artistEndpoint);
+
+  if (!exactArtistQuery) {
+    if (isProfileLike(subtitle)) return null;
+    if (isNonMusicPageType(endpoint.pageType)) return null;
+    if (isNonMusicLabel(subtitle)) return null;
+  }
 
   const defaultSubtitle = kind === "artist" ? "Artist" : kind === "album" ? "Album" : kind === "playlist" ? "Playlist" : "Song";
   const item = buildResultItem(
@@ -414,7 +424,7 @@ function parseMusicCardShelfRenderer(cardShelf: any, queryNorm?: string): Parsed
     kind === "artist" && endpoint.payload.startsWith("UC")
   );
   const parsed: ParsedItem = { kind, item };
-  if (isNonMusicItem(parsed, queryNorm)) return null;
+  if (!exactArtistQuery && isNonMusicItem(parsed, queryNorm)) return null;
   return parsed;
 }
 
@@ -874,6 +884,7 @@ export async function searchSuggestions(queryRaw: string): Promise<SuggestRespon
 
 export async function musicSearch(queryRaw: string): Promise<SearchResultsPayload> {
   const q = normalizeString(queryRaw);
+  const qNorm = normalizeLoose(q);
   if (q.length < MIN_QUERY) {
     return { q, source: "youtube_live", featured: null, orderedItems: [], sections: emptySections() };
   }
@@ -929,6 +940,40 @@ export async function musicSearch(queryRaw: string): Promise<SearchResultsPayloa
       const filteredArtists = (sections.artists || []).filter((a) => `${a.endpointType}:${a.endpointPayload}` !== key);
       sections = { ...sections, artists: [heroArtist, ...filteredArtists] };
       featured = heroArtist;
+    }
+
+    // Final guard: if query matches an artist in raw but we filtered it out, inject hero from raw
+    if (qNorm) {
+      const hasMatchingArtist = [featured, ...(sections.artists || [])].some((a) => {
+        if (!a) return false;
+        const t = normalizeLoose(a.title);
+        const s = normalizeLoose(a.subtitle || "");
+        return t === qNorm || s === qNorm;
+      });
+
+      if (!hasMatchingArtist) {
+        const heroFromRaw = findHeroInTree(raw, qNorm);
+        if (heroFromRaw && isArtistResult(heroFromRaw)) {
+          const injected: SearchResultItem = {
+            ...heroFromRaw,
+            subtitle: heroFromRaw.subtitle || "Artist",
+          };
+          const key = `${injected.endpointType}:${injected.endpointPayload}`;
+          featured = injected;
+          sections = {
+            ...sections,
+            artists: [injected, ...sections.artists.filter((a) => `${a.endpointType}:${a.endpointPayload}` !== key)],
+          };
+          const seen = new Set<string>();
+          orderedItems = [injected, ...orderedItems.filter((item) => {
+            const k = `${item.endpointType}:${item.endpointPayload}`;
+            if (k === key) return false;
+            if (seen.has(k)) return false;
+            seen.add(k);
+            return true;
+          })];
+        }
+      }
     }
 
     return { q, source: "youtube_live", featured, orderedItems, sections };
