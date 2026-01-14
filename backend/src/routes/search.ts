@@ -54,26 +54,15 @@ router.get("/suggest", async (req, res) => {
   };
 
   if (q.length < MIN_QUERY_LENGTH || looksLikeBrowseId(q)) {
-    return safeResponse({
-      q,
-      source: "youtube_live",
-      suggestions: [],
-    });
+    return safeResponse({ q, source: "youtube_live", suggestions: [] });
   }
 
   try {
-    const suggestions = await searchSuggestions(q);
-    return safeResponse(suggestions);
+    const payload = await searchSuggestions(q);
+    return safeResponse(payload);
   } catch (err) {
-    console.error("[search/suggest] failed", {
-      q,
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return safeResponse({
-      q,
-      source: "youtube_live",
-      suggestions: [],
-    });
+    console.error("[search/suggest] failed", err);
+    return safeResponse({ q, source: "youtube_live", suggestions: [] });
   }
 });
 
@@ -98,35 +87,37 @@ router.get("/results", async (req, res) => {
     const payload = await musicSearch(q);
 
     /**
-     * ✅ JEDINA BITNA ISPRAVKA
-     * featured MORA biti SearchResultItem
-     * i MORA imati prioritet artist sa exact match
+     * ✅ HERO PRAVILO (KONAČNO)
+     * Hero postoji ISKLJUČIVO ako postoji ARTIST
+     * sa topic channel browseId (UC...)
      */
-    const featured =
-      payload.orderedItems.find(
-        (item) =>
-          item.kind === "artist" &&
-          item.title?.toLowerCase() === qLower
-      ) ||
-      payload.orderedItems.find(
-        (item) => item.kind === "artist"
-      ) ||
+    const featuredArtist =
+      payload.sections?.artists?.find(
+        (a) =>
+          a.kind === "artist" &&
+          typeof a.endpointPayload === "string" &&
+          a.endpointPayload.startsWith("UC") &&
+          a.title.toLowerCase() === qLower
+      ) ??
+      payload.sections?.artists?.find(
+        (a) =>
+          a.kind === "artist" &&
+          typeof a.endpointPayload === "string" &&
+          a.endpointPayload.startsWith("UC")
+      ) ??
       null;
 
     const response: SearchResultsPayload = {
       ...payload,
       q,
       source: "youtube_live",
-      featured,
+      featured: featuredArtist, // ⬅️ samo artist ili null
     };
 
     void indexSuggestFromSearch(q, response);
     return safeResponse(response);
   } catch (err) {
-    console.error("[search/results] failed", {
-      q,
-      error: err instanceof Error ? err.message : String(err),
-    });
+    console.error("[search/results] failed", err);
     return safeResponse({ ...EMPTY_RESULTS, q });
   }
 });
@@ -165,10 +156,7 @@ router.post("/ingest", async (req, res) => {
     await ingestTrackSelection(selection);
     return res.json({ status: "ok" });
   } catch (err) {
-    console.error("[search/ingest] failed", {
-      id: selection.youtubeId,
-      message: err instanceof Error ? err.message : String(err),
-    });
+    console.error("[search/ingest] failed", err);
     return res.status(500).json({ error: "ingest_failed" });
   }
 });
