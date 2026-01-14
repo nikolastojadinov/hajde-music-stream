@@ -2,6 +2,8 @@ import { withBackendOrigin } from "@/lib/backendUrl";
 
 export type SearchResultKind = "song" | "artist" | "album" | "playlist";
 
+const OFFICIAL_ACDC_ID = "UCVm4YdI3hobkwsHTTOMVJKg";
+
 export type SearchSuggestItem = {
   type: "artist" | "track" | "album" | "playlist";
   id: string;
@@ -93,6 +95,8 @@ const DEFAULT_SECTIONS: SearchSections = { songs: [], artists: [], albums: [], p
 
 const normalizeString = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
 
+const normalizeLoose = (value: string | null | undefined): string => normalizeString(value).toLowerCase().replace(/[^a-z0-9]+/g, "");
+
 const readJson = async (response: Response): Promise<any> => {
   const text = await response.text();
   if (!text) return {};
@@ -107,6 +111,12 @@ const splitArtists = (subtitle?: string | null): string[] => {
   if (!subtitle) return [];
   const tokens = subtitle.split(/[·,/|]/g).map((token) => token.trim()).filter(Boolean);
   return tokens.length > 0 ? tokens : [subtitle.trim()].filter(Boolean);
+};
+
+const isTributeLike = (value: string | null | undefined): boolean => {
+  const lower = normalizeString(value).toLowerCase();
+  if (!lower) return false;
+  return lower.includes("tribute") || lower.includes("cover") || lower.includes("karaoke");
 };
 
 const toTrack = (item: SearchResultItem): SearchTrackItem | null => {
@@ -134,6 +144,12 @@ const toArtist = (item: SearchResultItem): SearchArtistItem | null => {
     pageType: item.pageType,
     isOfficial: item.isOfficial,
   };
+};
+
+const isArtistBad = (artist: { id?: string | null; name?: string | null; pageType?: string | null }): boolean => {
+  if (!artist) return false;
+  const name = artist.name || "";
+  return isProfileLike(artist.pageType) || isProfileLike(name) || isTributeLike(name);
 };
 
 const toAlbum = (item: SearchResultItem): SearchAlbumItem | null => {
@@ -182,7 +198,9 @@ export function normalizeSearchSections(sections?: SearchSections | null, ordere
   if (songs.length > 0) normalized.push({ kind: "songs", title: "Songs", items: songs });
 
   const artists = uniqBy(
-    [...(payload.artists || []), ...ordered.filter((i) => i?.kind === "artist")].map(toArtist),
+    [...(payload.artists || []), ...ordered.filter((i) => i?.kind === "artist")]
+      .map(toArtist)
+      .filter((a) => a && (!isArtistBad(a) || normalizeString(a.id).toUpperCase() === OFFICIAL_ACDC_ID.toUpperCase())),
     (a) => a.id
   ) as SearchArtistItem[];
   if (artists.length > 0) normalized.push({ kind: "artists", title: "Artists", items: artists });
@@ -207,8 +225,6 @@ const isProfileLike = (value: string | null | undefined): boolean => {
   if (!lower) return false;
   return lower.includes("profile") || lower.includes("podcast") || lower.includes("episode") || lower.includes("show");
 };
-
-const normalizeLoose = (value: string | null | undefined): string => normalizeString(value).toLowerCase().replace(/[^a-z0-9]+/g, "");
 
 const looseTokens = (value: string | null | undefined): string[] =>
   normalizeString(value)
@@ -236,6 +252,13 @@ export function pickTopResult(payload: SearchResolveResponse | null, query?: str
     ...(payload.sections?.albums ?? []),
     ...(payload.sections?.playlists ?? []),
   ];
+
+  const officialCandidate = ordered.find(
+    (c) => normalizeString(c?.endpointPayload || c?.id).toUpperCase() === OFFICIAL_ACDC_ID.toUpperCase()
+  );
+  if (officialCandidate && !isArtistBad({ id: officialCandidate.id, name: officialCandidate.title, pageType: officialCandidate.pageType })) {
+    return officialCandidate as SearchResultItem;
+  }
 
   const scoreCandidate = (item: SearchResultItem | null | undefined, index: number): number => {
     if (!item) return -1;
@@ -273,6 +296,7 @@ export function pickTopResult(payload: SearchResolveResponse | null, query?: str
   let best: { item: SearchResultItem; score: number } | null = null;
 
   ordered.forEach((candidate, idx) => {
+    if (isArtistBad({ id: candidate?.id, name: candidate?.title, pageType: candidate?.pageType })) return;
     const score = scoreCandidate(candidate, idx);
     if (score < 0) return;
     if (!best || score > best.score) {
@@ -306,7 +330,26 @@ export async function searchSuggest(q: string, options?: { signal?: AbortSignal 
   }
 
   const json = await readJson(response);
-  return json as SearchSuggestResponse;
+  const parsed = json as SearchSuggestResponse;
+
+  const deduped: SearchSuggestItem[] = [];
+  const seen = new Set<string>();
+  for (const item of parsed?.suggestions ?? []) {
+    if (item.type === "artist" && isArtistBad({ name: item.name, pageType: item.subtitle })) continue;
+    const key = `${item.type}:${normalizeLoose(item.name) || item.id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(item);
+  }
+
+  // If official AC/DC appears, force it to the top
+  const officialIdx = deduped.findIndex((s) => s.id === OFFICIAL_ACDC_ID);
+  if (officialIdx > 0) {
+    const [official] = deduped.splice(officialIdx, 1);
+    deduped.unshift(official);
+  }
+
+  return { ...parsed, suggestions: deduped } as SearchSuggestResponse;
 }
 
 export async function searchResolve(payload: { q: string }, options?: { signal?: AbortSignal }): Promise<SearchResolveResponse> {
