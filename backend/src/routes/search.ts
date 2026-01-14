@@ -54,7 +54,11 @@ router.get("/suggest", async (req, res) => {
   };
 
   if (q.length < MIN_QUERY_LENGTH || looksLikeBrowseId(q)) {
-    return safeResponse({ q, source: "youtube_live", suggestions: [] });
+    return safeResponse({
+      q,
+      source: "youtube_live",
+      suggestions: [],
+    });
   }
 
   try {
@@ -65,7 +69,11 @@ router.get("/suggest", async (req, res) => {
       q,
       error: err instanceof Error ? err.message : String(err),
     });
-    return safeResponse({ q, source: "youtube_live", suggestions: [] });
+    return safeResponse({
+      q,
+      source: "youtube_live",
+      suggestions: [],
+    });
   }
 });
 
@@ -89,18 +97,12 @@ router.get("/results", async (req, res) => {
   try {
     const payload = await musicSearch(q);
 
-    /**
-     * FEATURED ARTIST LOGIC
-     * – radi ISKLJUČIVO nad sections.artists
-     * – koristi `title`, ne `name`
-     */
+    // featured artist MUST be an existing SearchResultItem
     const artistItems = payload.sections.artists;
 
     const featuredArtist =
       artistItems.find(
-        (a) =>
-          a.isOfficial === true &&
-          a.title.toLowerCase() === qLower
+        (a) => a.isOfficial === true && a.title.toLowerCase() === qLower
       ) ||
       artistItems.find(
         (a) => a.title.toLowerCase() === qLower
@@ -111,14 +113,7 @@ router.get("/results", async (req, res) => {
       ...payload,
       q,
       source: "youtube_live",
-      featured: featuredArtist
-        ? {
-            type: "artist",
-            id: featuredArtist.id,
-            title: featuredArtist.title,
-            imageUrl: featuredArtist.imageUrl ?? null,
-          }
-        : null,
+      featured: featuredArtist,
     };
 
     void indexSuggestFromSearch(q, response);
