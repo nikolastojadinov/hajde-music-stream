@@ -97,7 +97,10 @@ router.get("/results", async (req, res) => {
   try {
     const payload = await musicSearch(q);
 
-    const artists = payload.sections?.artists ?? [];
+    // ⬇⬇⬇ KLJUČNA ISPRAVKA ⬇⬇⬇
+    const artists = Array.isArray(payload.sections?.artists)
+      ? payload.sections.artists
+      : [];
 
     // HERO / FEATURED ARTIST
     const featuredArtist =
