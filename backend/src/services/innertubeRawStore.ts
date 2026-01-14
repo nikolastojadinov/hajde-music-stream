@@ -1,6 +1,6 @@
 import supabase from './supabaseClient';
 
-export type InnertubeRequestType = 'search' | 'playlist' | 'artist' | 'album' | 'browse';
+export type InnertubeRequestType = 'search' | 'playlist' | 'artist' | 'album' | 'browse' | 'suggest';
 
 function safePayload(payload: any): any {
   if (payload === undefined) return null;
