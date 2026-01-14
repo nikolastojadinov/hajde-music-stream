@@ -1,21 +1,36 @@
 import { Router } from "express";
-import { musicSearch, searchSuggestions, type SearchResultsPayload, type SuggestResponse } from "../lib/youtubeMusicClient";
-import { ingestTrackSelection, type TrackSelectionInput } from "../services/entityIngestion";
+import {
+  musicSearch,
+  searchSuggestions,
+  type SearchResultsPayload,
+  type SuggestResponse,
+} from "../lib/youtubeMusicClient";
+import {
+  ingestTrackSelection,
+  type TrackSelectionInput,
+} from "../services/entityIngestion";
 import { indexSuggestFromSearch } from "../services/suggestIndexer";
 
 const router = Router();
 
 const MIN_QUERY_LENGTH = 2;
 const CACHE_HEADER = "public, max-age=900";
+
 const EMPTY_RESULTS: SearchResultsPayload = {
   q: "",
   source: "youtube_live",
   featured: null,
   orderedItems: [],
-  sections: { songs: [], artists: [], albums: [], playlists: [] },
+  sections: {
+    songs: [],
+    artists: [],
+    albums: [],
+    playlists: [],
+  },
 };
 
-const normalizeString = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
+const normalizeString = (value: unknown): string =>
+  typeof value === "string" ? value.trim() : "";
 
 const looksLikeBrowseId = (value: string): boolean => {
   const v = value.trim();
@@ -23,7 +38,12 @@ const looksLikeBrowseId = (value: string): boolean => {
   return /^(OLAK|PL|VL|RD|MP|UU|LL|UC|OL|RV)[A-Za-z0-9_-]+$/i.test(v);
 };
 
-const looksLikeVideoId = (value: string): boolean => /^[A-Za-z0-9_-]{11}$/.test(value.trim());
+const looksLikeVideoId = (value: string): boolean =>
+  /^[A-Za-z0-9_-]{11}$/.test(value.trim());
+
+/* =========================
+   SUGGEST
+========================= */
 
 router.get("/suggest", async (req, res) => {
   const q = normalizeString(req.query.q);
@@ -34,17 +54,32 @@ router.get("/suggest", async (req, res) => {
   };
 
   if (q.length < MIN_QUERY_LENGTH || looksLikeBrowseId(q)) {
-    return safeResponse({ q, source: "youtube_live", suggestions: [] });
+    return safeResponse({
+      q,
+      source: "youtube_live",
+      suggestions: [],
+    });
   }
 
   try {
-    const payload = await searchSuggestions(q);
-    return safeResponse(payload);
+    const suggestions = await searchSuggestions(q);
+    return safeResponse(suggestions);
   } catch (err) {
-    console.error("[search/suggest] failed", { q, error: err instanceof Error ? err.message : String(err) });
-    return safeResponse({ q, source: "youtube_live", suggestions: [] });
+    console.error("[search/suggest] failed", {
+      q,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return safeResponse({
+      q,
+      source: "youtube_live",
+      suggestions: [],
+    });
   }
 });
+
+/* =========================
+   RESULTS
+========================= */
 
 router.get("/results", async (req, res) => {
   const q = normalizeString(req.query.q);
@@ -62,42 +97,57 @@ router.get("/results", async (req, res) => {
   try {
     const payload = await musicSearch(q);
 
-    // FEATURED ARTIST FIX:
-    // pick exact-match artist as hero if exists
+    const artists = payload.sections?.artists ?? [];
+
+    // HERO / FEATURED ARTIST
     const featuredArtist =
-      payload.artists?.find(
-        (a) => a.isOfficial && a.name.toLowerCase() === qLower
+      artists.find(
+        (a) =>
+          a.isOfficial === true &&
+          typeof a.name === "string" &&
+          a.name.toLowerCase() === qLower
       ) ||
-      payload.artists?.find((a) => a.name.toLowerCase() === qLower) ||
+      artists.find(
+        (a) =>
+          typeof a.name === "string" &&
+          a.name.toLowerCase() === qLower
+      ) ||
       null;
 
     const response: SearchResultsPayload = {
       ...payload,
       q,
       source: "youtube_live",
-      featured: featuredArtist
-        ? {
-            type: "artist",
-            id: featuredArtist.id,
-            title: featuredArtist.name,
-            imageUrl: featuredArtist.imageUrl ?? null,
-          }
-        : null,
+      featured: featuredArtist,
     };
 
     void indexSuggestFromSearch(q, response);
     return safeResponse(response);
   } catch (err) {
-    console.error("[search/results] failed", { q, error: err instanceof Error ? err.message : String(err) });
+    console.error("[search/results] failed", {
+      q,
+      error: err instanceof Error ? err.message : String(err),
+    });
     return safeResponse({ ...EMPTY_RESULTS, q });
   }
 });
 
+/* =========================
+   INGEST
+========================= */
+
 router.post("/ingest", async (req, res) => {
   const body = req.body || {};
-  const typeRaw = typeof body.type === "string" ? body.type.toLowerCase().trim() : "";
+  const typeRaw =
+    typeof body.type === "string" ? body.type.toLowerCase().trim() : "";
+
   const selection: TrackSelectionInput = {
-    type: typeRaw === "video" ? "video" : typeRaw === "episode" ? "episode" : "song",
+    type:
+      typeRaw === "video"
+        ? "video"
+        : typeRaw === "episode"
+        ? "episode"
+        : "song",
     youtubeId: normalizeString(body.id || body.youtubeId || body.videoId),
     title: typeof body.title === "string" ? body.title : undefined,
     subtitle: typeof body.subtitle === "string" ? body.subtitle : undefined,
@@ -116,7 +166,10 @@ router.post("/ingest", async (req, res) => {
     await ingestTrackSelection(selection);
     return res.json({ status: "ok" });
   } catch (err) {
-    console.error("[search/ingest] failed", { id: selection.youtubeId, message: err instanceof Error ? err.message : String(err) });
+    console.error("[search/ingest] failed", {
+      id: selection.youtubeId,
+      message: err instanceof Error ? err.message : String(err),
+    });
     return res.status(500).json({ error: "ingest_failed" });
   }
 });
