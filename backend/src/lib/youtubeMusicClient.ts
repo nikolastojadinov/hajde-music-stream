@@ -646,6 +646,23 @@ function scoreSuggestionMatch(item: SuggestionItem, query: string): number {
   return score;
 }
 
+function deriveArtistFromLabel(label: string | null | undefined, query: string): SuggestionItem | null {
+  const nameRaw = normalizeString(label);
+  if (!nameRaw) return null;
+  const q = normalizeLoose(query);
+  const nameNorm = normalizeLoose(nameRaw);
+  if (!q || (!nameNorm.includes(q) && !q.includes(nameNorm))) return null;
+  return {
+    type: "artist",
+    id: nameRaw,
+    name: nameRaw,
+    imageUrl: null,
+    subtitle: "Artist",
+    endpointType: "browse",
+    endpointPayload: nameRaw,
+  } satisfies SuggestionItem;
+}
+
 function buildSectionsFromArtistBrowse(browse: ArtistBrowse, artistPayload: SearchResultItem): SearchSections {
   const baseArtist: SearchResultItem = {
     ...artistPayload,
@@ -803,6 +820,22 @@ export async function searchSuggestions(queryRaw: string): Promise<SuggestRespon
       const key = `${bestArtist.type}:${bestArtist.id}`;
       const deduped = suggestions.filter((s) => `${s.type}:${s.id}` !== key);
       suggestions = [bestArtist, ...deduped].slice(0, MAX_SUGGESTIONS_TOTAL);
+    } else {
+      // If we did not get an artist match, try to derive one from song/album subtitles
+      const labels: string[] = [];
+      suggestions.forEach((s) => {
+        if (s.type === "track" || s.type === "album" || s.type === "playlist") {
+          if (s.subtitle) labels.push(s.subtitle);
+          if (s.name) labels.push(s.name);
+        }
+      });
+      const derived = labels
+        .map((lbl) => deriveArtistFromLabel(lbl, q))
+        .filter((x): x is SuggestionItem => Boolean(x))[0];
+      if (derived) {
+        const deduped = suggestions.filter((s) => `${s.type}:${s.id}` !== `${derived.type}:${derived.id}`);
+        suggestions = [derived, ...deduped].slice(0, MAX_SUGGESTIONS_TOTAL);
+      }
     }
 
     return { q, source: "youtube_live", suggestions };
@@ -864,11 +897,7 @@ export async function musicSearch(queryRaw: string): Promise<SearchResultsPayloa
       const key = `${heroArtist.endpointType}:${heroArtist.endpointPayload}`;
       const rest = orderedItems.filter((item) => `${item.endpointType}:${item.endpointPayload}` !== key);
       orderedItems = [heroArtist, ...rest];
-    }
 
-    // Keep artists section starting with hero if present
-    if (heroArtist) {
-      const key = `${heroArtist.endpointType}:${heroArtist.endpointPayload}`;
       const filteredArtists = (sections.artists || []).filter((a) => `${a.endpointType}:${a.endpointPayload}` !== key);
       sections = { ...sections, artists: [heroArtist, ...filteredArtists] };
       featured = heroArtist;
