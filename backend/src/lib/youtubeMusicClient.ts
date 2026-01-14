@@ -226,6 +226,12 @@ function isNonMusicLabel(label: string): boolean {
   );
 }
 
+function isProfileLike(label: string | null | undefined): boolean {
+  const lower = normalizeString(label).toLowerCase();
+  if (!lower) return false;
+  return lower.includes("profile");
+}
+
 const matchesQuery = (value: string, queryNorm?: string): boolean => {
   if (!queryNorm) return false;
   return normalizeLoose(value) === queryNorm;
@@ -368,7 +374,8 @@ function parseMusicResponsiveListItemRenderer(renderer: any, queryNorm?: string)
   if (!endpoint || !kind) return null;
 
   if (isNonMusicPageType(endpoint.pageType)) return null;
-  if (isNonMusicLabel(subtitle) && !(normalizeString(subtitle).toLowerCase().includes("profile") && queryNorm && matchesQuery(title, queryNorm))) return null;
+  const profileSubtitle = isProfileLike(subtitle);
+  if (isNonMusicLabel(subtitle) && !(profileSubtitle && queryNorm && matchesQuery(title, queryNorm))) return null;
 
   const defaultSubtitle = kind === "artist" ? "Artist" : kind === "album" ? "Album" : kind === "playlist" ? "Playlist" : "Song";
   const item = buildResultItem(
@@ -380,6 +387,7 @@ function parseMusicResponsiveListItemRenderer(renderer: any, queryNorm?: string)
     kind === "artist" && endpoint.payload.startsWith("UC")
   );
   const parsed: ParsedItem = { kind, item };
+  if (profileSubtitle && queryNorm && !matchesQuery(title, queryNorm)) return null;
   if (isNonMusicItem(parsed, queryNorm)) return null;
   return parsed;
 }
@@ -397,7 +405,8 @@ function parseMusicCardShelfRenderer(cardShelf: any, queryNorm?: string): Parsed
   if (!endpoint || !kind) return null;
 
   if (isNonMusicPageType(endpoint.pageType)) return null;
-  if (isNonMusicLabel(subtitle) && !(normalizeString(subtitle).toLowerCase().includes("profile") && queryNorm && matchesQuery(title, queryNorm))) return null;
+  const profileSubtitle = isProfileLike(subtitle);
+  if (isNonMusicLabel(subtitle) && !(profileSubtitle && queryNorm && matchesQuery(title, queryNorm))) return null;
 
   const defaultSubtitle = kind === "artist" ? "Artist" : kind === "album" ? "Album" : kind === "playlist" ? "Playlist" : "Song";
   const item = buildResultItem(
@@ -409,6 +418,7 @@ function parseMusicCardShelfRenderer(cardShelf: any, queryNorm?: string): Parsed
     kind === "artist" && endpoint.payload.startsWith("UC")
   );
   const parsed: ParsedItem = { kind, item };
+  if (profileSubtitle && queryNorm && !matchesQuery(title, queryNorm)) return null;
   if (isNonMusicItem(parsed, queryNorm)) return null;
   return parsed;
 }
@@ -611,6 +621,19 @@ function isArtistResult(item: SearchResultItem | null | undefined): item is Sear
   return pageType.includes("ARTIST") || id.startsWith("UC");
 }
 
+function scoreArtistMatch(candidate: SearchResultItem, query: string): number {
+  const q = normalizeLoose(query);
+  const titleNorm = normalizeLoose(candidate.title);
+  const subtitleNorm = normalizeLoose(candidate.subtitle || "");
+  let score = 0;
+  if (q && (titleNorm === q || subtitleNorm === q)) score += 200;
+  if (candidate.isOfficial) score += 40;
+  if (normalizeString(candidate.pageType).toUpperCase().includes("ARTIST")) score += 30;
+  if (candidate.endpointPayload?.startsWith("UC")) score += 10;
+  if (isProfileLike(candidate.subtitle)) score -= 80;
+  return score;
+}
+
 function buildSectionsFromArtistBrowse(browse: ArtistBrowse, artistPayload: SearchResultItem): SearchSections {
   const baseArtist: SearchResultItem = {
     ...artistPayload,
@@ -779,7 +802,8 @@ export async function musicSearch(queryRaw: string): Promise<SearchResultsPayloa
     let orderedItems = parsed.orderedItems;
     let sections = parsed.sections;
 
-    const heroArtist = isArtistResult(featured) ? featured : orderedItems.find((item) => isArtistResult(item));
+    const artistCandidates = [featured, ...orderedItems].filter(isArtistResult);
+    const heroArtist = artistCandidates.sort((a, b) => scoreArtistMatch(b, q) - scoreArtistMatch(a, q))[0];
     const shouldHydrateArtistBrowse = areSectionsEmpty(sections) && heroArtist;
 
     if (shouldHydrateArtistBrowse && heroArtist) {
