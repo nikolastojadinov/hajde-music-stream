@@ -646,59 +646,6 @@ function scoreSuggestionMatch(item: SuggestionItem, query: string): number {
   return score;
 }
 
-function deriveArtistFromLabel(label: string | null | undefined, query: string): SuggestionItem | null {
-  const base = normalizeString(label);
-  const q = normalizeLoose(query);
-  if (!base || !q) return null;
-
-  const candidates: string[] = [];
-  const push = (value: string | null | undefined) => {
-    const v = normalizeString(value);
-    if (v) candidates.push(v);
-  };
-
-  push(base);
-  base.split(/[•·|]/).forEach(push);
-  base.split(/[-–—:]/).forEach(push);
-  base.split(/[\\/]/).forEach(push);
-
-  const best = Array.from(new Set(candidates))
-    .map((name) => ({ name, norm: normalizeLoose(name) }))
-    .filter((c) => c.norm && (c.norm === q || c.norm.includes(q) || q.includes(c.norm)))
-    .sort((a, b) => {
-      const aExact = a.norm === q;
-      const bExact = b.norm === q;
-      if (aExact !== bExact) return aExact ? -1 : 1;
-      return b.norm.length - a.norm.length;
-    })[0];
-
-  if (!best) return null;
-
-  return {
-    type: "artist",
-    id: best.name,
-    name: best.name,
-    imageUrl: null,
-    subtitle: "Artist",
-    endpointType: "browse",
-    endpointPayload: best.name,
-  } satisfies SuggestionItem;
-}
-
-function deriveBestArtistFromLabels(labels: string[], query: string): SuggestionItem | null {
-  const derived = labels
-    .map((lbl) => deriveArtistFromLabel(lbl, query))
-    .filter((x): x is SuggestionItem => Boolean(x));
-
-  if (derived.length === 0) return null;
-
-  const best = derived
-    .map((item) => ({ item, score: scoreSuggestionMatch(item, query) }))
-    .sort((a, b) => b.score - a.score)[0];
-
-  return best?.item ?? null;
-}
-
 function buildSectionsFromArtistBrowse(browse: ArtistBrowse, artistPayload: SearchResultItem): SearchSections {
   const baseArtist: SearchResultItem = {
     ...artistPayload,
@@ -847,33 +794,15 @@ export async function searchSuggestions(queryRaw: string): Promise<SuggestRespon
     const buckets = bucketSuggestions(raw);
     let suggestions = interleaveSuggestions(buckets);
 
-    const labels: string[] = [];
-    suggestions.forEach((s) => {
-      if (s.type === "track" || s.type === "album" || s.type === "playlist") {
-        if (s.subtitle) labels.push(s.subtitle);
-        if (s.name) labels.push(s.name);
-      }
-    });
-
-    const derivedArtist = deriveBestArtistFromLabels(labels, q);
-
-    const candidates = suggestions
+    const best = suggestions
       .filter((s) => s.type === "artist")
       .map((item) => ({ item, score: scoreSuggestionMatch(item, q) }))
-      .filter((entry) => entry.score > 0);
+      .sort((a, b) => b.score - a.score)[0];
 
-    if (derivedArtist) {
-      candidates.push({ item: derivedArtist, score: scoreSuggestionMatch(derivedArtist, q) });
-    }
-
-    const best = candidates.sort((a, b) => b.score - a.score)[0];
-
-    if (best) {
+    if (best && best.score > 0) {
       const key = `${best.item.type}:${best.item.id}`;
       const deduped = suggestions.filter((s) => `${s.type}:${s.id}` !== key);
-      // Ensure the derived artist (if chosen) is present even if it was not in the original list
-      const withBest = [best.item, ...deduped];
-      suggestions = withBest.slice(0, MAX_SUGGESTIONS_TOTAL);
+      suggestions = [best.item, ...deduped].slice(0, MAX_SUGGESTIONS_TOTAL);
     }
 
     return { q, source: "youtube_live", suggestions };
