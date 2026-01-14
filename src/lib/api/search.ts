@@ -95,7 +95,8 @@ const DEFAULT_SECTIONS: SearchSections = { songs: [], artists: [], albums: [], p
 
 const normalizeString = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
 
-const normalizeLoose = (value: string | null | undefined): string => normalizeString(value).toLowerCase().replace(/[^a-z0-9]+/g, "");
+const normalizeLoose = (value: string | null | undefined): string =>
+  normalizeString(value).toLowerCase().replace(/[^a-z0-9]+/g, "");
 
 const readJson = async (response: Response): Promise<any> => {
   const text = await response.text();
@@ -146,6 +147,12 @@ const toArtist = (item: SearchResultItem): SearchArtistItem | null => {
   };
 };
 
+const isProfileLike = (value: string | null | undefined): boolean => {
+  const lower = normalizeString(value).toLowerCase();
+  if (!lower) return false;
+  return lower.includes("profile") || lower.includes("podcast") || lower.includes("episode") || lower.includes("show");
+};
+
 const isArtistBad = (artist: { id?: string | null; name?: string | null; pageType?: string | null }): boolean => {
   if (!artist) return false;
   const name = artist.name || "";
@@ -185,7 +192,10 @@ const uniqBy = <T, K>(items: (T | null)[], key: (item: T) => K): T[] => {
   return out;
 };
 
-export function normalizeSearchSections(sections?: SearchSections | null, orderedItems?: SearchResultItem[] | null): SearchSection[] {
+export function normalizeSearchSections(
+  sections?: SearchSections | null,
+  orderedItems?: SearchResultItem[] | null
+): SearchSection[] {
   const payload = sections ?? DEFAULT_SECTIONS;
   const normalized: SearchSection[] = [];
 
@@ -220,19 +230,16 @@ export function normalizeSearchSections(sections?: SearchSections | null, ordere
   return normalized;
 }
 
-const isProfileLike = (value: string | null | undefined): boolean => {
-  const lower = normalizeString(value).toLowerCase();
-  if (!lower) return false;
-  return lower.includes("profile") || lower.includes("podcast") || lower.includes("episode") || lower.includes("show");
-};
-
 const looseTokens = (value: string | null | undefined): string[] =>
   normalizeString(value)
     .toLowerCase()
     .split(/[^a-z0-9]+/g)
     .filter(Boolean);
 
-const isValidTopCandidate = (item: SearchResultItem | null | undefined, allowProfile: boolean): item is SearchResultItem => {
+const isValidTopCandidate = (
+  item: SearchResultItem | null | undefined,
+  allowProfile: boolean
+): item is SearchResultItem => {
   if (!item) return false;
   if (!allowProfile && (isProfileLike(item.subtitle) || isProfileLike(item.pageType))) return false;
   return true;
@@ -256,7 +263,10 @@ export function pickTopResult(payload: SearchResolveResponse | null, query?: str
   const officialCandidate = ordered.find(
     (c) => normalizeString(c?.endpointPayload || c?.id).toUpperCase() === OFFICIAL_ACDC_ID.toUpperCase()
   );
-  if (officialCandidate && !isArtistBad({ id: officialCandidate.id, name: officialCandidate.title, pageType: officialCandidate.pageType })) {
+  if (
+    officialCandidate &&
+    !isArtistBad({ id: officialCandidate.id, name: officialCandidate.title, pageType: officialCandidate.pageType })
+  ) {
     return officialCandidate as SearchResultItem;
   }
 
@@ -267,7 +277,15 @@ export function pickTopResult(payload: SearchResolveResponse | null, query?: str
     const subtitleLoose = normalizeLoose(item.subtitle || "");
     const exactLoose = qLoose && (titleLoose === qLoose || subtitleLoose === qLoose);
 
-    // Avoid profile-like cards unless they exactly match the query
+    // ❌ FIX:
+    // playlist NE SME biti top-result ako postoji artist sa exact match-om
+    if (
+      item.kind === "playlist" &&
+      ordered.some((o) => o?.kind === "artist" && normalizeLoose(o.title) === qLoose)
+    ) {
+      return -1;
+    }
+
     const profileish = isProfileLike(item.subtitle) || isProfileLike(item.pageType);
     if (profileish && !exactLoose) return -1;
 
@@ -289,7 +307,6 @@ export function pickTopResult(payload: SearchResolveResponse | null, query?: str
     if (normalizeString(item.pageType).includes("ARTIST")) score += 5;
     if (item.isOfficial) score += 3;
 
-    // Preserve earlier ordering when scores tie
     return score - index * 0.001;
   };
 
@@ -310,7 +327,10 @@ export function pickTopResult(payload: SearchResolveResponse | null, query?: str
   return fallback ?? null;
 }
 
-export async function searchSuggest(q: string, options?: { signal?: AbortSignal }): Promise<SearchSuggestResponse> {
+export async function searchSuggest(
+  q: string,
+  options?: { signal?: AbortSignal }
+): Promise<SearchSuggestResponse> {
   const trimmed = q.trim();
   if (trimmed.length < 2) {
     return { q: trimmed, source: "client", suggestions: [] };
@@ -342,7 +362,6 @@ export async function searchSuggest(q: string, options?: { signal?: AbortSignal 
     deduped.push(item);
   }
 
-  // If official AC/DC appears, force it to the top
   const officialIdx = deduped.findIndex((s) => s.id === OFFICIAL_ACDC_ID);
   if (officialIdx > 0) {
     const [official] = deduped.splice(officialIdx, 1);
@@ -352,7 +371,10 @@ export async function searchSuggest(q: string, options?: { signal?: AbortSignal 
   return { ...parsed, suggestions: deduped } as SearchSuggestResponse;
 }
 
-export async function searchResolve(payload: { q: string }, options?: { signal?: AbortSignal }): Promise<SearchResolveResponse> {
+export async function searchResolve(
+  payload: { q: string },
+  options?: { signal?: AbortSignal }
+): Promise<SearchResolveResponse> {
   const url = new URL(withBackendOrigin("/api/search/results"));
   url.searchParams.set("q", payload.q.trim());
 
@@ -386,6 +408,6 @@ export async function ingestSearchSelection(payload: SearchSelectionPayload): Pr
       imageUrl: payload.imageUrl,
     }),
   }).catch(() => {
-    /* swallow ingest errors on client */
+    /* ignore ingest errors */
   });
 }
