@@ -98,18 +98,19 @@ router.get("/results", async (req, res) => {
     const payload = await musicSearch(q);
 
     /**
-     * ✅ FIX:
-     * orderedItems imaju oblik { type, data }
-     * artist sa exact match-om ima apsolutni prioritet
+     * ✅ ISPRAVKA:
+     * orderedItems su SearchResultItem[]
+     * koristi se `kind`, ne `type/data`
+     * artist sa exact match-om ima prioritet
      */
     const featured =
       payload.orderedItems.find(
         (item) =>
-          item.type === "artist" &&
-          item.data?.name?.toLowerCase() === qLower
+          item.kind === "artist" &&
+          item.title?.toLowerCase() === qLower
       ) ||
       payload.orderedItems.find(
-        (item) => item.type === "artist"
+        (item) => item.kind === "artist"
       ) ||
       null;
 
