@@ -97,15 +97,19 @@ router.get("/results", async (req, res) => {
   try {
     const payload = await musicSearch(q);
 
-    // featured artist MUST be an existing SearchResultItem
-    const artistItems = payload.sections.artists;
-
-    const featuredArtist =
-      artistItems.find(
-        (a) => a.isOfficial === true && a.title.toLowerCase() === qLower
+    /**
+     * ✅ JEDINA BITNA ISPRAVKA
+     * featured MORA biti SearchResultItem
+     * i MORA imati prioritet artist sa exact match
+     */
+    const featured =
+      payload.orderedItems.find(
+        (item) =>
+          item.kind === "artist" &&
+          item.title?.toLowerCase() === qLower
       ) ||
-      artistItems.find(
-        (a) => a.title.toLowerCase() === qLower
+      payload.orderedItems.find(
+        (item) => item.kind === "artist"
       ) ||
       null;
 
@@ -113,7 +117,7 @@ router.get("/results", async (req, res) => {
       ...payload,
       q,
       source: "youtube_live",
-      featured: featuredArtist,
+      featured,
     };
 
     void indexSuggestFromSearch(q, response);
