@@ -823,9 +823,7 @@ export async function searchSuggestions(queryRaw: string): Promise<MusicSearchSu
     const json = await callYoutubei<any>(config, "search", payload);
     const { collected } = extractSearchSections(json);
     const partitioned = partitionParsedItems(collected);
-    const validArtists = await sanitizeArtistsList(partitioned.artists, config);
-    const safePartitioned = { ...partitioned, artists: validArtists };
-    return buildSuggestionsFromPartition(safePartitioned);
+    return buildSuggestionsFromPartition(partitioned);
   } catch (err) {
     logDebug("searchSuggestions_error", err instanceof Error ? err.message : String(err));
     return [];
@@ -851,7 +849,7 @@ export async function musicSearch(queryRaw: string): Promise<MusicSearchResults>
     const partitioned = partitionParsedItems(collected);
 
     const tracks = Array.isArray(partitioned.tracks) ? partitioned.tracks : [];
-    // IMPORTANT: do NOT sanitize artists here Ã¢ÂÂ YT Music search already returns valid music artists
+    // IMPORTANT: do NOT sanitize artists here â YT Music search already returns valid music artists
     const artists = Array.isArray(partitioned.artists) ? partitioned.artists : [];
     const albums = Array.isArray(partitioned.albums) ? partitioned.albums : [];
     const playlists = Array.isArray(partitioned.playlists) ? partitioned.playlists : [];
