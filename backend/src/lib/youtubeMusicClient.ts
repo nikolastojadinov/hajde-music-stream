@@ -843,6 +843,39 @@ function dedupeSuggestions(list: SuggestionItem[]): SuggestionItem[] {
   return result;
 }
 
+async function ensureOfficialAcdcSuggestion(q: string, list: SuggestionItem[]): Promise<SuggestionItem[]> {
+  const qNorm = normalizeLoose(q);
+  if (qNorm !== "acdc") return list;
+
+  const already = list.find((s) => normalizeString(s.id).toUpperCase() === OFFICIAL_ACDC_ID.toUpperCase());
+  if (already) return list;
+
+  try {
+    const browse = await browseArtistById(OFFICIAL_ACDC_ID);
+    const item: SuggestionItem = {
+      type: "artist",
+      id: OFFICIAL_ACDC_ID,
+      name: browse?.artist.name || "AC/DC",
+      imageUrl: browse?.artist.thumbnailUrl ?? null,
+      subtitle: "Artist",
+      endpointType: "browse",
+      endpointPayload: OFFICIAL_ACDC_ID,
+    };
+
+    console.info("[suggest] injected_official_acdc", {
+      q,
+      id: item.id,
+      name: item.name,
+      subtitle: item.subtitle,
+    });
+
+    return [item, ...list];
+  } catch (err) {
+    console.warn("[suggest] failed_inject_official_acdc", { q, error: err instanceof Error ? err.message : String(err) });
+    return list;
+  }
+}
+
 function interleaveSuggestions(buckets: Record<SuggestionType, SuggestionItem[]>): SuggestionItem[] {
   const pointers: Record<SuggestionType, number> = { track: 0, artist: 0, album: 0, playlist: 0 };
   const seen = new Set<string>();
@@ -912,6 +945,9 @@ export async function searchSuggestions(queryRaw: string): Promise<SuggestRespon
 
     let suggestions = interleaveSuggestions(buckets);
     suggestions = dedupeSuggestions(suggestions).filter((s) => !isSuggestionBad(s));
+
+    // Hard fallback: if query is acdc and official artist missing, inject it
+    suggestions = await ensureOfficialAcdcSuggestion(q, suggestions);
 
     if (best) {
       const key = `${best.item.type}:${best.item.id}`;
