@@ -38,6 +38,11 @@ export type SearchResultItem = {
   isOfficial?: boolean;
 };
 
+export type RawSearchItem = {
+  rendererType: string;
+  data: any;
+};
+
 export type SearchSections = {
   songs: SearchResultItem[];
   artists: SearchResultItem[];
@@ -51,6 +56,8 @@ export type SearchResultsPayload = {
   featured: SearchResultItem | null;
   orderedItems: SearchResultItem[];
   sections: SearchSections;
+  raw?: any;
+  rawItems?: RawSearchItem[];
 };
 
 const MIN_QUERY = 2;
@@ -981,116 +988,74 @@ export async function searchSuggestions(queryRaw: string): Promise<SuggestRespon
   }
 }
 
+function collectRawSearchItems(root: any): RawSearchItem[] {
+  const items: RawSearchItem[] = [];
+
+  const pushRenderer = (rendererType: string, data: any) => {
+    if (!rendererType || data === undefined) return;
+    items.push({ rendererType, data });
+  };
+
+  const pushChildContents = (value: any) => {
+    const contents = value?.contents;
+    if (!Array.isArray(contents)) return;
+    contents.forEach((child: any) => {
+      if (!child || typeof child !== "object") return;
+      Object.entries(child).forEach(([childKey, childValue]) => {
+        if (childKey.endsWith("Renderer")) {
+          pushRenderer(childKey, childValue);
+        }
+      });
+    });
+  };
+
+  const tabs = root?.contents?.tabbedSearchResultsRenderer?.tabs;
+  if (!Array.isArray(tabs)) return items;
+
+  tabs.forEach((tab: any) => {
+    const sections = tab?.tabRenderer?.content?.sectionListRenderer?.contents;
+    if (!Array.isArray(sections)) return;
+
+    sections.forEach((section: any) => {
+      if (!section || typeof section !== "object") return;
+      Object.entries(section).forEach(([key, value]) => {
+        if (key.endsWith("Renderer")) {
+          if (Array.isArray((value as any)?.contents)) {
+            pushChildContents(value);
+          } else {
+            pushRenderer(key, value);
+          }
+        }
+      });
+    });
+  });
+
+  return items;
+}
+
 export async function musicSearch(queryRaw: string): Promise<SearchResultsPayload> {
   const q = normalizeString(queryRaw);
-  const qNorm = normalizeLoose(q);
   if (q.length < MIN_QUERY) {
-    return { q, source: "youtube_live", featured: null, orderedItems: [], sections: emptySections() };
+    return { q, source: "youtube_live", featured: null, orderedItems: [], sections: emptySections(), raw: null, rawItems: [] };
   }
 
   try {
     const raw = await fetchMusicSearchRaw(q);
     await recordInnertubePayload("search", q, raw);
-    const parsed = parseInnertubeSearch(raw, q);
-    let heroFromRaw = findHeroInTree(raw, qNorm);
-    if (heroFromRaw && isArtistBad(heroFromRaw)) {
-      heroFromRaw = null;
-    }
+    const rawItems = collectRawSearchItems(raw);
 
-    let featured = parsed.featured;
-    let orderedItems = parsed.orderedItems;
-    let sections = parsed.sections;
-
-    // Remove profile/tribute artists from initial parse results
-    orderedItems = orderedItems.filter((item) => !isArtistBad(item));
-    sections = {
-      ...sections,
-      artists: (sections.artists || []).filter((a) => !isArtistBad(a)),
+    return {
+      q,
+      source: "youtube_live",
+      featured: null,
+      orderedItems: [],
+      sections: emptySections(),
+      raw,
+      rawItems,
     };
-
-    const artistCandidates = [
-      featured,
-      ...orderedItems,
-      ...(sections?.artists ?? []),
-      heroFromRaw,
-    ].filter(isArtistResult);
-
-    const cleanedArtists = artistCandidates.filter((a) => !isArtistBad(a));
-    const preferredOfficial = preferOfficialAcdc(cleanedArtists, qNorm);
-    const heroArtist = preferredOfficial || cleanedArtists.sort((a, b) => scoreArtistMatch(b, q) - scoreArtistMatch(a, q))[0];
-    const shouldHydrateArtistBrowse = areSectionsEmpty(sections) && heroArtist;
-
-    if (shouldHydrateArtistBrowse && heroArtist) {
-      const browse = await browseArtistById(heroArtist.endpointPayload);
-      if (browse) {
-        const hydratedSections = buildSectionsFromArtistBrowse(browse, heroArtist);
-        if (!areSectionsEmpty(hydratedSections)) {
-          sections = hydratedSections;
-          featured = heroArtist;
-          const fromSections = [
-            ...hydratedSections.artists,
-            ...hydratedSections.songs,
-            ...hydratedSections.albums,
-            ...hydratedSections.playlists,
-          ];
-          const seen = new Set<string>();
-          orderedItems = [heroArtist, ...fromSections].filter((item) => {
-            const key = `${item.endpointType}:${item.endpointPayload}`;
-            if (seen.has(key)) return false;
-            seen.add(key);
-            return true;
-          });
-        }
-      }
-    }
-
-    // Ensure orderedItems starts with the best artist match when available
-    if (heroArtist) {
-      const key = `${heroArtist.endpointType}:${heroArtist.endpointPayload}`;
-      const rest = orderedItems.filter((item) => `${item.endpointType}:${item.endpointPayload}` !== key);
-      orderedItems = [heroArtist, ...rest];
-
-      const filteredArtists = (sections.artists || []).filter((a) => `${a.endpointType}:${a.endpointPayload}` !== key);
-      sections = { ...sections, artists: [heroArtist, ...filteredArtists] };
-      featured = heroArtist;
-    }
-
-    // Final guard: if query matches an artist in raw but we filtered it out, inject hero from raw
-    if (qNorm) {
-      const hasMatchingArtist = [featured, ...(sections.artists || [])].some((a) => {
-        if (!a) return false;
-        const t = normalizeLoose(a.title);
-        const s = normalizeLoose(a.subtitle || "");
-        return t === qNorm || s === qNorm;
-      });
-
-      if (!hasMatchingArtist) {
-        if (heroFromRaw && isArtistResult(heroFromRaw)) {
-          const injected: SearchResultItem = {
-            ...heroFromRaw,
-            subtitle: heroFromRaw.subtitle || "Artist",
-          };
-          const key = `${injected.endpointType}:${injected.endpointPayload}`;
-          featured = injected;
-          sections = {
-            ...sections,
-            artists: [injected, ...sections.artists.filter((a) => `${a.endpointType}:${a.endpointPayload}` !== key)],
-          };
-          const seen = new Set<string>();
-          orderedItems = [injected, ...orderedItems.filter((item) => {
-            const k = `${item.endpointType}:${item.endpointPayload}`;
-            if (k === key) return false;
-            if (seen.has(k)) return false;
-            seen.add(k);
-            return true;
-          })];
-        }
-      }
-    }
-
-    return { q, source: "youtube_live", featured, orderedItems, sections };
   } catch (err) {
-    return { q, source: "youtube_live", featured: null, orderedItems: [], sections: emptySections() };
+    return { q, source: "youtube_live", featured: null, orderedItems: [], sections: emptySections(), raw: null, rawItems: [] };
   }
 }
-  
+
+
