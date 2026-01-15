@@ -78,10 +78,22 @@ const splitArtists = (value?: string | null): string[] => {
   return tokens.length > 0 ? tokens : [value.trim()].filter(Boolean);
 };
 
+const ALLOWED_RENDERERS = new Set([
+  "musicResponsiveListItemRenderer",
+  "musicCardShelfRenderer",
+  "musicShelfRenderer",
+  "musicThumbnailRenderer",
+  "musicItemThumbnailOverlayRenderer",
+]);
+
 const buildDisplayItems = (rawItems: RawSearchItem[]): DisplayResultItem[] => {
-  return (rawItems || []).map((entry, index) => {
+  const items: DisplayResultItem[] = [];
+
+  (rawItems || []).forEach((entry, index) => {
     const data = entry?.data ?? {};
     const type = normalizeString(entry?.rendererType) || "item";
+
+    if (!ALLOWED_RENDERERS.has(type)) return;
 
     let title = "";
     let subtitle = "";
@@ -120,18 +132,20 @@ const buildDisplayItems = (rawItems: RawSearchItem[]): DisplayResultItem[] => {
       const endpoint = extractEndpoint(data);
       endpointType = endpoint.endpointType;
       endpointPayload = endpoint.payload;
-    } else {
-      title =
-        pickRunsText(data?.title?.runs) ||
-        pickRunsText(data?.header?.title?.runs) ||
-        pickRunsText(data?.flexColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs) ||
-        type;
-      subtitle =
-        pickRunsText(data?.subtitle?.runs) ||
-        pickRunsText(data?.header?.subtitle?.runs) ||
-        pickRunsText(data?.flexColumns?.[1]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs) ||
-        "";
-      imageUrl = pickThumbnail(data?.thumbnail?.thumbnails) || pickThumbnail(data?.thumbnail) || null;
+    } else if (type === "musicThumbnailRenderer") {
+      title = pickRunsText(data?.title?.runs) || type;
+      subtitle = pickRunsText(data?.subtitle?.runs) || subtitle;
+      imageUrl =
+        pickThumbnail(data?.thumbnail?.thumbnails) ||
+        pickThumbnail(data?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails) ||
+        null;
+      const endpoint = extractEndpoint(data);
+      endpointType = endpoint.endpointType;
+      endpointPayload = endpoint.payload;
+    } else if (type === "musicItemThumbnailOverlayRenderer") {
+      title = pickRunsText(data?.content?.musicPlayButtonRenderer?.playNavigationEndpoint?.watchEndpoint?.title?.runs) || type;
+      subtitle = pickRunsText(data?.subtitle?.runs) || subtitle;
+      imageUrl = pickThumbnail(data?.content?.musicPlayButtonRenderer?.thumbnail?.thumbnails) || null;
       const endpoint = extractEndpoint(data);
       endpointType = endpoint.endpointType;
       endpointPayload = endpoint.payload;
@@ -139,7 +153,7 @@ const buildDisplayItems = (rawItems: RawSearchItem[]): DisplayResultItem[] => {
 
     const id = endpointPayload || `raw-${index}`;
 
-    return {
+    items.push({
       id,
       title: title || type || `Item ${index + 1}`,
       subtitle: subtitle || undefined,
@@ -148,8 +162,10 @@ const buildDisplayItems = (rawItems: RawSearchItem[]): DisplayResultItem[] => {
       endpointType,
       endpointPayload,
       raw: data,
-    } satisfies DisplayResultItem;
+    } satisfies DisplayResultItem);
   });
+
+  return items;
 };
 
 export default function Search() {
