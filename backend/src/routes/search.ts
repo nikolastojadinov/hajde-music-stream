@@ -88,12 +88,12 @@ async function resolveArtistBrowseId(query: string): Promise<string | null> {
   for (const variant of variants) {
     try {
       const search = await musicSearch(variant);
-      const tracks = Array.isArray(search.tracks) ? search.tracks : [];
+      const tracks = Array.isArray(search.sections?.songs) ? search.sections.songs : [];
       const artistHints = tracks
-        .map((t: any) => normalizeString(t.artist || t.subtitle || ""))
+        .map((t: any) => normalizeString(t.subtitle || t.title || ""))
         .filter(Boolean);
 
-      const artists = search.artists || [];
+      const artists = Array.isArray(search.sections?.artists) ? search.sections.artists : [];
       const bestDirect = pickBestArtistMatch(artists, variant);
       if (bestDirect && looksLikeBrowseId(bestDirect.id)) return bestDirect.id;
 
