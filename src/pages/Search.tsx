@@ -1,31 +1,76 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { Flame, Loader2, Play, Search as SearchIcon } from "lucide-react";
+import { Loader2, Play, Search as SearchIcon } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import PlaylistListItem from "@/components/PlaylistListItem";
 import SearchSuggestList from "@/components/search/SearchSuggestList";
-import { TrackRow } from "@/components/TrackRow";
 import { Input } from "@/components/ui/input";
 import { usePlayer } from "@/contexts/PlayerContext";
-import { adaptSearchPlaylistResult } from "@/lib/adapters/playlists";
 import {
   ingestSearchSelection,
-  normalizeSearchSections,
-  pickTopResult,
   searchResolve,
   searchSuggest,
-  type SearchResultItem,
-  type SearchSection,
+  type RawSearchItem,
   type SearchSuggestItem,
-  type SearchTrackItem,
 } from "@/lib/api/search";
 
 const SUGGEST_DEBOUNCE_MS = 250;
 const MAX_SUGGESTIONS = 15;
 
-type SongsSection = Extract<SearchSection, { kind: "songs" }>;
-type ArtistsSection = Extract<SearchSection, { kind: "artists" }>;
-type AlbumsSection = Extract<SearchSection, { kind: "albums" }>;
-type PlaylistsSection = Extract<SearchSection, { kind: "playlists" }>;
+type DisplayResultItem = {
+  id: string;
+  title: string;
+  subtitle?: string;
+  imageUrl?: string | null;
+  rendererType: string;
+  endpointType?: "watch" | "browse";
+  endpointPayload?: string;
+  raw: any;
+};
+
+const normalizeString = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
+
+const pickRunsText = (runs: any): string => {
+  if (!Array.isArray(runs) || runs.length === 0) return "";
+  return normalizeString(runs.map((r: any) => r?.text ?? "").join(""));
+};
+
+const pickThumbnail = (thumbnails?: any): string | null => {
+  const arr = Array.isArray(thumbnails) ? thumbnails : thumbnails?.thumbnails;
+  if (!Array.isArray(arr) || arr.length === 0) return null;
+
+  const scored = arr
+    .map((t: any) => {
+      const url = normalizeString(t?.url);
+      const width = Number(t?.width) || 0;
+      const height = Number(t?.height) || 0;
+      const area = width > 0 && height > 0 ? width * height : width || height;
+      return url ? { url, score: area } : null;
+    })
+    .filter(Boolean) as Array<{ url: string; score: number }>;
+
+  if (scored.length === 0) return null;
+  scored.sort((a, b) => b.score - a.score);
+  return scored[0].url;
+};
+
+const extractEndpoint = (renderer: any): { endpointType?: "watch" | "browse"; payload?: string } => {
+  const navigation =
+    renderer?.navigationEndpoint ||
+    renderer?.playNavigationEndpoint ||
+    renderer?.overlay?.musicItemThumbnailOverlayRenderer?.content?.musicPlayButtonRenderer?.playNavigationEndpoint ||
+    renderer?.menu?.navigationItemRenderer?.navigationEndpoint ||
+    renderer?.onTap?.watchEndpoint ||
+    renderer?.onTap?.browseEndpoint;
+
+  const browse = navigation?.browseEndpoint || renderer?.browseEndpoint;
+  const watch = navigation?.watchEndpoint || renderer?.watchEndpoint;
+
+  const browseId = normalizeString(browse?.browseId);
+  const videoId = normalizeString(watch?.videoId);
+
+  if (videoId) return { endpointType: "watch", payload: videoId };
+  if (browseId) return { endpointType: "browse", payload: browseId };
+  return {};
+};
 
 const splitArtists = (value?: string | null): string[] => {
   if (!value) return [];
@@ -33,26 +78,76 @@ const splitArtists = (value?: string | null): string[] => {
   return tokens.length > 0 ? tokens : [value.trim()].filter(Boolean);
 };
 
-const asQueueItem = (track: SearchTrackItem) => ({
-  youtubeVideoId: track.youtubeVideoId,
-  title: track.title || "Song",
-  artist: splitArtists(track.subtitle)?.[0] || track.artists?.[0] || track.title,
-  thumbnailUrl: track.imageUrl ?? undefined,
-});
+const buildDisplayItems = (rawItems: RawSearchItem[]): DisplayResultItem[] => {
+  return (rawItems || []).map((entry, index) => {
+    const data = entry?.data ?? {};
+    const type = normalizeString(entry?.rendererType) || "item";
 
-const clampIndex = (index: number, listLength: number) => {
-  if (listLength <= 0) return 0;
-  return Math.min(Math.max(index, 0), listLength - 1);
+    let title = "";
+    let subtitle = "";
+    let imageUrl: string | null = null;
+    let endpointType: "watch" | "browse" | undefined;
+    let endpointPayload: string | undefined;
+
+    if (type === "musicResponsiveListItemRenderer") {
+      title = pickRunsText(data?.flexColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs) || title;
+      subtitle = pickRunsText(data?.flexColumns?.[1]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs) || subtitle;
+      imageUrl =
+        pickThumbnail(data?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails) ||
+        pickThumbnail(data?.thumbnail?.thumbnails) ||
+        null;
+      const endpoint = extractEndpoint(data);
+      endpointType = endpoint.endpointType;
+      endpointPayload = endpoint.payload;
+    } else if (type === "musicCardShelfRenderer") {
+      title = pickRunsText(data?.title?.runs) || pickRunsText(data?.header?.title?.runs) || title;
+      subtitle = pickRunsText(data?.subtitle?.runs) || pickRunsText(data?.header?.subtitle?.runs) || subtitle;
+      imageUrl =
+        pickThumbnail(data?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails) ||
+        pickThumbnail(data?.thumbnail?.thumbnails) ||
+        null;
+      const endpoint = extractEndpoint(data);
+      endpointType = endpoint.endpointType;
+      endpointPayload = endpoint.payload;
+    } else {
+      title =
+        pickRunsText(data?.title?.runs) ||
+        pickRunsText(data?.header?.title?.runs) ||
+        pickRunsText(data?.flexColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs) ||
+        type;
+      subtitle =
+        pickRunsText(data?.subtitle?.runs) ||
+        pickRunsText(data?.header?.subtitle?.runs) ||
+        pickRunsText(data?.flexColumns?.[1]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs) ||
+        "";
+      imageUrl = pickThumbnail(data?.thumbnail?.thumbnails) || pickThumbnail(data?.thumbnail) || null;
+      const endpoint = extractEndpoint(data);
+      endpointType = endpoint.endpointType;
+      endpointPayload = endpoint.payload;
+    }
+
+    const id = endpointPayload || `raw-${index}`;
+
+    return {
+      id,
+      title: title || type || `Item ${index + 1}`,
+      subtitle: subtitle || undefined,
+      imageUrl,
+      rendererType: type,
+      endpointType,
+      endpointPayload,
+      raw: data,
+    } satisfies DisplayResultItem;
+  });
 };
 
 export default function Search() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { playTrack, playCollection } = usePlayer();
+  const { playTrack } = usePlayer();
 
   const [query, setQuery] = useState(() => searchParams.get("q") ?? "");
-  const [sections, setSections] = useState<SearchSection[]>([]);
-  const [topResult, setTopResult] = useState<SearchResultItem | null>(null);
+  const [results, setResults] = useState<DisplayResultItem[]>([]);
   const [suggestions, setSuggestions] = useState<SearchSuggestItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -101,15 +196,14 @@ export default function Search() {
 
     try {
       const res = await searchResolve({ q });
-      setSections(normalizeSearchSections(res?.sections, res?.orderedItems));
-      setTopResult(pickTopResult(res, q));
+      const displayItems = buildDisplayItems(res?.rawItems ?? []);
+      setResults(displayItems);
       const next = new URLSearchParams(searchParams);
       next.set("q", q);
       setSearchParams(next);
     } catch {
       setError("Unable to load search results.");
-      setSections([]);
-      setTopResult(null);
+      setResults([]);
     } finally {
       setLoading(false);
     }
@@ -127,70 +221,27 @@ export default function Search() {
     }
   }, []);
 
-  const songsSection = sections.find((section): section is SongsSection => section.kind === "songs");
-  const artistsSection = sections.find((section): section is ArtistsSection => section.kind === "artists");
-  const albumsSection = sections.find((section): section is AlbumsSection => section.kind === "albums");
-  const playlistsSection = sections.find((section): section is PlaylistsSection => section.kind === "playlists");
+  const handlePlay = (item: DisplayResultItem) => {
+    const id = normalizeString(item.endpointPayload);
+    if (!id || item.endpointType !== "watch" || id.length !== 11) return;
 
-  const playSongAtIndex = (index: number) => {
-    if (!songsSection || songsSection.items.length === 0) return;
-    const queue = songsSection.items.map(asQueueItem).filter((t) => t.youtubeVideoId);
-    if (queue.length === 0) return;
+    void ingestSearchSelection({
+      type: "song",
+      id,
+      title: item.title,
+      subtitle: item.subtitle,
+      imageUrl: item.imageUrl ?? undefined,
+    });
 
-    const startIndex = clampIndex(index, queue.length);
-    playCollection(queue, startIndex, "song", null);
-
-    const chosen = songsSection.items[startIndex];
-    if (chosen?.youtubeVideoId) {
-      void ingestSearchSelection({
-        type: "song",
-        id: chosen.youtubeVideoId,
-        title: chosen.title,
-        subtitle: chosen.subtitle,
-        imageUrl: chosen.imageUrl,
-      });
-    }
-  };
-
-  const openEntity = (item: SearchResultItem) => {
-    const id = (item.endpointPayload || item.id || "").trim();
-    if (!id) return;
-
-    if (item.kind === "artist") {
-      void ingestSearchSelection({ type: "artist", id, title: item.title, subtitle: item.subtitle, imageUrl: item.imageUrl });
-      navigate(`/artist/${encodeURIComponent(id)}`);
-      return;
-    }
-
-    if (item.kind === "album") {
-      void ingestSearchSelection({ type: "album", id, title: item.title, subtitle: item.subtitle, imageUrl: item.imageUrl });
-      navigate(`/playlist/${encodeURIComponent(id)}`, { state: { playlistId: id, playlistTitle: item.title, playlistCover: item.imageUrl ?? null } });
-      return;
-    }
-
-    if (item.kind === "playlist") {
-      void ingestSearchSelection({ type: "playlist", id, title: item.title, subtitle: item.subtitle, imageUrl: item.imageUrl });
-      navigate(`/playlist/${encodeURIComponent(id)}`, { state: { playlistId: id, playlistTitle: item.title, playlistCover: item.imageUrl ?? null } });
-      return;
-    }
-
-    if (item.endpointType === "watch" && id.length === 11) {
-      void ingestSearchSelection({ type: "song", id, title: item.title, subtitle: item.subtitle, imageUrl: item.imageUrl });
-      playTrack(
-        {
-          youtubeVideoId: id,
-          title: item.title,
-          artist: splitArtists(item.subtitle)[0] || item.subtitle || item.title,
-          thumbnailUrl: item.imageUrl ?? undefined,
-        },
-        "song"
-      );
-    }
-  };
-
-  const handleTopPlay = () => {
-    if (!topResult) return;
-    openEntity(topResult);
+    playTrack(
+      {
+        youtubeVideoId: id,
+        title: item.title,
+        artist: splitArtists(item.subtitle)?.[0] || item.subtitle || item.title,
+        thumbnailUrl: item.imageUrl ?? undefined,
+      },
+      "song"
+    );
   };
 
   const handleSuggestionSelect = (item: SearchSuggestItem) => {
@@ -231,183 +282,45 @@ export default function Search() {
     void runSearch(item.name);
   };
 
-  const renderTopResult = () => {
-    if (!topResult) return null;
-    const artists = splitArtists(topResult.subtitle);
-    const label =
-      topResult.kind === "artist" ? "Artist" : topResult.kind === "album" ? "Album" : topResult.kind === "playlist" ? "Playlist" : "Top result";
+  const renderResults = () => {
+    if (results.length === 0) return null;
 
     return (
-      <div className="mt-6 rounded-3xl bg-gradient-to-r from-neutral-900 to-neutral-800 p-4 shadow-lg">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-          <div className={`h-24 w-24 overflow-hidden ${topResult.kind === "artist" ? "rounded-full" : "rounded-2xl"} bg-neutral-800`}>
-            {topResult.imageUrl ? (
-              <img src={topResult.imageUrl} alt={topResult.title} className="h-full w-full object-cover" loading="lazy" />
-            ) : null}
-          </div>
+      <section className="mt-6 space-y-3">
+        <div className="text-sm font-semibold text-white">Results</div>
+        <div className="space-y-3">
+          {results.map((item, idx) => (
+            <div
+              key={`${item.id}-${idx}`}
+              className="flex items-center gap-4 rounded-2xl border border-white/5 bg-neutral-900/70 p-3"
+            >
+              <div className="h-16 w-16 overflow-hidden rounded-xl bg-neutral-800">
+                {item.imageUrl ? <img src={item.imageUrl} alt={item.title} className="h-full w-full object-cover" loading="lazy" /> : null}
+              </div>
 
-          <div className="flex-1 space-y-1">
-            <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-neutral-400">
-              <Flame className="h-4 w-4 text-[#F6C66D]" />
-              <span>{label}</span>
+              <div className="flex-1 space-y-1">
+                <div className="text-xs uppercase tracking-wide text-neutral-400">{item.rendererType}</div>
+                <div className="text-base font-semibold text-white">{item.title}</div>
+                {item.subtitle ? <div className="text-sm text-neutral-400">{item.subtitle}</div> : null}
+                {item.endpointPayload ? (
+                  <div className="text-[11px] text-neutral-500">
+                    {item.endpointType ?? "endpoint"}: {item.endpointPayload}
+                  </div>
+                ) : null}
+              </div>
+
+              {item.endpointType === "watch" && item.endpointPayload?.length === 11 ? (
+                <button
+                  type="button"
+                  onClick={() => handlePlay(item)}
+                  className="inline-flex items-center gap-2 rounded-full border border-white/20 px-3 py-2 text-sm font-semibold text-white transition hover:border-white/40"
+                >
+                  <Play className="h-4 w-4" />
+                  Play
+                </button>
+              ) : null}
             </div>
-            <h2 className="text-2xl font-bold leading-tight text-white">{topResult.title}</h2>
-            {artists.length > 0 ? <p className="text-sm text-neutral-300">{artists.join(" · ")}</p> : null}
-          </div>
-
-          <div className="flex gap-3">
-            {topResult.endpointType === "watch" ? (
-              <button
-                type="button"
-                onClick={handleTopPlay}
-                className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-semibold text-black transition hover:opacity-90"
-              >
-                <Play className="h-4 w-4" />
-                Play
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => openEntity(topResult)}
-                className="inline-flex items-center gap-2 rounded-full border border-white/20 px-4 py-2 text-sm font-semibold text-white transition hover:border-white/40"
-              >
-                Open
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  const renderSongs = () => {
-    if (!songsSection || songsSection.items.length === 0) return null;
-    return (
-      <section className="mt-8 space-y-3">
-        <div className="text-sm font-semibold text-white">Songs</div>
-        <div className="overflow-hidden rounded-2xl border border-white/5 bg-neutral-900/60">
-          {songsSection.items.slice(0, 5).map((song, index) => (
-            <TrackRow
-              key={song.youtubeVideoId || `${song.id}-${index}`}
-              index={index}
-              title={song.title}
-              artist={splitArtists(song.subtitle)[0] || song.artists?.[0]}
-              thumbnailUrl={song.imageUrl ?? undefined}
-              onSelect={() => playSongAtIndex(index)}
-            />
           ))}
-        </div>
-      </section>
-    );
-  };
-
-  const renderArtists = () => {
-    if (!artistsSection || artistsSection.items.length === 0) return null;
-    return (
-      <section className="mt-8 space-y-3">
-        <div className="text-sm font-semibold text-white">Artists</div>
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
-          {artistsSection.items.slice(0, 8).map((artist, idx) => (
-            <button
-              key={`${artist.id}-${idx}`}
-              type="button"
-              onClick={() =>
-                openEntity({
-                  id: artist.id,
-                  title: artist.name,
-                  imageUrl: artist.imageUrl ?? null,
-                  subtitle: "Artist",
-                  endpointType: "browse",
-                  endpointPayload: artist.id,
-                  kind: "artist",
-                })
-              }
-              className="group flex flex-col items-center gap-2 rounded-xl border border-white/5 bg-white/5 px-3 py-4 transition hover:border-[#F6C66D]/50 hover:bg-white/10"
-            >
-              <div className="h-20 w-20 overflow-hidden rounded-full bg-neutral-800">
-                {artist.imageUrl ? (
-                  <img src={artist.imageUrl} alt={artist.name} className="h-full w-full object-cover" loading="lazy" />
-                ) : null}
-              </div>
-              <div className="w-full truncate text-center text-sm font-semibold text-white">{artist.name}</div>
-            </button>
-          ))}
-        </div>
-      </section>
-    );
-  };
-
-  const renderAlbums = () => {
-    if (!albumsSection || albumsSection.items.length === 0) return null;
-    return (
-      <section className="mt-8 space-y-3">
-        <div className="text-sm font-semibold text-white">Albums</div>
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
-          {albumsSection.items.slice(0, 8).map((album, idx) => (
-            <button
-              key={`${album.id}-${idx}`}
-              type="button"
-              onClick={() =>
-                openEntity({
-                  id: album.id,
-                  title: album.title,
-                  imageUrl: album.imageUrl ?? null,
-                  subtitle: album.artist ?? album.channelTitle ?? "Album",
-                  endpointType: "browse",
-                  endpointPayload: album.id,
-                  kind: "album",
-                })
-              }
-              className="flex flex-col gap-2 rounded-xl border border-white/5 bg-white/5 p-3 text-left transition hover:border-[#F6C66D]/50 hover:bg-white/10"
-            >
-              <div className="aspect-square w-full overflow-hidden rounded-lg bg-neutral-800">
-                {album.imageUrl ? (
-                  <img src={album.imageUrl} alt={album.title} className="h-full w-full object-cover" loading="lazy" />
-                ) : null}
-              </div>
-              <div className="space-y-1">
-                <p className="truncate text-sm font-semibold text-white">{album.title}</p>
-                <p className="truncate text-xs text-neutral-400">{album.artist || album.channelTitle || "Album"}</p>
-              </div>
-            </button>
-          ))}
-        </div>
-      </section>
-    );
-  };
-
-  const renderPlaylists = () => {
-    if (!playlistsSection || playlistsSection.items.length === 0) return null;
-
-    return (
-      <section className="mt-8 space-y-3">
-        <div className="text-sm font-semibold text-white">Playlists</div>
-        <div className="space-y-2">
-          {playlistsSection.items.map((playlist) => {
-            const adapted = adaptSearchPlaylistResult({
-              id: playlist.id,
-              title: playlist.title,
-              subtitle: playlist.subtitle ?? undefined,
-              imageUrl: playlist.imageUrl ?? undefined,
-              endpointPayload: playlist.id,
-            });
-            if (!adapted) return null;
-
-            return (
-              <PlaylistListItem
-                key={playlist.id}
-                title={adapted.title}
-                subtitle={adapted.subtitle}
-                imageUrl={adapted.imageUrl ?? undefined}
-                badge={adapted.badge}
-                onSelect={() =>
-                  navigate(`/playlist/${encodeURIComponent(adapted.browseId)}`, {
-                    state: adapted.navState,
-                  })
-                }
-              />
-            );
-          })}
         </div>
       </section>
     );
@@ -450,15 +363,11 @@ export default function Search() {
           </div>
         ) : null}
 
-        {!loading && submitted && !error && !topResult && sections.length === 0 ? (
+        {!loading && submitted && !error && results.length === 0 ? (
           <div className="mt-10 text-sm text-neutral-400">No results for “{lastSearched}”. Try another search.</div>
         ) : null}
 
-        {renderTopResult()}
-        {renderSongs()}
-        {renderArtists()}
-        {renderAlbums()}
-        {renderPlaylists()}
+        {renderResults()}
       </div>
     </div>
   );

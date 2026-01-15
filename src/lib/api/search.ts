@@ -69,6 +69,11 @@ export type SearchPlaylistItem = {
   imageUrl?: string | null;
 };
 
+export type RawSearchItem = {
+  rendererType: string;
+  data: any;
+};
+
 export type SearchSection =
   | { kind: "songs"; title?: string | null; items: SearchTrackItem[] }
   | { kind: "artists"; title?: string | null; items: SearchArtistItem[] }
@@ -89,6 +94,8 @@ export type SearchResolveResponse = {
   featured: SearchResultItem | null;
   orderedItems: SearchResultItem[];
   sections: SearchSections;
+  raw?: any;
+  rawItems?: RawSearchItem[];
 };
 
 const DEFAULT_SECTIONS: SearchSections = { songs: [], artists: [], albums: [], playlists: [] };
