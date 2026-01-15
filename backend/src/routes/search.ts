@@ -104,6 +104,7 @@ router.get("/results", async (req, res) => {
      * artist sa exact match-om ima prioritet
      */
     const featured =
+      payload.featured ||
       payload.orderedItems.find(
         (item) =>
           item.kind === "artist" &&

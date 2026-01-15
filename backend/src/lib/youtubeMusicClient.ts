@@ -43,6 +43,18 @@ export type RawSearchItem = {
   data: any;
 };
 
+type ParsedFromRaw = {
+  featured: SearchResultItem | null;
+  orderedItems: SearchResultItem[];
+  sections: SearchSections;
+  stats: {
+    totalRaw: number;
+    parsed: number;
+    uiSkipped: number;
+    histogram: Record<string, number>;
+  };
+};
+
 export type SearchSections = {
   songs: SearchResultItem[];
   artists: SearchResultItem[];
@@ -1021,6 +1033,102 @@ function collectRawSearchItems(root: any): RawSearchItem[] {
   return items;
 }
 
+const UI_RENDERER_TYPES = new Set<string>([
+  "searchSuggestionsSectionRenderer",
+  "searchBoxRenderer",
+  "didYouMeanRenderer",
+  "showingResultsForRenderer",
+  "toggleButtonRenderer",
+  "chipCloudRenderer",
+  "backgroundPromoRenderer",
+  "compactLinkRenderer",
+  "horizontalCardListRenderer",
+]);
+
+function rendererHistogram(rawItems: RawSearchItem[]): Record<string, number> {
+  const histogram: Record<string, number> = {};
+  rawItems.forEach((entry) => {
+    const key = normalizeString(entry?.rendererType) || "unknown";
+    histogram[key] = (histogram[key] || 0) + 1;
+  });
+  return histogram;
+}
+
+function buildContentFromRaw(rawItems: RawSearchItem[], queryNorm: string, rawRoot: any): ParsedFromRaw {
+  const orderedItems: SearchResultItem[] = [];
+  const sections = emptySections();
+  const seen = new Set<string>();
+  let featured: SearchResultItem | null = null;
+  let uiSkipped = 0;
+
+  const pushParsed = (parsed: ParsedItem | null) => {
+    if (!parsed) return;
+    if (isNonMusicItem(parsed, queryNorm)) return;
+    const key = `${parsed.item.endpointType}:${parsed.item.endpointPayload}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    orderedItems.push(parsed.item);
+    addToSections(sections, parsed, null);
+    if (!featured && parsed.kind === "artist") {
+      featured = parsed.item;
+    }
+  };
+
+  rawItems.forEach((entry) => {
+    const type = normalizeString(entry?.rendererType);
+    if (!type || UI_RENDERER_TYPES.has(type)) {
+      uiSkipped += 1;
+      return;
+    }
+
+    if (type === "musicResponsiveListItemRenderer") {
+      const parsed = parseMusicResponsiveListItemRenderer(entry.data, queryNorm);
+      pushParsed(parsed);
+      return;
+    }
+
+    if (type === "musicCardShelfRenderer") {
+      const parsed = parseMusicCardShelfRenderer(entry.data, queryNorm);
+      pushParsed(parsed);
+      return;
+    }
+
+    if (type === "musicShelfRenderer") {
+      const parsedList = parseMusicShelfRenderer(entry.data, queryNorm);
+      parsedList.forEach((item) => pushParsed(item));
+      return;
+    }
+
+    // Fallback: try a generic renderer parse when a new renderer type shows up.
+    const fallback = tryBuildItemFromNode(entry.data);
+    pushParsed(fallback);
+  });
+
+  if (!featured) {
+    const hero = findHeroInTree(rawRoot, queryNorm);
+    if (hero) {
+      featured = hero;
+    }
+  }
+
+  const featuredKey = featured ? `${featured.endpointType}:${featured.endpointPayload}` : null;
+  if (featuredKey) {
+    sections.artists = sections.artists.filter((a) => `${a.endpointType}:${a.endpointPayload}` !== featuredKey);
+  }
+
+  return {
+    featured,
+    orderedItems,
+    sections,
+    stats: {
+      totalRaw: rawItems.length,
+      parsed: orderedItems.length,
+      uiSkipped,
+      histogram: rendererHistogram(rawItems),
+    },
+  };
+}
+
 export async function musicSearch(queryRaw: string): Promise<SearchResultsPayload> {
   const q = normalizeString(queryRaw);
   if (q.length < MIN_QUERY) {
@@ -1031,13 +1139,23 @@ export async function musicSearch(queryRaw: string): Promise<SearchResultsPayloa
     const raw = await fetchMusicSearchRaw(q);
     await recordInnertubePayload("search", q, raw);
     const rawItems = collectRawSearchItems(raw);
+    const queryNorm = normalizeLoose(q || raw?.query || raw?.originalQuery || "");
+    const parsed = buildContentFromRaw(rawItems, queryNorm, raw);
+
+    console.info("[search] parsed_raw_items", {
+      q,
+      totalRaw: parsed.stats.totalRaw,
+      parsed: parsed.stats.parsed,
+      uiSkipped: parsed.stats.uiSkipped,
+      histogram: parsed.stats.histogram,
+    });
 
     return {
       q,
       source: "youtube_live",
-      featured: null,
-      orderedItems: [],
-      sections: emptySections(),
+      featured: parsed.featured,
+      orderedItems: parsed.orderedItems,
+      sections: parsed.sections,
       raw,
       rawItems,
     };
