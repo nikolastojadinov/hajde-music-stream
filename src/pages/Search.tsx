@@ -101,11 +101,22 @@ const buildDisplayItems = (rawItems: RawSearchItem[]): DisplayResultItem[] => {
       endpointPayload = endpoint.payload;
     } else if (type === "musicCardShelfRenderer") {
       title = pickRunsText(data?.title?.runs) || pickRunsText(data?.header?.title?.runs) || title;
-      subtitle = pickRunsText(data?.subtitle?.runs) || pickRunsText(data?.header?.subtitle?.runs) || subtitle;
+      subtitle =
+        pickRunsText(data?.subtitle?.runs) ||
+        pickRunsText(data?.header?.subtitle?.runs) ||
+        subtitle ||
+        "Artist";
       imageUrl =
         pickThumbnail(data?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails) ||
         pickThumbnail(data?.thumbnail?.thumbnails) ||
         null;
+      const endpoint = extractEndpoint(data);
+      endpointType = endpoint.endpointType;
+      endpointPayload = endpoint.payload;
+    } else if (type === "musicShelfRenderer") {
+      title = pickRunsText(data?.title?.runs) || type;
+      subtitle = pickRunsText(data?.subtitle?.runs) || subtitle || "Shelf";
+      imageUrl = pickThumbnail(data?.thumbnail?.thumbnails) || imageUrl;
       const endpoint = extractEndpoint(data);
       endpointType = endpoint.endpointType;
       endpointPayload = endpoint.payload;

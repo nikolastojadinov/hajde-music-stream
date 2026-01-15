@@ -990,46 +990,34 @@ export async function searchSuggestions(queryRaw: string): Promise<SuggestRespon
 
 function collectRawSearchItems(root: any): RawSearchItem[] {
   const items: RawSearchItem[] = [];
+  const seen = new WeakSet<object>();
 
-  const pushRenderer = (rendererType: string, data: any) => {
-    if (!rendererType || data === undefined) return;
-    items.push({ rendererType, data });
+  const visit = (node: any): void => {
+    if (!node) return;
+
+    if (Array.isArray(node)) {
+      node.forEach((child) => visit(child));
+      return;
+    }
+
+    if (typeof node !== "object") return;
+    if (seen.has(node)) return;
+    seen.add(node);
+
+    const entries = Object.entries(node);
+
+    // First, record any renderer nodes in the current object, in property order
+    entries.forEach(([key, value]) => {
+      if (key.endsWith("Renderer") && value !== undefined && value !== null) {
+        items.push({ rendererType: key, data: value });
+      }
+    });
+
+    // Then traverse all child values to capture nested renderers in order
+    entries.forEach(([, value]) => visit(value));
   };
 
-  const pushChildContents = (value: any) => {
-    const contents = value?.contents;
-    if (!Array.isArray(contents)) return;
-    contents.forEach((child: any) => {
-      if (!child || typeof child !== "object") return;
-      Object.entries(child).forEach(([childKey, childValue]) => {
-        if (childKey.endsWith("Renderer")) {
-          pushRenderer(childKey, childValue);
-        }
-      });
-    });
-  };
-
-  const tabs = root?.contents?.tabbedSearchResultsRenderer?.tabs;
-  if (!Array.isArray(tabs)) return items;
-
-  tabs.forEach((tab: any) => {
-    const sections = tab?.tabRenderer?.content?.sectionListRenderer?.contents;
-    if (!Array.isArray(sections)) return;
-
-    sections.forEach((section: any) => {
-      if (!section || typeof section !== "object") return;
-      Object.entries(section).forEach(([key, value]) => {
-        if (key.endsWith("Renderer")) {
-          if (Array.isArray((value as any)?.contents)) {
-            pushChildContents(value);
-          } else {
-            pushRenderer(key, value);
-          }
-        }
-      });
-    });
-  });
-
+  visit(root);
   return items;
 }
 
