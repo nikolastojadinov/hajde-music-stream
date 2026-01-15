@@ -81,9 +81,6 @@ const splitArtists = (value?: string | null): string[] => {
 const ALLOWED_RENDERERS = new Set([
   "musicResponsiveListItemRenderer",
   "musicCardShelfRenderer",
-  "musicShelfRenderer",
-  "musicThumbnailRenderer",
-  "musicItemThumbnailOverlayRenderer",
 ]);
 
 const buildDisplayItems = (rawItems: RawSearchItem[]): DisplayResultItem[] => {
@@ -94,6 +91,7 @@ const buildDisplayItems = (rawItems: RawSearchItem[]): DisplayResultItem[] => {
     const type = normalizeString(entry?.rendererType) || "item";
 
     if (!ALLOWED_RENDERERS.has(type)) return;
+    if (type === "musicCardShelfRenderer" && items.length > 0) return;
 
     let title = "";
     let subtitle = "";
@@ -122,30 +120,6 @@ const buildDisplayItems = (rawItems: RawSearchItem[]): DisplayResultItem[] => {
         pickThumbnail(data?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails) ||
         pickThumbnail(data?.thumbnail?.thumbnails) ||
         null;
-      const endpoint = extractEndpoint(data);
-      endpointType = endpoint.endpointType;
-      endpointPayload = endpoint.payload;
-    } else if (type === "musicShelfRenderer") {
-      title = pickRunsText(data?.title?.runs) || type;
-      subtitle = pickRunsText(data?.subtitle?.runs) || subtitle || "Shelf";
-      imageUrl = pickThumbnail(data?.thumbnail?.thumbnails) || imageUrl;
-      const endpoint = extractEndpoint(data);
-      endpointType = endpoint.endpointType;
-      endpointPayload = endpoint.payload;
-    } else if (type === "musicThumbnailRenderer") {
-      title = pickRunsText(data?.title?.runs) || type;
-      subtitle = pickRunsText(data?.subtitle?.runs) || subtitle;
-      imageUrl =
-        pickThumbnail(data?.thumbnail?.thumbnails) ||
-        pickThumbnail(data?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails) ||
-        null;
-      const endpoint = extractEndpoint(data);
-      endpointType = endpoint.endpointType;
-      endpointPayload = endpoint.payload;
-    } else if (type === "musicItemThumbnailOverlayRenderer") {
-      title = pickRunsText(data?.content?.musicPlayButtonRenderer?.playNavigationEndpoint?.watchEndpoint?.title?.runs) || type;
-      subtitle = pickRunsText(data?.subtitle?.runs) || subtitle;
-      imageUrl = pickThumbnail(data?.content?.musicPlayButtonRenderer?.thumbnail?.thumbnails) || null;
       const endpoint = extractEndpoint(data);
       endpointType = endpoint.endpointType;
       endpointPayload = endpoint.payload;
@@ -326,7 +300,6 @@ export default function Search() {
               </div>
 
               <div className="flex-1 space-y-1">
-                <div className="text-xs uppercase tracking-wide text-neutral-400">{item.rendererType}</div>
                 <div className="text-base font-semibold text-white">{item.title}</div>
                 {item.subtitle ? <div className="text-sm text-neutral-400">{item.subtitle}</div> : null}
                 {item.endpointPayload ? (
