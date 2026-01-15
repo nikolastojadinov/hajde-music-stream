@@ -23,6 +23,7 @@ type DisplayResultItem = {
   rendererType: string;
   endpointType?: "watch" | "browse";
   endpointPayload?: string;
+  browsePageType?: string;
   raw: any;
 };
 
@@ -52,7 +53,9 @@ const pickThumbnail = (thumbnails?: any): string | null => {
   return scored[0].url;
 };
 
-const extractEndpoint = (renderer: any): { endpointType?: "watch" | "browse"; payload?: string } => {
+const extractEndpoint = (
+  renderer: any
+): { endpointType?: "watch" | "browse"; payload?: string; browsePageType?: string } => {
   const navigation =
     renderer?.navigationEndpoint ||
     renderer?.playNavigationEndpoint ||
@@ -64,11 +67,15 @@ const extractEndpoint = (renderer: any): { endpointType?: "watch" | "browse"; pa
   const browse = navigation?.browseEndpoint || renderer?.browseEndpoint;
   const watch = navigation?.watchEndpoint || renderer?.watchEndpoint;
 
+  const browsePageType =
+    browse?.browseEndpointContextSupportedConfigs?.browseEndpointContextMusicConfig?.pageType ||
+    renderer?.browseEndpointContextSupportedConfigs?.browseEndpointContextMusicConfig?.pageType;
+
   const browseId = normalizeString(browse?.browseId);
   const videoId = normalizeString(watch?.videoId);
 
-  if (videoId) return { endpointType: "watch", payload: videoId };
-  if (browseId) return { endpointType: "browse", payload: browseId };
+  if (videoId) return { endpointType: "watch", payload: videoId, browsePageType };
+  if (browseId) return { endpointType: "browse", payload: browseId, browsePageType };
   return {};
 };
 
@@ -109,6 +116,7 @@ const buildDisplayItems = (rawItems: RawSearchItem[]): DisplayResultItem[] => {
       const endpoint = extractEndpoint(data);
       endpointType = endpoint.endpointType;
       endpointPayload = endpoint.payload;
+      browsePageType = endpoint.browsePageType;
     } else if (type === "musicCardShelfRenderer") {
       title = pickRunsText(data?.title?.runs) || pickRunsText(data?.header?.title?.runs) || title;
       subtitle =
@@ -123,6 +131,7 @@ const buildDisplayItems = (rawItems: RawSearchItem[]): DisplayResultItem[] => {
       const endpoint = extractEndpoint(data);
       endpointType = endpoint.endpointType;
       endpointPayload = endpoint.payload;
+      browsePageType = endpoint.browsePageType;
     }
 
     const id = endpointPayload || `raw-${index}`;
@@ -135,6 +144,7 @@ const buildDisplayItems = (rawItems: RawSearchItem[]): DisplayResultItem[] => {
       rendererType: type,
       endpointType,
       endpointPayload,
+      browsePageType,
       raw: data,
     } satisfies DisplayResultItem);
   });
@@ -245,6 +255,33 @@ export default function Search() {
     );
   };
 
+  const isArtistResult = (item: DisplayResultItem): boolean => {
+    if (item.endpointType !== "browse") return false;
+    const pageType = normalizeString(item.browsePageType).toUpperCase();
+    const browseId = normalizeString(item.endpointPayload);
+    const subtitle = normalizeString(item.subtitle).toLowerCase();
+
+    if (pageType === "MUSIC_PAGE_TYPE_ARTIST") return true;
+    if (/^UC[A-Za-z0-9_-]+$/i.test(browseId)) return true;
+    if (subtitle.includes("artist")) return true;
+    return false;
+  };
+
+  const handleArtistNavigate = (item: DisplayResultItem) => {
+    const browseId = normalizeString(item.endpointPayload);
+    if (!browseId) return;
+
+    void ingestSearchSelection({
+      type: "artist",
+      id: browseId,
+      title: item.title,
+      subtitle: item.subtitle,
+      imageUrl: item.imageUrl ?? undefined,
+    });
+
+    navigate(`/artist/${encodeURIComponent(browseId)}`);
+  };
+
   const handleSuggestionSelect = (item: SearchSuggestItem) => {
     clearSuggestions();
 
@@ -290,11 +327,16 @@ export default function Search() {
       <section className="mt-6 space-y-3">
         <div className="text-sm font-semibold text-white">Results</div>
         <div className="space-y-3">
-          {results.map((item, idx) => (
-            <div
-              key={`${item.id}-${idx}`}
-              className="flex items-center gap-4 rounded-2xl border border-white/5 bg-neutral-900/70 p-3"
-            >
+          {results.map((item, idx) => {
+            const artistResult = isArtistResult(item);
+            return (
+              <div
+                key={`${item.id}-${idx}`}
+                className={`flex items-center gap-4 rounded-2xl border border-white/5 bg-neutral-900/70 p-3 ${
+                  artistResult ? "cursor-pointer hover:border-white/10" : ""
+                }`}
+                onClick={artistResult ? () => handleArtistNavigate(item) : undefined}
+              >
               <div className="h-16 w-16 overflow-hidden rounded-xl bg-neutral-800">
                 {item.imageUrl ? <img src={item.imageUrl} alt={item.title} className="h-full w-full object-cover" loading="lazy" /> : null}
               </div>
@@ -312,7 +354,10 @@ export default function Search() {
               {item.endpointType === "watch" && item.endpointPayload?.length === 11 ? (
                 <button
                   type="button"
-                  onClick={() => handlePlay(item)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handlePlay(item);
+                  }}
                   className="inline-flex items-center gap-2 rounded-full border border-white/20 px-3 py-2 text-sm font-semibold text-white transition hover:border-white/40"
                 >
                   <Play className="h-4 w-4" />
@@ -320,7 +365,8 @@ export default function Search() {
                 </button>
               ) : null}
             </div>
-          ))}
+            );
+          })}
         </div>
       </section>
     );
