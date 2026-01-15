@@ -17,21 +17,23 @@ function pickBestArtistMatch(artists: MusicSearchArtist[], query: string): Music
   const q = normalizeLoose(query);
   if (!q) return null;
 
-  return artists
-    .map((artist) => {
-      const nameNorm = normalizeLoose(artist.name);
-      const subtitle = normalizeString((artist as any).subtitle || (artist as any).channelTitle || '');
-      let score = 0;
-      if (containsWords(subtitle, ['profile'])) score -= 1000;
-      if (nameNorm === q) score += 200;
-      if (nameNorm.includes(q) || q.includes(nameNorm)) score += 40;
-      if (artist.isOfficial) score += 40;
-      if (containsWords(artist.name, ['tribute', 'cover'])) score -= 120;
-      if (containsWords(subtitle, ['tribute', 'cover'])) score -= 80;
-      return { artist, score };
-    })
-    .filter((entry) => entry.score > 0)
-    .sort((a, b) => b.score - a.score)[0]?.artist ?? null;
+  return (
+    artists
+      .map((artist) => {
+        const nameNorm = normalizeLoose(artist.name);
+        const subtitle = normalizeString((artist as any).subtitle || (artist as any).channelTitle || '');
+        let score = 0;
+        if (containsWords(subtitle, ['profile'])) score -= 1000;
+        if (nameNorm === q) score += 200;
+        if (nameNorm.includes(q) || q.includes(nameNorm)) score += 40;
+        if (artist.isOfficial) score += 40;
+        if (containsWords(artist.name, ['tribute', 'cover'])) score -= 120;
+        if (containsWords(subtitle, ['tribute', 'cover'])) score -= 80;
+        return { artist, score };
+      })
+      .filter((entry) => entry.score > 0)
+      .sort((a, b) => b.score - a.score)[0]?.artist ?? null
+  );
 }
 
 async function resolveArtistBrowseId(query: string): Promise<string | null> {
@@ -45,8 +47,8 @@ async function resolveArtistBrowseId(query: string): Promise<string | null> {
         base.replace(/[\\/]+/g, ' '),
         base.replace(/[^a-z0-9]+/gi, ' ').trim(),
         base.replace(/[^a-z0-9]+/gi, ''),
-      ].filter(Boolean)
-    )
+      ].filter(Boolean),
+    ),
   );
 
   for (const variant of variants) {
@@ -78,7 +80,6 @@ router.get('/', async (req, res) => {
   try {
     let targetId = browseId;
 
-    // If the incoming id is not a valid YouTube Music browse id, try to resolve it via search
     if (!looksLikeBrowseId(targetId)) {
       const resolved = await resolveArtistBrowseId(targetId);
       if (!resolved) return res.status(400).json({ error: 'browse_id_invalid' });
@@ -86,9 +87,20 @@ router.get('/', async (req, res) => {
     }
 
     const data = await browseArtistById(targetId);
+    let ingestStatus: 'ok' | 'skipped' | 'error' = 'skipped';
+    let ingestError: string | null = null;
+
     if (data) {
-      await ingestArtistBrowse(data);
+      try {
+        await ingestArtistBrowse(data);
+        ingestStatus = 'ok';
+      } catch (ingestErr: any) {
+        ingestStatus = 'error';
+        ingestError = ingestErr?.message || 'ingest_failed';
+        console.error('[browse/artist] ingest failed', { browseId: targetId, message: ingestError });
+      }
     }
+
     const payload = {
       artistName: data?.artist.name ?? null,
       thumbnails: { avatar: data?.artist.thumbnailUrl ?? null, banner: data?.artist.bannerUrl ?? null },
@@ -121,6 +133,8 @@ router.get('/', async (req, res) => {
             }))
             .filter((p) => Boolean(p.id))
         : [],
+      ingest_status: ingestStatus,
+      ingest_error: ingestError,
     };
 
     res.set('Cache-Control', 'no-store');
