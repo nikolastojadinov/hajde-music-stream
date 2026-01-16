@@ -1,120 +1,91 @@
-import { setArtistIngestStatus, type ArtistCacheStatus } from './artistIngestGuard';
+import { getSupabaseAdmin } from './supabaseClient';
 
-type IngestSource = 'search' | 'suggest' | 'direct';
-
-type IngestPhase = 'BOOTSTRAP' | 'ALBUMS' | 'PLAYLISTS' | 'FINALIZE';
-
-export type FullArtistIngestParams = {
+export type FullArtistIngestInput = {
   artistKey: string;
   browseId: string;
-  source: IngestSource;
+  source: 'search' | 'suggest' | 'direct';
 };
 
-export type IngestCounters = {
-  albumsFetched: number;
-  tracksFetched: number;
-  playlistsFetched: number;
-};
-
-export type IngestError = {
-  phase: IngestPhase;
-  message: string;
-};
-
-export type IngestContext = {
+export type FullArtistIngestResult = {
   artistKey: string;
   browseId: string;
+  source: 'search' | 'suggest' | 'direct';
   startedAt: string;
-  currentPhase: IngestPhase;
-  counters: IngestCounters;
-  errors: IngestError[];
-  source: IngestSource;
+  completedAt: string;
+  status: 'skipped_existing' | 'completed';
 };
 
-async function runBootstrapPhase(ctx: IngestContext): Promise<IngestContext> {
-  return { ...ctx, currentPhase: 'BOOTSTRAP' };
+async function ingestArtistBase(ctx: { artistKey: string; browseId: string; source: string }): Promise<void> {
+  console.info(`[full-artist-ingest] step=ingestArtistBase start artist_key=${ctx.artistKey}`);
+  // TODO: call base artist ingest implementation
+  console.info(`[full-artist-ingest] step=ingestArtistBase finish artist_key=${ctx.artistKey}`);
 }
 
-async function runAlbumsPhase(ctx: IngestContext): Promise<IngestContext> {
-  return { ...ctx, currentPhase: 'ALBUMS' };
+async function expandArtistAlbums(ctx: { artistKey: string; browseId: string; source: string }): Promise<void> {
+  console.info(`[full-artist-ingest] step=expandArtistAlbums start artist_key=${ctx.artistKey}`);
+  // TODO: implement album expansion
+  console.info(`[full-artist-ingest] step=expandArtistAlbums finish artist_key=${ctx.artistKey}`);
 }
 
-async function runPlaylistsPhase(ctx: IngestContext): Promise<IngestContext> {
-  return { ...ctx, currentPhase: 'PLAYLISTS' };
+async function expandArtistPlaylists(ctx: { artistKey: string; browseId: string; source: string }): Promise<void> {
+  console.info(`[full-artist-ingest] step=expandArtistPlaylists start artist_key=${ctx.artistKey}`);
+  // TODO: implement playlist expansion
+  console.info(`[full-artist-ingest] step=expandArtistPlaylists finish artist_key=${ctx.artistKey}`);
 }
 
-async function runFinalizePhase(ctx: IngestContext): Promise<IngestContext> {
-  return { ...ctx, currentPhase: 'FINALIZE' };
+async function finalizeArtistIngest(ctx: { artistKey: string; browseId: string; source: string }): Promise<void> {
+  console.info(`[full-artist-ingest] step=finalizeArtistIngest start artist_key=${ctx.artistKey}`);
+  // TODO: implement finalize step
+  console.info(`[full-artist-ingest] step=finalizeArtistIngest finish artist_key=${ctx.artistKey}`);
 }
 
-function logPhase(phase: IngestPhase, artistKey: string): void {
-  console.info(`[full-artist-ingest] phase=${phase} artist_key=${artistKey}`);
-}
-
-export async function runFullArtistIngest(params: FullArtistIngestParams): Promise<IngestContext> {
-  const artistKey = (params.artistKey || '').trim();
-  const browseId = (params.browseId || '').trim();
+export async function runFullArtistIngest(input: FullArtistIngestInput): Promise<FullArtistIngestResult> {
+  const artistKey = (input.artistKey || '').trim();
+  const browseId = (input.browseId || '').trim();
+  const source = input.source || 'direct';
 
   if (!artistKey || !browseId) {
-    throw new Error('[full-artist-ingest] missing artistKey or browseId');
+    throw new Error('[full-artist-ingest] artistKey and browseId are required');
   }
 
   const startedAt = new Date().toISOString();
-  const base: IngestContext = {
-    artistKey,
-    browseId,
-    startedAt,
-    currentPhase: 'BOOTSTRAP',
-    counters: { albumsFetched: 0, tracksFetched: 0, playlistsFetched: 0 },
-    errors: [],
-    source: params.source,
-  };
+  const supabase = getSupabaseAdmin();
 
-  console.info(`[full-artist-ingest] start artist_key=${artistKey} browse_id=${browseId} source=${params.source}`);
+  const { data: existing, error: readError } = await supabase
+    .from('artists')
+    .select('artist_key')
+    .eq('artist_key', artistKey)
+    .maybeSingle();
 
-  let ctx = base;
-
-  await setArtistIngestStatus(artistKey, 'pending');
-
-  const phases: Array<{ name: IngestPhase; handler: (c: IngestContext) => Promise<IngestContext> }> = [
-    { name: 'BOOTSTRAP', handler: runBootstrapPhase },
-    { name: 'ALBUMS', handler: runAlbumsPhase },
-    { name: 'PLAYLISTS', handler: runPlaylistsPhase },
-    { name: 'FINALIZE', handler: runFinalizePhase },
-  ];
-
-  for (const phase of phases) {
-    try {
-      logPhase(phase.name, artistKey);
-      ctx = await phase.handler(ctx);
-      ctx = { ...ctx, currentPhase: phase.name };
-    } catch (err: any) {
-      const message = err?.message || String(err);
-      console.error('[full-artist-ingest] phase failed', { artistKey, phase: phase.name, message });
-      ctx = {
-        ...ctx,
-        currentPhase: phase.name,
-        errors: [...ctx.errors, { phase: phase.name, message }],
-      };
-    }
+  if (readError) {
+    throw new Error(`[full-artist-ingest] failed to check artist existence: ${readError.message}`);
   }
 
-  const status: ArtistCacheStatus = ctx.errors.length > 0 ? 'error' : 'done';
-
-  try {
-    await setArtistIngestStatus(artistKey, status, ctx.errors[0]?.message);
-  } catch (updateErr: any) {
-    console.error('[full-artist-ingest] status update failed', {
-      artistKey,
-      message: updateErr?.message || String(updateErr),
-    });
+  if (existing?.artist_key) {
+    console.info(`[full-artist-ingest] skip existing artist_key=${artistKey}`);
+    const completedAt = new Date().toISOString();
+    return { artistKey, browseId, source, startedAt, completedAt, status: 'skipped_existing' };
   }
 
-  if (status === 'done') {
-    console.info(`[full-artist-ingest] complete artist_key=${artistKey}`);
-  } else {
-    console.error(`[full-artist-ingest] failed artist_key=${artistKey} errors=${ctx.errors.length}`);
+  const { error: insertError } = await supabase.from('artists').insert({
+    artist: artistKey,
+    artist_key: artistKey,
+    display_name: artistKey,
+    normalized_name: artistKey,
+  });
+  if (insertError) {
+    throw new Error(`[full-artist-ingest] failed to insert artist placeholder: ${insertError.message}`);
   }
 
-  return ctx;
+  const ctx = { artistKey, browseId, source };
+
+  await ingestArtistBase(ctx);
+  await expandArtistAlbums(ctx);
+  await expandArtistPlaylists(ctx);
+  await finalizeArtistIngest(ctx);
+
+  const completedAt = new Date().toISOString();
+  console.info(`[full-artist-ingest] complete artist_key=${artistKey} status=completed`);
+
+  return { artistKey, browseId, source, startedAt, completedAt, status: 'completed' };
 }
