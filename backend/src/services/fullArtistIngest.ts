@@ -73,8 +73,50 @@ async function expandArtistAlbums(ctx: { artistKey: string; browseId: string; so
 
 async function expandArtistPlaylists(ctx: { artistKey: string; browseId: string; source: string }): Promise<void> {
   console.info(`[full-artist-ingest] step=expandArtistPlaylists start artist_key=${ctx.artistKey}`);
-  // TODO: implement playlist expansion
-  console.info(`[full-artist-ingest] step=expandArtistPlaylists finish artist_key=${ctx.artistKey}`);
+  const artist = await browseArtistById(ctx.browseId);
+  if (!artist) {
+    throw new Error(`[full-artist-ingest] artist browse failed browse_id=${ctx.browseId}`);
+  }
+
+  const playlists = Array.isArray(artist.playlists) ? artist.playlists : [];
+
+  let ingested = 0;
+  let failed = 0;
+
+  for (const playlist of playlists) {
+    const browseId = playlist.id;
+    if (!browseId) continue;
+
+    console.info(`[full-artist-ingest] playlist start browse_id=${browseId}`);
+
+    try {
+      const playlistBrowse = await browsePlaylistById(browseId);
+      if (!playlistBrowse) {
+        failed += 1;
+        console.error('[full-artist-ingest] playlist browse missing', { browseId });
+        continue;
+      }
+
+      await ingestPlaylistOrAlbum({
+        kind: 'playlist',
+        browseId,
+        title: playlistBrowse.title || playlist.title,
+        subtitle: playlistBrowse.subtitle,
+        thumbnailUrl: playlistBrowse.thumbnailUrl ?? playlist.imageUrl ?? null,
+        tracks: playlistBrowse.tracks,
+      });
+
+      ingested += 1;
+    } catch (err: any) {
+      failed += 1;
+      console.error('[full-artist-ingest] playlist ingest failed', {
+        browseId,
+        message: err?.message || String(err),
+      });
+    }
+  }
+
+  console.info(`[full-artist-ingest] step=expandArtistPlaylists finish artist_key=${ctx.artistKey} playlists_found=${playlists.length} playlists_ingested=${ingested} playlists_failed=${failed}`);
 }
 
 async function finalizeArtistIngest(ctx: { artistKey: string; browseId: string; source: string }): Promise<void> {
