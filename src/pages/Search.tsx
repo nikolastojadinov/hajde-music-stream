@@ -1,3 +1,5 @@
+// target file: src/pages/Search.tsx
+
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { Loader2, Play, Search as SearchIcon } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -24,6 +26,7 @@ type DisplayResultItem = {
   endpointType?: "watch" | "browse";
   endpointPayload?: string;
   browsePageType?: string;
+  browseId?: string | null;
   raw: unknown;
 };
 
@@ -79,16 +82,38 @@ const extractEndpoint = (
   return {};
 };
 
+const pickBrowseId = (renderer: any, fallback?: string): string | null => {
+  const runs: Array<{ navigationEndpoint?: { browseEndpoint?: { browseId?: string } } } | undefined> =
+    (renderer?.title?.runs as Array<{ navigationEndpoint?: { browseEndpoint?: { browseId?: string } } }> | undefined) ||
+    (renderer?.header?.title?.runs as Array<{ navigationEndpoint?: { browseEndpoint?: { browseId?: string } } }> | undefined) ||
+    (renderer?.subtitle?.runs as Array<{ navigationEndpoint?: { browseEndpoint?: { browseId?: string } } }> | undefined) ||
+    (renderer?.header?.subtitle?.runs as Array<{ navigationEndpoint?: { browseEndpoint?: { browseId?: string } } }> | undefined) ||
+    [];
+
+  const runBrowseId = runs.find((r) => r?.navigationEndpoint?.browseEndpoint?.browseId)?.navigationEndpoint?.browseEndpoint?.browseId;
+
+  const candidates = [
+    renderer?.browseId,
+    renderer?.navigationEndpoint?.browseEndpoint?.browseId,
+    renderer?.browseEndpoint?.browseId,
+    renderer?.onTap?.browseEndpoint?.browseId,
+    renderer?.menu?.navigationItemRenderer?.navigationEndpoint?.browseEndpoint?.browseId,
+    renderer?.header?.navigationEndpoint?.browseEndpoint?.browseId,
+    runBrowseId,
+    fallback,
+  ];
+
+  const picked = candidates.map(normalizeString).find(Boolean);
+  return picked || null;
+};
+
 const splitArtists = (value?: string | null): string[] => {
   if (!value) return [];
   const tokens = value.split(/[·,/|]/g).map((part) => part.trim()).filter(Boolean);
   return tokens.length > 0 ? tokens : [value.trim()].filter(Boolean);
 };
 
-const ALLOWED_RENDERERS = new Set([
-  "musicResponsiveListItemRenderer",
-  "musicCardShelfRenderer",
-]);
+const ALLOWED_RENDERERS = new Set(["musicResponsiveListItemRenderer", "musicCardShelfRenderer"]);
 
 const buildDisplayItems = (rawItems: RawSearchItem[]): DisplayResultItem[] => {
   const items: DisplayResultItem[] = [];
@@ -106,6 +131,7 @@ const buildDisplayItems = (rawItems: RawSearchItem[]): DisplayResultItem[] => {
     let endpointType: "watch" | "browse" | undefined;
     let endpointPayload: string | undefined;
     let browsePageType: string | undefined;
+    let browseId: string | null = null;
 
     if (type === "musicResponsiveListItemRenderer") {
       title = pickRunsText((data as any)?.flexColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs) || title;
@@ -118,6 +144,7 @@ const buildDisplayItems = (rawItems: RawSearchItem[]): DisplayResultItem[] => {
       endpointType = endpoint.endpointType;
       endpointPayload = endpoint.payload;
       browsePageType = endpoint.browsePageType;
+      browseId = pickBrowseId(data, endpoint.endpointType === "browse" ? endpoint.payload : undefined);
     } else if (type === "musicCardShelfRenderer") {
       title = pickRunsText((data as any)?.title?.runs) || pickRunsText((data as any)?.header?.title?.runs) || title;
       subtitle =
@@ -133,6 +160,7 @@ const buildDisplayItems = (rawItems: RawSearchItem[]): DisplayResultItem[] => {
       endpointType = endpoint.endpointType;
       endpointPayload = endpoint.payload;
       browsePageType = endpoint.browsePageType;
+      browseId = pickBrowseId(data, endpoint.endpointType === "browse" ? endpoint.payload : undefined);
     }
 
     if (!endpointType && endpointPayload && /^UC[A-Za-z0-9_-]+$/i.test(endpointPayload)) {
@@ -140,7 +168,16 @@ const buildDisplayItems = (rawItems: RawSearchItem[]): DisplayResultItem[] => {
       browsePageType = browsePageType || "MUSIC_PAGE_TYPE_ARTIST";
     }
 
-    const id = endpointPayload || `raw-${index}`;
+    if (!endpointType && browseId) {
+      endpointType = "browse";
+      endpointPayload = browseId;
+    }
+
+    if (!browseId && endpointType === "browse" && endpointPayload) {
+      browseId = normalizeString(endpointPayload);
+    }
+
+    const id = endpointPayload || browseId || `raw-${index}`;
 
     items.push({
       id,
@@ -151,6 +188,7 @@ const buildDisplayItems = (rawItems: RawSearchItem[]): DisplayResultItem[] => {
       endpointType,
       endpointPayload,
       browsePageType,
+      browseId,
       raw: data,
     });
   });
@@ -159,8 +197,20 @@ const buildDisplayItems = (rawItems: RawSearchItem[]): DisplayResultItem[] => {
 };
 
 const getArtistBrowseId = (item: DisplayResultItem): string | null => {
-  const candidate = normalizeString((item as any).browseId) || normalizeString(item.endpointPayload) || normalizeString(item.id);
+  const candidate = normalizeString(item.browseId) || normalizeString(item.endpointPayload) || normalizeString(item.id);
   return candidate || null;
+};
+
+const isArtistResult = (item: DisplayResultItem): boolean => {
+  const browseId = getArtistBrowseId(item);
+  const pageType = normalizeString(item.browsePageType).toUpperCase();
+  const subtitle = normalizeString(item.subtitle).toLowerCase();
+
+  if (!browseId) return false;
+  if (pageType === "MUSIC_PAGE_TYPE_ARTIST") return true;
+  if (/^UC[A-Za-z0-9_-]+$/i.test(browseId)) return true;
+  if (subtitle.includes("artist")) return true;
+  return false;
 };
 
 export default function Search() {
@@ -265,18 +315,6 @@ export default function Search() {
       },
       "song"
     );
-  };
-
-  const isArtistResult = (item: DisplayResultItem): boolean => {
-    if (item.endpointType !== "browse") return false;
-    const pageType = normalizeString(item.browsePageType).toUpperCase();
-    const browseId = normalizeString(item.endpointPayload);
-    const subtitle = normalizeString(item.subtitle).toLowerCase();
-
-    if (pageType === "MUSIC_PAGE_TYPE_ARTIST") return true;
-    if (/^UC[A-Za-z0-9_-]+$/i.test(browseId)) return true;
-    if (subtitle.includes("artist")) return true;
-    return false;
   };
 
   const handleArtistNavigate = (item: DisplayResultItem) => {
