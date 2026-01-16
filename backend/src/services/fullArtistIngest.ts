@@ -121,8 +121,30 @@ async function expandArtistPlaylists(ctx: { artistKey: string; browseId: string;
 
 async function finalizeArtistIngest(ctx: { artistKey: string; browseId: string; source: string }): Promise<void> {
   console.info(`[full-artist-ingest] step=finalizeArtistIngest start artist_key=${ctx.artistKey}`);
-  // TODO: implement finalize step
-  console.info(`[full-artist-ingest] step=finalizeArtistIngest finish artist_key=${ctx.artistKey}`);
+
+  const supabase = getSupabaseAdmin();
+  const now = new Date().toISOString();
+
+  const { error: artistError } = await supabase
+    .from('artists')
+    .update({ updated_at: now })
+    .eq('artist_key', ctx.artistKey);
+
+  if (artistError) {
+    throw new Error(`[full-artist-ingest] finalize failed updating artist: ${artistError.message}`);
+  }
+
+  const { error: cacheError } = await supabase.from('artist_cache_entries').upsert({
+    artist_key: ctx.artistKey,
+    payload: { status: 'full_ingest_completed' },
+    ts: now,
+  });
+
+  if (cacheError) {
+    throw new Error(`[full-artist-ingest] finalize failed updating cache: ${cacheError.message}`);
+  }
+
+  console.info(`[full-artist-ingest] finalized artist_key=${ctx.artistKey}`);
 }
 
 export async function runFullArtistIngest(input: FullArtistIngestInput): Promise<FullArtistIngestResult> {
