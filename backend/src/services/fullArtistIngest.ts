@@ -125,56 +125,6 @@ async function expandArtistAlbums(ctx: IngestContext, browseId: string): Promise
   );
 }
 
-async function expandArtistPlaylists(ctx: IngestContext, browseId: string): Promise<void> {
-  const browse = await fetchArtistBrowseById(browseId);
-  if (!browse) return;
-
-  console.info(`[full-artist-ingest] step=expandArtistPlaylists start artist_key=${ctx.artistKey}`);
-
-  const playlists = Array.isArray(browse.playlists) ? browse.playlists : [];
-  let ingested = 0;
-  let failed = 0;
-
-  for (const playlist of playlists) {
-    const targetId = normalize(playlist.id);
-    if (!targetId) continue;
-
-    try {
-      const playlistBrowse = await browsePlaylistById(targetId);
-      if (!playlistBrowse || !Array.isArray(playlistBrowse.tracks) || playlistBrowse.tracks.length === 0) {
-        failed += 1;
-        console.error('[full-artist-ingest] playlist browse missing', { browseId: targetId });
-        continue;
-      }
-
-      const result = await ingestPlaylistOrAlbum(
-        {
-          kind: 'playlist',
-          browseId: targetId,
-          title: playlistBrowse.title || playlist.title,
-          subtitle: playlistBrowse.subtitle,
-          thumbnailUrl: playlistBrowse.thumbnailUrl ?? playlist.imageUrl ?? null,
-          tracks: playlistBrowse.tracks,
-        },
-        { primaryArtistKeys: [ctx.artistKey] },
-      );
-
-      console.info('[full-artist-ingest] playlist_tracks_ingested', { browseId: targetId, count: result.playlistTrackCount });
-      ingested += 1;
-    } catch (err: any) {
-      failed += 1;
-      console.error('[full-artist-ingest] playlist ingest failed', {
-        browseId: targetId,
-        message: err?.message || String(err),
-      });
-    }
-  }
-
-  console.info(
-    `[full-artist-ingest] step=expandArtistPlaylists finish artist_key=${ctx.artistKey} playlists_found=${playlists.length} playlists_ingested=${ingested} playlists_failed=${failed}`,
-  );
-}
-
 async function finalizeArtistIngest(ctx: IngestContext): Promise<void> {
   console.info(`[full-artist-ingest] step=finalizeArtistIngest start artist_key=${ctx.artistKey}`);
 
@@ -218,7 +168,6 @@ export async function runFullArtistIngest(input: FullArtistIngestInput): Promise
 
     await ingestArtistBase(ctx, browseId);
     await expandArtistAlbums(ctx, browseId);
-    await expandArtistPlaylists(ctx, browseId);
     await finalizeArtistIngest(ctx);
 
     const completedAt = new Date().toISOString();
