@@ -4,6 +4,8 @@ import { ingestPlaylistOrAlbum } from './ingestPlaylistOrAlbum';
 import { getSupabaseAdmin } from './supabaseClient';
 import { browsePlaylistById } from './youtubeMusicClient';
 
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
 export type FullArtistIngestInput = {
   artistKey: string;
   browseId: string;
@@ -113,6 +115,8 @@ async function expandArtistAlbums(ctx: IngestContext, browseId: string): Promise
         browseId: targetId,
         message: err?.message || String(err),
       });
+    } finally {
+      await sleep(3000);
     }
   }
 
