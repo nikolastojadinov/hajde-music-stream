@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { browseArtistById, musicSearch, type MusicSearchArtist } from '../services/youtubeMusicClient';
 import { ingestArtistBrowse } from '../services/entityIngestion';
+import { canRunFullArtistIngest } from '../services/artistIngestGuard';
+import { normalizeArtistKey } from '../utils/artistKey';
 
 const router = Router();
 
@@ -89,8 +91,20 @@ router.get('/', async (req, res) => {
     const data = await browseArtistById(targetId);
     let ingestStatus: 'ok' | 'skipped' | 'error' = 'skipped';
     let ingestError: string | null = null;
+    const artistKey = normalizeArtistKey(data?.artist?.name ?? '') || null;
 
     if (data) {
+      if (artistKey) {
+        try {
+          const guard = await canRunFullArtistIngest(artistKey);
+          if (guard.allowed) {
+            console.log(`[full-artist-ingest] armed for artist_key=${artistKey}`);
+          }
+        } catch (guardErr: any) {
+          console.error('[full-artist-ingest] guard failed', { artistKey, message: guardErr?.message || String(guardErr) });
+        }
+      }
+
       try {
         await ingestArtistBrowse(data);
         ingestStatus = 'ok';
