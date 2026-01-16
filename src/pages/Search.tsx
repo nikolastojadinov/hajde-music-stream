@@ -321,6 +321,28 @@ export default function Search() {
     void runSearch(item.name);
   };
 
+  const handleResultSelect = (item: DisplayResultItem) => {
+    if (isArtistResult(item)) {
+      handleArtistNavigate(item);
+      return;
+    }
+
+    if (item.endpointType === "watch" && item.endpointPayload?.length === 11) {
+      handlePlay(item);
+      return;
+    }
+
+    if (item.endpointType === "browse" && item.endpointPayload) {
+      navigate(`/playlist/${encodeURIComponent(item.endpointPayload)}`, {
+        state: {
+          playlistId: item.endpointPayload,
+          playlistTitle: item.title,
+          playlistCover: item.imageUrl ?? null,
+        },
+      });
+    }
+  };
+
   const renderResults = () => {
     if (results.length === 0) return null;
 
@@ -330,13 +352,14 @@ export default function Search() {
         <div className="space-y-3">
           {results.map((item, idx) => {
             const artistResult = isArtistResult(item);
+            const clickable = artistResult || item.endpointType === "watch" || item.endpointType === "browse";
             return (
               <div
                 key={`${item.id}-${idx}`}
                 className={`flex items-center gap-4 rounded-2xl border border-white/5 bg-neutral-900/70 p-3 ${
-                  artistResult ? "cursor-pointer hover:border-white/10" : ""
+                  clickable ? "cursor-pointer hover:border-white/10" : ""
                 }`}
-                onClick={artistResult ? () => handleArtistNavigate(item) : undefined}
+                onClick={clickable ? () => handleResultSelect(item) : undefined}
               >
               <div className="h-16 w-16 overflow-hidden rounded-xl bg-neutral-800">
                 {item.imageUrl ? <img src={item.imageUrl} alt={item.title} className="h-full w-full object-cover" loading="lazy" /> : null}
