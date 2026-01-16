@@ -1,6 +1,7 @@
 import { getSupabaseAdmin } from './supabaseClient';
 
 const TABLE_NAME = 'artist_cache_entries';
+const PENDING_TTL_MS = 30 * 60 * 1000;
 
 export type ArtistCacheStatus = 'pending' | 'completed';
 type GuardReason = 'already_done' | 'already_running';
@@ -43,18 +44,28 @@ export async function canRunFullArtistIngest(artistKey: string): Promise<ArtistI
   }
 
   const payloadStatus = extractStatus(existing?.payload);
+  const payloadError = typeof (existing?.payload as any)?.error === 'string' ? (existing?.payload as any).error : null;
+  const pendingAgeMs = existing?.payload?.ts ? Date.now() - new Date(existing.payload.ts as string).getTime() : Number.POSITIVE_INFINITY;
+  const stalePending = payloadStatus === 'pending' && (!Number.isFinite(pendingAgeMs) || pendingAgeMs >= PENDING_TTL_MS);
 
   const { count: linkedCount } = await supabase
     .from('artist_tracks')
     .select('track_id', { count: 'exact', head: true })
     .eq('artist_key', normalizedKey);
 
-  if (payloadStatus === 'completed' && (linkedCount || 0) > 0) {
+  if (payloadStatus === 'completed' && !payloadError && (linkedCount || 0) > 0) {
     return { allowed: false, reason: 'already_done' };
   }
 
-  if (payloadStatus === 'pending') {
+  if (payloadStatus === 'pending' && !stalePending) {
     return { allowed: false, reason: 'already_running' };
+  }
+
+  if (stalePending) {
+    const cleared = await setArtistIngestStatus(normalizedKey, 'completed', 'stale_pending_reset', 'pending');
+    if (!cleared) {
+      return { allowed: false, reason: 'already_running' };
+    }
   }
 
   const payload: ArtistCachePayload = { status: 'pending', ts: new Date().toISOString() };
@@ -77,8 +88,12 @@ export async function canRunFullArtistIngest(artistKey: string): Promise<ArtistI
     }
 
     const conflictStatus = extractStatus(conflictRow?.payload);
-    if (conflictStatus === 'completed' && (linkedCount || 0) > 0) return { allowed: false, reason: 'already_done' };
+    const conflictError = typeof (conflictRow?.payload as any)?.error === 'string' ? (conflictRow?.payload as any).error : null;
+    if (conflictStatus === 'completed' && !conflictError && (linkedCount || 0) > 0) return { allowed: false, reason: 'already_done' };
     if (conflictStatus === 'pending') return { allowed: false, reason: 'already_running' };
+
+    const locked = await setArtistIngestStatus(normalizedKey, 'pending', undefined, conflictStatus ?? undefined);
+    if (!locked) return { allowed: false, reason: 'already_running' };
     return { allowed: true };
   }
 

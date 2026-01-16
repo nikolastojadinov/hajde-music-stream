@@ -1,6 +1,7 @@
 import { getSupabaseAdmin } from './supabaseClient';
 import { browseArtistById, browsePlaylistById } from './youtubeMusicClient';
 import { ingestArtistBrowse, ingestPlaylistOrAlbum } from './entityIngestion';
+import { setArtistIngestStatus } from './artistIngestGuard';
 
 export type FullArtistIngestInput = {
   artistKey: string;
@@ -163,38 +164,53 @@ export async function runFullArtistIngest(input: FullArtistIngestInput): Promise
 
   const startedAt = new Date().toISOString();
   const supabase = getSupabaseAdmin();
+  let caughtError: any;
 
-  const { data: existing, error: readError } = await supabase
-    .from('artists')
-    .select('artist_key')
-    .eq('artist_key', artistKey)
-    .maybeSingle();
+  try {
+    const { data: existing, error: readError } = await supabase
+      .from('artists')
+      .select('artist_key')
+      .eq('artist_key', artistKey)
+      .maybeSingle();
 
-  if (readError) {
-    throw new Error(`[full-artist-ingest] failed to check artist existence: ${readError.message}`);
-  }
+    if (readError) {
+      throw new Error(`[full-artist-ingest] failed to check artist existence: ${readError.message}`);
+    }
 
-  if (!existing?.artist_key) {
-    const { error: insertError } = await supabase.from('artists').insert({
-      artist: artistKey,
-      artist_key: artistKey,
-      display_name: artistKey,
-      normalized_name: artistKey.toLowerCase(),
-    });
-    if (insertError) {
-      throw new Error(`[full-artist-ingest] failed to insert artist placeholder: ${insertError.message}`);
+    if (!existing?.artist_key) {
+      const { error: insertError } = await supabase.from('artists').insert({
+        artist: artistKey,
+        artist_key: artistKey,
+        display_name: artistKey,
+        normalized_name: artistKey.toLowerCase(),
+      });
+      if (insertError) {
+        throw new Error(`[full-artist-ingest] failed to insert artist placeholder: ${insertError.message}`);
+      }
+    }
+
+    const ctx = { artistKey, browseId, source };
+
+    await ingestArtistBase(ctx);
+    await expandArtistAlbums(ctx);
+    await expandArtistPlaylists(ctx);
+    await finalizeArtistIngest(ctx);
+
+    const completedAt = new Date().toISOString();
+    console.info('[full-artist-ingest] status=completed', { artistKey });
+
+    return { artistKey, browseId, source, startedAt, completedAt, status: 'completed' };
+  } catch (err: any) {
+    caughtError = err;
+    throw err;
+  } finally {
+    try {
+      await setArtistIngestStatus(artistKey, 'completed', caughtError ? caughtError?.message || String(caughtError) : undefined, 'pending');
+    } catch (statusErr: any) {
+      console.error('[full-artist-ingest] failed to release lock', {
+        artistKey,
+        message: statusErr?.message || String(statusErr),
+      });
     }
   }
-
-  const ctx = { artistKey, browseId, source };
-
-  await ingestArtistBase(ctx);
-  await expandArtistAlbums(ctx);
-  await expandArtistPlaylists(ctx);
-  await finalizeArtistIngest(ctx);
-
-  const completedAt = new Date().toISOString();
-  console.info('[full-artist-ingest] status=completed', { artistKey });
-
-  return { artistKey, browseId, source, startedAt, completedAt, status: 'completed' };
 }
