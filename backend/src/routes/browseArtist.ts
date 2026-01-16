@@ -1,8 +1,8 @@
 import { Router } from 'express';
-import { browseArtistById, musicSearch, type MusicSearchArtist } from '../services/youtubeMusicClient';
+
 import { ingestArtistBrowse } from '../services/entityIngestion';
-import { canRunFullArtistIngest } from '../services/artistIngestGuard';
 import { runFullArtistIngest } from '../services/fullArtistIngest';
+import { browseArtistById, musicSearch, type MusicSearchArtist } from '../services/youtubeMusicClient';
 import { normalizeArtistKey } from '../utils/artistKey';
 
 const router = Router();
@@ -80,6 +80,8 @@ router.get('/', async (req, res) => {
     return res.status(400).json({ error: 'browse_id_required' });
   }
 
+  const forceIngest = ['1', 'true', 'yes'].includes(normalizeString(req.query.force as string).toLowerCase());
+
   try {
     let targetId = browseId;
 
@@ -106,29 +108,24 @@ router.get('/', async (req, res) => {
       }
 
       if (artistKey) {
-        let guardReason: string | undefined;
-        let allowFullIngest = true;
-
-        try {
-          const guard = await canRunFullArtistIngest(artistKey);
-          guardReason = guard.reason;
-          allowFullIngest = guard.allowed || guard.reason !== 'already_running';
-        } catch (guardErr: any) {
-          console.error('[full-artist-ingest] guard failed', { artistKey, message: guardErr?.message || String(guardErr) });
-        }
-
-        if (allowFullIngest) {
-          console.info(`[full-artist-ingest] trigger artist_key=${artistKey} browse_id=${targetId}`);
-          void runFullArtistIngest({ artistKey, browseId: targetId, source }).catch((err: any) => {
+        console.info(`[full-artist-ingest] request artist_key=${artistKey} browse_id=${targetId} force=${forceIngest}`);
+        void runFullArtistIngest({ artistKey, browseId: targetId, source, force: forceIngest })
+          .then((result) => {
+            if (result.status === 'skipped') {
+              console.info('[full-artist-ingest] artist ingest skipped', {
+                artistKey,
+                browseId: targetId,
+                reason: result.reason,
+              });
+            }
+          })
+          .catch((err: any) => {
             console.error('[full-artist-ingest] orchestrator failed', {
               artistKey,
               browseId: targetId,
               message: err?.message || String(err),
             });
           });
-        } else {
-          console.info(`[full-artist-ingest] skip artist_key=${artistKey} reason=${guardReason}`);
-        }
       }
     }
 
