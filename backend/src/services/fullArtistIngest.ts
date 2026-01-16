@@ -1,7 +1,8 @@
-import { getSupabaseAdmin } from './supabaseClient';
-import { browseArtistById, browsePlaylistById, type ArtistBrowse } from './youtubeMusicClient';
+import { fetchArtistBrowseById } from '../lib/browse/browseArtist';
 import { ingestArtistBrowse, ingestPlaylistOrAlbum } from './entityIngestion';
 import { setArtistIngestStatus } from './artistIngestGuard';
+import { getSupabaseAdmin } from './supabaseClient';
+import { browsePlaylistById } from './youtubeMusicClient';
 
 export type FullArtistIngestInput = {
   artistKey: string;
@@ -54,13 +55,30 @@ async function ensureArtistExists(artistKey: string): Promise<void> {
   }
 }
 
-async function ingestArtistBase(ctx: IngestContext, browse: ArtistBrowse): Promise<void> {
+async function markArtistPending(artistKey: string): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  const payload = { status: 'pending', ts: new Date().toISOString() } as const;
+  const { error } = await supabase.from('artist_cache_entries').upsert({ artist_key: artistKey, payload });
+  if (error) {
+    console.error('[full-artist-ingest] failed to mark pending', { artistKey, message: error.message });
+  }
+}
+
+async function ingestArtistBase(ctx: IngestContext, browseId: string): Promise<void> {
+  const browse = await fetchArtistBrowseById(browseId);
+  if (!browse) {
+    throw new Error(`[full-artist-ingest] artist browse failed browse_id=${browseId}`);
+  }
+
   console.info(`[full-artist-ingest] step=ingestArtistBase start artist_key=${ctx.artistKey}`);
   await ingestArtistBrowse(browse);
   console.info(`[full-artist-ingest] step=ingestArtistBase finish artist_key=${ctx.artistKey}`);
 }
 
-async function expandArtistAlbums(ctx: IngestContext, browse: ArtistBrowse): Promise<void> {
+async function expandArtistAlbums(ctx: IngestContext, browseId: string): Promise<void> {
+  const browse = await fetchArtistBrowseById(browseId);
+  if (!browse) return;
+
   console.info(`[full-artist-ingest] step=expandArtistAlbums start artist_key=${ctx.artistKey}`);
 
   const albums = Array.isArray(browse.albums) ? browse.albums : [];
@@ -68,23 +86,21 @@ async function expandArtistAlbums(ctx: IngestContext, browse: ArtistBrowse): Pro
   let failed = 0;
 
   for (const album of albums) {
-    const browseId = normalize(album.id);
-    if (!browseId) continue;
-
-    console.info(`[full-artist-ingest] album start browse_id=${browseId}`);
+    const targetId = normalize(album.id);
+    if (!targetId) continue;
 
     try {
-      const albumBrowse = await browsePlaylistById(browseId);
+      const albumBrowse = await browsePlaylistById(targetId);
       if (!albumBrowse || !Array.isArray(albumBrowse.tracks) || albumBrowse.tracks.length === 0) {
         failed += 1;
-        console.error('[full-artist-ingest] album browse missing', { browseId });
+        console.error('[full-artist-ingest] album browse missing', { browseId: targetId });
         continue;
       }
 
-      await ingestPlaylistOrAlbum(
+      const result = await ingestPlaylistOrAlbum(
         {
           kind: 'album',
-          browseId,
+          browseId: targetId,
           title: albumBrowse.title || album.title,
           subtitle: albumBrowse.subtitle,
           thumbnailUrl: albumBrowse.thumbnailUrl ?? album.imageUrl ?? null,
@@ -93,11 +109,12 @@ async function expandArtistAlbums(ctx: IngestContext, browse: ArtistBrowse): Pro
         { primaryArtistKeys: [ctx.artistKey] },
       );
 
+      console.info('[full-artist-ingest] album_tracks_ingested', { browseId: targetId, count: result.albumTrackCount });
       ingested += 1;
     } catch (err: any) {
       failed += 1;
       console.error('[full-artist-ingest] album ingest failed', {
-        browseId,
+        browseId: targetId,
         message: err?.message || String(err),
       });
     }
@@ -108,7 +125,10 @@ async function expandArtistAlbums(ctx: IngestContext, browse: ArtistBrowse): Pro
   );
 }
 
-async function expandArtistPlaylists(ctx: IngestContext, browse: ArtistBrowse): Promise<void> {
+async function expandArtistPlaylists(ctx: IngestContext, browseId: string): Promise<void> {
+  const browse = await fetchArtistBrowseById(browseId);
+  if (!browse) return;
+
   console.info(`[full-artist-ingest] step=expandArtistPlaylists start artist_key=${ctx.artistKey}`);
 
   const playlists = Array.isArray(browse.playlists) ? browse.playlists : [];
@@ -116,23 +136,21 @@ async function expandArtistPlaylists(ctx: IngestContext, browse: ArtistBrowse): 
   let failed = 0;
 
   for (const playlist of playlists) {
-    const browseId = normalize(playlist.id);
-    if (!browseId) continue;
-
-    console.info(`[full-artist-ingest] playlist start browse_id=${browseId}`);
+    const targetId = normalize(playlist.id);
+    if (!targetId) continue;
 
     try {
-      const playlistBrowse = await browsePlaylistById(browseId);
+      const playlistBrowse = await browsePlaylistById(targetId);
       if (!playlistBrowse || !Array.isArray(playlistBrowse.tracks) || playlistBrowse.tracks.length === 0) {
         failed += 1;
-        console.error('[full-artist-ingest] playlist browse missing', { browseId });
+        console.error('[full-artist-ingest] playlist browse missing', { browseId: targetId });
         continue;
       }
 
-      await ingestPlaylistOrAlbum(
+      const result = await ingestPlaylistOrAlbum(
         {
           kind: 'playlist',
-          browseId,
+          browseId: targetId,
           title: playlistBrowse.title || playlist.title,
           subtitle: playlistBrowse.subtitle,
           thumbnailUrl: playlistBrowse.thumbnailUrl ?? playlist.imageUrl ?? null,
@@ -141,11 +159,12 @@ async function expandArtistPlaylists(ctx: IngestContext, browse: ArtistBrowse): 
         { primaryArtistKeys: [ctx.artistKey] },
       );
 
+      console.info('[full-artist-ingest] playlist_tracks_ingested', { browseId: targetId, count: result.playlistTrackCount });
       ingested += 1;
     } catch (err: any) {
       failed += 1;
       console.error('[full-artist-ingest] playlist ingest failed', {
-        browseId,
+        browseId: targetId,
         message: err?.message || String(err),
       });
     }
@@ -163,7 +182,6 @@ async function finalizeArtistIngest(ctx: IngestContext): Promise<void> {
   const now = new Date().toISOString();
 
   const { error: artistError } = await supabase.from('artists').update({ updated_at: now }).eq('artist_key', ctx.artistKey);
-
   if (artistError) {
     throw new Error(`[full-artist-ingest] finalize failed updating artist: ${artistError.message}`);
   }
@@ -173,7 +191,6 @@ async function finalizeArtistIngest(ctx: IngestContext): Promise<void> {
     payload: { status: 'completed', ts: now },
     ts: now,
   });
-
   if (cacheError) {
     throw new Error(`[full-artist-ingest] finalize failed updating cache: ${cacheError.message}`);
   }
@@ -195,17 +212,13 @@ export async function runFullArtistIngest(input: FullArtistIngestInput): Promise
 
   try {
     await ensureArtistExists(artistKey);
-
-    const browse = await browseArtistById(browseId);
-    if (!browse) {
-      throw new Error(`[full-artist-ingest] artist browse failed browse_id=${browseId}`);
-    }
+    await markArtistPending(artistKey);
 
     const ctx: IngestContext = { artistKey, browseId, source };
 
-    await ingestArtistBase(ctx, browse);
-    await expandArtistAlbums(ctx, browse);
-    await expandArtistPlaylists(ctx, browse);
+    await ingestArtistBase(ctx, browseId);
+    await expandArtistAlbums(ctx, browseId);
+    await expandArtistPlaylists(ctx, browseId);
     await finalizeArtistIngest(ctx);
 
     const completedAt = new Date().toISOString();

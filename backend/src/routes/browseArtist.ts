@@ -106,22 +106,28 @@ router.get('/', async (req, res) => {
       }
 
       if (artistKey) {
+        let guardReason: string | undefined;
+        let allowFullIngest = true;
+
         try {
           const guard = await canRunFullArtistIngest(artistKey);
-          if (guard.allowed) {
-            console.info(`[full-artist-ingest] trigger artist_key=${artistKey} browse_id=${targetId}`);
-            void runFullArtistIngest({ artistKey, browseId: targetId, source }).catch((err: any) => {
-              console.error('[full-artist-ingest] orchestrator failed', {
-                artistKey,
-                browseId: targetId,
-                message: err?.message || String(err),
-              });
-            });
-          } else {
-            console.info(`[full-artist-ingest] skip artist_key=${artistKey} reason=${guard.reason}`);
-          }
+          guardReason = guard.reason;
+          allowFullIngest = guard.allowed || guard.reason !== 'already_running';
         } catch (guardErr: any) {
           console.error('[full-artist-ingest] guard failed', { artistKey, message: guardErr?.message || String(guardErr) });
+        }
+
+        if (allowFullIngest) {
+          console.info(`[full-artist-ingest] trigger artist_key=${artistKey} browse_id=${targetId}`);
+          void runFullArtistIngest({ artistKey, browseId: targetId, source }).catch((err: any) => {
+            console.error('[full-artist-ingest] orchestrator failed', {
+              artistKey,
+              browseId: targetId,
+              message: err?.message || String(err),
+            });
+          });
+        } else {
+          console.info(`[full-artist-ingest] skip artist_key=${artistKey} reason=${guardReason}`);
         }
       }
     }

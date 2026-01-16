@@ -48,6 +48,14 @@ type PlaylistOrAlbumOptions = {
 
 type ArtistResult = { keys: string[]; count: number };
 
+type PlaylistOrAlbumResult = {
+  trackCount: number;
+  albumTrackCount: number;
+  playlistTrackCount: number;
+  artistTrackCount: number;
+  artistAlbumCount: number;
+};
+
 function normalize(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
@@ -252,7 +260,10 @@ async function upsertPlaylists(inputs: PlaylistInput[]): Promise<{ map: IdMap; c
   return { map, count: rows.length };
 }
 
-async function upsertTracks(inputs: TrackInput[], albumMap: IdMap): Promise<{ idMap: IdMap; artistTrackPairs: Array<{ trackId: string; artistKeys: string[] }>; count: number }> {
+async function upsertTracks(
+  inputs: TrackInput[],
+  albumMap: IdMap,
+): Promise<{ idMap: IdMap; artistTrackPairs: Array<{ trackId: string; artistKeys: string[] }>; count: number }> {
   if (!inputs.length) return { idMap: {}, artistTrackPairs: [], count: 0 };
   const client = getSupabaseAdmin();
   const now = NOW();
@@ -538,14 +549,14 @@ export async function ingestTrackSelection(selection: TrackSelectionInput, opts?
   });
 }
 
-export async function ingestPlaylistOrAlbum(payload: PlaylistOrAlbumIngest, opts?: PlaylistOrAlbumOptions): Promise<void> {
-  if (!payload?.browseId) return;
+export async function ingestPlaylistOrAlbum(payload: PlaylistOrAlbumIngest, opts?: PlaylistOrAlbumOptions): Promise<PlaylistOrAlbumResult> {
+  if (!payload?.browseId) return { trackCount: 0, albumTrackCount: 0, playlistTrackCount: 0, artistTrackCount: 0, artistAlbumCount: 0 };
   const tracks = Array.isArray(payload.tracks) ? payload.tracks : [];
-  if (!tracks.length) return;
+  if (!tracks.length) return { trackCount: 0, albumTrackCount: 0, playlistTrackCount: 0, artistTrackCount: 0, artistAlbumCount: 0 };
 
   const allowArtistWrite = opts?.allowArtistWrite !== false;
   const browseKey = normalize(payload.browseId);
-  if (!browseKey) return;
+  if (!browseKey) return { trackCount: 0, albumTrackCount: 0, playlistTrackCount: 0, artistTrackCount: 0, artistAlbumCount: 0 };
 
   const title = normalize(payload.title) || browseKey;
   const artistsFromSubtitle = splitArtists(payload.subtitle);
@@ -644,4 +655,12 @@ export async function ingestPlaylistOrAlbum(payload: PlaylistOrAlbumIngest, opts
     artist_tracks: artistTrackCount,
     artist_albums: artistAlbumCount,
   });
+
+  return {
+    trackCount: trackResult.count,
+    albumTrackCount,
+    playlistTrackCount,
+    artistTrackCount,
+    artistAlbumCount,
+  };
 }
