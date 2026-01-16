@@ -355,11 +355,12 @@ function parseAlbumReleaseDate(subtitle: string | null | undefined): string | nu
   return `${yearMatch[0]}-01-01`;
 }
 
-export async function ingestArtistBrowse(browse: ArtistBrowse): Promise<void> {
+export async function ingestArtistBrowse(browse: ArtistBrowse, opts?: { allowArtistWrite?: boolean }): Promise<void> {
+  const allowArtistWrite = opts?.allowArtistWrite !== false;
   const artistName = browse.artist.name;
   const artistKey = normalizeArtistKey(artistName) || normalize(browse.artist.channelId);
 
-  const artistInputs: ArtistInput[] = artistKey
+  const artistInputs: ArtistInput[] = allowArtistWrite && artistKey
     ? [
         {
           name: artistName,
@@ -372,7 +373,7 @@ export async function ingestArtistBrowse(browse: ArtistBrowse): Promise<void> {
   const topSongTracks: TrackInput[] = (browse.topSongs || []).map((song) => ({
     youtubeId: song.id,
     title: song.title,
-    artistNames: [artistName],
+    artistNames: allowArtistWrite ? [artistName] : [],
     durationSeconds: null,
     thumbnailUrl: song.imageUrl ?? null,
     isVideo: true,
@@ -385,7 +386,7 @@ export async function ingestArtistBrowse(browse: ArtistBrowse): Promise<void> {
     thumbnailUrl: album.imageUrl ?? null,
     releaseDate: album.year ? `${album.year}-01-01` : null,
     albumType: null,
-    artistKeys: artistKey ? [artistKey] : [],
+    artistKeys: allowArtistWrite && artistKey ? [artistKey] : [],
   }));
 
   const playlistInputs: PlaylistInput[] = (browse.playlists || []).map((pl) => ({
@@ -395,15 +396,17 @@ export async function ingestArtistBrowse(browse: ArtistBrowse): Promise<void> {
     channelId: browse.artist.channelId ?? null,
   }));
 
-  const artistResult = await upsertArtists(artistInputs);
+  const artistResult = allowArtistWrite ? await upsertArtists(artistInputs) : { keys: [], count: 0 };
   const albumResult = await upsertAlbums(albumInputs);
   const playlistResult = await upsertPlaylists(playlistInputs);
   const trackResult = await upsertTracks(topSongTracks, albumResult.map);
 
-  const artistTrackCount = await linkArtistTracks(
-    trackResult.artistTrackPairs.map((pair) => ({ trackId: pair.trackId, artistKeys: artistResult.keys.length ? artistResult.keys : pair.artistKeys })),
-  );
-  const artistAlbumCount = artistResult.keys.length && Object.values(albumResult.map).length
+  const artistTrackPairs = allowArtistWrite
+    ? trackResult.artistTrackPairs.map((pair) => ({ trackId: pair.trackId, artistKeys: artistResult.keys.length ? artistResult.keys : pair.artistKeys }))
+    : [];
+
+  const artistTrackCount = await linkArtistTracks(artistTrackPairs);
+  const artistAlbumCount = allowArtistWrite && artistResult.keys.length && Object.values(albumResult.map).length
     ? await linkArtistAlbums(Object.values(albumResult.map), artistResult.keys)
     : 0;
 
@@ -417,18 +420,19 @@ export async function ingestArtistBrowse(browse: ArtistBrowse): Promise<void> {
   });
 }
 
-export async function ingestTrackSelection(selection: TrackSelectionInput): Promise<void> {
+export async function ingestTrackSelection(selection: TrackSelectionInput, opts?: { allowArtistWrite?: boolean }): Promise<void> {
+  const allowArtistWrite = opts?.allowArtistWrite !== false;
   if (selection.type === 'episode') return;
   if (!selection.youtubeId || !VIDEO_ID_REGEX.test(selection.youtubeId)) return;
 
-  const artists = splitArtists(selection.subtitle || '') || [];
-  const artistResult = await upsertArtists(artists.map((name) => ({ name })));
+  const artists = allowArtistWrite ? splitArtists(selection.subtitle || '') || [] : [];
+  const artistResult = allowArtistWrite ? await upsertArtists(artists.map((name) => ({ name }))) : { keys: [], count: 0 };
   const trackResult = await upsertTracks(
     [
       {
         youtubeId: selection.youtubeId,
         title: selection.title || selection.subtitle || 'Untitled',
-        artistNames: artists,
+        artistNames: allowArtistWrite ? artists : [],
         thumbnailUrl: selection.imageUrl ?? null,
         isVideo: selection.type === 'video',
         source: selection.type,
@@ -437,7 +441,7 @@ export async function ingestTrackSelection(selection: TrackSelectionInput): Prom
     {},
   );
 
-  if (Object.keys(trackResult.idMap).length) {
+  if (allowArtistWrite && Object.keys(trackResult.idMap).length) {
     const pairs = trackResult.artistTrackPairs.length
       ? trackResult.artistTrackPairs
       : Object.values(trackResult.idMap).map((trackId) => ({ trackId, artistKeys: artistResult.keys }));

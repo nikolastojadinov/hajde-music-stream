@@ -232,7 +232,7 @@ router.post("/ingest", async (req, res) => {
       if (!browse) {
         return res.status(404).json({ error: "artist_not_found", browseId: targetBrowseId });
       }
-      await ingestArtistBrowse(browse);
+      await ingestArtistBrowse(browse, { allowArtistWrite: false });
 
       return res.json({ status: "ok", kind: "artist", browseId: targetBrowseId });
     } catch (err) {
@@ -261,7 +261,7 @@ router.post("/ingest", async (req, res) => {
   }
 
   try {
-    await ingestTrackSelection(selection);
+    await ingestTrackSelection(selection, { allowArtistWrite: false });
     return res.json({ status: "ok", kind: "track" });
   } catch (err) {
     console.error("[search/ingest] failed", {
