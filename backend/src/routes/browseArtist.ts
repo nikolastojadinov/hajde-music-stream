@@ -111,13 +111,11 @@ router.get('/', async (req, res) => {
         console.info(`[full-artist-ingest] request artist_key=${artistKey} browse_id=${targetId} force=${forceIngest}`);
         void runFullArtistIngest({ artistKey, browseId: targetId, source, force: forceIngest })
           .then((result) => {
-            if (result.status === 'skipped') {
-              console.info('[full-artist-ingest] artist ingest skipped', {
-                artistKey,
-                browseId: targetId,
-                reason: result.reason,
-              });
-            }
+            console.info('[full-artist-ingest] artist ingest completed', {
+              artistKey,
+              browseId: targetId,
+              status: result.status,
+            });
           })
           .catch((err: any) => {
             console.error('[full-artist-ingest] orchestrator failed', {
