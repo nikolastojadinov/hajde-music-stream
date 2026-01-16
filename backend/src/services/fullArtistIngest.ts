@@ -1,5 +1,6 @@
 import { fetchArtistBrowseById } from '../lib/browse/browseArtist';
-import { ingestArtistBrowse, ingestPlaylistOrAlbum } from './entityIngestion';
+import { ingestArtistBrowse } from './entityIngestion';
+import { ingestPlaylistOrAlbum } from './ingestPlaylistOrAlbum';
 import { getSupabaseAdmin } from './supabaseClient';
 import { browsePlaylistById } from './youtubeMusicClient';
 

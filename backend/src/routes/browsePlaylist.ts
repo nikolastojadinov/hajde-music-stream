@@ -1,6 +1,6 @@
 import { Router } from 'express';
 
-import { ingestPlaylistOrAlbum, type PlaylistIngestKind } from '../services/entityIngestion';
+import { ingestPlaylistOrAlbum } from '../services/ingestPlaylistOrAlbum';
 import supabase from '../services/supabaseClient';
 import { browsePlaylistById } from '../services/youtubeMusicClient';
 
@@ -26,18 +26,28 @@ type AlbumRow = {
   album_tracks: AlbumTrackRow[] | null;
 };
 
+type PlaylistTrackRow = {
+  position: number | null;
+  track: {
+    youtube_id: string | null;
+    title: string | null;
+    artist: string | null;
+    duration: number | null;
+    cover_url: string | null;
+    image_url: string | null;
+  } | null;
+};
+
+type PlaylistRow = {
+  external_id: string | null;
+  title: string | null;
+  cover_url: string | null;
+  image_url: string | null;
+  playlist_tracks: PlaylistTrackRow[] | null;
+};
+
 function normalizeString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
-}
-
-function resolveKind(raw: string | undefined | null, browseId: string): PlaylistIngestKind {
-  const normalized = normalizeString(raw).toLowerCase();
-  if (normalized === 'album') return 'album';
-  if (normalized === 'playlist') return 'playlist';
-
-  const upper = browseId.toUpperCase();
-  if (upper.startsWith('MPRE')) return 'album';
-  return 'playlist';
 }
 
 function formatDuration(seconds: number | null | undefined): string {
@@ -73,6 +83,31 @@ async function fetchAlbumFromDatabase(externalId: string): Promise<AlbumRow | nu
   return (data as AlbumRow | null) ?? null;
 }
 
+async function fetchPlaylistFromDatabase(externalId: string): Promise<PlaylistRow | null> {
+  if (!supabase) return null;
+
+  const { data, error } = await supabase
+    .from('playlists')
+    .select(
+      [
+        'external_id',
+        'title',
+        'cover_url',
+        'image_url',
+        'playlist_tracks(position, track:tracks(youtube_id,title,artist,duration,cover_url,image_url))',
+      ].join(','),
+    )
+    .eq('external_id', externalId)
+    .order('position', { foreignTable: 'playlist_tracks', ascending: true })
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`[playlist_lookup] ${error.message}`);
+  }
+
+  return (data as PlaylistRow | null) ?? null;
+}
+
 function normalizeAlbumResponse(album: AlbumRow | null, fallbackId: string) {
   if (!album) {
     return {
@@ -105,20 +140,51 @@ function normalizeAlbumResponse(album: AlbumRow | null, fallbackId: string) {
   };
 }
 
+function normalizePlaylistResponse(playlist: PlaylistRow | null, fallbackId: string, title?: string, subtitle?: string, thumbnail?: string | null) {
+  if (!playlist) {
+    return {
+      id: fallbackId,
+      title: title ? normalizeString(title) : '',
+      subtitle: subtitle ? normalizeString(subtitle) : '',
+      thumbnail: thumbnail ? normalizeString(thumbnail) : '',
+      tracks: [] as Array<{ videoId: string; title: string; artist: string; duration: string; thumbnail: string | null }>,
+    };
+  }
+
+  const tracks = Array.isArray(playlist.playlist_tracks)
+    ? playlist.playlist_tracks
+        .filter((row) => row?.track?.youtube_id)
+        .map((row) => ({
+          videoId: normalizeString(row.track?.youtube_id),
+          title: normalizeString(row.track?.title) || 'Untitled',
+          artist: normalizeString(row.track?.artist),
+          duration: formatDuration(row.track?.duration),
+          thumbnail: normalizeString(row.track?.cover_url) || normalizeString(row.track?.image_url) || null,
+        }))
+    : [];
+
+  return {
+    id: normalizeString(playlist.external_id) || fallbackId,
+    title: normalizeString(playlist.title) || normalizeString(title) || '',
+    subtitle: normalizeString(subtitle),
+    thumbnail: normalizeString(playlist.cover_url) || normalizeString(playlist.image_url) || normalizeString(thumbnail),
+    tracks,
+  };
+}
+
 router.get('/', async (req, res) => {
   const browseId = normalizeString((req.query.browseId as string) || (req.query.playlistId as string) || (req.query.id as string));
-  const kind = resolveKind(req.query.kind as string | undefined, browseId);
+  const upper = browseId.toUpperCase();
+  const isAlbum = upper.startsWith('MPRE');
 
   if (!browseId) {
     return res.status(400).json({ error: 'playlist_id_required' });
   }
 
   try {
-    // Album detail: read from albums -> album_tracks -> tracks
-    if (kind === 'album') {
+    if (isAlbum) {
       let album = await fetchAlbumFromDatabase(browseId);
 
-      // If album not present yet, trigger ingestion via existing flow then re-read
       if (!album || !Array.isArray(album.album_tracks) || album.album_tracks.length === 0) {
         try {
           const browseResult = await browsePlaylistById(browseId);
@@ -154,20 +220,17 @@ router.get('/', async (req, res) => {
       return res.json(payload);
     }
 
-    // Playlist detail (unchanged: live browse + ingest)
-    const data = await browsePlaylistById(browseId);
-    if (!data) {
-      return res.json({ id: browseId, title: '', subtitle: '', thumbnail: '', tracks: [] });
+    let playlist = await fetchPlaylistFromDatabase(browseId);
+    if (playlist && Array.isArray(playlist.playlist_tracks) && playlist.playlist_tracks.length > 0) {
+      const payload = normalizePlaylistResponse(playlist, browseId);
+      res.set('Cache-Control', 'no-store');
+      return res.json(payload);
     }
 
-    const id = data.playlistId
-      ? (() => {
-          const upper = data.playlistId.toUpperCase();
-          return upper.startsWith('VL') || upper.startsWith('MPRE') || upper.startsWith('OLAK')
-            ? data.playlistId
-            : `VL${data.playlistId}`;
-        })()
-      : browseId;
+    const data = await browsePlaylistById(browseId);
+    if (!data) {
+      return res.status(404).json({ error: 'playlist_not_found' });
+    }
 
     const tracks = Array.isArray(data.tracks)
       ? data.tracks.map((t) => ({
@@ -179,29 +242,25 @@ router.get('/', async (req, res) => {
         }))
       : [];
 
-    await ingestPlaylistOrAlbum({
-      browseId,
-      kind,
-      title: data.title,
-      subtitle: data.subtitle,
-      thumbnailUrl: data.thumbnailUrl,
-      tracks: tracks.map((t) => ({
-        videoId: t.videoId,
-        title: t.title,
-        artist: t.artist,
-        duration: t.duration,
-        thumbnail: t.thumbnail,
-      })),
-    });
+    if (tracks.length) {
+      await ingestPlaylistOrAlbum(
+        {
+          browseId,
+          kind: 'playlist',
+          title: data.title,
+          subtitle: data.subtitle,
+          thumbnailUrl: data.thumbnailUrl,
+          tracks,
+        },
+        { mode: 'single-playlist' },
+      );
 
+      playlist = await fetchPlaylistFromDatabase(browseId);
+    }
+
+    const payload = normalizePlaylistResponse(playlist, browseId, data.title, data.subtitle, data.thumbnailUrl);
     res.set('Cache-Control', 'no-store');
-    return res.json({
-      id,
-      title: normalizeString(data.title),
-      subtitle: normalizeString(data.subtitle),
-      thumbnail: normalizeString(data.thumbnailUrl),
-      tracks,
-    });
+    return res.json(payload);
   } catch (err: any) {
     console.error('[browse/playlist] failed', { browseId, message: err?.message });
     return res.status(500).json({ error: 'playlist_browse_failed' });

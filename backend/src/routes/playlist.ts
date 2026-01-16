@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { ingestPlaylistOrAlbum } from '../services/entityIngestion';
+import { ingestPlaylistOrAlbum } from '../services/ingestPlaylistOrAlbum';
 import { youtubeInnertubeBrowsePlaylist } from '../services/youtubeInnertubeBrowsePlaylist';
 
 const router = Router();
@@ -32,14 +32,17 @@ router.get('/', async (req, res) => {
     }));
 
     if (tracks.length) {
-      await ingestPlaylistOrAlbum({
-        browseId: playlistId,
-        kind: 'playlist',
-        title: result.title,
-        subtitle: result.author ?? null,
-        thumbnailUrl: result.thumbnailUrl ?? null,
-        tracks,
-      });
+      await ingestPlaylistOrAlbum(
+        {
+          browseId: playlistId,
+          kind: 'playlist',
+          title: result.title,
+          subtitle: result.author ?? null,
+          thumbnailUrl: result.thumbnailUrl ?? null,
+          tracks,
+        },
+        { mode: 'single-playlist' },
+      );
     }
 
     res.set('Cache-Control', 'no-store');
