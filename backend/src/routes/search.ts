@@ -170,7 +170,7 @@ router.get("/results", async (req, res) => {
   try {
     const payload = await musicSearch(q);
 
-    const items = Array.isArray((payload as any).orderedItems) ? (payload as any).orderedItems : [];
+    const items: any[] = Array.isArray((payload as any).orderedItems) ? (payload as any).orderedItems : [];
     const orderedSections = Array.isArray((payload as any).sections?.ordered) ? (payload as any).sections.ordered : [];
     const sectionsMap = payload.sections && typeof payload.sections === "object"
       ? payload.sections
@@ -178,8 +178,8 @@ router.get("/results", async (req, res) => {
 
     const featured =
       payload.featured ||
-      items.find((item) => item.kind === "artist" && item.title?.toLowerCase() === qLower) ||
-      items.find((item) => item.kind === "artist") ||
+      items.find((item: any) => item.kind === "artist" && item.title?.toLowerCase() === qLower) ||
+      items.find((item: any) => item.kind === "artist") ||
       null;
 
     const response: SearchResultsPayload = {
