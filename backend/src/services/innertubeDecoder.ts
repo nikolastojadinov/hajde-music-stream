@@ -366,6 +366,7 @@ async function ingest(row: RawPayloadRow, bundle: EntityBundle): Promise<void> {
       region: t.region,
       category: t.category,
       sync_status: 'fetched',
+      source: 'youtube',
       last_synced_at: now,
       last_updated_at: now,
     }));

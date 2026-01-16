@@ -4,7 +4,6 @@ import { getSupabaseAdmin } from './supabaseClient';
 
 const VIDEO_ID_REGEX = /^[A-Za-z0-9_-]{11}$/;
 const NOW = () => new Date().toISOString();
-const VALID_TRACK_SOURCES = new Set(['youtube', 'spotify', 'local']);
 
 export type TrackSelectionInput = {
   type: 'song' | 'video' | 'episode';
@@ -72,11 +71,7 @@ function splitArtists(raw: string | null | undefined): string[] {
     .filter(Boolean);
 }
 
-function normalizeTrackSource(raw: string | null | undefined): 'youtube' | 'spotify' | 'local' {
-  const value = normalize(raw).toLowerCase();
-  if (VALID_TRACK_SOURCES.has(value as any)) {
-    return value as 'youtube' | 'spotify' | 'local';
-  }
+function normalizeTrackSource(): 'youtube' {
   return 'youtube';
 }
 
@@ -241,7 +236,7 @@ async function upsertTracks(inputs: TrackInput[], albumMap: IdMap): Promise<{ id
           last_synced_at: now,
           last_updated_at: now,
           is_video: Boolean(t.isVideo),
-          source: normalizeTrackSource(t.source),
+          source: normalizeTrackSource(),
           sync_status: 'fetched',
           is_explicit: t.isExplicit ?? null,
         },
@@ -299,9 +294,14 @@ async function linkArtistTracks(pairs: Array<{ trackId: string; artistKeys: stri
     });
   });
   if (!rows.length) return 0;
-  const { error } = await client.from('artist_tracks').upsert(rows, { onConflict: 'artist_key,track_id' });
-  if (error) throw new Error(`[linkArtistTracks] ${error.message}`);
-  return rows.length;
+  try {
+    const { error } = await client.from('artist_tracks').upsert(rows, { onConflict: 'artist_key,track_id' });
+    if (error) throw error;
+    return rows.length;
+  } catch (err: any) {
+    console.error('[linkArtistTracks] failed', { message: err?.message || String(err) });
+    return 0;
+  }
 }
 
 async function linkArtistAlbums(albumIds: string[], artistKeys: string[]): Promise<number> {
@@ -311,27 +311,42 @@ async function linkArtistAlbums(albumIds: string[], artistKeys: string[]): Promi
   albumIds.forEach((albumId) => {
     artistKeys.forEach((artistKey) => rows.push({ artist_key: artistKey, album_id: albumId }));
   });
-  const { error } = await client.from('artist_albums').upsert(rows, { onConflict: 'artist_key,album_id' });
-  if (error) throw new Error(`[linkArtistAlbums] ${error.message}`);
-  return rows.length;
+  try {
+    const { error } = await client.from('artist_albums').upsert(rows, { onConflict: 'artist_key,album_id' });
+    if (error) throw error;
+    return rows.length;
+  } catch (err: any) {
+    console.error('[linkArtistAlbums] failed', { message: err?.message || String(err) });
+    return 0;
+  }
 }
 
 async function linkAlbumTracks(albumId: string, trackIds: string[]): Promise<number> {
   if (!albumId || !trackIds.length) return 0;
   const client = getSupabaseAdmin();
   const rows = trackIds.map((trackId, index) => ({ album_id: albumId, track_id: trackId, position: index + 1 }));
-  const { error } = await client.from('album_tracks').upsert(rows, { onConflict: 'album_id,track_id' });
-  if (error) throw new Error(`[linkAlbumTracks] ${error.message}`);
-  return rows.length;
+  try {
+    const { error } = await client.from('album_tracks').upsert(rows, { onConflict: 'album_id,track_id' });
+    if (error) throw error;
+    return rows.length;
+  } catch (err: any) {
+    console.error('[linkAlbumTracks] failed', { message: err?.message || String(err) });
+    return 0;
+  }
 }
 
 async function linkPlaylistTracks(playlistId: string, trackIds: string[]): Promise<number> {
   if (!playlistId || !trackIds.length) return 0;
   const client = getSupabaseAdmin();
   const rows = trackIds.map((trackId, index) => ({ playlist_id: playlistId, track_id: trackId, position: index + 1 }));
-  const { error } = await client.from('playlist_tracks').upsert(rows, { onConflict: 'playlist_id,track_id' });
-  if (error) throw new Error(`[linkPlaylistTracks] ${error.message}`);
-  return rows.length;
+  try {
+    const { error } = await client.from('playlist_tracks').upsert(rows, { onConflict: 'playlist_id,track_id' });
+    if (error) throw error;
+    return rows.length;
+  } catch (err: any) {
+    console.error('[linkPlaylistTracks] failed', { message: err?.message || String(err) });
+    return 0;
+  }
 }
 
 function parseAlbumReleaseDate(subtitle: string | null | undefined): string | null {

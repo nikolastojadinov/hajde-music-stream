@@ -194,7 +194,7 @@ export async function runFullArtistIngest(input: FullArtistIngestInput): Promise
   await finalizeArtistIngest(ctx);
 
   const completedAt = new Date().toISOString();
-  console.info(`[full-artist-ingest] complete artist_key=${artistKey} status=completed`);
+  console.info('[full-artist-ingest] status=completed', { artistKey });
 
   return { artistKey, browseId, source, startedAt, completedAt, status: 'completed' };
 }
