@@ -92,7 +92,7 @@ router.get('/', async (req, res) => {
     const data = await browseArtistById(targetId);
     let ingestStatus: 'ok' | 'skipped' | 'error' = 'skipped';
     let ingestError: string | null = null;
-    const artistKey = normalizeArtistKey(data?.artist?.name ?? '') || null;
+    const artistKey = normalizeArtistKey(data?.artist?.name ?? '') || normalizeString(data?.artist?.channelId ?? '') || null;
     const source: 'direct' = 'direct';
 
     if (data) {
