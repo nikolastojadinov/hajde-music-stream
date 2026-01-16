@@ -1,6 +1,8 @@
 import { canonicalArtistName, normalizeArtistKey } from '../utils/artistKey';
-import type { ArtistBrowse, PlaylistBrowse } from './youtubeMusicClient';
+import type { ArtistBrowse } from './youtubeMusicClient';
 import { getSupabaseAdmin } from './supabaseClient';
+
+export { ingestPlaylistOrAlbum } from './ingestPlaylistOrAlbum';
 
 const VIDEO_ID_REGEX = /^[A-Za-z0-9_-]{11}$/;
 const NOW = () => new Date().toISOString();
@@ -12,8 +14,6 @@ export type TrackSelectionInput = {
   subtitle?: string | null;
   imageUrl?: string | null;
 };
-
-export type PlaylistIngestKind = 'playlist' | 'album';
 
 type ArtistInput = { name: string; channelId?: string | null; thumbnails?: { avatar?: string | null; banner?: string | null } };
 type AlbumInput = { externalId: string; title: string; thumbnailUrl?: string | null; releaseDate?: string | null; albumType?: string | null; artistKeys?: string[] };
@@ -32,29 +32,7 @@ type TrackInput = {
 
 type IdMap = Record<string, string>;
 
-type PlaylistOrAlbumIngest = {
-  browseId: string;
-  kind: PlaylistIngestKind;
-  title?: string | null;
-  subtitle?: string | null;
-  thumbnailUrl?: string | null;
-  tracks: PlaylistBrowse['tracks'];
-};
-
-type PlaylistOrAlbumOptions = {
-  primaryArtistKeys?: string[];
-  allowArtistWrite?: boolean;
-};
-
 type ArtistResult = { keys: string[]; count: number };
-
-type PlaylistOrAlbumResult = {
-  trackCount: number;
-  albumTrackCount: number;
-  playlistTrackCount: number;
-  artistTrackCount: number;
-  artistAlbumCount: number;
-};
 
 function normalize(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
@@ -390,31 +368,10 @@ async function linkAlbumTracks(albumId: string, trackIds: string[]): Promise<num
   }
 }
 
-async function linkPlaylistTracks(playlistId: string, trackIds: string[]): Promise<number> {
-  if (!playlistId || !trackIds.length) return 0;
-  const client = getSupabaseAdmin();
-  const rows = trackIds.map((trackId, index) => ({ playlist_id: playlistId, track_id: trackId, position: index + 1 }));
-  try {
-    const { error } = await client.from('playlist_tracks').upsert(rows, { onConflict: 'playlist_id,track_id' });
-    if (error) throw error;
-    return rows.length;
-  } catch (err: any) {
-    console.error('[linkPlaylistTracks] failed', { message: err?.message || String(err) });
-    return 0;
-  }
-}
-
 function parseAlbumReleaseDate(subtitle: string | null | undefined): string | null {
   const yearMatch = normalize(subtitle).match(/(19|20)\d{2}/);
   if (!yearMatch) return null;
   return `${yearMatch[0]}-01-01`;
-}
-
-function orderedTrackIds(tracks: PlaylistBrowse['tracks'], idMap: IdMap): string[] {
-  return tracks
-    .map((t) => normalize(t.videoId))
-    .map((id) => idMap[id])
-    .filter(Boolean);
 }
 
 function buildArtistTrackPairs(
@@ -547,120 +504,4 @@ export async function ingestTrackSelection(selection: TrackSelectionInput, opts?
     artists: artistResult.count,
     tracks: trackResult.count,
   });
-}
-
-export async function ingestPlaylistOrAlbum(payload: PlaylistOrAlbumIngest, opts?: PlaylistOrAlbumOptions): Promise<PlaylistOrAlbumResult> {
-  if (!payload?.browseId) return { trackCount: 0, albumTrackCount: 0, playlistTrackCount: 0, artistTrackCount: 0, artistAlbumCount: 0 };
-  const tracks = Array.isArray(payload.tracks) ? payload.tracks : [];
-  if (!tracks.length) return { trackCount: 0, albumTrackCount: 0, playlistTrackCount: 0, artistTrackCount: 0, artistAlbumCount: 0 };
-
-  const allowArtistWrite = opts?.allowArtistWrite !== false;
-  const browseKey = normalize(payload.browseId);
-  if (!browseKey) return { trackCount: 0, albumTrackCount: 0, playlistTrackCount: 0, artistTrackCount: 0, artistAlbumCount: 0 };
-
-  const title = normalize(payload.title) || browseKey;
-  const artistsFromSubtitle = splitArtists(payload.subtitle);
-  const trackInputs: TrackInput[] = tracks.map((t) => ({
-    youtubeId: normalize(t.videoId),
-    title: normalize(t.title) || 'Untitled',
-    artistNames: splitArtists(t.artist),
-    durationSeconds: toSeconds(t.duration),
-    thumbnailUrl: t.thumbnail ?? null,
-    albumExternalId: payload.kind === 'album' ? browseKey : null,
-    isVideo: true,
-    source: payload.kind,
-  }));
-
-  const collectedArtistNames = uniqueStrings([
-    ...artistsFromSubtitle,
-    ...trackInputs.flatMap((t) => t.artistNames),
-  ]);
-
-  const artistResult: ArtistResult = allowArtistWrite ? await upsertArtists(collectedArtistNames.map((name) => ({ name }))) : { keys: [], count: 0 };
-  const primaryKeys = allowArtistWrite ? uniqueKeys([...(opts?.primaryArtistKeys ?? []), ...artistResult.keys]) : [];
-
-  const fallbackKeys = allowArtistWrite && primaryKeys.length
-    ? primaryKeys
-    : allowArtistWrite
-      ? artistResult.keys
-      : [];
-
-  const albumResult = payload.kind === 'album'
-    ? await upsertAlbums([
-        {
-          externalId: browseKey,
-          title,
-          thumbnailUrl: payload.thumbnailUrl ?? null,
-          releaseDate: parseAlbumReleaseDate(payload.subtitle),
-          albumType: null,
-          artistKeys: primaryKeys,
-        },
-      ])
-    : { map: {}, count: 0 };
-
-  const playlistResult = payload.kind === 'playlist'
-    ? await upsertPlaylists([
-        {
-          externalId: browseKey,
-          title,
-          description: payload.subtitle ?? null,
-          thumbnailUrl: payload.thumbnailUrl ?? null,
-          channelId: null,
-          itemCount: tracks.length,
-        },
-      ])
-    : { map: {}, count: 0 };
-
-  const trackResult = await upsertTracks(trackInputs, albumResult.map);
-
-  const albumTrackIds = payload.kind === 'album' ? orderedTrackIds(tracks, trackResult.idMap) : [];
-  const playlistTrackIds = payload.kind === 'playlist' ? orderedTrackIds(tracks, trackResult.idMap) : [];
-
-  let albumTrackCount = 0;
-  let artistAlbumCount = 0;
-  let playlistTrackCount = 0;
-
-  if (payload.kind === 'album' && albumTrackIds.length) {
-    const albumId = albumResult.map[browseKey];
-    if (albumId) {
-      albumTrackCount = await linkAlbumTracks(albumId, albumTrackIds);
-      if (allowArtistWrite && fallbackKeys.length) {
-        artistAlbumCount = await linkArtistAlbums([albumId], fallbackKeys);
-      }
-    }
-  }
-
-  if (payload.kind === 'playlist' && playlistTrackIds.length) {
-    const playlistId = playlistResult.map[browseKey];
-    if (playlistId) {
-      playlistTrackCount = await linkPlaylistTracks(playlistId, playlistTrackIds);
-    }
-  }
-
-  const artistTrackPairs = allowArtistWrite
-    ? buildArtistTrackPairs(trackResult, fallbackKeys, tracks.map((t) => t.videoId))
-    : [];
-
-  const artistTrackCount = allowArtistWrite ? await linkArtistTracks(artistTrackPairs) : 0;
-
-  console.info('[ingestPlaylistOrAlbum] ok', {
-    kind: payload.kind,
-    browse_id: browseKey,
-    artists: artistResult.count,
-    albums: albumResult.count,
-    playlists: playlistResult.count,
-    tracks: trackResult.count,
-    album_tracks: albumTrackCount,
-    playlist_tracks: playlistTrackCount,
-    artist_tracks: artistTrackCount,
-    artist_albums: artistAlbumCount,
-  });
-
-  return {
-    trackCount: trackResult.count,
-    albumTrackCount,
-    playlistTrackCount,
-    artistTrackCount,
-    artistAlbumCount,
-  };
 }

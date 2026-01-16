@@ -15,6 +15,7 @@ export type PlaylistOrAlbumIngest = {
   subtitle?: string | null;
   thumbnailUrl?: string | null;
   tracks: PlaylistBrowse['tracks'];
+  trackCount?: number | null;
 };
 
 export type PlaylistOrAlbumOptions = {
@@ -32,7 +33,15 @@ export type PlaylistOrAlbumResult = {
 };
 
 type ArtistInput = { name: string; channelId?: string | null; thumbnails?: { avatar?: string | null; banner?: string | null } };
-type AlbumInput = { externalId: string; title: string; thumbnailUrl?: string | null; releaseDate?: string | null; albumType?: string | null; artistKeys?: string[] };
+type AlbumInput = {
+  externalId: string;
+  title: string;
+  thumbnailUrl?: string | null;
+  releaseDate?: string | null;
+  albumType?: string | null;
+  artistKeys?: string[];
+  trackCount?: number | null;
+};
 type PlaylistInput = { externalId: string; title: string; description?: string | null; thumbnailUrl?: string | null; channelId?: string | null; itemCount?: number | null };
 type TrackInput = {
   youtubeId: string;
@@ -147,6 +156,13 @@ function deriveArtistKeys(names: string[]): { key: string; display: string }[] {
   return out;
 }
 
+function normalizeTrackCount(value: number | null | undefined): number | null {
+  if (typeof value !== 'number') return null;
+  if (!Number.isFinite(value)) return null;
+  if (value < 0) return null;
+  return Math.trunc(value);
+}
+
 async function upsertArtists(inputs: ArtistInput[]): Promise<ArtistResult> {
   if (!inputs.length) return { keys: [], count: 0 };
   const client = getSupabaseAdmin();
@@ -183,14 +199,39 @@ async function upsertArtists(inputs: ArtistInput[]): Promise<ArtistResult> {
 async function upsertAlbums(inputs: AlbumInput[]): Promise<{ map: IdMap; count: number }> {
   if (!inputs.length) return { map: {}, count: 0 };
   const client = getSupabaseAdmin();
+
+  const prepared = inputs
+    .map((a) => {
+      const externalId = normalize(a.externalId);
+      if (!externalId) return null;
+      return {
+        externalId,
+        title: normalize(a.title) || 'Album',
+        thumbnailUrl: a.thumbnailUrl ?? null,
+        releaseDate: a.releaseDate ? a.releaseDate : null,
+        albumType: a.albumType ?? null,
+        artistKey: Array.isArray(a.artistKeys) && a.artistKeys.length > 0 ? a.artistKeys[0] : null,
+        trackCount: normalizeTrackCount(a.trackCount),
+      };
+    })
+    .filter(Boolean) as Array<{
+    externalId: string;
+    title: string;
+    thumbnailUrl: string | null;
+    releaseDate: string | null;
+    albumType: string | null;
+    artistKey: string | null;
+    trackCount: number | null;
+  }>;
+
   const rows = uniqueBy(
-    inputs.map((a) => ({
-      external_id: normalize(a.externalId),
-      title: normalize(a.title) || 'Album',
-      thumbnail_url: a.thumbnailUrl ?? null,
-      release_date: a.releaseDate ? a.releaseDate : null,
-      album_type: a.albumType ?? null,
-      artist_key: Array.isArray(a.artistKeys) && a.artistKeys.length > 0 ? a.artistKeys[0] : null,
+    prepared.map((a) => ({
+      external_id: a.externalId,
+      title: a.title,
+      thumbnail_url: a.thumbnailUrl,
+      release_date: a.releaseDate,
+      album_type: a.albumType,
+      artist_key: a.artistKey,
       updated_at: NOW(),
     })),
     (row) => row.external_id,
@@ -200,6 +241,22 @@ async function upsertAlbums(inputs: AlbumInput[]): Promise<{ map: IdMap; count: 
 
   const { error } = await client.from('albums').upsert(rows, { onConflict: 'external_id' });
   if (error) throw new Error(`[upsertAlbums] ${error.message}`);
+
+  const trackCountTargets = uniqueBy(
+    prepared
+      .filter((p) => p.trackCount !== null)
+      .map((p) => ({ external_id: p.externalId, track_count: p.trackCount as number })),
+    (row) => row.external_id,
+  );
+
+  for (const target of trackCountTargets) {
+    const { error: trackError } = await client
+      .from('albums')
+      .update({ track_count: target.track_count })
+      .eq('external_id', target.external_id)
+      .is('track_count', null);
+    if (trackError) throw new Error(`[upsertAlbums] track_count ${trackError.message}`);
+  }
 
   const { data, error: selectError } = await client
     .from('albums')
@@ -459,6 +516,9 @@ export async function ingestPlaylistOrAlbum(payload: PlaylistOrAlbumIngest, opts
   const browseKey = normalize(payload.browseId);
   if (!browseKey) return { trackCount: 0, albumTrackCount: 0, playlistTrackCount: 0, artistTrackCount: 0, artistAlbumCount: 0 };
 
+  const explicitTrackCount = normalizeTrackCount(payload.trackCount);
+  const expectedTrackCount = payload.kind === 'album' ? explicitTrackCount ?? tracks.length : null;
+
   if (payload.kind === 'playlist') {
     console.info('[playlist-ingest] start', { browseId: browseKey });
   }
@@ -499,6 +559,7 @@ export async function ingestPlaylistOrAlbum(payload: PlaylistOrAlbumIngest, opts
           releaseDate: parseAlbumReleaseDate(payload.subtitle),
           albumType: null,
           artistKeys: primaryKeys,
+          trackCount: expectedTrackCount,
         },
       ])
     : { map: {}, count: 0 };
@@ -547,6 +608,16 @@ export async function ingestPlaylistOrAlbum(payload: PlaylistOrAlbumIngest, opts
     : [];
 
   const artistTrackCount = allowArtistWrite ? await linkArtistTracks(artistTrackPairs) : 0;
+
+  if (payload.kind === 'album') {
+    const albumId = albumResult.map[browseKey] ?? null;
+    const actualTrackCount = albumTrackIds.length;
+    console.info('[album-ingest] album track count status', {
+      album_id: albumId,
+      expected: expectedTrackCount,
+      actual: actualTrackCount,
+    });
+  }
 
   if (payload.kind === 'playlist') {
     console.info('[playlist-ingest] completed', {
