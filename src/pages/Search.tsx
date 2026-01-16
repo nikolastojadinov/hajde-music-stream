@@ -105,6 +105,7 @@ const buildDisplayItems = (rawItems: RawSearchItem[]): DisplayResultItem[] => {
     let imageUrl: string | null = null;
     let endpointType: "watch" | "browse" | undefined;
     let endpointPayload: string | undefined;
+    let browsePageType: string | undefined;
 
     if (type === "musicResponsiveListItemRenderer") {
       title = pickRunsText(data?.flexColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs) || title;
