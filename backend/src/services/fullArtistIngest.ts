@@ -1,6 +1,6 @@
 import { fetchArtistBrowseById } from '../lib/browse/browseArtist';
 import { ingestArtistBrowse } from './entityIngestion';
-import { ingestPlaylistOrAlbum } from './ingestPlaylistOrAlbum';
+import { ingestPlaylistOrAlbum, getAlbumCompletion } from './ingestPlaylistOrAlbum';
 import { getSupabaseAdmin } from './supabaseClient';
 import { browsePlaylistById } from './youtubeMusicClient';
 
@@ -88,6 +88,17 @@ async function expandArtistAlbums(ctx: IngestContext, browseId: string): Promise
     if (!targetId) continue;
 
     try {
+      const completion = await getAlbumCompletion(targetId);
+      if (completion.expected !== null && completion.actual >= completion.expected) {
+        console.info('[full-artist-ingest] album skipped (already complete)', {
+          browseId: targetId,
+          album_id: completion.albumId,
+          expected: completion.expected,
+          actual: completion.actual,
+        });
+        continue;
+      }
+
       const albumBrowse = await browsePlaylistById(targetId);
       if (!albumBrowse || !Array.isArray(albumBrowse.tracks) || albumBrowse.tracks.length === 0) {
         failed += 1;

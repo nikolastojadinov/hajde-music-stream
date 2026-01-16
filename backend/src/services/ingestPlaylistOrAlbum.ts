@@ -59,6 +59,7 @@ type IdMap = Record<string, string>;
 type ArtistResult = { keys: string[]; count: number };
 
 type ArtistTrackPair = { trackId: string; artistKeys: string[] };
+type AlbumCompletion = { albumId: string | null; expected: number | null; actual: number };
 
 function normalize(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
@@ -161,6 +162,38 @@ function normalizeTrackCount(value: number | null | undefined): number | null {
   if (!Number.isFinite(value)) return null;
   if (value < 0) return null;
   return Math.trunc(value);
+}
+
+async function fetchAlbumCompletion(externalId: string): Promise<AlbumCompletion> {
+  const client = getSupabaseAdmin();
+  const key = normalize(externalId);
+  if (!key) return { albumId: null, expected: null, actual: 0 };
+
+  const { data: album, error } = await client
+    .from('albums')
+    .select('id, track_count')
+    .eq('external_id', key)
+    .maybeSingle();
+
+  if (error) throw new Error(`[albumCompletion] ${error.message}`);
+
+  const albumId = album?.id ?? null;
+  const expected = normalizeTrackCount((album as any)?.track_count ?? null);
+
+  if (!albumId) return { albumId: null, expected, actual: 0 };
+
+  const { count, error: countError } = await client
+    .from('album_tracks')
+    .select('track_id', { count: 'exact', head: true })
+    .eq('album_id', albumId);
+
+  if (countError) throw new Error(`[albumCompletion] count ${countError.message}`);
+
+  return { albumId, expected, actual: count ?? 0 };
+}
+
+export async function getAlbumCompletion(externalId: string): Promise<AlbumCompletion> {
+  return fetchAlbumCompletion(externalId);
 }
 
 async function upsertArtists(inputs: ArtistInput[]): Promise<ArtistResult> {
@@ -519,6 +552,19 @@ export async function ingestPlaylistOrAlbum(payload: PlaylistOrAlbumIngest, opts
   const explicitTrackCount = normalizeTrackCount(payload.trackCount);
   const expectedTrackCount = payload.kind === 'album' ? explicitTrackCount ?? tracks.length : null;
 
+  let albumCompletion: AlbumCompletion | null = null;
+  if (payload.kind === 'album') {
+    albumCompletion = await getAlbumCompletion(browseKey);
+    if (albumCompletion.expected !== null && albumCompletion.actual >= albumCompletion.expected) {
+      console.info('[album-ingest] skipped (already complete)', {
+        album_id: albumCompletion.albumId,
+        expected: albumCompletion.expected,
+        actual: albumCompletion.actual,
+      });
+      return { trackCount: 0, albumTrackCount: 0, playlistTrackCount: 0, artistTrackCount: 0, artistAlbumCount: 0 };
+    }
+  }
+
   if (payload.kind === 'playlist') {
     console.info('[playlist-ingest] start', { browseId: browseKey });
   }
@@ -610,12 +656,12 @@ export async function ingestPlaylistOrAlbum(payload: PlaylistOrAlbumIngest, opts
   const artistTrackCount = allowArtistWrite ? await linkArtistTracks(artistTrackPairs) : 0;
 
   if (payload.kind === 'album') {
-    const albumId = albumResult.map[browseKey] ?? null;
-    const actualTrackCount = albumTrackIds.length;
+    const completionAfter = await getAlbumCompletion(browseKey);
+    const albumId = completionAfter.albumId ?? albumResult.map[browseKey] ?? null;
     console.info('[album-ingest] album track count status', {
       album_id: albumId,
-      expected: expectedTrackCount,
-      actual: actualTrackCount,
+      expected: completionAfter.expected ?? expectedTrackCount,
+      actual: completionAfter.actual,
     });
   }
 
