@@ -135,6 +135,12 @@ const buildDisplayItems = (rawItems: RawSearchItem[]): DisplayResultItem[] => {
       browsePageType = endpoint.browsePageType;
     }
 
+    // Fallback: some artist rows miss explicit browse endpoint type but carry UC* payload
+    if (!endpointType && endpointPayload && /^UC[A-Za-z0-9_-]+$/i.test(endpointPayload)) {
+      endpointType = "browse";
+      browsePageType = browsePageType || "MUSIC_PAGE_TYPE_ARTIST";
+    }
+
     const id = endpointPayload || `raw-${index}`;
 
     items.push({
