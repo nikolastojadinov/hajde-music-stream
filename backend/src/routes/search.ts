@@ -21,15 +21,17 @@ const CACHE_HEADER = "public, max-age=900";
 const EMPTY_RESULTS: SearchResultsPayload = {
   q: "",
   source: "youtube_live",
-  featured: null,
-  orderedItems: [],
-  sections: {
+  items: [],
+  sections: [],
+  sectionsMap: {
     songs: [],
     artists: [],
     albums: [],
     playlists: [],
   },
-};
+  featured: null,
+  orderedItems: [],
+} as any;
 
 const normalizeString = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
 const normalizeLoose = (value: unknown): string => normalizeString(value).toLowerCase().replace(/[^a-z0-9]+/g, "");
@@ -168,18 +170,28 @@ router.get("/results", async (req, res) => {
   try {
     const payload = await musicSearch(q);
 
+    const items = Array.isArray((payload as any).orderedItems) ? (payload as any).orderedItems : [];
+    const orderedSections = Array.isArray((payload as any).sections?.ordered) ? (payload as any).sections.ordered : [];
+    const sectionsMap = payload.sections && typeof payload.sections === "object"
+      ? payload.sections
+      : { songs: [], artists: [], albums: [], playlists: [] };
+
     const featured =
       payload.featured ||
-      payload.orderedItems.find((item) => item.kind === "artist" && item.title?.toLowerCase() === qLower) ||
-      payload.orderedItems.find((item) => item.kind === "artist") ||
+      items.find((item) => item.kind === "artist" && item.title?.toLowerCase() === qLower) ||
+      items.find((item) => item.kind === "artist") ||
       null;
 
     const response: SearchResultsPayload = {
-      ...payload,
+      ...(payload as any),
+      items,
+      sections: orderedSections,
+      sectionsMap,
       q,
       source: "youtube_live",
       featured,
-    };
+      orderedItems: items,
+    } as any;
 
     void indexSuggestFromSearch(q, response);
     return safeResponse(response);
