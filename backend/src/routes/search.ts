@@ -21,16 +21,14 @@ const CACHE_HEADER = "public, max-age=900";
 const EMPTY_RESULTS: SearchResultsPayload = {
   q: "",
   source: "youtube_live",
-  items: [],
-  sections: [],
-  sectionsMap: {
+  featured: null,
+  orderedItems: [],
+  sections: {
     songs: [],
     artists: [],
     albums: [],
     playlists: [],
   },
-  featured: null,
-  orderedItems: [],
 } as any;
 
 const normalizeString = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
@@ -170,27 +168,25 @@ router.get("/results", async (req, res) => {
   try {
     const payload = await musicSearch(q);
 
-    const items: any[] = Array.isArray((payload as any).orderedItems) ? (payload as any).orderedItems : [];
-    const orderedSections = Array.isArray((payload as any).sections?.ordered) ? (payload as any).sections.ordered : [];
-    const sectionsMap = payload.sections && typeof payload.sections === "object"
-      ? payload.sections
-      : { songs: [], artists: [], albums: [], playlists: [] };
+    const orderedItems: any[] = Array.isArray((payload as any).orderedItems) ? (payload as any).orderedItems : [];
+    const sections =
+      payload && typeof payload === "object" && (payload as any).sections && typeof (payload as any).sections === "object"
+        ? (payload as any).sections
+        : { songs: [], artists: [], albums: [], playlists: [] };
 
     const featured =
       payload.featured ||
-      items.find((item: any) => item.kind === "artist" && item.title?.toLowerCase() === qLower) ||
-      items.find((item: any) => item.kind === "artist") ||
+      orderedItems.find((item: any) => item.kind === "artist" && item.title?.toLowerCase() === qLower) ||
+      orderedItems.find((item: any) => item.kind === "artist") ||
       null;
 
     const response: SearchResultsPayload = {
       ...(payload as any),
-      items,
-      sections: orderedSections,
-      sectionsMap,
+      sections,
+      orderedItems,
       q,
       source: "youtube_live",
       featured,
-      orderedItems: items,
     } as any;
 
     void indexSuggestFromSearch(q, response);
