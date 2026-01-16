@@ -1,4 +1,6 @@
 import { getSupabaseAdmin } from './supabaseClient';
+import { browseArtistById, browsePlaylistById } from './youtubeMusicClient';
+import { ingestPlaylistOrAlbum } from './entityIngestion';
 
 export type FullArtistIngestInput = {
   artistKey: string;
@@ -23,8 +25,50 @@ async function ingestArtistBase(ctx: { artistKey: string; browseId: string; sour
 
 async function expandArtistAlbums(ctx: { artistKey: string; browseId: string; source: string }): Promise<void> {
   console.info(`[full-artist-ingest] step=expandArtistAlbums start artist_key=${ctx.artistKey}`);
-  // TODO: implement album expansion
-  console.info(`[full-artist-ingest] step=expandArtistAlbums finish artist_key=${ctx.artistKey}`);
+  const artist = await browseArtistById(ctx.browseId);
+  if (!artist) {
+    throw new Error(`[full-artist-ingest] artist browse failed browse_id=${ctx.browseId}`);
+  }
+
+  const albums = Array.isArray(artist.albums) ? artist.albums.filter((a) => /^MPRE/i.test(a.id || '')) : [];
+
+  let ingested = 0;
+  let failed = 0;
+
+  for (const album of albums) {
+    const browseId = album.id;
+    if (!browseId) continue;
+
+    console.info(`[full-artist-ingest] album start browse_id=${browseId}`);
+
+    try {
+      const albumBrowse = await browsePlaylistById(browseId);
+      if (!albumBrowse) {
+        failed += 1;
+        console.error('[full-artist-ingest] album browse missing', { browseId });
+        continue;
+      }
+
+      await ingestPlaylistOrAlbum({
+        kind: 'album',
+        browseId,
+        title: albumBrowse.title || album.title,
+        subtitle: albumBrowse.subtitle,
+        thumbnailUrl: albumBrowse.thumbnailUrl ?? album.imageUrl ?? null,
+        tracks: albumBrowse.tracks,
+      });
+
+      ingested += 1;
+    } catch (err: any) {
+      failed += 1;
+      console.error('[full-artist-ingest] album ingest failed', {
+        browseId,
+        message: err?.message || String(err),
+      });
+    }
+  }
+
+  console.info(`[full-artist-ingest] step=expandArtistAlbums finish artist_key=${ctx.artistKey} albums_found=${albums.length} albums_ingested=${ingested} albums_failed=${failed}`);
 }
 
 async function expandArtistPlaylists(ctx: { artistKey: string; browseId: string; source: string }): Promise<void> {
