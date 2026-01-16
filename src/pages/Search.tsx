@@ -24,18 +24,18 @@ type DisplayResultItem = {
   endpointType?: "watch" | "browse";
   endpointPayload?: string;
   browsePageType?: string;
-  raw: any;
+  raw: unknown;
 };
 
 const normalizeString = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
 
-const pickRunsText = (runs: any): string => {
+const pickRunsText = (runs: unknown): string => {
   if (!Array.isArray(runs) || runs.length === 0) return "";
-  return normalizeString(runs.map((r: any) => r?.text ?? "").join(""));
+  return normalizeString((runs as Array<{ text?: string }>).map((r) => r?.text ?? "").join(""));
 };
 
-const pickThumbnail = (thumbnails?: any): string | null => {
-  const arr = Array.isArray(thumbnails) ? thumbnails : thumbnails?.thumbnails;
+const pickThumbnail = (thumbnails?: unknown): string | null => {
+  const arr = Array.isArray(thumbnails) ? thumbnails : (thumbnails as any)?.thumbnails;
   if (!Array.isArray(arr) || arr.length === 0) return null;
 
   const scored = arr
@@ -108,26 +108,26 @@ const buildDisplayItems = (rawItems: RawSearchItem[]): DisplayResultItem[] => {
     let browsePageType: string | undefined;
 
     if (type === "musicResponsiveListItemRenderer") {
-      title = pickRunsText(data?.flexColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs) || title;
-      subtitle = pickRunsText(data?.flexColumns?.[1]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs) || subtitle;
+      title = pickRunsText((data as any)?.flexColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs) || title;
+      subtitle = pickRunsText((data as any)?.flexColumns?.[1]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs) || subtitle;
       imageUrl =
-        pickThumbnail(data?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails) ||
-        pickThumbnail(data?.thumbnail?.thumbnails) ||
+        pickThumbnail((data as any)?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails) ||
+        pickThumbnail((data as any)?.thumbnail?.thumbnails) ||
         null;
       const endpoint = extractEndpoint(data);
       endpointType = endpoint.endpointType;
       endpointPayload = endpoint.payload;
       browsePageType = endpoint.browsePageType;
     } else if (type === "musicCardShelfRenderer") {
-      title = pickRunsText(data?.title?.runs) || pickRunsText(data?.header?.title?.runs) || title;
+      title = pickRunsText((data as any)?.title?.runs) || pickRunsText((data as any)?.header?.title?.runs) || title;
       subtitle =
-        pickRunsText(data?.subtitle?.runs) ||
-        pickRunsText(data?.header?.subtitle?.runs) ||
+        pickRunsText((data as any)?.subtitle?.runs) ||
+        pickRunsText((data as any)?.header?.subtitle?.runs) ||
         subtitle ||
         "Artist";
       imageUrl =
-        pickThumbnail(data?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails) ||
-        pickThumbnail(data?.thumbnail?.thumbnails) ||
+        pickThumbnail((data as any)?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails) ||
+        pickThumbnail((data as any)?.thumbnail?.thumbnails) ||
         null;
       const endpoint = extractEndpoint(data);
       endpointType = endpoint.endpointType;
@@ -135,7 +135,6 @@ const buildDisplayItems = (rawItems: RawSearchItem[]): DisplayResultItem[] => {
       browsePageType = endpoint.browsePageType;
     }
 
-    // Fallback: some artist rows miss explicit browse endpoint type but carry UC* payload
     if (!endpointType && endpointPayload && /^UC[A-Za-z0-9_-]+$/i.test(endpointPayload)) {
       endpointType = "browse";
       browsePageType = browsePageType || "MUSIC_PAGE_TYPE_ARTIST";
@@ -153,10 +152,15 @@ const buildDisplayItems = (rawItems: RawSearchItem[]): DisplayResultItem[] => {
       endpointPayload,
       browsePageType,
       raw: data,
-    } satisfies DisplayResultItem);
+    });
   });
 
   return items;
+};
+
+const getArtistBrowseId = (item: DisplayResultItem): string | null => {
+  const candidate = normalizeString((item as any).browseId) || normalizeString(item.endpointPayload) || normalizeString(item.id);
+  return candidate || null;
 };
 
 export default function Search() {
@@ -237,6 +241,7 @@ export default function Search() {
     if ((query ?? "").trim().length >= 2 && !submitted) {
       void runSearch(query);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handlePlay = (item: DisplayResultItem) => {
@@ -275,8 +280,11 @@ export default function Search() {
   };
 
   const handleArtistNavigate = (item: DisplayResultItem) => {
-    const browseId = normalizeString(item.endpointPayload);
-    if (!browseId) return;
+    const browseId = getArtistBrowseId(item);
+    if (!browseId) {
+      console.warn("search: artist result missing browseId", item);
+      return;
+    }
 
     void ingestSearchSelection({
       type: "artist",
@@ -367,34 +375,34 @@ export default function Search() {
                 }`}
                 onClick={clickable ? () => handleResultSelect(item) : undefined}
               >
-              <div className="h-16 w-16 overflow-hidden rounded-xl bg-neutral-800">
-                {item.imageUrl ? <img src={item.imageUrl} alt={item.title} className="h-full w-full object-cover" loading="lazy" /> : null}
-              </div>
+                <div className="h-16 w-16 overflow-hidden rounded-xl bg-neutral-800">
+                  {item.imageUrl ? <img src={item.imageUrl} alt={item.title} className="h-full w-full object-cover" loading="lazy" /> : null}
+                </div>
 
-              <div className="flex-1 space-y-1">
-                <div className="text-base font-semibold text-white">{item.title}</div>
-                {item.subtitle ? <div className="text-sm text-neutral-400">{item.subtitle}</div> : null}
-                {item.endpointPayload ? (
-                  <div className="text-[11px] text-neutral-500">
-                    {item.endpointType ?? "endpoint"}: {item.endpointPayload}
-                  </div>
+                <div className="flex-1 space-y-1">
+                  <div className="text-base font-semibold text-white">{item.title}</div>
+                  {item.subtitle ? <div className="text-sm text-neutral-400">{item.subtitle}</div> : null}
+                  {item.endpointPayload ? (
+                    <div className="text-[11px] text-neutral-500">
+                      {item.endpointType ?? "endpoint"}: {item.endpointPayload}
+                    </div>
+                  ) : null}
+                </div>
+
+                {item.endpointType === "watch" && item.endpointPayload?.length === 11 ? (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handlePlay(item);
+                    }}
+                    className="inline-flex items-center gap-2 rounded-full border border-white/20 px-3 py-2 text-sm font-semibold text-white transition hover:border-white/40"
+                  >
+                    <Play className="h-4 w-4" />
+                    Play
+                  </button>
                 ) : null}
               </div>
-
-              {item.endpointType === "watch" && item.endpointPayload?.length === 11 ? (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handlePlay(item);
-                  }}
-                  className="inline-flex items-center gap-2 rounded-full border border-white/20 px-3 py-2 text-sm font-semibold text-white transition hover:border-white/40"
-                >
-                  <Play className="h-4 w-4" />
-                  Play
-                </button>
-              ) : null}
-            </div>
             );
           })}
         </div>
