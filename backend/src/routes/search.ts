@@ -12,7 +12,6 @@ import {
   type TrackSelectionInput,
 } from "../services/entityIngestion";
 import { indexSuggestFromSearch } from "../services/suggestIndexer";
-import { runFullArtistIngest } from "../services/fullArtistIngest";
 
 const router = Router();
 
@@ -205,8 +204,6 @@ router.post("/ingest", async (req, res) => {
     const browseIdRaw = normalizeString(body.browseId || body.channelId);
     const displayName = normalizeString(body.displayName || body.artistName || body.name);
     const artistKey = normalizeLoose(body.artist_key || body.artistKey);
-    const sourceRaw = normalizeString(body.source);
-    const source: "search" | "suggest" = sourceRaw === "suggest" ? "suggest" : "search";
 
     let targetBrowseId = looksLikeBrowseId(browseIdRaw) ? browseIdRaw : "";
 
@@ -228,18 +225,6 @@ router.post("/ingest", async (req, res) => {
         return res.status(404).json({ error: "artist_not_found", browseId: targetBrowseId });
       }
       await ingestArtistBrowse(browse);
-
-      if (artistKey) {
-        console.info(`[artist-ingest-trigger] source=${source} artist_key=${artistKey} browse_id=${targetBrowseId}`);
-        void runFullArtistIngest({ artistKey, browseId: targetBrowseId, source }).catch((err: any) => {
-          console.error("[artist-ingest-trigger] error", {
-            source,
-            artistKey,
-            browseId: targetBrowseId,
-            message: err?.message || String(err),
-          });
-        });
-      }
 
       return res.json({ status: "ok", kind: "artist", browseId: targetBrowseId });
     } catch (err) {
