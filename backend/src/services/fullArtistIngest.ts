@@ -1,3 +1,5 @@
+import { setArtistIngestStatus, type ArtistCacheStatus } from './artistIngestGuard';
+
 type IngestSource = 'search' | 'suggest' | 'direct';
 
 type IngestPhase = 'BOOTSTRAP' | 'ALBUMS' | 'PLAYLISTS' | 'FINALIZE';
@@ -72,6 +74,8 @@ export async function runFullArtistIngest(params: FullArtistIngestParams): Promi
 
   let ctx = base;
 
+  await setArtistIngestStatus(artistKey, 'pending');
+
   const phases: Array<{ name: IngestPhase; handler: (c: IngestContext) => Promise<IngestContext> }> = [
     { name: 'BOOTSTRAP', handler: runBootstrapPhase },
     { name: 'ALBUMS', handler: runAlbumsPhase },
@@ -86,6 +90,7 @@ export async function runFullArtistIngest(params: FullArtistIngestParams): Promi
       ctx = { ...ctx, currentPhase: phase.name };
     } catch (err: any) {
       const message = err?.message || String(err);
+      console.error('[full-artist-ingest] phase failed', { artistKey, phase: phase.name, message });
       ctx = {
         ...ctx,
         currentPhase: phase.name,
@@ -94,7 +99,22 @@ export async function runFullArtistIngest(params: FullArtistIngestParams): Promi
     }
   }
 
-  console.info(`[full-artist-ingest] finish artist_key=${artistKey} errors=${ctx.errors.length}`);
+  const status: ArtistCacheStatus = ctx.errors.length > 0 ? 'error' : 'done';
+
+  try {
+    await setArtistIngestStatus(artistKey, status, ctx.errors[0]?.message);
+  } catch (updateErr: any) {
+    console.error('[full-artist-ingest] status update failed', {
+      artistKey,
+      message: updateErr?.message || String(updateErr),
+    });
+  }
+
+  if (status === 'done') {
+    console.info(`[full-artist-ingest] complete artist_key=${artistKey}`);
+  } else {
+    console.error(`[full-artist-ingest] failed artist_key=${artistKey} errors=${ctx.errors.length}`);
+  }
 
   return ctx;
 }
