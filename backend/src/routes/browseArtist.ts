@@ -95,18 +95,6 @@ router.get('/', async (req, res) => {
     const artistKey = normalizeArtistKey(data?.artist?.name ?? '') || null;
     const source: 'direct' = 'direct';
 
-    if (artistKey) {
-      console.info(`[artist-ingest-trigger] source=direct artist_key=${artistKey} browse_id=${targetId}`);
-      void runFullArtistIngest({ artistKey, browseId: targetId, source }).catch((err: any) => {
-        console.error('[artist-ingest-trigger] error', {
-          source,
-          artistKey,
-          browseId: targetId,
-          message: err?.message || String(err),
-        });
-      });
-    }
-
     if (data) {
       try {
         await ingestArtistBrowse(data);
