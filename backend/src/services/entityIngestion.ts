@@ -1,11 +1,8 @@
 import { canonicalArtistName, normalizeArtistKey } from '../utils/artistKey';
-import type { ArtistBrowse } from './youtubeMusicClient';
 import { getSupabaseAdmin } from './supabaseClient';
+import type { ArtistBrowse } from './youtubeMusicClient';
 
-export { ingestPlaylistOrAlbum } from './ingestPlaylistOrAlbum';
-
-const VIDEO_ID_REGEX = /^[A-Za-z0-9_-]{11}$/;
-const NOW = () => new Date().toISOString();
+export { ingestPlaylistOrAlbum, getAlbumCompletion, isAlbumComplete } from './ingestPlaylistOrAlbum';
 
 export type TrackSelectionInput = {
   type: 'song' | 'video' | 'episode';
@@ -14,6 +11,9 @@ export type TrackSelectionInput = {
   subtitle?: string | null;
   imageUrl?: string | null;
 };
+
+const VIDEO_ID_REGEX = /^[A-Za-z0-9_-]{11}$/;
+const NOW = () => new Date().toISOString();
 
 type ArtistInput = { name: string; channelId?: string | null; thumbnails?: { avatar?: string | null; banner?: string | null } };
 type AlbumInput = { externalId: string; title: string; thumbnailUrl?: string | null; releaseDate?: string | null; albumType?: string | null; artistKeys?: string[] };
@@ -31,7 +31,6 @@ type TrackInput = {
 };
 
 type IdMap = Record<string, string>;
-
 type ArtistResult = { keys: string[]; count: number };
 
 function normalize(value: unknown): string {
@@ -128,6 +127,48 @@ function uniqueBy<T>(items: T[], keyFn: (item: T) => string): T[] {
     out.push(item);
   });
   return out;
+}
+
+async function resolveCanonicalArtist(artistName: string, channelId?: string | null): Promise<{ artistKey: string; displayName: string }> {
+  const client = getSupabaseAdmin();
+  const display = canonicalArtistName(artistName) || artistName;
+  const normalizedName = normalize(display);
+  const normalizedChannel = normalize(channelId);
+  const candidateKey = normalizeArtistKey(normalizedName) || normalizedName;
+  if (!candidateKey) throw new Error('[artist] missing canonical key');
+
+  if (normalizedChannel) {
+    const { data, error } = await client
+      .from('artists')
+      .select('artist_key, youtube_channel_id')
+      .eq('youtube_channel_id', normalizedChannel)
+      .limit(2);
+    if (error) throw new Error(`[artist] channel lookup ${error.message}`);
+    if (data && data.length > 1) throw new Error('[artist] duplicate youtube_channel_id detected');
+    if (data && data.length === 1) return { artistKey: data[0].artist_key, displayName: display };
+  }
+
+  const { data: byName, error: nameError } = await client
+    .from('artists')
+    .select('artist_key')
+    .eq('normalized_name', normalizedName.toLowerCase())
+    .limit(1);
+  if (nameError) throw new Error(`[artist] name lookup ${nameError.message}`);
+  if (byName && byName.length) return { artistKey: byName[0].artist_key, displayName: display };
+
+  const insertRow = {
+    artist: normalizedName,
+    artist_key: candidateKey,
+    display_name: display,
+    normalized_name: normalizedName.toLowerCase(),
+    youtube_channel_id: normalizedChannel || null,
+    updated_at: NOW(),
+  };
+
+  const { error: insertError } = await client.from('artists').insert(insertRow);
+  if (insertError) throw new Error(`[artist] insert ${insertError.message}`);
+
+  return { artistKey: candidateKey, displayName: display };
 }
 
 async function upsertArtists(inputs: ArtistInput[]): Promise<ArtistResult> {
@@ -354,16 +395,16 @@ async function linkArtistAlbums(albumIds: string[], artistKeys: string[]): Promi
   }
 }
 
-async function linkAlbumTracks(albumId: string, trackIds: string[]): Promise<number> {
-  if (!albumId || !trackIds.length) return 0;
+async function linkPlaylistTracks(playlistId: string, trackIds: string[]): Promise<number> {
+  if (!playlistId || !trackIds.length) return 0;
   const client = getSupabaseAdmin();
-  const rows = trackIds.map((trackId, index) => ({ album_id: albumId, track_id: trackId, position: index + 1 }));
+  const rows = trackIds.map((trackId, index) => ({ playlist_id: playlistId, track_id: trackId, position: index + 1 }));
   try {
-    const { error } = await client.from('album_tracks').upsert(rows, { onConflict: 'album_id,track_id' });
+    const { error } = await client.from('playlist_tracks').upsert(rows, { onConflict: 'playlist_id,track_id' });
     if (error) throw error;
     return rows.length;
   } catch (err: any) {
-    console.error('[linkAlbumTracks] failed', { message: err?.message || String(err) });
+    console.error('[linkPlaylistTracks] failed', { message: err?.message || String(err) });
     return 0;
   }
 }
@@ -372,6 +413,13 @@ function parseAlbumReleaseDate(subtitle: string | null | undefined): string | nu
   const yearMatch = normalize(subtitle).match(/(19|20)\d{2}/);
   if (!yearMatch) return null;
   return `${yearMatch[0]}-01-01`;
+}
+
+function orderedTrackIds(tracks: Array<{ videoId: string }>, idMap: IdMap): string[] {
+  return tracks
+    .map((t) => normalize(t.videoId))
+    .map((id) => idMap[id])
+    .filter(Boolean);
 }
 
 function buildArtistTrackPairs(
@@ -407,25 +455,27 @@ function buildArtistTrackPairs(
   return pairs;
 }
 
-export async function ingestArtistBrowse(browse: ArtistBrowse, opts?: { allowArtistWrite?: boolean }): Promise<void> {
+export async function ingestArtistBrowse(browse: ArtistBrowse, opts?: { allowArtistWrite?: boolean }): Promise<{ artistKey: string }> {
   const allowArtistWrite = opts?.allowArtistWrite !== false;
   const artistName = browse.artist.name;
-  const primaryArtistKey = normalizeKey(normalizeArtistKey(artistName) || browse.artist.channelId);
+  const { artistKey, displayName } = await resolveCanonicalArtist(artistName, browse.artist.channelId);
 
-  const artistInputs: ArtistInput[] = allowArtistWrite && primaryArtistKey
-    ? [
-        {
-          name: artistName,
-          channelId: browse.artist.channelId,
-          thumbnails: { avatar: browse.artist.thumbnailUrl, banner: browse.artist.bannerUrl },
-        },
-      ]
-    : [];
+  if (!allowArtistWrite) {
+    return { artistKey };
+  }
+
+  const artistInputs: ArtistInput[] = [
+    {
+      name: displayName,
+      channelId: browse.artist.channelId,
+      thumbnails: { avatar: browse.artist.thumbnailUrl, banner: browse.artist.bannerUrl },
+    },
+  ];
 
   const topSongTracks: TrackInput[] = (browse.topSongs || []).map((song) => ({
     youtubeId: song.id,
     title: song.title,
-    artistNames: allowArtistWrite ? [artistName] : [],
+    artistNames: [displayName],
     durationSeconds: null,
     thumbnailUrl: song.imageUrl ?? null,
     isVideo: true,
@@ -438,7 +488,7 @@ export async function ingestArtistBrowse(browse: ArtistBrowse, opts?: { allowArt
     thumbnailUrl: album.imageUrl ?? null,
     releaseDate: album.year ? `${album.year}-01-01` : null,
     albumType: null,
-    artistKeys: allowArtistWrite && primaryArtistKey ? [primaryArtistKey] : [],
+    artistKeys: [artistKey],
   }));
 
   const playlistInputs: PlaylistInput[] = (browse.playlists || []).map((pl) => ({
@@ -448,23 +498,21 @@ export async function ingestArtistBrowse(browse: ArtistBrowse, opts?: { allowArt
     channelId: browse.artist.channelId ?? null,
   }));
 
-  const artistResult: ArtistResult = allowArtistWrite ? await upsertArtists(artistInputs) : { keys: [], count: 0 };
-  const effectiveArtistKeys = allowArtistWrite ? uniqueKeys([...artistResult.keys, primaryArtistKey].filter(Boolean)) : [];
+  const artistResult: ArtistResult = await upsertArtists(artistInputs);
+  const effectiveArtistKeys = uniqueKeys([artistKey, ...artistResult.keys]);
 
   const albumResult = await upsertAlbums(albumInputs);
   const playlistResult = await upsertPlaylists(playlistInputs);
   const trackResult = await upsertTracks(topSongTracks, albumResult.map);
 
-  const artistTrackPairs = allowArtistWrite
-    ? buildArtistTrackPairs(trackResult, effectiveArtistKeys, topSongTracks.map((t) => t.youtubeId))
-    : [];
-
-  const artistTrackCount = allowArtistWrite ? await linkArtistTracks(artistTrackPairs) : 0;
-  const artistAlbumCount = allowArtistWrite && effectiveArtistKeys.length && Object.values(albumResult.map).length
+  const artistTrackPairs = buildArtistTrackPairs(trackResult, effectiveArtistKeys, topSongTracks.map((t) => t.youtubeId));
+  const artistTrackCount = await linkArtistTracks(artistTrackPairs);
+  const artistAlbumCount = effectiveArtistKeys.length && Object.values(albumResult.map).length
     ? await linkArtistAlbums(Object.values(albumResult.map), effectiveArtistKeys)
     : 0;
 
   console.info('[ingestArtistBrowse] ok', {
+    artist_key: artistKey,
     artists: artistResult.count,
     albums: albumResult.count,
     playlists: playlistResult.count,
@@ -472,6 +520,8 @@ export async function ingestArtistBrowse(browse: ArtistBrowse, opts?: { allowArt
     artist_tracks: artistTrackCount,
     artist_albums: artistAlbumCount,
   });
+
+  return { artistKey };
 }
 
 export async function ingestTrackSelection(selection: TrackSelectionInput, opts?: { allowArtistWrite?: boolean }): Promise<void> {
@@ -504,4 +554,25 @@ export async function ingestTrackSelection(selection: TrackSelectionInput, opts?
     artists: artistResult.count,
     tracks: trackResult.count,
   });
+}
+
+export async function resolveCanonicalArtistKey(name: string, channelId?: string | null): Promise<string> {
+  const { artistKey } = await resolveCanonicalArtist(name, channelId);
+  return artistKey;
+}
+
+export async function linkPlaylistTracksForExisting(playlistId: string, trackIds: string[]): Promise<number> {
+  return linkPlaylistTracks(playlistId, trackIds);
+}
+
+export function deriveAlbumReleaseDate(subtitle: string | null | undefined): string | null {
+  return parseAlbumReleaseDate(subtitle);
+}
+
+export function buildTrackPairsForTracks(
+  trackResult: { idMap: IdMap; artistTrackPairs: Array<{ trackId: string; artistKeys: string[] }> },
+  fallbackArtistKeys: string[],
+  videoOrder: string[],
+): Array<{ trackId: string; artistKeys: string[] }> {
+  return buildArtistTrackPairs(trackResult, fallbackArtistKeys, videoOrder);
 }

@@ -57,9 +57,8 @@ type TrackInput = {
 
 type IdMap = Record<string, string>;
 type ArtistResult = { keys: string[]; count: number };
-
 type ArtistTrackPair = { trackId: string; artistKeys: string[] };
-type AlbumCompletion = { albumId: string | null; expected: number | null; actual: number };
+type AlbumCompletion = { albumId: string | null; expected: number | null; actual: number; percent: number; state: 'unknown' | 'partial' | 'complete' };
 
 function normalize(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
@@ -160,14 +159,20 @@ function deriveArtistKeys(names: string[]): { key: string; display: string }[] {
 function normalizeTrackCount(value: number | null | undefined): number | null {
   if (typeof value !== 'number') return null;
   if (!Number.isFinite(value)) return null;
-  if (value < 0) return null;
+  if (value <= 0) return null;
   return Math.trunc(value);
+}
+
+function completionState(expected: number | null, actual: number): AlbumCompletion['state'] {
+  if (!expected) return 'unknown';
+  if (actual >= expected) return 'complete';
+  return 'partial';
 }
 
 async function fetchAlbumCompletion(externalId: string): Promise<AlbumCompletion> {
   const client = getSupabaseAdmin();
   const key = normalize(externalId);
-  if (!key) return { albumId: null, expected: null, actual: 0 };
+  if (!key) return { albumId: null, expected: null, actual: 0, percent: 0, state: 'unknown' };
 
   const { data: album, error } = await client
     .from('albums')
@@ -180,7 +185,7 @@ async function fetchAlbumCompletion(externalId: string): Promise<AlbumCompletion
   const albumId = album?.id ?? null;
   const expected = normalizeTrackCount((album as any)?.track_count ?? null);
 
-  if (!albumId) return { albumId: null, expected, actual: 0 };
+  if (!albumId) return { albumId: null, expected, actual: 0, percent: 0, state: completionState(expected, 0) };
 
   const { count, error: countError } = await client
     .from('album_tracks')
@@ -189,11 +194,44 @@ async function fetchAlbumCompletion(externalId: string): Promise<AlbumCompletion
 
   if (countError) throw new Error(`[albumCompletion] count ${countError.message}`);
 
-  return { albumId, expected, actual: count ?? 0 };
+  const actual = count ?? 0;
+  const percent = expected ? Math.min(100, Math.round((actual / expected) * 100)) : 0;
+  return { albumId, expected, actual, percent, state: completionState(expected, actual) };
+}
+
+async function computeAlbumCompletion(albumId: string | null): Promise<AlbumCompletion> {
+  const client = getSupabaseAdmin();
+  if (!albumId) return { albumId: null, expected: null, actual: 0, percent: 0, state: 'unknown' };
+
+  const { data: album, error } = await client
+    .from('albums')
+    .select('track_count')
+    .eq('id', albumId)
+    .maybeSingle();
+
+  if (error) throw new Error(`[computeAlbumCompletion] ${error.message}`);
+
+  const expected = normalizeTrackCount((album as any)?.track_count ?? null);
+
+  const { count, error: countError } = await client
+    .from('album_tracks')
+    .select('track_id', { count: 'exact', head: true })
+    .eq('album_id', albumId);
+
+  if (countError) throw new Error(`[computeAlbumCompletion] count ${countError.message}`);
+
+  const actual = count ?? 0;
+  const percent = expected ? Math.min(100, Math.round((actual / expected) * 100)) : 0;
+  return { albumId, expected, actual, percent, state: completionState(expected, actual) };
 }
 
 export async function getAlbumCompletion(externalId: string): Promise<AlbumCompletion> {
   return fetchAlbumCompletion(externalId);
+}
+
+export async function isAlbumComplete(albumId: string | null): Promise<boolean> {
+  const status = await computeAlbumCompletion(albumId);
+  return status.state === 'complete';
 }
 
 async function upsertArtists(inputs: ArtistInput[]): Promise<ArtistResult> {
@@ -550,16 +588,19 @@ export async function ingestPlaylistOrAlbum(payload: PlaylistOrAlbumIngest, opts
   if (!browseKey) return { trackCount: 0, albumTrackCount: 0, playlistTrackCount: 0, artistTrackCount: 0, artistAlbumCount: 0 };
 
   const explicitTrackCount = normalizeTrackCount(payload.trackCount);
-  const expectedTrackCount = payload.kind === 'album' ? explicitTrackCount ?? tracks.length : null;
+  const expectedTrackCount = payload.kind === 'album' ? explicitTrackCount ?? normalizeTrackCount(tracks.length) ?? tracks.length : null;
 
-  let albumCompletion: AlbumCompletion | null = null;
+  let preIngestCompletion: AlbumCompletion | null = null;
   if (payload.kind === 'album') {
-    albumCompletion = await getAlbumCompletion(browseKey);
-    if (albumCompletion.expected !== null && albumCompletion.actual >= albumCompletion.expected) {
+    preIngestCompletion = await getAlbumCompletion(browseKey);
+    if (preIngestCompletion.expected !== null && preIngestCompletion.actual >= preIngestCompletion.expected) {
       console.info('[album-ingest] skipped (already complete)', {
-        album_id: albumCompletion.albumId,
-        expected: albumCompletion.expected,
-        actual: albumCompletion.actual,
+        album_external_id: browseKey,
+        album_id: preIngestCompletion.albumId,
+        expected_tracks: preIngestCompletion.expected,
+        actual_tracks: preIngestCompletion.actual,
+        completion_percent: preIngestCompletion.percent,
+        completion_state: preIngestCompletion.state,
       });
       return { trackCount: 0, albumTrackCount: 0, playlistTrackCount: 0, artistTrackCount: 0, artistAlbumCount: 0 };
     }
@@ -582,10 +623,7 @@ export async function ingestPlaylistOrAlbum(payload: PlaylistOrAlbumIngest, opts
     source: payload.kind,
   }));
 
-  const collectedArtistNames = uniqueStrings([
-    ...artistsFromSubtitle,
-    ...trackInputs.flatMap((t) => t.artistNames),
-  ]);
+  const collectedArtistNames = uniqueStrings([...artistsFromSubtitle, ...trackInputs.flatMap((t) => t.artistNames)]);
 
   const artistResult: ArtistResult = allowArtistWrite ? await upsertArtists(collectedArtistNames.map((name) => ({ name }))) : { keys: [], count: 0 };
   const primaryKeys = allowArtistWrite ? uniqueKeys([...(opts?.primaryArtistKeys ?? []), ...artistResult.keys]) : [];
@@ -658,10 +696,13 @@ export async function ingestPlaylistOrAlbum(payload: PlaylistOrAlbumIngest, opts
   if (payload.kind === 'album') {
     const completionAfter = await getAlbumCompletion(browseKey);
     const albumId = completionAfter.albumId ?? albumResult.map[browseKey] ?? null;
-    console.info('[album-ingest] album track count status', {
+    console.info('[album-ingest] album completion', {
+      album_external_id: browseKey,
       album_id: albumId,
-      expected: completionAfter.expected ?? expectedTrackCount,
-      actual: completionAfter.actual,
+      expected_tracks: completionAfter.expected ?? expectedTrackCount,
+      actual_tracks: completionAfter.actual,
+      completion_percent: completionAfter.percent,
+      completion_state: completionAfter.state,
     });
   }
 
