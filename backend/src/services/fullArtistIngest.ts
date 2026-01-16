@@ -1,6 +1,6 @@
 import { getSupabaseAdmin } from './supabaseClient';
 import { browseArtistById, browsePlaylistById } from './youtubeMusicClient';
-import { ingestPlaylistOrAlbum } from './entityIngestion';
+import { ingestArtistBrowse, ingestPlaylistOrAlbum } from './entityIngestion';
 
 export type FullArtistIngestInput = {
   artistKey: string;
@@ -14,12 +14,17 @@ export type FullArtistIngestResult = {
   source: 'search' | 'suggest' | 'direct';
   startedAt: string;
   completedAt: string;
-  status: 'skipped_existing' | 'completed';
+  status: 'completed';
 };
 
 async function ingestArtistBase(ctx: { artistKey: string; browseId: string; source: string }): Promise<void> {
   console.info(`[full-artist-ingest] step=ingestArtistBase start artist_key=${ctx.artistKey}`);
-  // TODO: call base artist ingest implementation
+  const browse = await browseArtistById(ctx.browseId);
+  if (!browse) {
+    throw new Error(`[full-artist-ingest] artist browse failed browse_id=${ctx.browseId}`);
+  }
+
+  await ingestArtistBrowse(browse);
   console.info(`[full-artist-ingest] step=ingestArtistBase finish artist_key=${ctx.artistKey}`);
 }
 
@@ -136,7 +141,7 @@ async function finalizeArtistIngest(ctx: { artistKey: string; browseId: string; 
 
   const { error: cacheError } = await supabase.from('artist_cache_entries').upsert({
     artist_key: ctx.artistKey,
-    payload: { status: 'full_ingest_completed' },
+    payload: { status: 'completed', ts: now },
     ts: now,
   });
 
@@ -169,20 +174,16 @@ export async function runFullArtistIngest(input: FullArtistIngestInput): Promise
     throw new Error(`[full-artist-ingest] failed to check artist existence: ${readError.message}`);
   }
 
-  if (existing?.artist_key) {
-    console.info(`[full-artist-ingest] skip existing artist_key=${artistKey}`);
-    const completedAt = new Date().toISOString();
-    return { artistKey, browseId, source, startedAt, completedAt, status: 'skipped_existing' };
-  }
-
-  const { error: insertError } = await supabase.from('artists').insert({
-    artist: artistKey,
-    artist_key: artistKey,
-    display_name: artistKey,
-    normalized_name: artistKey,
-  });
-  if (insertError) {
-    throw new Error(`[full-artist-ingest] failed to insert artist placeholder: ${insertError.message}`);
+  if (!existing?.artist_key) {
+    const { error: insertError } = await supabase.from('artists').insert({
+      artist: artistKey,
+      artist_key: artistKey,
+      display_name: artistKey,
+      normalized_name: artistKey.toLowerCase(),
+    });
+    if (insertError) {
+      throw new Error(`[full-artist-ingest] failed to insert artist placeholder: ${insertError.message}`);
+    }
   }
 
   const ctx = { artistKey, browseId, source };

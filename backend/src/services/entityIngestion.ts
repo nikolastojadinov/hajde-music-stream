@@ -4,6 +4,7 @@ import { getSupabaseAdmin } from './supabaseClient';
 
 const VIDEO_ID_REGEX = /^[A-Za-z0-9_-]{11}$/;
 const NOW = () => new Date().toISOString();
+const VALID_TRACK_SOURCES = new Set(['youtube', 'spotify', 'local']);
 
 export type TrackSelectionInput = {
   type: 'song' | 'video' | 'episode';
@@ -69,6 +70,14 @@ function splitArtists(raw: string | null | undefined): string[] {
     .map((part) => canonicalArtistName(part))
     .map((part) => normalize(part))
     .filter(Boolean);
+}
+
+function normalizeTrackSource(raw: string | null | undefined): 'youtube' | 'spotify' | 'local' {
+  const value = normalize(raw).toLowerCase();
+  if (VALID_TRACK_SOURCES.has(value as any)) {
+    return value as 'youtube' | 'spotify' | 'local';
+  }
+  return 'youtube';
 }
 
 function deriveArtistKeys(names: string[]): { key: string; display: string }[] {
@@ -209,31 +218,38 @@ async function upsertTracks(inputs: TrackInput[], albumMap: IdMap): Promise<{ id
   const client = getSupabaseAdmin();
   const now = NOW();
 
-  const prepared = inputs.map((t) => {
-    const artists = deriveArtistKeys(t.artistNames);
-    const primaryArtistKey = artists[0]?.key ?? null;
-    const youtubeId = normalize(t.youtubeId);
-    return {
-      row: {
-        youtube_id: youtubeId,
-        external_id: youtubeId,
-        title: normalize(t.title) || 'Untitled',
-        artist: artists[0]?.display || t.artistNames[0] || 'Unknown artist',
-        artist_key: primaryArtistKey,
-        duration: t.durationSeconds ?? null,
-        cover_url: t.thumbnailUrl ?? null,
-        image_url: t.thumbnailUrl ?? null,
-        album_id: t.albumExternalId ? albumMap[normalize(t.albumExternalId)] ?? null : null,
-        last_synced_at: now,
-        last_updated_at: now,
-        is_video: Boolean(t.isVideo),
-        source: t.source ?? null,
-        is_explicit: t.isExplicit ?? null,
-      },
-      artistKeys: artists.map((a) => a.key),
-      youtubeId,
-    };
-  });
+  const prepared = inputs
+    .map((t) => {
+      const youtubeId = normalize(t.youtubeId);
+      if (!youtubeId || !VIDEO_ID_REGEX.test(youtubeId)) return null;
+
+      const artists = deriveArtistKeys(t.artistNames);
+      const primaryArtistKey = artists[0]?.key ?? null;
+      const albumId = t.albumExternalId ? albumMap[normalize(t.albumExternalId)] ?? null : null;
+
+      return {
+        row: {
+          youtube_id: youtubeId,
+          external_id: youtubeId,
+          title: normalize(t.title) || 'Untitled',
+          artist: artists[0]?.display || t.artistNames[0] || 'Unknown artist',
+          artist_key: primaryArtistKey,
+          duration: t.durationSeconds ?? null,
+          cover_url: t.thumbnailUrl ?? null,
+          image_url: t.thumbnailUrl ?? null,
+          album_id: albumId,
+          last_synced_at: now,
+          last_updated_at: now,
+          is_video: Boolean(t.isVideo),
+          source: normalizeTrackSource(t.source),
+          sync_status: 'fetched',
+          is_explicit: t.isExplicit ?? null,
+        },
+        artistKeys: artists.map((a) => a.key),
+        youtubeId,
+      };
+    })
+    .filter(Boolean) as Array<{ row: any; artistKeys: string[]; youtubeId: string }>;
 
   const rows = uniqueBy(prepared.map((p) => p.row), (row) => row.youtube_id).filter((row) => Boolean(row.youtube_id));
   if (!rows.length) return { idMap: {}, artistTrackPairs: [], count: 0 };
@@ -253,10 +269,17 @@ async function upsertTracks(inputs: TrackInput[], albumMap: IdMap): Promise<{ id
   });
 
   const artistTrackPairs: Array<{ trackId: string; artistKeys: string[] }> = [];
+  const seenPairs = new Set<string>();
   prepared.forEach((item) => {
     const trackId = idMap[item.youtubeId];
     if (!trackId || !item.artistKeys.length) return;
-    artistTrackPairs.push({ trackId, artistKeys: item.artistKeys });
+    const uniqueKeys = Array.from(new Set(item.artistKeys));
+    uniqueKeys.forEach((artistKey) => {
+      const token = `${trackId}-${artistKey}`;
+      if (seenPairs.has(token)) return;
+      seenPairs.add(token);
+      artistTrackPairs.push({ trackId, artistKeys: [artistKey] });
+    });
   });
 
   return { idMap, artistTrackPairs, count: rows.length };
@@ -266,8 +289,12 @@ async function linkArtistTracks(pairs: Array<{ trackId: string; artistKeys: stri
   if (!pairs.length) return 0;
   const client = getSupabaseAdmin();
   const rows: Array<{ artist_key: string; track_id: string }> = [];
+  const seen = new Set<string>();
   pairs.forEach((pair) => {
     pair.artistKeys.forEach((artistKey) => {
+      const token = `${artistKey}-${pair.trackId}`;
+      if (seen.has(token)) return;
+      seen.add(token);
       rows.push({ artist_key: artistKey, track_id: pair.trackId });
     });
   });
@@ -469,8 +496,11 @@ export async function ingestPlaylistOrAlbum(payload: PlaylistOrAlbumIngest): Pro
 
   const trackResult = await upsertTracks(trackInputs, albumResult.map);
 
+  console.info('[tracks] upsert ok', { count: trackResult.count });
+
   let albumTrackCount = 0;
   let artistAlbumCount = 0;
+  let playlistTrackCount = 0;
   if (payload.kind === 'album' && Object.keys(albumResult.map).length) {
     const albumId = albumResult.map[browseKey];
     if (albumId) {
@@ -490,7 +520,7 @@ export async function ingestPlaylistOrAlbum(payload: PlaylistOrAlbumIngest): Pro
   if (payload.kind === 'playlist' && Object.keys(playlistResult.map).length) {
     const playlistId = playlistResult.map[browseKey];
     if (playlistId) {
-      await linkPlaylistTracks(
+      playlistTrackCount = await linkPlaylistTracks(
         playlistId,
         payload.tracks
           .map((t) => normalize(t.videoId))
@@ -514,12 +544,16 @@ export async function ingestPlaylistOrAlbum(payload: PlaylistOrAlbumIngest): Pro
 
   const artistTrackCount = await linkArtistTracks([...mergedPairs, ...fallbackPairs]);
 
+  console.info('[relations] album_tracks', { count: albumTrackCount });
+  console.info('[relations] playlist_tracks', { count: playlistTrackCount });
+
   console.info('[ingestPlaylistOrAlbum] ok', {
     artists: artistResult.count,
     albums: albumResult.count,
     playlists: playlistResult.count,
     tracks: trackResult.count,
     album_tracks: albumTrackCount,
+    playlist_tracks: playlistTrackCount,
     artist_tracks: artistTrackCount,
     artist_albums: artistAlbumCount,
   });
