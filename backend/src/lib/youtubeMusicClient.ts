@@ -6,7 +6,7 @@ import {
   type ArtistBrowse,
 } from "../services/youtubeMusicClient";
 import { musicSearch as fetchMusicSearch } from "../services/youtubeMusicClient";
-import { recordInnertubePayload } from "../services/innertubeRawStore";
+import { recordInnertubePayload, shouldRecordInnertubePayload } from "../services/innertubeRawStore";
 
 export type SuggestionType = "track" | "artist" | "album" | "playlist";
 
@@ -944,7 +944,9 @@ export async function searchSuggestions(queryRaw: string): Promise<SuggestRespon
 
   try {
     const raw = await rawSearchSuggestions(q);
-    await recordInnertubePayload("suggest", q, raw);
+    if (shouldRecordInnertubePayload("suggest")) {
+      void recordInnertubePayload("suggest", q, raw);
+    }
     const buckets = bucketSuggestions(raw);
     (Object.keys(buckets) as SuggestionType[]).forEach((type) => {
       buckets[type] = buckets[type].filter((item) => !isSuggestionBad(item));
@@ -1137,7 +1139,9 @@ export async function musicSearch(queryRaw: string): Promise<SearchResultsPayloa
 
   try {
     const raw = await fetchMusicSearchRaw(q);
-    await recordInnertubePayload("search", q, raw);
+    if (shouldRecordInnertubePayload("search")) {
+      await recordInnertubePayload("search", q, raw);
+    }
     const rawItems = collectRawSearchItems(raw);
     const queryNorm = normalizeLoose(q || raw?.query || raw?.originalQuery || "");
     const parsed = buildContentFromRaw(rawItems, queryNorm, raw);

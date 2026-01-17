@@ -2,12 +2,22 @@ import supabase from './supabaseClient';
 
 export type InnertubeRequestType = 'search' | 'playlist' | 'artist' | 'album' | 'browse' | 'suggest';
 
+const enableRawPayloads = (process.env.ENABLE_RAW_PAYLOADS || 'false').toLowerCase() === 'true';
+
+export function shouldRecordInnertubePayload(requestType: InnertubeRequestType): boolean {
+  if (!enableRawPayloads) return false;
+  if (requestType === 'suggest') return false;
+  return true;
+}
+
 function safePayload(payload: any): any {
   if (payload === undefined) return null;
   return payload;
 }
 
 export async function recordInnertubePayload(requestType: InnertubeRequestType, requestKey: string | null, payload: any): Promise<void> {
+  if (!shouldRecordInnertubePayload(requestType)) return;
+
   if (!supabase) {
     console.warn('[innertubeRawStore] supabase not configured; skipping payload persist');
     return;
