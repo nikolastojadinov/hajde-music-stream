@@ -16,6 +16,14 @@ export type ArtistCompletionSnapshot = {
 
 export type ArtistIngestCandidate = ArtistCompletionSnapshot;
 
+export type ArtistChannelWriteResult = {
+  artistKey: string;
+  youtubeChannelId: string;
+  existed: boolean;
+  updated: boolean;
+  previousChannelId: string | null;
+};
+
 type RawRow = { playlists_by_title?: any };
 
 type DbSnapshotRow = {
@@ -31,6 +39,16 @@ type DbSnapshotRow = {
   updated_at: string | null;
   created_at: string | null;
 };
+
+const ARTIST_LOCK_KEY = 723994;
+
+function normalize(value: string | null | undefined): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function nowIso(): string {
+  return new Date().toISOString();
+}
 
 function escapeLiteral(value: string): string {
   return value.replace(/'/g, "''");
@@ -75,15 +93,11 @@ async function runJsonQuery(sql: string, label: string): Promise<DbSnapshotRow |
   const client = getSupabaseAdmin();
   const { data, error } = await client.rpc('run_raw', { sql });
 
-  if (error) {
-    throw new Error(`[artistQueries] ${label} failed: ${error.message}`);
-  }
-
+  if (error) throw new Error(`[artistQueries] ${label} failed: ${error.message}`);
   if (!Array.isArray(data) || data.length === 0) return null;
 
   const payload = (data[0] as RawRow)?.playlists_by_title;
   if (!payload || typeof payload !== 'object') return null;
-
   return payload as DbSnapshotRow;
 }
 
@@ -91,11 +105,9 @@ async function runBooleanQuery(sql: string, label: string): Promise<boolean> {
   const client = getSupabaseAdmin();
   const { data, error } = await client.rpc('run_raw', { sql });
 
-  if (error) {
-    throw new Error(`[artistQueries] ${label} failed: ${error.message}`);
-  }
-
+  if (error) throw new Error(`[artistQueries] ${label} failed: ${error.message}`);
   if (!Array.isArray(data) || data.length === 0) return false;
+
   const payload = (data[0] as RawRow)?.playlists_by_title;
   if (payload === null || payload === undefined) return false;
   if (typeof payload === 'boolean') return payload;
@@ -125,16 +137,77 @@ function completionPercentExpression(): string {
   return `CASE WHEN c.expected_tracks > 0 THEN LEAST(100, ROUND((c.actual_tracks::numeric / c.expected_tracks::numeric) * 100)) ELSE NULL END AS completion_percent`;
 }
 
+export async function persistArtistChannelId(params: {
+  artistKey: string;
+  youtubeChannelId: string;
+  displayName?: string;
+}): Promise<ArtistChannelWriteResult> {
+  const artistKey = normalize(params.artistKey);
+  const youtubeChannelId = normalize(params.youtubeChannelId);
+  const displayName = normalize(params.displayName || params.artistKey);
+  if (!artistKey) throw new Error('[artistQueries] artistKey is required');
+  if (!youtubeChannelId) throw new Error('[artistQueries] youtubeChannelId is required');
+
+  const client = getSupabaseAdmin();
+  const { data, error } = await client
+    .from('artists')
+    .select('artist_key, youtube_channel_id, display_name, normalized_name, artist')
+    .eq('artist_key', artistKey)
+    .limit(1);
+
+  if (error) throw new Error(`[artistQueries] artist lookup failed: ${error.message}`);
+
+  const existing = Array.isArray(data) && data.length > 0 ? data[0] : null;
+  const previousChannelId = existing?.youtube_channel_id ?? null;
+
+  if (!existing) {
+    const normalizedName = displayName ? displayName.toLowerCase() : artistKey.toLowerCase();
+    const insertRow = {
+      artist_key: artistKey,
+      artist: displayName || artistKey,
+      display_name: displayName || artistKey,
+      normalized_name: normalizedName,
+      youtube_channel_id: youtubeChannelId,
+      updated_at: nowIso(),
+    };
+
+    const { error: insertError } = await client.from('artists').upsert(insertRow, { onConflict: 'artist_key' });
+    if (insertError) throw new Error(`[artistQueries] artist insert failed: ${insertError.message}`);
+
+    return { artistKey, youtubeChannelId, existed: false, updated: true, previousChannelId };
+  }
+
+  if (previousChannelId === youtubeChannelId) {
+    const { error: touchError } = await client.from('artists').update({ updated_at: nowIso() }).eq('artist_key', artistKey);
+    if (touchError) throw new Error(`[artistQueries] artist touch failed: ${touchError.message}`);
+    return { artistKey, youtubeChannelId, existed: true, updated: false, previousChannelId };
+  }
+
+  const updates: Record<string, any> = {
+    youtube_channel_id: youtubeChannelId,
+    updated_at: nowIso(),
+  };
+
+  if (!existing.display_name) updates.display_name = displayName || artistKey;
+  if (!existing.normalized_name) updates.normalized_name = (displayName || artistKey).toLowerCase();
+  if (!existing.artist) updates.artist = displayName || artistKey;
+
+  const { error: updateError } = await client.from('artists').update(updates).eq('artist_key', artistKey);
+  if (updateError) throw new Error(`[artistQueries] artist channel update failed: ${updateError.message}`);
+
+  return { artistKey, youtubeChannelId, existed: true, updated: true, previousChannelId };
+}
+
 export async function tryAcquireBackgroundArtistLock(): Promise<boolean> {
   const sql = `
-SELECT to_jsonb(pg_try_advisory_lock(723994)) AS playlists_by_title, NULL::jsonb AS playlists_by_artist;
+SELECT to_jsonb(pg_try_advisory_lock(${ARTIST_LOCK_KEY})) AS playlists_by_title, NULL::jsonb AS playlists_by_artist;
 `;
   return runBooleanQuery(sql, 'tryAcquireBackgroundArtistLock');
 }
 
 export async function releaseBackgroundArtistLock(): Promise<void> {
   const sql = `
-SELECT to_jsonb(pg_advisory_unlock(723994)) AS playlists_by_title, NULL::jsonb AS playlists_by_artist;
+SELECT to_jsonb(pg_advisory_unlock(${ARTIST_LOCK_KEY})) AS playlists_by_title, NULL::jsonb AS playlists_by_artist;
 `;
   await runBooleanQuery(sql, 'releaseBackgroundArtistLock');
 }
@@ -165,7 +238,7 @@ completion AS (
   LEFT JOIN album_status alb ON alb.artist_key = o.artist_key
   GROUP BY o.artist_key, o.browse_id, o.updated_at, o.created_at
 ),
-
+eligible AS (
   SELECT
     c.*,
     ${completionPercentExpression()}
@@ -191,7 +264,7 @@ FOR UPDATE OF a SKIP LOCKED;
 }
 
 export async function getArtistCompletionSnapshot(artistKey: string): Promise<ArtistCompletionSnapshot | null> {
-  const normalized = (artistKey || '').trim();
+  const normalized = normalize(artistKey);
   if (!normalized) return null;
 
   const escaped = escapeLiteral(normalized);

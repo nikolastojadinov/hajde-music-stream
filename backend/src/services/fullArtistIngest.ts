@@ -1,4 +1,5 @@
 import { fetchArtistBrowseById } from '../lib/browse/browseArtist';
+import { persistArtistChannelId } from '../lib/db/artistQueries';
 import { ingestArtistBrowse, resolveCanonicalArtistKey } from './entityIngestion';
 import { ingestPlaylistOrAlbum, getAlbumCompletion } from './ingestPlaylistOrAlbum';
 import { getSupabaseAdmin } from './supabaseClient';
@@ -36,6 +37,28 @@ function normalize(value: string): string {
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+function withAuthoritativeChannel(browse: any, browseId: string): any {
+  const artist = browse?.artist || {};
+  const channelId = normalize(artist.channelId) || browseId;
+  return { ...browse, artist: { ...artist, channelId } };
+}
+
+async function ensureArtistChannelPersisted(ctx: IngestContext, browse: any): Promise<void> {
+  const channelId = ctx.browseId;
+  const result = await persistArtistChannelId({
+    artistKey: ctx.artistKey,
+    youtubeChannelId: channelId,
+    displayName: browse?.artist?.name,
+  });
+
+  console.info('[full-artist-ingest] artist_channel_write', {
+    artist_key: ctx.artistKey,
+    youtube_channel_id: channelId,
+    channel_write_state: result.updated ? 'written' : 'unchanged',
+    previous_channel_id: result.previousChannelId,
+  });
 }
 
 async function finalizeArtistIngest(ctx: IngestContext, albumIds: Array<{ externalId: string; albumId: string | null }>): Promise<void> {
@@ -178,14 +201,12 @@ export async function runFullArtistIngest(input: FullArtistIngestInput): Promise
   const source: FullArtistIngestSource = input.source || 'direct';
   const startedAt = nowIso();
 
-  if (!browseId) {
-    throw new Error('[full-artist-ingest] browseId is required');
-  }
+  if (!browseId) throw new Error('[full-artist-ingest] browseId is required');
 
-  const browse = await fetchArtistBrowseById(browseId);
-  if (!browse) throw new Error(`[full-artist-ingest] artist browse failed browse_id=${browseId}`);
+  const browsePayload = await fetchArtistBrowseById(browseId);
+  if (!browsePayload) throw new Error(`[full-artist-ingest] artist browse failed browse_id=${browseId}`);
 
-  const canonicalArtistKey = await resolveCanonicalArtistKey(browse.artist.name, browse.artist.channelId);
+  const canonicalArtistKey = await resolveCanonicalArtistKey(browsePayload.artist.name, browseId);
 
   if (input.artistKey && normalize(input.artistKey) !== canonicalArtistKey) {
     console.info('[full-artist-ingest] artist_key_normalized', {
@@ -195,15 +216,17 @@ export async function runFullArtistIngest(input: FullArtistIngestInput): Promise
   }
 
   const ctx: IngestContext = { artistKey: canonicalArtistKey, browseId, source };
+  const browse = withAuthoritativeChannel(browsePayload, browseId);
 
   console.info('[full-artist-ingest] status=running', ctx);
 
+  await ensureArtistChannelPersisted(ctx, browse);
   await ingestArtistBase(ctx, browse);
   const { albumRefs } = await expandArtistAlbums(ctx, browse);
   await finalizeArtistIngest(ctx, albumRefs);
 
   const completedAt = nowIso();
-  console.info('[full-artist-ingest] status=completed', { artistKey: ctx.artistKey });
+  console.info('[full-artist-ingest] status=completed', { artist_key: ctx.artistKey });
 
   return { artistKey: ctx.artistKey, browseId, source, startedAt, completedAt, status: 'completed' };
 }
