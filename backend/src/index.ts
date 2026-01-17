@@ -23,10 +23,7 @@ import browseArtistRouter from './routes/browseArtist';
 import clientLogRouter from './routes/clientLog';
 import playlistRouter from './routes/playlist';
 import browsePlaylistRouter from './routes/browsePlaylist';
-import { scheduleMostPopularJob, warmMostPopularSnapshotIfMissing } from './jobs/mostPopularScheduler';
-import { scheduleNewReleasesJob, warmNewReleasesSnapshotIfMissing } from './jobs/newReleasesScheduler';
-import { scheduleTrendingNowJob, warmTrendingSnapshotIfMissing } from './jobs/trendingNowScheduler';
-import { scheduleInnertubeDecoderJob } from './jobs/innertubeDecoderScheduler';
+import { registerSchedulers } from './lib/scheduler';
 
 declare global {
   // Namespace extension required by Express request augmentation.
@@ -188,13 +185,7 @@ app.get('/', async (_req: Request, res: Response) => {
 
 
 // III. Background jobs (cron-compatible)
-scheduleTrendingNowJob();
-void warmTrendingSnapshotIfMissing();
-scheduleMostPopularJob();
-void warmMostPopularSnapshotIfMissing();
-scheduleNewReleasesJob();
-void warmNewReleasesSnapshotIfMissing();
-scheduleInnertubeDecoderJob();
+registerSchedulers();
 
 
 // IV. Boot up the app:

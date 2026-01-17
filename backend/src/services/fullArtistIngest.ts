@@ -6,17 +6,19 @@ import { browsePlaylistById } from './youtubeMusicClient';
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+export type FullArtistIngestSource = 'search' | 'suggest' | 'direct' | 'background';
+
 export type FullArtistIngestInput = {
   artistKey: string;
   browseId: string;
-  source: 'search' | 'suggest' | 'direct';
+  source: FullArtistIngestSource;
   force?: boolean;
 };
 
 export type FullArtistIngestResult = {
   artistKey: string;
   browseId: string;
-  source: 'search' | 'suggest' | 'direct';
+  source: FullArtistIngestSource;
   startedAt: string;
   completedAt: string;
   status: 'completed';
@@ -173,7 +175,7 @@ async function expandArtistAlbums(ctx: IngestContext, browse: any): Promise<{ in
 
 export async function runFullArtistIngest(input: FullArtistIngestInput): Promise<FullArtistIngestResult> {
   const browseId = normalize(input.browseId || '');
-  const source = input.source || 'direct';
+  const source: FullArtistIngestSource = input.source || 'direct';
   const startedAt = nowIso();
 
   if (!browseId) {
