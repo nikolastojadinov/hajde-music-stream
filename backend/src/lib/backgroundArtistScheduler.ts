@@ -1,126 +1,230 @@
 import cron from 'node-cron';
 
 import env from '../environments';
-import {
-  claimNextArtistForIngest,
-  getArtistCompletionSnapshot,
-  releaseBackgroundArtistLock,
-  tryAcquireBackgroundArtistLock,
-  type ArtistCompletionSnapshot,
-} from './db/artistQueries';
+import { musicSearch, type MusicSearchArtist } from '../services/youtubeMusicClient';
 import { runFullArtistIngest } from '../services/fullArtistIngest';
+import {
+  claimNextUnresolvedArtist,
+  markResolveAttempt,
+  persistArtistChannelId,
+  releaseUnresolvedArtistLock,
+  tryAcquireUnresolvedArtistLock,
+  type UnresolvedArtistCandidate,
+} from './db/artistQueries';
 
-const CRON_EXPRESSION = '*/5 * * * *';
-const ACTIVE_WINDOW_START = 0; // 00:00 inclusive
-const ACTIVE_WINDOW_END = 5;   // 05:00 exclusive
-const LOCK_LOG_CONTEXT = '[BackgroundArtistIngest]';
+export type SchedulerWindow = {
+  startHour: number;
+  endHour: number;
+};
+
+type JobConfig = {
+  cronExpression: string;
+  window: SchedulerWindow;
+  batchSize: number;
+};
+
+const JOB_LOG_CONTEXT = '[NightlyArtistIngest]';
+const DEFAULT_CONFIG: JobConfig = {
+  cronExpression: '*/10 * * * *',
+  window: { startHour: 0, endHour: 6 },
+  batchSize: 3,
+};
 
 let scheduled = false;
 let running = false;
 
-function inActiveWindow(now: Date): boolean {
+function isWithinSchedulerWindow(now: Date, window: SchedulerWindow): boolean {
+  const { startHour, endHour } = window;
   const hour = now.getHours();
-  return hour >= ACTIVE_WINDOW_START && hour < ACTIVE_WINDOW_END;
+  if (startHour === endHour) return true;
+  if (startHour < endHour) return hour >= startHour && hour < endHour;
+  return hour >= startHour || hour < endHour;
 }
 
-function logSummary(label: string, snapshot: ArtistCompletionSnapshot | null): void {
-  if (!snapshot) {
-    console.log(`${LOCK_LOG_CONTEXT} ${label}`, { state: 'missing' });
+function normalizeLoose(value: string | null | undefined): string {
+  return typeof value === 'string' ? value.toLowerCase().replace(/\s+/g, ' ').trim() : '';
+}
+
+function looksLikeBrowseId(value: string): boolean {
+  const v = normalizeLoose(value).replace(/\s+/g, '');
+  if (!v) return false;
+  return /^(OLAK|PL|VL|RD|MP|UU|LL|UC|OL|RV)[A-Za-z0-9_-]+$/.test(v);
+}
+
+function pickBestArtistMatch(artists: MusicSearchArtist[], query: string): MusicSearchArtist | null {
+  const target = normalizeLoose(query);
+  if (!target) return null;
+
+  const scored = artists
+    .map((artist) => {
+      const nameNorm = normalizeLoose(artist.name);
+      const pageType = normalizeLoose((artist as any).pageType || '');
+      let score = 0;
+      if (nameNorm === target) score += 200;
+      if (nameNorm.includes(target) || target.includes(nameNorm)) score += 60;
+      if (pageType.includes('artist')) score += 40;
+      if (artist.isOfficial) score += 30;
+      if (nameNorm.includes('tribute') || nameNorm.includes('cover')) score -= 100;
+      return { artist, score };
+    })
+    .filter((entry) => entry.score > 0)
+    .sort((a, b) => b.score - a.score);
+
+  return scored.length ? scored[0].artist : null;
+}
+
+async function resolveBrowseId(candidate: UnresolvedArtistCandidate): Promise<string | null> {
+  const queries = Array.from(
+    new Set([
+      candidate.displayName || '',
+      candidate.normalizedName || '',
+      candidate.artistKey,
+    ].filter(Boolean)),
+  );
+
+  for (const q of queries) {
+    try {
+      const results = await musicSearch(q);
+      const artists = Array.isArray(results.artists) ? results.artists : [];
+      const best = pickBestArtistMatch(artists, q);
+      if (best && looksLikeBrowseId(best.id)) return best.id;
+    } catch (err) {
+      console.error(`${JOB_LOG_CONTEXT} search_failed`, {
+        artist_key: candidate.artistKey,
+        normalized_name: candidate.normalizedName,
+        query: q,
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  return null;
+}
+
+async function processCandidate(candidate: UnresolvedArtistCandidate): Promise<void> {
+  await markResolveAttempt(candidate.artistKey);
+
+  const browseId = await resolveBrowseId(candidate);
+  if (!browseId) {
+    console.info(`${JOB_LOG_CONTEXT} resolution_result`, {
+      artist_key: candidate.artistKey,
+      normalized_name: candidate.normalizedName,
+      resolution_status: 'unresolved',
+      youtube_channel_id: null,
+      ingest_started: false,
+      ingest_skipped: true,
+    });
     return;
   }
 
-  console.log(`${LOCK_LOG_CONTEXT} ${label}`, {
-    artist_key: snapshot.artistKey,
-    browse_id: snapshot.browseId,
-    total_albums: snapshot.totalAlbums,
-    complete_albums: snapshot.completeAlbums,
-    partial_albums: snapshot.partialAlbums,
-    unknown_albums: snapshot.unknownAlbums,
-    expected_tracks: snapshot.expectedTracks,
-    actual_tracks: snapshot.actualTracks,
-    completion_percent: snapshot.completionPercent,
+  console.info(`${JOB_LOG_CONTEXT} resolution_result`, {
+    artist_key: candidate.artistKey,
+    normalized_name: candidate.normalizedName,
+    resolution_status: 'resolved',
+    youtube_channel_id: browseId,
+    ingest_started: true,
+    ingest_skipped: false,
   });
-}
 
-async function runBackgroundIngestOnce(): Promise<void> {
-  const startedAtMs = Date.now();
-  const now = new Date();
-
-  if (!inActiveWindow(now)) {
-    console.log(`${LOCK_LOG_CONTEXT} Skipped: outside active window`, { hour: now.getHours() });
-    return;
-  }
-
-  const lockAcquired = await tryAcquireBackgroundArtistLock();
-  if (!lockAcquired) {
-    console.log(`${LOCK_LOG_CONTEXT} Skip run: advisory lock not acquired`);
-    return;
-  }
-
-  let candidate: ArtistCompletionSnapshot | null = null;
+  await persistArtistChannelId({
+    artistKey: candidate.artistKey,
+    youtubeChannelId: browseId,
+    displayName: candidate.displayName || candidate.normalizedName,
+  });
 
   try {
-    candidate = await claimNextArtistForIngest();
-    if (!candidate) {
-      console.log(`${LOCK_LOG_CONTEXT} No eligible artist found`);
-      return;
-    }
-
-    logSummary('Completion before ingest', candidate);
-
     await runFullArtistIngest({
       artistKey: candidate.artistKey,
-      browseId: candidate.browseId,
+      browseId,
       source: 'background',
       force: false,
     });
 
-    const after = await getArtistCompletionSnapshot(candidate.artistKey);
-    logSummary('Completion after ingest', after);
-
-    console.log(`${LOCK_LOG_CONTEXT} Completed run`, {
+    console.info(`${JOB_LOG_CONTEXT} ingest_completed`, {
       artist_key: candidate.artistKey,
-      browse_id: candidate.browseId,
-      duration_ms: Date.now() - startedAtMs,
+      normalized_name: candidate.normalizedName,
+      youtube_channel_id: browseId,
+      ingest_completed: true,
     });
   } catch (err: any) {
-    const artistKey = candidate?.artistKey ?? null;
-    const browseId = candidate?.browseId ?? null;
-    console.error(`${LOCK_LOG_CONTEXT} Ingest failed`, {
-      artist_key: artistKey,
-      browse_id: browseId,
+    console.error(`${JOB_LOG_CONTEXT} ingest_failed`, {
+      artist_key: candidate.artistKey,
+      normalized_name: candidate.normalizedName,
+      youtube_channel_id: browseId,
+      ingest_failed: true,
       message: err?.message || String(err),
-      duration_ms: Date.now() - startedAtMs,
     });
-  } finally {
-    await releaseBackgroundArtistLock();
   }
 }
 
-export function scheduleBackgroundArtistJob(): void {
-  if (!env.enable_run_jobs) {
-    console.log(`${LOCK_LOG_CONTEXT} Scheduling disabled via ENABLE_RUN_JOBS=false`);
+async function runNightlyArtistIngestOnce(config: JobConfig): Promise<void> {
+  const startedAtMs = Date.now();
+  const now = new Date();
+
+  if (!isWithinSchedulerWindow(now, config.window)) {
+    console.log(`${JOB_LOG_CONTEXT} skipped_outside_window`, { hour: now.getHours() });
     return;
   }
 
+  const lockAcquired = await tryAcquireUnresolvedArtistLock();
+  if (!lockAcquired) {
+    console.log(`${JOB_LOG_CONTEXT} lock_not_acquired`);
+    return;
+  }
+
+  let processed = 0;
+
+  try {
+    while (processed < config.batchSize) {
+      const candidate = await claimNextUnresolvedArtist();
+      if (!candidate) {
+        console.log(`${JOB_LOG_CONTEXT} no_unresolved_artists`);
+        break;
+      }
+
+      console.info(`${JOB_LOG_CONTEXT} resolution_started`, {
+        artist_key: candidate.artistKey,
+        normalized_name: candidate.normalizedName,
+      });
+
+      await processCandidate(candidate);
+      processed += 1;
+    }
+
+    console.log(`${JOB_LOG_CONTEXT} run_complete`, {
+      processed,
+      duration_ms: Date.now() - startedAtMs,
+    });
+  } finally {
+    await releaseUnresolvedArtistLock();
+  }
+}
+
+export function scheduleUnresolvedArtistJob(window: SchedulerWindow): void {
+  if (!env.enable_run_jobs) {
+    console.log(`${JOB_LOG_CONTEXT} scheduling_disabled`);
+    return;
+  }
   if (scheduled) return;
 
-  cron.schedule(CRON_EXPRESSION, async () => {
+  const config: JobConfig = { ...DEFAULT_CONFIG, window };
+
+  cron.schedule(config.cronExpression, async () => {
     if (running) {
-      console.log(`${LOCK_LOG_CONTEXT} Skipping run because previous job is still running`);
+      console.log(`${JOB_LOG_CONTEXT} skip_concurrent_run`);
       return;
     }
 
     running = true;
     try {
-      await runBackgroundIngestOnce();
+      await runNightlyArtistIngestOnce(config);
     } catch (err: any) {
-      console.error(`${LOCK_LOG_CONTEXT} Unexpected failure`, err?.message || err);
+      console.error(`${JOB_LOG_CONTEXT} unexpected_failure`, err?.message || err);
     } finally {
       running = false;
     }
   });
 
   scheduled = true;
-  console.log(`${LOCK_LOG_CONTEXT} Cron scheduled every 5 minutes between 00:00-05:00 (server time)`);
+  console.log(`${JOB_LOG_CONTEXT} scheduled`, { cron: config.cronExpression, window_start: window.startHour, window_end: window.endHour });
 }
