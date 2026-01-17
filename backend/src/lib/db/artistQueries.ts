@@ -87,6 +87,25 @@ async function runJsonQuery(sql: string, label: string): Promise<DbSnapshotRow |
   return payload as DbSnapshotRow;
 }
 
+async function runBooleanQuery(sql: string, label: string): Promise<boolean> {
+  const client = getSupabaseAdmin();
+  const { data, error } = await client.rpc('run_raw', { sql });
+
+  if (error) {
+    throw new Error(`[artistQueries] ${label} failed: ${error.message}`);
+  }
+
+  if (!Array.isArray(data) || data.length === 0) return false;
+  const payload = (data[0] as RawRow)?.playlists_by_title;
+  if (payload === null || payload === undefined) return false;
+  if (typeof payload === 'boolean') return payload;
+  if (typeof payload === 'object' && 'locked' in payload) {
+    const candidate = (payload as any).locked;
+    if (typeof candidate === 'boolean') return candidate;
+  }
+  return Boolean(payload);
+}
+
 function completionColumns(alias: string): string {
   return `
   ${alias}.artist_key,
@@ -104,6 +123,20 @@ function completionColumns(alias: string): string {
 
 function completionPercentExpression(): string {
   return `CASE WHEN c.expected_tracks > 0 THEN LEAST(100, ROUND((c.actual_tracks::numeric / c.expected_tracks::numeric) * 100)) ELSE NULL END AS completion_percent`;
+}
+
+export async function tryAcquireBackgroundArtistLock(): Promise<boolean> {
+  const sql = `
+SELECT to_jsonb(pg_try_advisory_lock(723994)) AS playlists_by_title, NULL::jsonb AS playlists_by_artist;
+`;
+  return runBooleanQuery(sql, 'tryAcquireBackgroundArtistLock');
+}
+
+export async function releaseBackgroundArtistLock(): Promise<void> {
+  const sql = `
+SELECT to_jsonb(pg_advisory_unlock(723994)) AS playlists_by_title, NULL::jsonb AS playlists_by_artist;
+`;
+  await runBooleanQuery(sql, 'releaseBackgroundArtistLock');
 }
 
 export async function claimNextArtistForIngest(): Promise<ArtistIngestCandidate | null> {
@@ -132,7 +165,7 @@ completion AS (
   LEFT JOIN album_status alb ON alb.artist_key = o.artist_key
   GROUP BY o.artist_key, o.browse_id, o.updated_at, o.created_at
 ),
-eligible AS (
+
   SELECT
     c.*,
     ${completionPercentExpression()}
