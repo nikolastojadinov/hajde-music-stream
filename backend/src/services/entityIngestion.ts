@@ -175,6 +175,28 @@ async function upsertArtists(inputs: ArtistInput[]): Promise<ArtistResult> {
   if (!inputs.length) return { keys: [], count: 0 };
   const client = getSupabaseAdmin();
 
+   const channelIds = Array.from(
+    new Set(
+      inputs
+        .map((a) => normalize(a.channelId))
+        .filter((v) => Boolean(v)),
+    ),
+  );
+
+  const channelMap: Record<string, string> = {};
+  if (channelIds.length) {
+    const { data, error } = await client
+      .from('artists')
+      .select('artist_key, youtube_channel_id')
+      .in('youtube_channel_id', channelIds);
+    if (error) throw new Error(`[upsertArtists] channel lookup ${error.message}`);
+    (data || []).forEach((row: any) => {
+      const channel = normalize(row.youtube_channel_id);
+      const key = normalize(row.artist_key);
+      if (channel && key) channelMap[channel] = key;
+    });
+  }
+
   const rows = uniqueBy(
     inputs
       .map((artist) => {
@@ -182,12 +204,14 @@ async function upsertArtists(inputs: ArtistInput[]): Promise<ArtistResult> {
         const key = normalizeArtistKey(display || artist.name);
         const artistValue = normalize(display || artist.name || key);
         if (!key || !artistValue) return null;
+        const channelId = normalize(artist.channelId) || null;
+        const canonicalKey = channelId && channelMap[channelId] ? channelMap[channelId] : key;
         return {
           artist: artistValue,
-          artist_key: key,
+          artist_key: canonicalKey,
           display_name: display || artist.name,
           normalized_name: artistValue.toLowerCase(),
-          youtube_channel_id: normalize(artist.channelId) || null,
+          youtube_channel_id: channelId,
           thumbnails: artist.thumbnails || null,
           updated_at: NOW(),
         };

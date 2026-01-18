@@ -56,6 +56,7 @@ async function ensureArtistChannelPersisted(ctx: IngestContext, browse: any): Pr
     artistKey: ctx.artistKey,
     youtubeChannelId: channelId,
     displayName: browse?.artist?.name,
+    artistDescription: normalizeDescriptionText((browse as any)?.description),
   });
 
   console.info('[full-artist-ingest] artist_channel_write', {

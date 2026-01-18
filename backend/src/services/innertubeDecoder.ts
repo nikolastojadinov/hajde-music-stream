@@ -305,8 +305,23 @@ async function ingest(row: RawPayloadRow, bundle: EntityBundle): Promise<void> {
 
   // Artists
   if (bundle.artists.length > 0) {
+    const channelIds = Array.from(new Set(bundle.artists.map((a) => (a.youtube_channel_id || '').trim()).filter(Boolean)));
+    const channelMap: Record<string, string> = {};
+    if (channelIds.length > 0) {
+      const { data, error } = await supabase
+        .from('artists')
+        .select('artist_key, youtube_channel_id')
+        .in('youtube_channel_id', channelIds);
+      if (error) throw new Error(error.message);
+      (data || []).forEach((row: any) => {
+        const channel = (row?.youtube_channel_id || '').trim();
+        const key = (row?.artist_key || '').trim();
+        if (channel && key) channelMap[channel] = key;
+      });
+    }
+
     const artistRows = bundle.artists.map((a) => ({
-      artist_key: a.artist_key,
+      artist_key: channelMap[(a.youtube_channel_id || '').trim()] || a.artist_key,
       artist: a.artist,
       normalized_name: a.normalized_name,
       youtube_channel_id: a.youtube_channel_id,

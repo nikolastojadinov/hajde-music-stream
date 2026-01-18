@@ -54,17 +54,19 @@ export async function persistArtistChannelId(params: {
   artistKey: string;
   youtubeChannelId: string;
   displayName?: string;
+  artistDescription?: string | null;
 }): Promise<ArtistChannelWriteResult> {
   const artistKey = normalize(params.artistKey);
   const youtubeChannelId = normalize(params.youtubeChannelId);
   const displayName = normalize(params.displayName || params.artistKey);
+  const incomingDescription = normalize(params.artistDescription || '');
   if (!artistKey) throw new Error('[artistQueries] artistKey is required');
   if (!youtubeChannelId) throw new Error('[artistQueries] youtubeChannelId is required');
 
   const client = getSupabaseAdmin();
   const { data, error } = await client
     .from('artists')
-    .select('artist_key, youtube_channel_id, display_name, normalized_name, artist')
+    .select('artist_key, youtube_channel_id, display_name, normalized_name, artist, artist_description')
     .eq('artist_key', artistKey)
     .limit(1);
 
@@ -81,6 +83,7 @@ export async function persistArtistChannelId(params: {
       display_name: displayName || artistKey,
       normalized_name: normalizedName,
       youtube_channel_id: youtubeChannelId,
+      artist_description: incomingDescription || null,
       updated_at: nowIso(),
     };
 
@@ -90,16 +93,24 @@ export async function persistArtistChannelId(params: {
     return { artistKey, youtubeChannelId, existed: false, updated: true, previousChannelId };
   }
 
+  const existingDescription = normalize((existing as any)?.artist_description);
+  const shouldWriteDescription = !existingDescription && incomingDescription;
+
   if (previousChannelId === youtubeChannelId) {
-    const { error: touchError } = await client.from('artists').update({ updated_at: nowIso() }).eq('artist_key', artistKey);
+    const updates: Record<string, any> = { updated_at: nowIso() };
+    if (shouldWriteDescription) updates.artist_description = incomingDescription;
+
+    const { error: touchError } = await client.from('artists').update(updates).eq('artist_key', artistKey);
     if (touchError) throw new Error(`[artistQueries] artist touch failed: ${touchError.message}`);
-    return { artistKey, youtubeChannelId, existed: true, updated: false, previousChannelId };
+    return { artistKey, youtubeChannelId, existed: true, updated: Boolean(shouldWriteDescription), previousChannelId };
   }
 
   const updates: Record<string, any> = {
     youtube_channel_id: youtubeChannelId,
     updated_at: nowIso(),
   };
+
+  if (shouldWriteDescription) updates.artist_description = incomingDescription;
 
   if (!existing.display_name) updates.display_name = displayName || artistKey;
   if (!existing.normalized_name) updates.normalized_name = (displayName || artistKey).toLowerCase();
