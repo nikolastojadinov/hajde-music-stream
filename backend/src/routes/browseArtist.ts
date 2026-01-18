@@ -96,6 +96,7 @@ router.get('/', async (req, res) => {
     let ingestError: string | null = null;
     const artistKey = normalizeArtistKey(data?.artist?.name ?? '') || normalizeString(data?.artist?.channelId ?? '') || null;
     const source: 'direct' = 'direct';
+    const artistDescription = normalizeString((data as any)?.description);
 
     if (data) {
       try {
@@ -129,6 +130,7 @@ router.get('/', async (req, res) => {
 
     const payload = {
       artistName: data?.artist.name ?? null,
+      artist_description: artistDescription || null,
       thumbnails: { avatar: data?.artist.thumbnailUrl ?? null, banner: data?.artist.bannerUrl ?? null },
       topSongs: Array.isArray(data?.topSongs)
         ? data.topSongs

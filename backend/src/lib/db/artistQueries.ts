@@ -14,6 +14,10 @@ export type ArtistChannelWriteResult = {
   previousChannelId: string | null;
 };
 
+export type ArtistDescriptionWriteResult = {
+  updated: boolean;
+};
+
 const ARTIST_LOCK_KEY = 723994;
 
 type RawRow = { payload?: any };
@@ -105,6 +109,26 @@ export async function persistArtistChannelId(params: {
   if (updateError) throw new Error(`[artistQueries] artist channel update failed: ${updateError.message}`);
 
   return { artistKey, youtubeChannelId, existed: true, updated: true, previousChannelId };
+}
+
+export async function persistArtistDescription(params: { artistKey: string; description: string }): Promise<ArtistDescriptionWriteResult> {
+  const artistKey = normalize(params.artistKey);
+  const description = normalize(params.description).replace(/\s+/g, ' ');
+  if (!artistKey) throw new Error('[artistQueries] artistKey is required');
+  if (!description) return { updated: false };
+
+  const client = getSupabaseAdmin();
+  const { data, error } = await client
+    .from('artists')
+    .update({ artist_description: description, updated_at: nowIso() })
+    .eq('artist_key', artistKey)
+    .or('artist_description.is.null,artist_description.eq.""')
+    .select('artist_key');
+
+  if (error) throw new Error(`[artistQueries] artist description update failed: ${error.message}`);
+
+  const updated = Array.isArray(data) && data.length > 0;
+  return { updated };
 }
 
 export async function markResolveAttempt(artistKey: string): Promise<void> {

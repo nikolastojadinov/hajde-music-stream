@@ -22,6 +22,8 @@ router.get('/', async (req, res) => {
       return res.status(404).json({ error: 'artist_not_found' });
     }
 
+    const artistDescription = normalizeString((browse as any)?.description);
+
     const mappedTracks = (Array.isArray(browse.topSongs) ? browse.topSongs : [])
       .filter((v) => looksLikeVideoId(v.id) && normalizeString(v.title))
       .map((v) => ({
@@ -45,6 +47,7 @@ router.get('/', async (req, res) => {
         youtube_channel_id: browse.artist.channelId,
         thumbnail_url: browse.artist.thumbnailUrl,
         banner_url: browse.artist.bannerUrl,
+        artist_description: artistDescription || null,
       },
       playlists: [],
       tracks: mappedTracks,

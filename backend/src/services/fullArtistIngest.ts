@@ -1,5 +1,5 @@
 import { fetchArtistBrowseById } from '../lib/browse/browseArtist';
-import { persistArtistChannelId } from '../lib/db/artistQueries';
+import { persistArtistChannelId, persistArtistDescription } from '../lib/db/artistQueries';
 import { ingestArtistBrowse, resolveCanonicalArtistKey } from './entityIngestion';
 import { ingestPlaylistOrAlbum, getAlbumCompletion } from './ingestPlaylistOrAlbum';
 import { getSupabaseAdmin } from './supabaseClient';
@@ -35,6 +35,11 @@ function normalize(value: string): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function normalizeDescriptionText(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  return value.replace(/\s+/g, ' ').trim();
+}
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -59,6 +64,19 @@ async function ensureArtistChannelPersisted(ctx: IngestContext, browse: any): Pr
     channel_write_state: result.updated ? 'written' : 'unchanged',
     previous_channel_id: result.previousChannelId,
   });
+}
+
+async function persistArtistDescriptionIfAny(ctx: IngestContext, browse: any): Promise<void> {
+  const description = normalizeDescriptionText((browse as any)?.description);
+  if (!description) return;
+
+  const result = await persistArtistDescription({ artistKey: ctx.artistKey, description });
+  if (result.updated) {
+    console.info('[ArtistIngest] artist_description_saved', {
+      artist_key: ctx.artistKey,
+      description_length: description.length,
+    });
+  }
 }
 
 async function finalizeArtistIngest(ctx: IngestContext, albumIds: Array<{ externalId: string; albumId: string | null }>): Promise<void> {
@@ -220,6 +238,7 @@ export async function runFullArtistIngest(input: FullArtistIngestInput): Promise
 
   console.info('[full-artist-ingest] status=running', ctx);
 
+  await persistArtistDescriptionIfAny(ctx, browse);
   await ensureArtistChannelPersisted(ctx, browse);
   await ingestArtistBase(ctx, browse);
   const { albumRefs } = await expandArtistAlbums(ctx, browse);

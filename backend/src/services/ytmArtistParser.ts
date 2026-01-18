@@ -5,6 +5,7 @@ export type ArtistBrowse = {
     thumbnailUrl: string | null;
     bannerUrl: string | null;
   };
+  description: string | null;
   topSongs: Array<{ id: string; title: string; imageUrl: string | null; playCount: string | null }>;
   albums: Array<{ id: string; title: string; imageUrl: string | null; year: string | null }>;
   playlists: Array<{ id: string; title: string; imageUrl: string | null }>;
@@ -116,6 +117,33 @@ function deepFind(node: any, predicate: WalkPredicate): any | null {
   }
 
   return null;
+}
+
+function extractDescriptionFromShelf(root: any): string {
+  const node = deepFind(root, (value: any) => Boolean(value?.musicDescriptionShelfRenderer?.description?.runs));
+  if (!node) return "";
+  const renderer = (node as any).musicDescriptionShelfRenderer ?? node;
+  return runsToDescriptionText(renderer?.description?.runs);
+}
+
+function extractDescriptionFromHeader(root: any): string {
+  return runsToDescriptionText(root?.header?.musicImmersiveHeaderRenderer?.description?.runs);
+}
+
+function extractArtistDescription(root: any): string | null {
+  const fromShelf = extractDescriptionFromShelf(root);
+  if (fromShelf) return fromShelf;
+  const fromHeader = extractDescriptionFromHeader(root);
+  return fromHeader || null;
+}
+
+function runsToDescriptionText(runs: any): string {
+  if (!Array.isArray(runs) || runs.length === 0) return "";
+  const text = runs
+    .map((r: any) => normalizeString(r?.text ?? ""))
+    .filter(Boolean)
+    .join(" ");
+  return text.replace(/\s+/g, " ").trim();
 }
 
 function walkAll(root: any, visitor: WalkVisitor): void {
@@ -336,6 +364,7 @@ export function parseArtistBrowseFromInnertube(browseJson: any, browseIdRaw: str
   const topSongs = dedupeByKey(songCandidates, (item) => item.id).slice(0, 10);
   const albums = dedupeByKey(albumCandidates, (item) => item.id);
   const playlists = dedupeByKey(playlistCandidates, (item) => item.id);
+  const description = extractArtistDescription(browseJson);
 
   return {
     artist: {
@@ -344,6 +373,7 @@ export function parseArtistBrowseFromInnertube(browseJson: any, browseIdRaw: str
       thumbnailUrl,
       bannerUrl,
     },
+    description,
     topSongs,
     albums,
     playlists,
