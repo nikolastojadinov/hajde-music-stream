@@ -83,7 +83,7 @@ export async function persistArtistChannelId(params: {
         .select(selectColumns)
         .eq('artist_key', artistKey)
         .limit(1);
-  const { data, error } = await client
+
   if (error) throw new Error(`[artistQueries] artist lookup failed: ${error.message}`);
 
   const existing = Array.isArray(data) && data.length > 0 ? data[0] : existingByChannel;
