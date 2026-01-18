@@ -1,13 +1,8 @@
-import { scheduleMostPopularJob, warmMostPopularSnapshotIfMissing } from '../jobs/mostPopularScheduler';
-import { scheduleNewReleasesJob, warmNewReleasesSnapshotIfMissing } from '../jobs/newReleasesScheduler';
-import { scheduleTrendingNowJob, warmTrendingSnapshotIfMissing } from '../jobs/trendingNowScheduler';
-import { scheduleInnertubeDecoderJob } from '../jobs/innertubeDecoderScheduler';
-import { scheduleUnresolvedArtistJob } from './backgroundArtistScheduler';
-
-export type SchedulerWindow = {
-  startHour: number;
-  endHour: number;
-};
+import env from '../environments';
+import { scheduleTrendingNowJob } from '../jobs/trendingNowScheduler';
+import { scheduleMostPopularJob } from '../jobs/mostPopularScheduler';
+import { scheduleNewReleasesJob } from '../jobs/newReleasesScheduler';
+import { scheduleUnresolvedArtistJob, type SchedulerWindow } from './backgroundArtistScheduler';
 
 function parseHour(value: string | undefined, fallback: number): number {
   const parsed = Number.parseInt(value || '', 10);
@@ -15,36 +10,35 @@ function parseHour(value: string | undefined, fallback: number): number {
   return fallback;
 }
 
-export function resolveSchedulerWindow(): SchedulerWindow {
+function resolveSchedulerWindow(): SchedulerWindow {
   const startHour = parseHour(process.env.BACKGROUND_INGEST_WINDOW_START, 0);
-  const endHour = parseHour(process.env.BACKGROUND_INGEST_WINDOW_END, 6);
+  const endHour = parseHour(process.env.BACKGROUND_INGEST_WINDOW_END, 5);
   return { startHour, endHour };
-}
-
-export function isWithinSchedulerWindow(now: Date, window: SchedulerWindow): boolean {
-  const { startHour, endHour } = window;
-  const hour = now.getHours();
-  if (startHour === endHour) return true; // window covers full day
-  if (startHour < endHour) return hour >= startHour && hour < endHour;
-  // Wrap-around window (e.g., 22 -> 3)
-  return hour >= startHour || hour < endHour;
 }
 
 let initialized = false;
 
 export function registerSchedulers(): void {
   if (initialized) return;
+  initialized = true;
 
+  console.log(`[Scheduler] ENABLE_RUN_JOBS=${env.enable_run_jobs}`);
+
+  if (!env.enable_run_jobs) {
+    console.log('[Scheduler] No background jobs registered');
+    return;
+  }
+
+  console.log('[Scheduler] Registering background jobs');
   const window = resolveSchedulerWindow();
   scheduleUnresolvedArtistJob(window);
   scheduleTrendingNowJob();
-  void warmTrendingSnapshotIfMissing();
   scheduleMostPopularJob();
-  void warmMostPopularSnapshotIfMissing();
   scheduleNewReleasesJob();
-  void warmNewReleasesSnapshotIfMissing();
-  scheduleInnertubeDecoderJob();
 
-  initialized = true;
-  console.log('[Scheduler] Background jobs registered');
+  console.log('[Scheduler] Registered jobs:');
+  console.log('- NightlyArtistIngest: every 5 minutes between 00:00-05:00 local window');
+  console.log('- TrendingNow: daily at 06:00 local time');
+  console.log('- MostPopular: daily at 06:15 local time');
+  console.log('- NewReleases: daily at 06:30 local time');
 }

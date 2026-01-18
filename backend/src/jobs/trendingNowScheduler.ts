@@ -14,28 +14,26 @@ export function scheduleTrendingNowJob() {
 
   if (scheduled) return;
 
-  cron.schedule(
-    '0 2 * * 1',
-    async () => {
-      if (running) {
-        console.log('[TrendingNow] Skip run because previous job is still running');
-        return;
-      }
-      running = true;
-      try {
-        await refreshTrendingNowSnapshot('weekly cron');
-        console.log('[TrendingNow] Weekly snapshot generated');
-      } catch (err: any) {
-        console.error('[TrendingNow] Weekly snapshot failed', err?.message || err);
-      } finally {
-        running = false;
-      }
-    },
-    { timezone: 'UTC' }
-  );
+  cron.schedule('0 6 * * *', async () => {
+    if (running) {
+      console.log('[TrendingNow] Skip run because previous job is still running');
+      return;
+    }
+    running = true;
+    const hour = new Date().getHours();
+    console.log('[TrendingNow] Run start', { hour });
+    try {
+      await refreshTrendingNowSnapshot('daily cron');
+      console.log('[TrendingNow] Daily snapshot generated');
+    } catch (err: any) {
+      console.error('[TrendingNow] Daily snapshot failed', err?.message || err);
+    } finally {
+      running = false;
+    }
+  });
 
   scheduled = true;
-  console.log('[TrendingNow] Weekly cron scheduled for Mondays 02:00 UTC');
+  console.log('[TrendingNow] Scheduled daily at 06:00 local time');
 }
 
 export async function warmTrendingSnapshotIfMissing() {

@@ -25,8 +25,8 @@ type JobConfig = {
 
 const JOB_LOG_CONTEXT = '[NightlyArtistIngest]';
 const DEFAULT_CONFIG: JobConfig = {
-  cronExpression: '*/10 * * * *',
-  window: { startHour: 0, endHour: 6 },
+  cronExpression: '*/5 * * * *',
+  window: { startHour: 0, endHour: 5 },
   batchSize: 3,
 };
 
@@ -165,6 +165,8 @@ async function runNightlyArtistIngestOnce(config: JobConfig): Promise<void> {
     console.log(`${JOB_LOG_CONTEXT} skipped_outside_window`, { hour: now.getHours() });
     return;
   }
+
+  console.log(`${JOB_LOG_CONTEXT} run_start`, { hour: now.getHours() });
 
   const lockAcquired = await tryAcquireUnresolvedArtistLock();
   if (!lockAcquired) {

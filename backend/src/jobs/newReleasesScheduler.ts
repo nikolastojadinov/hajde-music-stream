@@ -14,28 +14,26 @@ export function scheduleNewReleasesJob() {
 
   if (scheduled) return;
 
-  cron.schedule(
-    '20 2 * * 1',
-    async () => {
-      if (running) {
-        console.log('[NewReleases] Skip run because previous job is still running');
-        return;
-      }
-      running = true;
-      try {
-        await refreshNewReleasesSnapshot('weekly cron');
-        console.log('[NewReleases] Weekly snapshot generated');
-      } catch (err: any) {
-        console.error('[NewReleases] Weekly snapshot failed', err?.message || err);
-      } finally {
-        running = false;
-      }
-    },
-    { timezone: 'UTC' }
-  );
+  cron.schedule('30 6 * * *', async () => {
+    if (running) {
+      console.log('[NewReleases] Skip run because previous job is still running');
+      return;
+    }
+    running = true;
+    const hour = new Date().getHours();
+    console.log('[NewReleases] Run start', { hour });
+    try {
+      await refreshNewReleasesSnapshot('daily cron');
+      console.log('[NewReleases] Daily snapshot generated');
+    } catch (err: any) {
+      console.error('[NewReleases] Daily snapshot failed', err?.message || err);
+    } finally {
+      running = false;
+    }
+  });
 
   scheduled = true;
-  console.log('[NewReleases] Weekly cron scheduled for Mondays 02:20 UTC');
+  console.log('[NewReleases] Scheduled daily at 06:30 local time');
 }
 
 export async function warmNewReleasesSnapshotIfMissing() {
