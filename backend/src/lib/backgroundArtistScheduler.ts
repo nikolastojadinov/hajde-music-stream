@@ -3,6 +3,7 @@ import cron from 'node-cron';
 import env from '../environments';
 import { musicSearch, type MusicSearchArtist } from '../services/youtubeMusicClient';
 import { runFullArtistIngest } from '../services/fullArtistIngest';
+import { ensureArtistDescriptionForNightly } from '../services/nightlyArtistIngest';
 import {
   claimNextUnresolvedArtist,
   markResolveAttempt,
@@ -131,6 +132,21 @@ async function processCandidate(candidate: UnresolvedArtistCandidate): Promise<v
     youtubeChannelId: browseId,
     displayName: candidate.displayName || candidate.normalizedName,
   });
+
+  try {
+    await ensureArtistDescriptionForNightly({
+      artistKey: candidate.artistKey,
+      browseId,
+      logPrefix: JOB_LOG_CONTEXT,
+    });
+  } catch (err: any) {
+    console.error(`${JOB_LOG_CONTEXT} artist_description_write_failed`, {
+      artist_key: candidate.artistKey,
+      normalized_name: candidate.normalizedName,
+      youtube_channel_id: browseId,
+      message: err?.message || String(err),
+    });
+  }
 
   try {
     await runFullArtistIngest({
