@@ -58,29 +58,44 @@ export async function persistArtistChannelId(params: {
 }): Promise<ArtistChannelWriteResult> {
   const artistKey = normalize(params.artistKey);
   const youtubeChannelId = normalize(params.youtubeChannelId);
-  const displayName = normalize(params.displayName || params.artistKey);
+  const displayName = normalize(params.displayName || '');
   const incomingDescription = normalize(params.artistDescription || '');
   if (!artistKey) throw new Error('[artistQueries] artistKey is required');
   if (!youtubeChannelId) throw new Error('[artistQueries] youtubeChannelId is required');
 
   const client = getSupabaseAdmin();
-  const { data, error } = await client
-    .from('artists')
-    .select('artist_key, youtube_channel_id, display_name, normalized_name, artist, artist_description')
-    .eq('artist_key', artistKey)
-    .limit(1);
+  const selectColumns = 'artist_key, youtube_channel_id, display_name, normalized_name, artist, artist_description';
 
+  // Prefer canonical artist by channel id
+  const { data: byChannel, error: channelError } = await client
+    .from('artists')
+    .select(selectColumns)
+    .eq('youtube_channel_id', youtubeChannelId)
+    .limit(1);
+  if (channelError) throw new Error(`[artistQueries] artist lookup by channel failed: ${channelError.message}`);
+
+  const existingByChannel = Array.isArray(byChannel) && byChannel.length > 0 ? byChannel[0] : null;
+
+  const { data, error } = existingByChannel
+    ? { data: byChannel, error: null as any }
+    : await client
+        .from('artists')
+        .select(selectColumns)
+        .eq('artist_key', artistKey)
+        .limit(1);
+  const { data, error } = await client
   if (error) throw new Error(`[artistQueries] artist lookup failed: ${error.message}`);
 
-  const existing = Array.isArray(data) && data.length > 0 ? data[0] : null;
+  const existing = Array.isArray(data) && data.length > 0 ? data[0] : existingByChannel;
   const previousChannelId = existing?.youtube_channel_id ?? null;
 
   if (!existing) {
-    const normalizedName = displayName ? displayName.toLowerCase() : artistKey.toLowerCase();
+    const safeName = displayName || 'Unknown Artist';
+    const normalizedName = safeName.toLowerCase();
     const insertRow = {
       artist_key: artistKey,
-      artist: displayName || artistKey,
-      display_name: displayName || artistKey,
+      artist: safeName,
+      display_name: safeName,
       normalized_name: normalizedName,
       youtube_channel_id: youtubeChannelId,
       artist_description: incomingDescription || null,
@@ -112,9 +127,9 @@ export async function persistArtistChannelId(params: {
 
   if (shouldWriteDescription) updates.artist_description = incomingDescription;
 
-  if (!existing.display_name) updates.display_name = displayName || artistKey;
-  if (!existing.normalized_name) updates.normalized_name = (displayName || artistKey).toLowerCase();
-  if (!existing.artist) updates.artist = displayName || artistKey;
+  if (!existing.display_name && displayName) updates.display_name = displayName;
+  if (!existing.normalized_name && displayName) updates.normalized_name = displayName.toLowerCase();
+  if (!existing.artist && displayName) updates.artist = displayName;
 
   const { error: updateError } = await client.from('artists').update(updates).eq('artist_key', artistKey);
   if (updateError) throw new Error(`[artistQueries] artist channel update failed: ${updateError.message}`);

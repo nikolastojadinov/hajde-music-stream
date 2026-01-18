@@ -239,8 +239,8 @@ export async function runFullArtistIngest(input: FullArtistIngestInput): Promise
 
   console.info('[full-artist-ingest] status=running', ctx);
 
-  await persistArtistDescriptionIfAny(ctx, browse);
   await ensureArtistChannelPersisted(ctx, browse);
+  await persistArtistDescriptionIfAny(ctx, browse);
   await ingestArtistBase(ctx, browse);
   const { albumRefs } = await expandArtistAlbums(ctx, browse);
   await finalizeArtistIngest(ctx, albumRefs);
