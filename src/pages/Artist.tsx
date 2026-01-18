@@ -12,6 +12,7 @@ type BrowseArtistResponse = {
   topSongs: Array<{ id: string; title: string; imageUrl: string | null; playCount: string | null }>;
   albums: Array<{ id: string; title: string; imageUrl: string | null; year: string | null }>;
   playlists: Array<{ id: string; title: string; imageUrl: string | null }>;
+  artist_description?: string | null;
 };
 
 type QueueItem = {
@@ -56,6 +57,7 @@ export default function Artist() {
           topSongs: Array.isArray(json.topSongs) ? json.topSongs : [],
           albums: Array.isArray(json.albums) ? json.albums : [],
           playlists: Array.isArray(json.playlists) ? json.playlists : [],
+          artist_description: typeof json.artist_description === "string" ? json.artist_description : null,
         });
       } catch (err: any) {
         if (err?.name === "AbortError") return;
@@ -110,6 +112,15 @@ export default function Artist() {
       imageUrl: pl.imageUrl,
     }));
   }, [data?.playlists]);
+
+  const aboutLines = useMemo(() => {
+    const text = normalize(data?.artist_description);
+    if (!text) return [] as string[];
+    return text
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+  }, [data?.artist_description]);
 
   const handlePlaySong = (index: number) => {
     if (!playbackQueue.length) return;
@@ -232,6 +243,19 @@ export default function Artist() {
                       </button>
                     ))}
                   </div>
+                </div>
+              </section>
+            ) : null}
+
+            {aboutLines.length > 0 ? (
+              <section className="space-y-3 border-t border-white/5 pt-6">
+                <h2 className="text-lg font-semibold text-white md:text-xl">About</h2>
+                <div className="space-y-3 text-sm leading-relaxed text-white/80">
+                  {aboutLines.map((line, idx) => (
+                    <p key={idx} className="whitespace-pre-wrap">
+                      {line}
+                    </p>
+                  ))}
                 </div>
               </section>
             ) : null}
