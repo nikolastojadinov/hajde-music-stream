@@ -37,7 +37,8 @@ function nowIso(): string {
 
 async function runJsonQuery<T>(sql: string, label: string): Promise<T | null> {
   const client = getSupabaseAdmin();
-  const { data, error } = await client.rpc('run_raw', { sql });
+  // Use the single-payload RPC to avoid mismatched return shapes with advisory lock queries.
+  const { data, error } = await client.rpc('run_raw_single', { sql });
 
   if (error) throw new Error(`[artistQueries] ${label} failed: ${error.message}`);
   if (!Array.isArray(data) || data.length === 0) return null;
