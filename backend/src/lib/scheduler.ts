@@ -3,6 +3,7 @@ import { scheduleTrendingNowJob } from '../jobs/trendingNowScheduler';
 import { scheduleMostPopularJob } from '../jobs/mostPopularScheduler';
 import { scheduleNewReleasesJob } from '../jobs/newReleasesScheduler';
 import { scheduleUnresolvedArtistJob, type SchedulerWindow } from './backgroundArtistScheduler';
+import { scheduleArtistSuggestBatchJob } from '../jobs/artistSuggestBatchScheduler';
 
 function parseHour(value: string | undefined, fallback: number): number {
   const parsed = Number.parseInt(value || '', 10);
@@ -35,10 +36,12 @@ export function registerSchedulers(): void {
   scheduleTrendingNowJob();
   scheduleMostPopularJob();
   scheduleNewReleasesJob();
+  scheduleArtistSuggestBatchJob();
 
   console.log('[Scheduler] Registered jobs:');
   console.log('- NightlyArtistIngest: every 5 minutes between 00:00-05:00 local window');
   console.log('- TrendingNow: daily at 06:00 local time');
   console.log('- MostPopular: daily at 06:15 local time');
   console.log('- NewReleases: daily at 06:30 local time');
+  console.log('- ArtistSuggestBatch: daily at 07:00 local time');
 }

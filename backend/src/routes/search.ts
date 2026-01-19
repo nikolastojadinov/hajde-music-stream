@@ -15,59 +15,54 @@ import { indexSuggestFromSearch } from "../services/suggestIndexer";
 
 const router = Router();
 
-const MIN_QUERY_LENGTH = 2;
 const CACHE_HEADER = "public, max-age=900";
+const MIN_QUERY_LENGTH = 2;
 
 const EMPTY_RESULTS: SearchResultsPayload = {
   q: "",
   source: "youtube_live",
   featured: null,
   orderedItems: [],
-  sections: {
-    songs: [],
-    artists: [],
-    albums: [],
-    playlists: [],
-  },
+  sections: { songs: [], artists: [], albums: [], playlists: [] },
 } as any;
 
 const normalizeString = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
 const normalizeLoose = (value: unknown): string => normalizeString(value).toLowerCase().replace(/[^a-z0-9]+/g, "");
 
 const looksLikeBrowseId = (value: string): boolean => {
-  const v = value.trim();
-  if (!v || v.includes(" ")) return false;
-  return /^(OLAK|PL|VL|RD|MP|UU|LL|UC|OL|RV)[A-Za-z0-9_-]+$/i.test(v);
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.includes(" ")) return false;
+  return /^(OLAK|PL|VL|RD|MP|UU|LL|UC|OL|RV)[A-Za-z0-9_-]+$/i.test(trimmed);
 };
 
 const looksLikeVideoId = (value: string): boolean => /^[A-Za-z0-9_-]{11}$/.test(value.trim());
 
 const containsWords = (value: string, words: string[]): boolean => {
   const lower = normalizeString(value).toLowerCase();
-  return words.some((w) => lower.includes(w));
+  return words.some((word) => lower.includes(word));
 };
 
 function pickBestArtistMatch(artists: any[], query: string): any | null {
   const q = normalizeLoose(query);
   if (!q) return null;
 
-  return (
-    artists
-      .map((artist) => {
-        const nameNorm = normalizeLoose(artist.name);
-        const subtitle = normalizeString((artist as any).subtitle || (artist as any).channelTitle || "");
-        let score = 0;
-        if (containsWords(subtitle, ["profile"])) score -= 1000;
-        if (nameNorm === q) score += 200;
-        if (nameNorm.includes(q) || q.includes(nameNorm)) score += 40;
-        if (artist.isOfficial) score += 40;
-        if (containsWords(artist.name, ["tribute", "cover"])) score -= 120;
-        if (containsWords(subtitle, ["tribute", "cover"])) score -= 80;
-        return { artist, score };
-      })
-      .filter((entry) => entry.score > 0)
-      .sort((a, b) => b.score - a.score)[0]?.artist ?? null
-  );
+  const scored = artists
+    .map((artist) => {
+      const nameNorm = normalizeLoose(artist.name);
+      const subtitle = normalizeString((artist as any).subtitle || (artist as any).channelTitle || "");
+      let score = 0;
+      if (containsWords(subtitle, ["profile"])) score -= 1000;
+      if (nameNorm === q) score += 200;
+      if (nameNorm.includes(q) || q.includes(nameNorm)) score += 40;
+      if (artist.isOfficial) score += 40;
+      if (containsWords(artist.name, ["tribute", "cover"])) score -= 120;
+      if (containsWords(subtitle, ["tribute", "cover"])) score -= 80;
+      return { artist, score };
+    })
+    .filter((entry) => entry.score > 0)
+    .sort((a, b) => b.score - a.score);
+
+  return scored[0]?.artist ?? null;
 }
 
 async function resolveArtistBrowseId(query: string): Promise<string | null> {
@@ -89,9 +84,7 @@ async function resolveArtistBrowseId(query: string): Promise<string | null> {
     try {
       const search = await musicSearch(variant);
       const tracks = Array.isArray(search.sections?.songs) ? search.sections.songs : [];
-      const artistHints = tracks
-        .map((t: any) => normalizeString(t.subtitle || t.title || ""))
-        .filter(Boolean);
+      const artistHints = tracks.map((t: any) => normalizeString(t.subtitle || t.title || "")).filter(Boolean);
 
       const artists = Array.isArray(search.sections?.artists) ? search.sections.artists : [];
       const bestDirect = pickBestArtistMatch(artists, variant);
@@ -112,10 +105,6 @@ async function resolveArtistBrowseId(query: string): Promise<string | null> {
   return null;
 }
 
-/* =========================
-   SUGGEST
-========================= */
-
 router.get("/suggest", async (req, res) => {
   const q = normalizeString(req.query.q);
 
@@ -125,11 +114,7 @@ router.get("/suggest", async (req, res) => {
   };
 
   if (q.length < MIN_QUERY_LENGTH || looksLikeBrowseId(q)) {
-    return safeResponse({
-      q,
-      source: "youtube_live",
-      suggestions: [],
-    });
+    return safeResponse({ q, source: "youtube_live", suggestions: [] });
   }
 
   try {
@@ -140,17 +125,9 @@ router.get("/suggest", async (req, res) => {
       q,
       error: err instanceof Error ? err.message : String(err),
     });
-    return safeResponse({
-      q,
-      source: "youtube_live",
-      suggestions: [],
-    });
+    return safeResponse({ q, source: "youtube_live", suggestions: [] });
   }
 });
-
-/* =========================
-   RESULTS
-========================= */
 
 router.get("/results", async (req, res) => {
   const q = normalizeString(req.query.q);
@@ -199,10 +176,6 @@ router.get("/results", async (req, res) => {
     return safeResponse({ ...EMPTY_RESULTS, q });
   }
 });
-
-/* =========================
-   INGEST
-========================= */
 
 router.post("/ingest", async (req, res) => {
   const body = req.body || {};
