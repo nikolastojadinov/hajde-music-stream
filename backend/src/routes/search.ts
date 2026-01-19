@@ -11,7 +11,6 @@ import {
   ingestTrackSelection,
   type TrackSelectionInput,
 } from "../services/entityIngestion";
-import { indexSuggestFromSearch } from "../services/suggestIndexer";
 
 const router = Router();
 
@@ -166,7 +165,6 @@ router.get("/results", async (req, res) => {
       featured,
     } as any;
 
-    void indexSuggestFromSearch(q, response);
     return safeResponse(response);
   } catch (err) {
     console.error("[search/results] failed", {
