@@ -19,6 +19,7 @@ export type ArtistDescriptionWriteResult = {
 };
 
 const ARTIST_LOCK_KEY = 723994;
+const RESOLVE_COOLDOWN_HOURS = 24;
 
 type RawRow = { payload?: any };
 
@@ -189,6 +190,7 @@ WITH candidate AS (
   SELECT artist_key, normalized_name, display_name
   FROM public.artists
   WHERE youtube_channel_id IS NULL
+    AND (last_resolve_attempt_at IS NULL OR last_resolve_attempt_at < now() - interval '${RESOLVE_COOLDOWN_HOURS} hours')
   ORDER BY COALESCE(last_resolve_attempt_at, updated_at, created_at) ASC NULLS FIRST, created_at ASC
   LIMIT 1
   FOR UPDATE SKIP LOCKED
