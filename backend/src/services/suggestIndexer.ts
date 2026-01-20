@@ -112,7 +112,7 @@ function looksLikeAlbumId(value: string): boolean {
   return /^MPRE[A-Za-z0-9_-]+$/.test(v);
 }
 
-function isOfficialArtistCandidate(item: SearchResultItem | null | undefined): boolean {
+function isOfficialArtistCandidate(item: SearchResultItem | null | undefined): item is SearchResultItem & { kind: "artist" } {
   if (!item || item.kind !== "artist") return false;
 
   const payload = normalizeString(item.endpointPayload || item.id);
