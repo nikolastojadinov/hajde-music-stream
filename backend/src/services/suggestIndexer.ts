@@ -53,6 +53,22 @@ type EntityLookupMeta = {
 };
 
 /* =========================
+   DB helpers
+========================= */
+
+async function runJsonQuery<T>(sql: string, label: string): Promise<T | null> {
+  const client = getSupabaseAdmin();
+  const { data, error } = await client.rpc("run_raw_single", { sql });
+
+  if (error) throw new Error(`[suggest-indexer] ${label} failed: ${error.message}`);
+  if (!Array.isArray(data) || data.length === 0) return null;
+
+  const payload = (data[0] as any)?.payload;
+  if (payload === null || payload === undefined) return null;
+  return payload as T;
+}
+
+/* =========================
    Utils
 ========================= */
 
@@ -384,23 +400,32 @@ function pickArtistName(row: ArtistRow): string {
   );
 }
 
+async function markArtistProcessed(channelId: string): Promise<void> {
+  if (!channelId) return;
+  const { error } = await supabase.from("suggest_queries").upsert({ artist_channel_id: channelId }, { onConflict: "artist_channel_id" });
+  if (error) throw new Error(`[suggest-indexer] mark_processed_failed: ${error.message}`);
+}
+
 async function fetchArtistBatch(limit: number, offset = 0): Promise<ArtistRow[]> {
-  const client = getSupabaseAdmin();
+  const sql = `
+SELECT artist_key, artist, display_name, normalized_name, created_at, youtube_channel_id
+FROM artists
+WHERE youtube_channel_id IS NOT NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM suggest_queries sq WHERE sq.artist_channel_id = artists.youtube_channel_id
+  )
+ORDER BY created_at ASC, artist_key ASC
+LIMIT ${limit}
+OFFSET ${offset};
+`;
 
-  const { data, error } = await client
-    .from("artists")
-    .select("artist_key, artist, display_name, normalized_name, created_at, youtube_channel_id")
-    .not("youtube_channel_id", "is", null)
-    .order("created_at", { ascending: true })
-    .order("artist_key", { ascending: true })
-    .range(offset, offset + limit - 1);
-
-  if (error) {
-    console.error("[suggest-indexer] artist_fetch_failed", error.message);
+  try {
+    const rows = await runJsonQuery<ArtistRow[]>(sql, "fetchArtistBatch");
+    return rows || [];
+  } catch (err) {
+    console.error("[suggest-indexer] artist_fetch_failed", err instanceof Error ? err.message : String(err));
     return [];
   }
-
-  return data ?? [];
 }
 
 /* =========================
@@ -419,10 +444,9 @@ function isWithinWindow(nowTs: number): boolean {
 async function artistAlreadyIndexed(channelId: string): Promise<boolean> {
   if (!channelId) return true;
   const { data, error } = await supabase
-    .from("suggest_entries")
-    .select("id")
-    .eq("source", SOURCE_TAG)
-    .eq("meta->>artist_channel_id", channelId)
+    .from("suggest_queries")
+    .select("artist_channel_id")
+    .eq("artist_channel_id", channelId)
     .limit(1)
     .maybeSingle();
 
@@ -469,6 +493,7 @@ export async function runArtistSuggestTick(): Promise<void> {
 
       try {
         await processSingleArtist(name);
+        await markArtistProcessed(channelId);
         processed += 1;
         console.log("[suggest-indexer] artist_done", { name, processed });
       } catch (err) {
