@@ -145,7 +145,13 @@ export async function persistArtistChannelId(params: {
     descriptionUpdated = result.updated;
   }
 
-  return { artistKey, youtubeChannelId, existed: true, updated: Boolean(channelUpdated || descriptionUpdated), previousChannelId };
+  return {
+    artistKey,
+    youtubeChannelId,
+    existed: true,
+    updated: Boolean(channelUpdated || descriptionUpdated),
+    previousChannelId,
+  };
 }
 
 export async function persistArtistDescription(params: {
@@ -156,8 +162,10 @@ export async function persistArtistDescription(params: {
 }
 
 /**
- * FIXED IMPLEMENTATION:
- * Uses raw SQL to avoid Supabase update/or() edge-case.
+ * FINAL + SAFE IMPLEMENTATION
+ * – no RPC
+ * – no .or()
+ * – matches manual SQL test exactly
  */
 export async function updateArtistDescriptionIfEmpty(
   artistKey: string,
@@ -168,21 +176,23 @@ export async function updateArtistDescriptionIfEmpty(
   if (!key) throw new Error('[artistQueries] artistKey is required');
   if (!normalizedDescription) return { updated: false };
 
-  const sql = `
-UPDATE artists
-SET artist_description = '${normalizedDescription.replace(/'/g, "''")}',
-    updated_at = now()
-WHERE artist_key = '${key}'
-  AND (artist_description IS NULL OR artist_description = '')
-RETURNING artist_key;
-`;
+  const client = getSupabaseAdmin();
 
-  const result = await runJsonQuery<{ artist_key: string }>(
-    sql,
-    'artist description update',
-  );
+  const { data, error } = await client
+    .from('artists')
+    .update({
+      artist_description: normalizedDescription,
+      updated_at: nowIso(),
+    })
+    .eq('artist_key', key)
+    .is('artist_description', null)
+    .select('artist_key');
 
-  return { updated: Boolean(result) };
+  if (error) {
+    throw new Error(`[artistQueries] artist description update failed: ${error.message}`);
+  }
+
+  return { updated: Array.isArray(data) && data.length > 0 };
 }
 
 export async function markResolveAttempt(artistKey: string): Promise<void> {
