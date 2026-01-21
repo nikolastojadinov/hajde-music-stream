@@ -75,15 +75,31 @@ function buildRows(prefixes: string[], channelId: string, normalizedName: string
   return rows;
 }
 
+async function isProcessed(channelId: string): Promise<boolean> {
+  const client = getSupabaseAdmin();
+  const { data, error } = await client
+    .from("suggest_queries")
+    .select("artist_channel_id")
+    .eq("artist_channel_id", channelId)
+    .limit(1)
+    .maybeSingle();
+
+  if (error && error.code !== "PGRST116") {
+    console.error("[suggest-indexer] processed_check_failed", error.message);
+    return false;
+  }
+
+  return Boolean(data);
+}
+
 async function fetchNextArtist(): Promise<ArtistRow | null> {
   const client = getSupabaseAdmin();
   const { data, error } = await client
     .from("artists")
     .select("artist_key, artist, display_name, normalized_name, created_at, youtube_channel_id")
     .not("youtube_channel_id", "is", null)
-    .not("youtube_channel_id", "in", "(select artist_channel_id from suggest_queries)")
     .order("created_at", { ascending: true })
-    .limit(1);
+    .limit(50);
 
   if (error) {
     console.error("[suggest-indexer] artist_fetch_failed", error.message);
@@ -92,11 +108,14 @@ async function fetchNextArtist(): Promise<ArtistRow | null> {
 
   if (!data || !data.length) return null;
 
-  const candidate = data[0];
-  const channelId = (candidate.youtube_channel_id || "").trim();
-  if (!channelId) return null;
+  for (const artist of data) {
+    const channelId = (artist.youtube_channel_id || "").trim();
+    if (!channelId) continue;
+    const processed = await isProcessed(channelId);
+    if (!processed) return artist;
+  }
 
-  return candidate;
+  return null;
 }
 
 async function insertSuggestEntries(rows: SuggestEntryRow[]): Promise<{ success: boolean; inserted: number }> {
