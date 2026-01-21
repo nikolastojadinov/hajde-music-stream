@@ -12,10 +12,6 @@ type ArtistRow = {
   youtube_channel_id: string | null;
 };
 
-type SuggestQueriesRow = {
-  artist_channel_id: string | null;
-};
-
 type ArtistRowWithJoin = ArtistRow & {
   suggest_queries?: Array<{ artist_channel_id: string | null } | null> | null;
 };
@@ -28,7 +24,7 @@ function normalizeQuery(value: string | null | undefined): string {
 async function artistAlreadyProcessed(channelId: string): Promise<boolean> {
   const client = getSupabaseAdmin();
   const { data, error } = await client
-    .from<SuggestQueriesRow>("suggest_queries")
+    .from("suggest_queries")
     .select("artist_channel_id")
     .eq("artist_channel_id", channelId)
     .limit(1)
@@ -49,7 +45,6 @@ async function fetchArtistBatch(limit: number): Promise<ArtistRow[]> {
     .select(
       "artist_key, artist, display_name, normalized_name, created_at, youtube_channel_id, suggest_queries!left(artist_channel_id)"
     )
-    .returns<ArtistRowWithJoin[]>()
     .not("youtube_channel_id", "is", null)
     .is("suggest_queries.artist_channel_id", null)
     .order("created_at", { ascending: true })
@@ -61,9 +56,9 @@ async function fetchArtistBatch(limit: number): Promise<ArtistRow[]> {
     return [];
   }
 
-  if (!data) return [];
+  const rows = (data ?? []) as ArtistRowWithJoin[];
 
-  return data.map((row) => ({
+  return rows.map((row: ArtistRowWithJoin) => ({
     artist_key: row.artist_key,
     artist: row.artist,
     display_name: row.display_name,
