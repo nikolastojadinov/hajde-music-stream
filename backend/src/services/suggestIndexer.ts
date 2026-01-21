@@ -52,11 +52,10 @@ async function fetchArtistBatch(limit: number): Promise<ArtistRow[]> {
   return data ?? [];
 }
 
-async function markArtistProcessed(channelId: string, normalizedQuery: string): Promise<boolean> {
+async function markArtistProcessed(channelId: string): Promise<boolean> {
   const client = getSupabaseAdmin();
   const payload = {
     artist_channel_id: channelId,
-    normalized_query: normalizedQuery || channelId,
     created_at: new Date().toISOString(),
   };
 
@@ -95,7 +94,7 @@ export async function runSuggestIndexerTick(): Promise<{ processed: number }> {
     if (!normalizedQuery) continue;
 
     // Suggest generation assumed to succeed elsewhere.
-    const marked = await markArtistProcessed(channelId, normalizedQuery);
+    const marked = await markArtistProcessed(channelId);
     if (!marked) {
       // Do not crash the tick; leave processed unchanged.
       break;
