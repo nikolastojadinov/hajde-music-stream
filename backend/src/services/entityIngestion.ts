@@ -4,6 +4,9 @@ import type { ArtistBrowse } from './youtubeMusicClient';
 
 export { ingestPlaylistOrAlbum, getAlbumCompletion, isAlbumComplete } from './ingestPlaylistOrAlbum';
 
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 export type TrackSelectionInput = {
   type: 'song' | 'video' | 'episode';
   youtubeId: string;
@@ -41,6 +44,9 @@ type CanonicalArtistParams = {
   artistDescription?: string | null;
 };
 
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 function normalize(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
@@ -58,18 +64,6 @@ function normalizeArtistDisplayName(name: string): string {
 function normalizeChannelId(channelId?: string | null): string | null {
   const normalized = normalize(channelId);
   return normalized || null;
-}
-
-function deriveArtistKeyFromChannelId(channelId: string): string {
-  const key = normalizeArtistKey(channelId);
-  if (!key) throw new Error('[artist] missing artist_key from youtube_channel_id');
-  return key;
-}
-
-function deriveArtistKeyFromName(displayName: string): string {
-  const key = normalizeArtistKey(displayName);
-  if (!key) throw new Error('[artist] missing artist_key from displayName');
-  return key;
 }
 
 function uniqueStrings(values: Array<string | null | undefined>): string[] {
@@ -158,111 +152,91 @@ function uniqueBy<T>(items: T[], keyFn: (item: T) => string): T[] {
   return out;
 }
 
-async function resolveCanonicalArtist(params: CanonicalArtistParams): Promise<{ artistKey: string; displayName: string } | null> {
+// ---------------------------------------------------------------------------
+// Canonical artist resolution
+// Identity is human-name only; channel is link-only and never used as identity.
+// ---------------------------------------------------------------------------
+async function resolveCanonicalArtist(params: CanonicalArtistParams): Promise<{ artistKey: string; displayName: string }> {
   const client = getSupabaseAdmin();
   const displayName = normalizeArtistDisplayName(params.displayName) || params.displayName;
   const youtubeChannelId = normalizeChannelId(params.youtubeChannelId);
   const source = normalize(params.source) || 'unknown';
   const thumbnails = params.thumbnails ?? null;
   const artistDescription = normalize(params.artistDescription);
-  const artistKey = normalizeArtistKey(displayName);
-  const normalizedName = artistKey || normalize(displayName);
 
   if (!displayName) throw new Error('[artist] displayName is required');
+
+  const artistKey = normalizeArtistKey(displayName);
   if (!artistKey) throw new Error('[artist] artist_key is required');
+  const normalizedName = artistKey;
 
-  const isEmpty = (value: unknown): boolean => normalize(value) === '';
+  const isMissing = (value: unknown): boolean => normalize(value) === '' || value === null;
+  const now = NOW();
 
-  // Channel-present path: authoritative identity and only insertion path
+  const maybeUpdate = async (id: string, existing: any) => {
+    const updatePayload: Record<string, any> = { updated_at: now };
+    if (youtubeChannelId && !existing.youtube_channel_id) updatePayload.youtube_channel_id = youtubeChannelId;
+    if (isMissing(existing.artist_description) && artistDescription) updatePayload.artist_description = artistDescription;
+    if (!existing.thumbnails && thumbnails) updatePayload.thumbnails = thumbnails;
+    if (isMissing(existing.display_name) && displayName) updatePayload.display_name = displayName;
+    if (isMissing(existing.artist) && displayName) updatePayload.artist = displayName;
+    if (isMissing(existing.normalized_name) && normalizedName) updatePayload.normalized_name = normalizedName;
+    // Always refresh updated_at even if nothing else is written
+    if (Object.keys(updatePayload).length === 1 && updatePayload.updated_at) {
+      const { error } = await client.from('artists').update({ updated_at: now }).eq('id', id);
+      if (error) throw new Error(`[artist] touch ${error.message}`);
+      return;
+    }
+    const { error } = await client.from('artists').update(updatePayload).eq('id', id);
+    if (error) throw new Error(`[artist] update ${error.message}`);
+  };
+
+  // 1) Match by channel id first (link-only)
   if (youtubeChannelId) {
-    const { data: existing, error: existingError } = await client
+    const { data: byChannel, error: channelErr } = await client
       .from('artists')
-      .select('id, artist_key, display_name, artist, youtube_channel_id, artist_description, thumbnails')
+      .select('id, artist_key, display_name, artist, normalized_name, youtube_channel_id, artist_description, thumbnails')
       .eq('youtube_channel_id', youtubeChannelId)
       .maybeSingle();
-    if (existingError) throw new Error(`[artist] channel lookup ${existingError.message}`);
-
-    if (existing) {
-      const updatePayload: Record<string, any> = { updated_at: NOW() };
-      if (!existing.youtube_channel_id) updatePayload.youtube_channel_id = youtubeChannelId;
-      if (isEmpty(existing.artist_description) && artistDescription) updatePayload.artist_description = artistDescription;
-      if (!existing.thumbnails && thumbnails) updatePayload.thumbnails = thumbnails;
-      if (isEmpty(existing.display_name) && displayName) updatePayload.display_name = displayName;
-      if (isEmpty(existing.artist) && displayName) updatePayload.artist = displayName;
-      if (isEmpty(existing.normalized_name) && normalizedName) updatePayload.normalized_name = normalizedName;
-      if (Object.keys(updatePayload).length > 1 || (Object.keys(updatePayload).length === 1 && !updatePayload.updated_at)) {
-        const { error: updateErr } = await client.from('artists').update(updatePayload).eq('id', existing.id);
-        if (updateErr) throw new Error(`[artist] channel update ${updateErr.message}`);
-      }
-      return { artistKey: existing.artist_key, displayName: existing.display_name || displayName };
+    if (channelErr) throw new Error(`[artist] channel lookup ${channelErr.message}`);
+    if (byChannel) {
+      await maybeUpdate(byChannel.id, byChannel);
+      return { artistKey: byChannel.artist_key, displayName: byChannel.display_name || displayName };
     }
-
-    const { data: existingByKey, error: existingKeyError } = await client
-      .from('artists')
-      .select('id, artist_key, display_name, artist_description, thumbnails, youtube_channel_id')
-      .eq('artist_key', artistKey)
-      .maybeSingle();
-    if (existingKeyError) throw new Error(`[artist] key lookup ${existingKeyError.message}`);
-
-    if (existingByKey) {
-      const updatePayload: Record<string, any> = { updated_at: NOW() };
-      if (!existingByKey.youtube_channel_id) updatePayload.youtube_channel_id = youtubeChannelId;
-      if (isEmpty(existingByKey.artist_description) && artistDescription) updatePayload.artist_description = artistDescription;
-      if (!existingByKey.thumbnails && thumbnails) updatePayload.thumbnails = thumbnails;
-      if (isEmpty(existingByKey.display_name) && displayName) updatePayload.display_name = displayName;
-      if (isEmpty(existingByKey.artist) && displayName) updatePayload.artist = displayName;
-      if (isEmpty(existingByKey.normalized_name) && normalizedName) updatePayload.normalized_name = normalizedName;
-      const { error: updateErr } = await client.from('artists').update(updatePayload).eq('id', existingByKey.id);
-      if (updateErr) throw new Error(`[artist] key update ${updateErr.message}`);
-      return { artistKey: existingByKey.artist_key, displayName: existingByKey.display_name || displayName };
-    }
-
-    const { data: inserted, error: insertError } = await client
-      .from('artists')
-      .insert({
-        artist: displayName,
-        display_name: displayName,
-        artist_key: artistKey,
-        normalized_name: normalizedName,
-        youtube_channel_id: youtubeChannelId,
-        thumbnails,
-        source,
-        artist_description: artistDescription || null,
-        updated_at: NOW(),
-      })
-      .select('artist_key, display_name')
-      .single();
-
-    if (insertError) throw new Error(`[artist] insert ${insertError.message}`);
-
-    return { artistKey: inserted.artist_key, displayName: inserted.display_name || displayName };
   }
 
-  // No channel id: lookup only, never insert
-  const fallbackKey = deriveArtistKeyFromName(displayName);
-  const { data: existingByKey, error: fallbackError } = await client
+  // 2) Match by artist_key (human identity)
+  const { data: byKey, error: keyErr } = await client
     .from('artists')
-    .select('id, artist_key, display_name, artist_description, thumbnails, youtube_channel_id, artist, normalized_name')
-    .eq('artist_key', fallbackKey)
+    .select('id, artist_key, display_name, artist, normalized_name, youtube_channel_id, artist_description, thumbnails')
+    .eq('artist_key', artistKey)
     .maybeSingle();
-  if (fallbackError) throw new Error(`[artist] fallback lookup ${fallbackError.message}`);
-
-  if (existingByKey) {
-    const updatePayload: Record<string, any> = { updated_at: NOW() };
-    if (youtubeChannelId && !existingByKey.youtube_channel_id) updatePayload.youtube_channel_id = youtubeChannelId;
-    if (isEmpty(existingByKey.artist_description) && artistDescription) updatePayload.artist_description = artistDescription;
-    if (!existingByKey.thumbnails && thumbnails) updatePayload.thumbnails = thumbnails;
-    if (isEmpty(existingByKey.display_name) && displayName) updatePayload.display_name = displayName;
-    if (isEmpty(existingByKey.artist) && displayName) updatePayload.artist = displayName;
-    if (isEmpty(existingByKey.normalized_name) && normalizedName) updatePayload.normalized_name = normalizedName;
-    if (Object.keys(updatePayload).length > 0) {
-      const { error: updateErr } = await client.from('artists').update(updatePayload).eq('id', existingByKey.id);
-      if (updateErr) throw new Error(`[artist] fallback update ${updateErr.message}`);
-    }
-    return { artistKey: existingByKey.artist_key, displayName: existingByKey.display_name || displayName };
+  if (keyErr) throw new Error(`[artist] key lookup ${keyErr.message}`);
+  if (byKey) {
+    await maybeUpdate(byKey.id, byKey);
+    return { artistKey: byKey.artist_key, displayName: byKey.display_name || displayName };
   }
 
-  return null;
+  // 3) Insert new artist (name-derived identity only)
+  const { data: inserted, error: insertErr } = await client
+    .from('artists')
+    .insert({
+      artist: displayName,
+      display_name: displayName,
+      artist_key: artistKey,
+      normalized_name: normalizedName,
+      youtube_channel_id: youtubeChannelId || null,
+      artist_description: artistDescription || null,
+      thumbnails,
+      source,
+      updated_at: now,
+    })
+    .select('artist_key, display_name')
+    .single();
+
+  if (insertErr) throw new Error(`[artist] insert ${insertErr.message}`);
+
+  return { artistKey: inserted.artist_key, displayName: inserted.display_name || displayName };
 }
 
 async function upsertArtists(inputs: ArtistInput[], sourceHint?: string): Promise<ArtistResult> {
