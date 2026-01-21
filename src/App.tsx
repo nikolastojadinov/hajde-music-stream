@@ -1,7 +1,7 @@
 // CLEANUP DIRECTIVE: Restore SPA routing, including playlist create/edit pages.
 import type { ReactNode } from "react";
 import { Component, useEffect, useState } from "react";
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Route, Routes, useLocation } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import Footer from "@/components/Footer";
 import FullscreenPlayer from "@/components/FullscreenPlayer";
@@ -253,6 +253,45 @@ const AppRoutes = () => {
   );
 };
 
+const ShellLayout = () => {
+  const location = useLocation();
+  const hideHeader = location.pathname.startsWith("/search");
+
+  const desktopWrapperClass = `hidden flex-1 overflow-hidden md:flex${hideHeader ? "" : " pt-16"}`;
+  const desktopMainClass = "flex-1 overflow-y-auto pb-24";
+
+  const mobileWrapperClass = `flex flex-1 flex-col overflow-hidden md:hidden${hideHeader ? "" : ""}`;
+  const mobileMainClass = `flex-1 overflow-y-auto pb-32${hideHeader ? "" : " pt-16"}`;
+
+  return (
+    <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
+      <div className={desktopWrapperClass}>
+        <Sidebar />
+        <div className="flex flex-1 flex-col overflow-hidden">
+          {!hideHeader ? <Header /> : null}
+          <main className={desktopMainClass}>
+            <AppRoutes />
+          </main>
+        </div>
+      </div>
+
+      <div className={mobileWrapperClass}>
+        {!hideHeader ? <Header /> : null}
+        <main className={mobileMainClass}>
+          <AppRoutes />
+        </main>
+        <Footer />
+      </div>
+
+      <MiniPlayer />
+      <FullscreenPlayer />
+
+      <PremiumPromptManager />
+      <YouTubePlayerContainer />
+    </div>
+  );
+};
+
 export default function App() {
   const [fatalError, setFatalError] = useState<FatalError>(null);
   const { user, loading } = usePi();
@@ -309,32 +348,7 @@ export default function App() {
                   <GlobalErrorOverlay error={fatalError} />
 
                   <BrowserRouter>
-                    <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
-                      <div className="hidden flex-1 overflow-hidden pt-16 md:flex">
-                        <Sidebar />
-                        <div className="flex flex-1 flex-col overflow-hidden">
-                          <Header />
-                          <main className="flex-1 overflow-y-auto pb-24">
-                            <AppRoutes />
-                          </main>
-                        </div>
-                      </div>
-
-                      <div className="flex flex-1 flex-col overflow-hidden md:hidden">
-                        <Header />
-                        <main className="flex-1 overflow-y-auto pt-16 pb-32">
-                          <AppRoutes />
-                        </main>
-                        <Footer />
-                      </div>
-
-                      {/* Single canonical playback UI mounts */}
-                      <MiniPlayer />
-                      <FullscreenPlayer />
-
-                      <PremiumPromptManager />
-                      <YouTubePlayerContainer />
-                    </div>
+                    <ShellLayout />
                   </BrowserRouter>
                 </PlayerProvider>
               </AuthGate>

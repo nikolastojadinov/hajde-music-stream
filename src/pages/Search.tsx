@@ -228,6 +228,12 @@ export default function Search() {
 
   const suggestAbort = useRef<AbortController | null>(null);
   const suggestTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+    inputRef.current?.select();
+  }, []);
 
   const clearSuggestions = () => {
     suggestAbort.current?.abort();
@@ -454,6 +460,7 @@ export default function Search() {
         <form onSubmit={handleSubmit} className="sticky top-0 z-40 bg-neutral-950/90 pb-3 backdrop-blur">
           <div className="relative">
             <Input
+              ref={inputRef}
               value={query}
               onChange={(e) => {
                 setQuery(e.target.value);
