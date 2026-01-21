@@ -397,13 +397,21 @@ function pickArtistName(row: ArtistRow): string {
 
 async function fetchArtistBatch(limit: number, offset = 0): Promise<ArtistRow[]> {
   const sql = `
-SELECT artist_key, artist, display_name, normalized_name, created_at, youtube_channel_id
-FROM artists
-WHERE youtube_channel_id IS NOT NULL
+SELECT
+  a.artist_key,
+  a.artist,
+  a.display_name,
+  a.normalized_name,
+  a.created_at,
+  a.youtube_channel_id
+FROM artists a
+WHERE a.youtube_channel_id IS NOT NULL
   AND NOT EXISTS (
-    SELECT 1 FROM suggest_queries sq WHERE sq.artist_channel_id = artists.youtube_channel_id
+    SELECT 1
+    FROM suggest_queries sq
+    WHERE sq.artist_channel_id = a.youtube_channel_id
   )
-ORDER BY created_at ASC, artist_key ASC
+ORDER BY a.created_at ASC, a.artist_key ASC
 LIMIT ${limit}
 OFFSET ${offset};
 `;
