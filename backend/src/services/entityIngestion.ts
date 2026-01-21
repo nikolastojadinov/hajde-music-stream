@@ -170,28 +170,40 @@ async function resolveCanonicalArtist(params: CanonicalArtistParams): Promise<{ 
   if (!artistKey) throw new Error('[artist] artist_key is required');
   const normalizedName = artistKey;
 
-  const isMissing = (value: unknown): boolean => normalize(value) === '' || value === null;
+  const isMissing = (value: unknown): boolean => normalize(value) === '' || value === null || value === undefined;
+  const looksLikeChannelId = (value: unknown): boolean => {
+    const v = normalize(value).toUpperCase();
+    return /^UC[A-Z0-9_-]+$/.test(v);
+  };
+  const isChannelIdValue = (value: unknown): boolean => {
+    const v = normalize(value);
+    if (!v) return false;
+    if (youtubeChannelId && v.toLowerCase() === youtubeChannelId.toLowerCase()) return true;
+    return looksLikeChannelId(v);
+  };
+
   const now = NOW();
 
   const maybeUpdate = async (id: string, existing: any) => {
     const updatePayload: Record<string, any> = { updated_at: now };
+
     if (youtubeChannelId && !existing.youtube_channel_id) updatePayload.youtube_channel_id = youtubeChannelId;
     if (isMissing(existing.artist_description) && artistDescription) updatePayload.artist_description = artistDescription;
     if (!existing.thumbnails && thumbnails) updatePayload.thumbnails = thumbnails;
-    if (isMissing(existing.display_name) && displayName) updatePayload.display_name = displayName;
-    if (isMissing(existing.artist) && displayName) updatePayload.artist = displayName;
-    if (isMissing(existing.normalized_name) && normalizedName) updatePayload.normalized_name = normalizedName;
-    // Always refresh updated_at even if nothing else is written
-    if (Object.keys(updatePayload).length === 1 && updatePayload.updated_at) {
-      const { error } = await client.from('artists').update({ updated_at: now }).eq('id', id);
-      if (error) throw new Error(`[artist] touch ${error.message}`);
-      return;
-    }
+
+    // Fix invalid or missing human-facing identity fields (never overwrite artist_key)
+    if (isMissing(existing.display_name) || isChannelIdValue(existing.display_name)) updatePayload.display_name = displayName;
+    if (isMissing(existing.artist) || isChannelIdValue(existing.artist)) updatePayload.artist = displayName;
+    if (isMissing(existing.normalized_name) || isChannelIdValue(existing.normalized_name)) updatePayload.normalized_name = normalizedName;
+
+    const hasChanges = Object.keys(updatePayload).length > 1; // more than just updated_at
+    if (!hasChanges) return;
+
     const { error } = await client.from('artists').update(updatePayload).eq('id', id);
     if (error) throw new Error(`[artist] update ${error.message}`);
   };
 
-  // 1) Match by channel id first (link-only)
+  // 1) Match by channel id first (metadata link only)
   if (youtubeChannelId) {
     const { data: byChannel, error: channelErr } = await client
       .from('artists')
@@ -523,6 +535,7 @@ export async function ingestArtistBrowse(browse: ArtistBrowse, opts?: { allowArt
     youtubeChannelId: browse.artist.channelId,
     source: 'artist_browse',
     thumbnails: { avatar: browse.artist.thumbnailUrl, banner: browse.artist.bannerUrl },
+    artistDescription: browse.description,
   });
 
   if (!resolved) throw new Error('[artist_browse] missing canonical artist resolution');
