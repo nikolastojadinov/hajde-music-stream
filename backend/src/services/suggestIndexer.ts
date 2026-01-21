@@ -12,10 +12,6 @@ type ArtistRow = {
   youtube_channel_id: string | null;
 };
 
-type ArtistRowWithJoin = ArtistRow & {
-  suggest_queries?: Array<{ artist_channel_id: string | null } | null> | null;
-};
-
 function normalizeQuery(value: string | null | undefined): string {
   if (!value) return "";
   return value.toString().trim().toLowerCase().normalize("NFKD").replace(/\p{Diacritic}+/gu, "");
@@ -42,11 +38,8 @@ async function fetchArtistBatch(limit: number): Promise<ArtistRow[]> {
   const client = getSupabaseAdmin();
   const { data, error } = await client
     .from("artists")
-    .select(
-      "artist_key, artist, display_name, normalized_name, created_at, youtube_channel_id, suggest_queries!left(artist_channel_id)"
-    )
+    .select("artist_key, artist, display_name, normalized_name, created_at, youtube_channel_id")
     .not("youtube_channel_id", "is", null)
-    .is("suggest_queries.artist_channel_id", null)
     .order("created_at", { ascending: true })
     .order("artist_key", { ascending: true })
     .limit(limit);
@@ -56,31 +49,27 @@ async function fetchArtistBatch(limit: number): Promise<ArtistRow[]> {
     return [];
   }
 
-  const rows = (data ?? []) as ArtistRowWithJoin[];
-
-  return rows.map((row: ArtistRowWithJoin) => ({
-    artist_key: row.artist_key,
-    artist: row.artist,
-    display_name: row.display_name,
-    normalized_name: row.normalized_name,
-    created_at: row.created_at,
-    youtube_channel_id: row.youtube_channel_id,
-  }));
+  return data ?? [];
 }
 
-async function markArtistProcessed(channelId: string, normalizedName: string): Promise<void> {
+async function markArtistProcessed(channelId: string, normalizedQuery: string): Promise<boolean> {
   const client = getSupabaseAdmin();
   const payload = {
     artist_channel_id: channelId,
-    normalized_query: normalizedName || channelId,
+    normalized_query: normalizedQuery || channelId,
     created_at: new Date().toISOString(),
   };
 
   const { error } = await client.from("suggest_queries").upsert(payload, { onConflict: "artist_channel_id" });
-  if (error) throw new Error(`[suggest-indexer] mark_processed_failed: ${error.message}`);
+  if (error) {
+    console.error("[suggest-indexer] mark_processed_failed", error.message);
+    return false;
+  }
+
+  return true;
 }
 
-function pickArtistName(row: ArtistRow): string {
+function pickNormalizedQuery(row: ArtistRow): string {
   return (
     normalizeQuery(row.display_name) ||
     normalizeQuery(row.artist) ||
@@ -95,27 +84,33 @@ export async function runSuggestIndexerTick(): Promise<{ processed: number }> {
 
   for (const row of candidates) {
     if (processed >= PER_RUN_TARGET) break;
+
     const channelId = (row.youtube_channel_id || "").trim();
     if (!channelId) continue;
 
     const alreadyProcessed = await artistAlreadyProcessed(channelId);
     if (alreadyProcessed) continue;
 
-    const normalizedName = pickArtistName(row);
-    if (!normalizedName) continue;
+    const normalizedQuery = pickNormalizedQuery(row);
+    if (!normalizedQuery) continue;
 
     // Suggest generation assumed to succeed elsewhere.
-    await markArtistProcessed(channelId, normalizedName);
+    const marked = await markArtistProcessed(channelId, normalizedQuery);
+    if (!marked) {
+      // Do not crash the tick; leave processed unchanged.
+      break;
+    }
+
     processed += 1;
-    console.log("[suggest-indexer] artist_done", { channelId, normalizedName });
+    console.log("[suggest-indexer] artist_done", { channelId, normalizedQuery });
   }
 
+  console.log("[suggest-indexer] tick_complete", { processed });
   return { processed };
 }
 
-// Backwards compatibility for existing scheduler wiring.
 export const DAILY_ARTIST_SUGGEST_CRON = "*/5 * * * *";
+
 export async function runArtistSuggestTick(): Promise<void> {
-  const result = await runSuggestIndexerTick();
-  console.log("[suggest-indexer] tick_complete", result);
+  await runSuggestIndexerTick();
 }
