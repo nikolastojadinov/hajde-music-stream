@@ -15,7 +15,7 @@ export type TrackSelectionInput = {
 const VIDEO_ID_REGEX = /^[A-Za-z0-9_-]{11}$/;
 const NOW = () => new Date().toISOString();
 
-type ArtistInput = { name: string; channelId?: string | null; thumbnails?: { avatar?: string | null; banner?: string | null } };
+type ArtistInput = { name: string; channelId?: string | null; thumbnails?: { avatar?: string | null; banner?: string | null }; source?: string | null };
 type AlbumInput = { externalId: string; title: string; thumbnailUrl?: string | null; releaseDate?: string | null; albumType?: string | null; artistKeys?: string[] };
 type PlaylistInput = { externalId: string; title: string; description?: string | null; thumbnailUrl?: string | null; channelId?: string | null; itemCount?: number | null };
 type TrackInput = {
@@ -33,6 +33,13 @@ type TrackInput = {
 type IdMap = Record<string, string>;
 type ArtistResult = { keys: string[]; count: number };
 
+type CanonicalArtistParams = {
+  displayName: string;
+  youtubeChannelId?: string | null;
+  source?: string | null;
+  thumbnails?: { avatar?: string | null; banner?: string | null } | null;
+};
+
 function normalize(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
@@ -41,6 +48,27 @@ function normalizeKey(value: string | null | undefined): string {
   const base = normalize(value);
   const normalized = normalizeArtistKey(base);
   return normalized || base;
+}
+
+function normalizeArtistDisplayName(name: string): string {
+  return normalize(canonicalArtistName(name));
+}
+
+function normalizeChannelId(channelId?: string | null): string | null {
+  const normalized = normalize(channelId);
+  return normalized || null;
+}
+
+function deriveArtistKeyFromChannelId(channelId: string): string {
+  const key = normalizeArtistKey(channelId);
+  if (!key) throw new Error('[artist] missing artist_key from youtube_channel_id');
+  return key;
+}
+
+function deriveArtistKeyFromName(displayName: string): string {
+  const key = normalizeArtistKey(displayName);
+  if (!key) throw new Error('[artist] missing artist_key from displayName');
+  return key;
 }
 
 function uniqueStrings(values: Array<string | null | undefined>): string[] {
@@ -129,103 +157,137 @@ function uniqueBy<T>(items: T[], keyFn: (item: T) => string): T[] {
   return out;
 }
 
-async function resolveCanonicalArtist(artistName: string, channelId?: string | null): Promise<{ artistKey: string; displayName: string }> {
+async function resolveCanonicalArtist(params: CanonicalArtistParams): Promise<{ artistKey: string; displayName: string }> {
   const client = getSupabaseAdmin();
-  const display = canonicalArtistName(artistName) || artistName;
-  const normalizedName = normalize(display);
-  const normalizedChannel = normalize(channelId);
-  const candidateKey = normalizeArtistKey(normalizedName) || normalizedName;
-  if (!candidateKey) throw new Error('[artist] missing canonical key');
+  const displayName = normalizeArtistDisplayName(params.displayName) || params.displayName;
+  const normalizedName = normalize(displayName);
+  const normalizedNameLower = normalizedName.toLowerCase();
+  const youtubeChannelId = normalizeChannelId(params.youtubeChannelId);
+  const source = normalize(params.source) || 'unknown';
+  const thumbnails = params.thumbnails;
+  const hasThumbnails = typeof thumbnails !== 'undefined';
 
-  if (normalizedChannel) {
+  if (!normalizedName) {
+    throw new Error('[artist] displayName is required');
+  }
+
+  if (youtubeChannelId) {
     const { data, error } = await client
       .from('artists')
-      .select('artist_key, youtube_channel_id')
-      .eq('youtube_channel_id', normalizedChannel)
+      .select('id, artist_key, youtube_channel_id')
+      .eq('youtube_channel_id', youtubeChannelId)
       .limit(2);
     if (error) throw new Error(`[artist] channel lookup ${error.message}`);
     if (data && data.length > 1) throw new Error('[artist] duplicate youtube_channel_id detected');
-    if (data && data.length === 1) return { artistKey: data[0].artist_key, displayName: display };
+
+    if (data && data.length === 1) {
+      const existing = data[0];
+      const updatePayload: Record<string, any> = {
+        artist: displayName,
+        display_name: displayName,
+        normalized_name: normalizedNameLower,
+        youtube_channel_id: youtubeChannelId,
+        source,
+        updated_at: NOW(),
+      };
+
+      if (hasThumbnails) updatePayload.thumbnails = thumbnails ?? null;
+
+      const { error: updateError } = await client.from('artists').update(updatePayload).eq('id', existing.id);
+      if (updateError) throw new Error(`[artist] update ${updateError.message}`);
+      return { artistKey: existing.artist_key, displayName };
+    }
+
+    const artistKey = deriveArtistKeyFromChannelId(youtubeChannelId);
+
+    const { data: insertData, error: insertError } = await client
+      .from('artists')
+      .insert({
+        artist: displayName,
+        display_name: displayName,
+        artist_key: artistKey,
+        normalized_name: normalizedNameLower,
+        youtube_channel_id: youtubeChannelId,
+        thumbnails: thumbnails ?? null,
+        source,
+        updated_at: NOW(),
+      })
+      .select('artist_key')
+      .single();
+
+    if (insertError) throw new Error(`[artist] insert ${insertError.message}`);
+
+    return { artistKey: insertData.artist_key, displayName };
   }
 
-  const { data: byName, error: nameError } = await client
+  const artistKey = deriveArtistKeyFromName(displayName);
+
+  const { data: existingByKey, error: keyLookupError } = await client
     .from('artists')
-    .select('artist_key')
-    .eq('normalized_name', normalizedName.toLowerCase())
+    .select('id, artist_key')
+    .eq('artist_key', artistKey)
     .limit(1);
-  if (nameError) throw new Error(`[artist] name lookup ${nameError.message}`);
-  if (byName && byName.length) return { artistKey: byName[0].artist_key, displayName: display };
 
-  const insertRow = {
-    artist: normalizedName,
-    artist_key: candidateKey,
-    display_name: display,
-    normalized_name: normalizedName.toLowerCase(),
-    youtube_channel_id: normalizedChannel || null,
-    updated_at: NOW(),
-  };
+  if (keyLookupError) throw new Error(`[artist] fallback key lookup ${keyLookupError.message}`);
 
-  const { error: insertError } = await client.from('artists').insert(insertRow);
-  if (insertError) throw new Error(`[artist] insert ${insertError.message}`);
+  if (existingByKey && existingByKey.length === 1) {
+    const existing = existingByKey[0];
+    const updatePayload: Record<string, any> = {
+      artist: displayName,
+      display_name: displayName,
+      normalized_name: normalizedNameLower,
+      source,
+      updated_at: NOW(),
+    };
 
-  return { artistKey: candidateKey, displayName: display };
+    if (hasThumbnails) updatePayload.thumbnails = thumbnails ?? null;
+
+    const { error: updateError } = await client.from('artists').update(updatePayload).eq('id', existing.id);
+    if (updateError) throw new Error(`[artist] fallback update ${updateError.message}`);
+    return { artistKey: existing.artist_key, displayName };
+  }
+
+  const { data: insertedFallback, error: fallbackInsertError } = await client
+    .from('artists')
+    .insert({
+      artist: displayName,
+      display_name: displayName,
+      artist_key: artistKey,
+      normalized_name: normalizedNameLower,
+      youtube_channel_id: null,
+      thumbnails: thumbnails ?? null,
+      source,
+      updated_at: NOW(),
+    })
+    .select('artist_key')
+    .single();
+
+  if (fallbackInsertError) throw new Error(`[artist] fallback insert ${fallbackInsertError.message}`);
+
+  return { artistKey: insertedFallback.artist_key, displayName };
 }
 
-async function upsertArtists(inputs: ArtistInput[]): Promise<ArtistResult> {
+async function upsertArtists(inputs: ArtistInput[], sourceHint?: string): Promise<ArtistResult> {
   if (!inputs.length) return { keys: [], count: 0 };
-  const client = getSupabaseAdmin();
 
-   const channelIds = Array.from(
-    new Set(
-      inputs
-        .map((a) => normalize(a.channelId))
-        .filter((v) => Boolean(v)),
-    ),
-  );
+  const seen = new Set<string>();
+  const keys: string[] = [];
 
-  const channelMap: Record<string, string> = {};
-  if (channelIds.length) {
-    const { data, error } = await client
-      .from('artists')
-      .select('artist_key, youtube_channel_id')
-      .in('youtube_channel_id', channelIds);
-    if (error) throw new Error(`[upsertArtists] channel lookup ${error.message}`);
-    (data || []).forEach((row: any) => {
-      const channel = normalize(row.youtube_channel_id);
-      const key = normalize(row.artist_key);
-      if (channel && key) channelMap[channel] = key;
+  for (const artist of uniqueBy(inputs, (a) => `${normalize(a.channelId) || ''}::${normalize(a.name)}`)) {
+    const { artistKey } = await resolveCanonicalArtist({
+      displayName: artist.name,
+      youtubeChannelId: artist.channelId,
+      source: artist.source || sourceHint || 'ingest',
+      thumbnails: artist.thumbnails ?? null,
     });
+
+    if (!seen.has(artistKey)) {
+      seen.add(artistKey);
+      keys.push(artistKey);
+    }
   }
 
-  const rows = uniqueBy(
-    inputs
-      .map((artist) => {
-        const display = canonicalArtistName(artist.name);
-        const key = normalizeArtistKey(display || artist.name);
-        const artistValue = normalize(display || artist.name || key);
-        if (!key || !artistValue) return null;
-        const channelId = normalize(artist.channelId) || null;
-        const canonicalKey = channelId && channelMap[channelId] ? channelMap[channelId] : key;
-        return {
-          artist: artistValue,
-          artist_key: canonicalKey,
-          display_name: display || artist.name,
-          normalized_name: artistValue.toLowerCase(),
-          youtube_channel_id: channelId,
-          thumbnails: artist.thumbnails || null,
-          updated_at: NOW(),
-        };
-      })
-      .filter(Boolean) as Array<Record<string, any>>,
-    (row) => row.artist_key,
-  );
-
-  if (!rows.length) return { keys: [], count: 0 };
-
-  const { error } = await client.from('artists').upsert(rows, { onConflict: 'artist_key' });
-  if (error) throw new Error(`[upsertArtists] ${error.message}`);
-
-  return { keys: rows.map((r) => r.artist_key as string), count: rows.length };
+  return { keys, count: keys.length };
 }
 
 async function upsertAlbums(inputs: AlbumInput[]): Promise<{ map: IdMap; count: number }> {
@@ -482,7 +544,12 @@ function buildArtistTrackPairs(
 export async function ingestArtistBrowse(browse: ArtistBrowse, opts?: { allowArtistWrite?: boolean }): Promise<{ artistKey: string }> {
   const allowArtistWrite = opts?.allowArtistWrite !== false;
   const artistName = browse.artist.name;
-  const { artistKey, displayName } = await resolveCanonicalArtist(artistName, browse.artist.channelId);
+  const { artistKey, displayName } = await resolveCanonicalArtist({
+    displayName: artistName,
+    youtubeChannelId: browse.artist.channelId,
+    source: 'artist_browse',
+    thumbnails: { avatar: browse.artist.thumbnailUrl, banner: browse.artist.bannerUrl },
+  });
 
   if (!allowArtistWrite) {
     return { artistKey };
@@ -522,7 +589,7 @@ export async function ingestArtistBrowse(browse: ArtistBrowse, opts?: { allowArt
     channelId: browse.artist.channelId ?? null,
   }));
 
-  const artistResult: ArtistResult = await upsertArtists(artistInputs);
+  const artistResult: ArtistResult = await upsertArtists(artistInputs, 'artist_browse');
   const effectiveArtistKeys = uniqueKeys([artistKey, ...artistResult.keys]);
 
   const albumResult = await upsertAlbums(albumInputs);
@@ -554,7 +621,9 @@ export async function ingestTrackSelection(selection: TrackSelectionInput, opts?
   if (!selection.youtubeId || !VIDEO_ID_REGEX.test(selection.youtubeId)) return;
 
   const artists = allowArtistWrite ? splitArtists(selection.subtitle || '') || [] : [];
-  const artistResult: ArtistResult = allowArtistWrite ? await upsertArtists(artists.map((name) => ({ name }))) : { keys: [], count: 0 };
+  const artistResult: ArtistResult = allowArtistWrite
+    ? await upsertArtists(artists.map((name) => ({ name })), 'track_selection')
+    : { keys: [], count: 0 };
   const trackResult = await upsertTracks(
     [
       {
@@ -581,7 +650,7 @@ export async function ingestTrackSelection(selection: TrackSelectionInput, opts?
 }
 
 export async function resolveCanonicalArtistKey(name: string, channelId?: string | null): Promise<string> {
-  const { artistKey } = await resolveCanonicalArtist(name, channelId);
+  const { artistKey } = await resolveCanonicalArtist({ displayName: name, youtubeChannelId: channelId, source: 'resolve_key' });
   return artistKey;
 }
 
