@@ -1,12 +1,5 @@
 import { getSupabaseAdmin } from "./supabaseClient";
 
-const SOURCE_TAG = "artist_indexer";
-const MIN_PREFIX_LENGTH = 2;
-const MAX_PREFIX_LENGTH = 120;
-const ENTITY_TYPES = ["artist", "album", "playlist", "track"] as const;
-
-type EntityType = (typeof ENTITY_TYPES)[number];
-
 type ArtistRow = {
   artist_key: string;
   artist: string | null;
@@ -25,8 +18,14 @@ type SuggestEntryRow = {
   hit_count: number;
   last_seen_at: string;
   artist_channel_id: string;
-  entity_type: EntityType;
+  entity_type: "artist" | "album" | "playlist" | "track";
 };
+
+const SOURCE_TAG = "artist_indexer";
+const MIN_PREFIX_LENGTH = 2;
+const MAX_PREFIX_LENGTH = 120;
+const ENTITY_TYPES = ["artist", "album", "playlist", "track"] as const;
+const CANDIDATE_SCAN_LIMIT = 32;
 
 function normalizeQuery(value: string | null | undefined): string {
   if (!value) return "";
@@ -34,12 +33,12 @@ function normalizeQuery(value: string | null | undefined): string {
 }
 
 function buildPrefixes(normalized: string): string[] {
-  const out: string[] = [];
+  const prefixes: string[] = [];
   const maxLen = Math.min(normalized.length, MAX_PREFIX_LENGTH);
   for (let i = MIN_PREFIX_LENGTH; i <= maxLen; i++) {
-    out.push(normalized.slice(0, i));
+    prefixes.push(normalized.slice(0, i));
   }
-  return out;
+  return prefixes;
 }
 
 function pickNormalizedName(row: ArtistRow): string {
@@ -77,23 +76,6 @@ function buildRows(prefixes: string[], channelId: string, normalizedName: string
   return rows;
 }
 
-async function fetchNextArtist(): Promise<ArtistRow | null> {
-  const client = getSupabaseAdmin();
-  const { data, error } = await client
-    .from("artists")
-    .select("artist_key, artist, display_name, normalized_name, created_at, youtube_channel_id")
-    .not("youtube_channel_id", "is", null)
-    .order("created_at", { ascending: true })
-    .limit(1);
-
-  if (error) {
-    console.error("[suggest-indexer] artist_fetch_failed", error.message);
-    return null;
-  }
-
-  return data && data.length > 0 ? data[0] : null;
-}
-
 async function alreadyCompleted(channelId: string): Promise<boolean> {
   const client = getSupabaseAdmin();
   const { data, error } = await client
@@ -111,21 +93,62 @@ async function alreadyCompleted(channelId: string): Promise<boolean> {
   return Boolean(data);
 }
 
-async function upsertSuggestEntries(rows: SuggestEntryRow[]): Promise<{ success: boolean; inserted: number }> {
+async function fetchNextArtist(): Promise<ArtistRow | null> {
+  const client = getSupabaseAdmin();
+  const { data, error } = await client
+    .from("artists")
+    .select("artist_key, artist, display_name, normalized_name, created_at, youtube_channel_id")
+    .not("youtube_channel_id", "is", null)
+    .order("created_at", { ascending: true })
+    .limit(CANDIDATE_SCAN_LIMIT);
+
+  if (error) {
+    console.error("[suggest-indexer] artist_fetch_failed", error.message);
+    return null;
+  }
+
+  if (!data || !data.length) return null;
+
+  for (const artist of data) {
+    const channelId = (artist.youtube_channel_id || "").trim();
+    if (!channelId) continue;
+    const done = await alreadyCompleted(channelId);
+    if (!done) return artist;
+  }
+
+  return null;
+}
+
+async function insertSuggestEntries(rows: SuggestEntryRow[]): Promise<{ success: boolean; inserted: number }> {
   if (!rows.length) return { success: false, inserted: 0 };
 
   const client = getSupabaseAdmin();
   const { data, error } = await client
     .from("suggest_entries")
-    .upsert(rows, { onConflict: "artist_channel_id,normalized_query,entity_type", ignoreDuplicates: true })
+    .insert(rows, { ignoreDuplicates: true })
     .select("id");
 
   if (error) {
-    console.error("[suggest-indexer] entries_upsert_failed", error.message);
+    console.error("[suggest-indexer] entries_insert_failed", error.message);
     return { success: false, inserted: 0 };
   }
 
   return { success: true, inserted: data?.length ?? 0 };
+}
+
+async function countEntriesForArtist(channelId: string): Promise<number> {
+  const client = getSupabaseAdmin();
+  const { count, error } = await client
+    .from("suggest_entries")
+    .select("id", { count: "exact", head: true })
+    .eq("artist_channel_id", channelId);
+
+  if (error) {
+    console.error("[suggest-indexer] entries_count_failed", error.message);
+    return 0;
+  }
+
+  return count ?? 0;
 }
 
 async function markArtistProcessed(channelId: string): Promise<boolean> {
@@ -164,12 +187,6 @@ export async function runSuggestIndexerTick(): Promise<{ processed: number }> {
     return { processed };
   }
 
-  const done = await alreadyCompleted(channelId);
-  if (done) {
-    console.log("[suggest-indexer] tick_complete", { processed });
-    return { processed };
-  }
-
   const normalizedName = pickNormalizedName(artist);
   if (!normalizedName || normalizedName.length < MIN_PREFIX_LENGTH) {
     console.log("[suggest-indexer] tick_complete", { processed });
@@ -185,8 +202,14 @@ export async function runSuggestIndexerTick(): Promise<{ processed: number }> {
   const seenAt = new Date().toISOString();
   const rows = buildRows(prefixes, channelId, normalizedName, seenAt);
 
-  const upsertResult = await upsertSuggestEntries(rows);
-  if (!upsertResult.success) {
+  const insertResult = await insertSuggestEntries(rows);
+  if (!insertResult.success) {
+    console.log("[suggest-indexer] tick_complete", { processed });
+    return { processed };
+  }
+
+  const count = await countEntriesForArtist(channelId);
+  if (count <= 0) {
     console.log("[suggest-indexer] tick_complete", { processed });
     return { processed };
   }
@@ -198,14 +221,9 @@ export async function runSuggestIndexerTick(): Promise<{ processed: number }> {
   }
 
   processed = 1;
-  const prefixCount = prefixes.length;
-  const expectedRows = prefixCount * ENTITY_TYPES.length;
-  console.log("[suggest-indexer] artist_done", {
-    channelId,
-    normalizedName,
-    prefixCount,
-    rowsInserted: expectedRows,
-  });
+  const totalPrefixes = prefixes.length;
+  const totalEntries = totalPrefixes * ENTITY_TYPES.length;
+  console.log("[suggest-indexer] artist_done", { channelId, normalizedName, totalPrefixes, totalEntries });
   console.log("[suggest-indexer] tick_complete", { processed });
   return { processed };
 }
