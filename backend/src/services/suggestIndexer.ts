@@ -10,12 +10,12 @@ const MIN_PREFIX_LENGTH = 2;
 const MAX_PREFIX_COUNT = 120;
 const SOURCE_TAG = "search_result_multi";
 
-const DAILY_BATCH_SIZE = 100;
 const WINDOW_START_HOUR = 7;
 const WINDOW_END_HOUR = 22;
 
-const JITTER_MIN_MS = 30_000;
-const JITTER_MAX_MS = 90_000;
+const PER_RUN_TARGET = 1; // exactly one artist per tick
+const CANDIDATE_SCAN_LIMIT = 25; // scan a small window to find unprocessed artists
+
 
 /* =========================
    Types
@@ -44,6 +44,7 @@ type ArtistRow = {
   display_name: string | null;
   normalized_name: string | null;
   created_at: string | null;
+  youtube_channel_id?: string | null;
 };
 
 type EntityLookupMeta = {
@@ -74,22 +75,8 @@ function buildPrefixes(normalized: string): string[] {
   return output;
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function jitter(): number {
-  return JITTER_MIN_MS + Math.floor(Math.random() * (JITTER_MAX_MS - JITTER_MIN_MS));
-}
-
 function now(): number {
   return Date.now();
-}
-
-function todayAt(hour: number): number {
-  const d = new Date();
-  d.setHours(hour, 0, 0, 0);
-  return d.getTime();
 }
 
 function looksLikeVideoId(value: string): boolean {
@@ -397,15 +384,16 @@ function pickArtistName(row: ArtistRow): string {
   );
 }
 
-async function fetchArtistBatch(limit: number): Promise<ArtistRow[]> {
+async function fetchArtistBatch(limit: number, offset = 0): Promise<ArtistRow[]> {
   const client = getSupabaseAdmin();
 
   const { data, error } = await client
     .from("artists")
-    .select("artist_key, artist, display_name, normalized_name, created_at")
+    .select("artist_key, artist, display_name, normalized_name, created_at, youtube_channel_id")
+    .not("youtube_channel_id", "is", null)
     .order("created_at", { ascending: true })
     .order("artist_key", { ascending: true })
-    .limit(limit);
+    .range(offset, offset + limit - 1);
 
   if (error) {
     console.error("[suggest-indexer] artist_fetch_failed", error.message);
@@ -416,41 +404,73 @@ async function fetchArtistBatch(limit: number): Promise<ArtistRow[]> {
 }
 
 /* =========================
-   Distributed daily run
+   Short-run tick execution
 ========================= */
 
-export async function runDailyArtistSuggestBatch(): Promise<void> {
-  const startWindow = todayAt(WINDOW_START_HOUR);
-  const windowEnd = todayAt(WINDOW_END_HOUR);
-  const startTs = now();
+function isWithinWindow(nowTs: number): boolean {
+  const nowDate = new Date(nowTs);
+  const hour = nowDate.getHours();
+  if (WINDOW_START_HOUR <= WINDOW_END_HOUR) {
+    return hour >= WINDOW_START_HOUR && hour < WINDOW_END_HOUR;
+  }
+  return hour >= WINDOW_START_HOUR || hour < WINDOW_END_HOUR;
+}
 
-  if (startTs >= windowEnd) {
-    console.log("[suggest-indexer] distributed_window_missed", { startTs });
+async function artistAlreadyIndexed(channelId: string): Promise<boolean> {
+  if (!channelId) return true;
+  const { data, error } = await supabase
+    .from("suggest_entries")
+    .select("id")
+    .eq("source", SOURCE_TAG)
+    .eq("meta->>artist_channel_id", channelId)
+    .limit(1)
+    .maybeSingle();
+
+  if (error && error.code !== "PGRST116") {
+    console.error("[suggest-indexer] artist_exists_check_failed", error.message);
+    return true;
+  }
+
+  return Boolean(data);
+}
+
+export async function runArtistSuggestTick(): Promise<void> {
+  const nowTs = now();
+  if (!isWithinWindow(nowTs)) {
+    console.log("[suggest-indexer] window_skip", { hour: new Date(nowTs).getHours() });
     return;
   }
 
-  const artists = await fetchArtistBatch(DAILY_BATCH_SIZE);
-  if (!artists.length) {
-    console.log("[suggest-indexer] distributed_empty_batch");
-    return;
-  }
+  let processed = 0;
 
-  console.log("[suggest-indexer] distributed_start", {
-    artists: artists.length,
-    windowStart: new Date(startWindow).toISOString(),
-    windowEnd: new Date(windowEnd).toISOString(),
-  });
+  let offset = 0;
+  let scanned = 0;
 
-  let index = 0;
+  while (processed < PER_RUN_TARGET) {
+    const candidates = await fetchArtistBatch(CANDIDATE_SCAN_LIMIT, offset);
+    if (!candidates.length) {
+      if (scanned === 0) console.log("[suggest-indexer] empty_candidate_batch");
+      break;
+    }
 
-  while (index < artists.length && now() < windowEnd) {
-    const row = artists[index++];
-    const name = pickArtistName(row);
+    scanned += candidates.length;
+    offset += CANDIDATE_SCAN_LIMIT;
 
-    if (name) {
+    for (const row of candidates) {
+      if (processed >= PER_RUN_TARGET) break;
+      const channelId = normalizeString(row.youtube_channel_id || "");
+      if (!channelId) continue;
+
+      const alreadyIndexed = await artistAlreadyIndexed(channelId);
+      if (alreadyIndexed) continue;
+
+      const name = pickArtistName(row);
+      if (!name) continue;
+
       try {
         await processSingleArtist(name);
-        console.log("[suggest-indexer] artist_done", { index, name });
+        processed += 1;
+        console.log("[suggest-indexer] artist_done", { name, processed });
       } catch (err) {
         console.error("[suggest-indexer] artist_failed", {
           name,
@@ -459,27 +479,14 @@ export async function runDailyArtistSuggestBatch(): Promise<void> {
       }
     }
 
-    if (index >= artists.length) break;
-
-    const remaining = artists.length - index;
-    const remainingTime = windowEnd - now();
-    if (remainingTime <= 0) break;
-
-    const baseDelay = Math.max(Math.floor(remainingTime / remaining), 0);
-    const delay = baseDelay + jitter();
-    await sleep(delay);
+    if (candidates.length < CANDIDATE_SCAN_LIMIT) break; // reached end of list
   }
 
-  if (now() >= windowEnd && index < artists.length) {
-    console.log("[suggest-indexer] distributed_cutoff_reached", { processed: index });
-    return;
-  }
-
-  console.log("[suggest-indexer] distributed_complete", { processed: index });
+  console.log("[suggest-indexer] tick_complete", { processed });
 }
 
 /* =========================
    Cron export
 ========================= */
 
-export const DAILY_ARTIST_SUGGEST_CRON = "0 7 * * *";
+export const DAILY_ARTIST_SUGGEST_CRON = "*/5 * * * *";

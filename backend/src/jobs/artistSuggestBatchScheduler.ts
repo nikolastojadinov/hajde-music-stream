@@ -1,7 +1,7 @@
 import cron from 'node-cron';
 
 import env from '../environments';
-import { DAILY_ARTIST_SUGGEST_CRON, runDailyArtistSuggestBatch } from '../services/suggestIndexer';
+import { DAILY_ARTIST_SUGGEST_CRON, runArtistSuggestTick } from '../services/suggestIndexer';
 
 const JOB_LOG_CONTEXT = '[ArtistSuggestBatch]';
 let scheduled = false;
@@ -25,7 +25,7 @@ export function scheduleArtistSuggestBatchJob(): void {
     console.log(`${JOB_LOG_CONTEXT} run_start`, { hour, cron: DAILY_ARTIST_SUGGEST_CRON });
 
     try {
-      await runDailyArtistSuggestBatch();
+      await runArtistSuggestTick();
       console.log(`${JOB_LOG_CONTEXT} run_complete`);
     } catch (err) {
       console.error(`${JOB_LOG_CONTEXT} run_failed`, err instanceof Error ? err.message : String(err));
