@@ -151,12 +151,12 @@ async function fetchPlaylists(channelId: string): Promise<PlaylistRow[]> {
     return [];
   }
 
-  return (data ?? []).map(({ id, external_id, title, cover_url, image_url }) => ({
-    id,
-    external_id,
-    title,
-    cover_url,
-    image_url,
+  return (data ?? []).map((row: any) => ({
+    id: row.id as string,
+    external_id: row.external_id as string | null,
+    title: row.title as string | null,
+    cover_url: row.cover_url as string | null,
+    image_url: row.image_url as string | null,
   }));
 }
 
