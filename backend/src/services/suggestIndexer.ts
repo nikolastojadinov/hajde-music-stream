@@ -180,7 +180,7 @@ export async function runSuggestIndexerTick(): Promise<{ processed: number }> {
   }
 
   processed = 1;
-  const totalPrefixes = rows.length; // one row per prefix used
+  const totalPrefixes = prefixes.length;
   const insertedCount = insertResult.inserted;
   console.log("[suggest-indexer] artist_done", { channelId, normalizedName, totalPrefixes, insertedCount });
   console.log("[suggest-indexer] tick_complete", { processed });
