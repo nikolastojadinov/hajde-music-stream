@@ -165,8 +165,13 @@ async function resolveCanonicalArtist(params: CanonicalArtistParams): Promise<{ 
   const source = normalize(params.source) || 'unknown';
   const thumbnails = params.thumbnails ?? null;
   const artistDescription = normalize(params.artistDescription);
+  const artistKey = normalizeArtistKey(displayName);
+  const normalizedName = artistKey || normalize(displayName);
 
   if (!displayName) throw new Error('[artist] displayName is required');
+  if (!artistKey) throw new Error('[artist] artist_key is required');
+
+  const isEmpty = (value: unknown): boolean => normalize(value) === '';
 
   // Channel-present path: authoritative identity and only insertion path
   if (youtubeChannelId) {
@@ -178,19 +183,19 @@ async function resolveCanonicalArtist(params: CanonicalArtistParams): Promise<{ 
     if (existingError) throw new Error(`[artist] channel lookup ${existingError.message}`);
 
     if (existing) {
-      const updatePayload: Record<string, any> = { updated_at: NOW(), artist: displayName, display_name: displayName };
+      const updatePayload: Record<string, any> = { updated_at: NOW() };
       if (!existing.youtube_channel_id) updatePayload.youtube_channel_id = youtubeChannelId;
-      if (artistDescription && !existing.artist_description) updatePayload.artist_description = artistDescription;
-      if (thumbnails && !existing.thumbnails) updatePayload.thumbnails = thumbnails;
-      if (Object.keys(updatePayload).length > 0) {
+      if (isEmpty(existing.artist_description) && artistDescription) updatePayload.artist_description = artistDescription;
+      if (!existing.thumbnails && thumbnails) updatePayload.thumbnails = thumbnails;
+      if (isEmpty(existing.display_name) && displayName) updatePayload.display_name = displayName;
+      if (isEmpty(existing.artist) && displayName) updatePayload.artist = displayName;
+      if (isEmpty(existing.normalized_name) && normalizedName) updatePayload.normalized_name = normalizedName;
+      if (Object.keys(updatePayload).length > 1 || (Object.keys(updatePayload).length === 1 && !updatePayload.updated_at)) {
         const { error: updateErr } = await client.from('artists').update(updatePayload).eq('id', existing.id);
         if (updateErr) throw new Error(`[artist] channel update ${updateErr.message}`);
       }
       return { artistKey: existing.artist_key, displayName: existing.display_name || displayName };
     }
-
-    const artistKey = deriveArtistKeyFromChannelId(youtubeChannelId);
-    const normalizedName = normalizeArtistKey(displayName) || displayName;
 
     const { data: existingByKey, error: existingKeyError } = await client
       .from('artists')
@@ -202,8 +207,11 @@ async function resolveCanonicalArtist(params: CanonicalArtistParams): Promise<{ 
     if (existingByKey) {
       const updatePayload: Record<string, any> = { updated_at: NOW() };
       if (!existingByKey.youtube_channel_id) updatePayload.youtube_channel_id = youtubeChannelId;
-      if (artistDescription && !existingByKey.artist_description) updatePayload.artist_description = artistDescription;
-      if (thumbnails && !existingByKey.thumbnails) updatePayload.thumbnails = thumbnails;
+      if (isEmpty(existingByKey.artist_description) && artistDescription) updatePayload.artist_description = artistDescription;
+      if (!existingByKey.thumbnails && thumbnails) updatePayload.thumbnails = thumbnails;
+      if (isEmpty(existingByKey.display_name) && displayName) updatePayload.display_name = displayName;
+      if (isEmpty(existingByKey.artist) && displayName) updatePayload.artist = displayName;
+      if (isEmpty(existingByKey.normalized_name) && normalizedName) updatePayload.normalized_name = normalizedName;
       const { error: updateErr } = await client.from('artists').update(updatePayload).eq('id', existingByKey.id);
       if (updateErr) throw new Error(`[artist] key update ${updateErr.message}`);
       return { artistKey: existingByKey.artist_key, displayName: existingByKey.display_name || displayName };
@@ -234,7 +242,7 @@ async function resolveCanonicalArtist(params: CanonicalArtistParams): Promise<{ 
   const fallbackKey = deriveArtistKeyFromName(displayName);
   const { data: existingByKey, error: fallbackError } = await client
     .from('artists')
-    .select('id, artist_key, display_name, artist_description, thumbnails, youtube_channel_id')
+    .select('id, artist_key, display_name, artist_description, thumbnails, youtube_channel_id, artist, normalized_name')
     .eq('artist_key', fallbackKey)
     .maybeSingle();
   if (fallbackError) throw new Error(`[artist] fallback lookup ${fallbackError.message}`);
@@ -242,8 +250,11 @@ async function resolveCanonicalArtist(params: CanonicalArtistParams): Promise<{ 
   if (existingByKey) {
     const updatePayload: Record<string, any> = { updated_at: NOW() };
     if (youtubeChannelId && !existingByKey.youtube_channel_id) updatePayload.youtube_channel_id = youtubeChannelId;
-    if (artistDescription && !existingByKey.artist_description) updatePayload.artist_description = artistDescription;
-    if (thumbnails && !existingByKey.thumbnails) updatePayload.thumbnails = thumbnails;
+    if (isEmpty(existingByKey.artist_description) && artistDescription) updatePayload.artist_description = artistDescription;
+    if (!existingByKey.thumbnails && thumbnails) updatePayload.thumbnails = thumbnails;
+    if (isEmpty(existingByKey.display_name) && displayName) updatePayload.display_name = displayName;
+    if (isEmpty(existingByKey.artist) && displayName) updatePayload.artist = displayName;
+    if (isEmpty(existingByKey.normalized_name) && normalizedName) updatePayload.normalized_name = normalizedName;
     if (Object.keys(updatePayload).length > 0) {
       const { error: updateErr } = await client.from('artists').update(updatePayload).eq('id', existingByKey.id);
       if (updateErr) throw new Error(`[artist] fallback update ${updateErr.message}`);
