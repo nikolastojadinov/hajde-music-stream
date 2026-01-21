@@ -38,7 +38,6 @@ function nowIso(): string {
 
 async function runJsonQuery<T>(sql: string, label: string): Promise<T | null> {
   const client = getSupabaseAdmin();
-  // Use the single-payload RPC to avoid mismatched return shapes with advisory lock queries.
   const { data, error } = await client.rpc('run_raw_single', { sql });
 
   if (error) throw new Error(`[artistQueries] ${label} failed: ${error.message}`);
@@ -73,7 +72,6 @@ export async function persistArtistChannelId(params: {
   const client = getSupabaseAdmin();
   const selectColumns = 'artist_key, youtube_channel_id, display_name, normalized_name, artist, artist_description';
 
-  // Prefer canonical artist by channel id
   const { data: byChannel, error: channelError } = await client
     .from('artists')
     .select(selectColumns)
@@ -115,16 +113,17 @@ export async function persistArtistChannelId(params: {
       await updateArtistDescriptionIfEmpty(artistKey, incomingDescription);
     }
 
-    return { artistKey, youtubeChannelId, existed: false, updated: true, previousChannelId }; // insert implies updated
+    return { artistKey, youtubeChannelId, existed: false, updated: true, previousChannelId };
   }
 
   let channelUpdated = false;
   let descriptionUpdated = false;
 
   if (previousChannelId === youtubeChannelId) {
-    const updates: Record<string, any> = { updated_at: nowIso() };
-
-    const { error: touchError } = await client.from('artists').update(updates).eq('artist_key', artistKey);
+    const { error: touchError } = await client
+      .from('artists')
+      .update({ updated_at: nowIso() })
+      .eq('artist_key', artistKey);
     if (touchError) throw new Error(`[artistQueries] artist touch failed: ${touchError.message}`);
   } else {
     const updates: Record<string, any> = {
@@ -149,28 +148,41 @@ export async function persistArtistChannelId(params: {
   return { artistKey, youtubeChannelId, existed: true, updated: Boolean(channelUpdated || descriptionUpdated), previousChannelId };
 }
 
-export async function persistArtistDescription(params: { artistKey: string; description: string }): Promise<ArtistDescriptionWriteResult> {
+export async function persistArtistDescription(params: {
+  artistKey: string;
+  description: string;
+}): Promise<ArtistDescriptionWriteResult> {
   return updateArtistDescriptionIfEmpty(params.artistKey, params.description);
 }
 
-export async function updateArtistDescriptionIfEmpty(artistKey: string, description: string): Promise<ArtistDescriptionWriteResult> {
+/**
+ * FIXED IMPLEMENTATION:
+ * Uses raw SQL to avoid Supabase update/or() edge-case.
+ */
+export async function updateArtistDescriptionIfEmpty(
+  artistKey: string,
+  description: string,
+): Promise<ArtistDescriptionWriteResult> {
   const key = normalize(artistKey);
   const normalizedDescription = normalizeDescription(description);
   if (!key) throw new Error('[artistQueries] artistKey is required');
   if (!normalizedDescription) return { updated: false };
 
-  const client = getSupabaseAdmin();
-  const { data, error } = await client
-    .from('artists')
-    .update({ artist_description: normalizedDescription, updated_at: nowIso() })
-    .eq('artist_key', key)
-    .or('artist_description.is.null,artist_description.eq.""')
-    .select('artist_key');
+  const sql = `
+UPDATE artists
+SET artist_description = '${normalizedDescription.replace(/'/g, "''")}',
+    updated_at = now()
+WHERE artist_key = '${key}'
+  AND (artist_description IS NULL OR artist_description = '')
+RETURNING artist_key;
+`;
 
-  if (error) throw new Error(`[artistQueries] artist description update failed: ${error.message}`);
+  const result = await runJsonQuery<{ artist_key: string }>(
+    sql,
+    'artist description update',
+  );
 
-  const updated = Array.isArray(data) && data.length > 0;
-  return { updated };
+  return { updated: Boolean(result) };
 }
 
 export async function markResolveAttempt(artistKey: string): Promise<void> {
@@ -200,9 +212,11 @@ SELECT to_jsonb(candidate) AS payload FROM candidate;
 
   const row = await runJsonQuery<UnresolvedArtistCandidate>(sql, 'claimNextUnresolvedArtist');
   if (!row) return null;
+
   const raw = row as any;
   const key = normalize(raw.artist_key ?? raw.artistKey);
   if (!key) return null;
+
   return {
     artistKey: key,
     normalizedName: normalize(raw.normalized_name ?? raw.normalizedName),
