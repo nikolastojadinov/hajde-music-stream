@@ -495,12 +495,16 @@ function buildArtistTrackPairs(
 export async function ingestArtistBrowse(browse: ArtistBrowse, opts?: { allowArtistWrite?: boolean }): Promise<{ artistKey: string }> {
   const allowArtistWrite = opts?.allowArtistWrite !== false;
   const artistName = browse.artist.name;
-  const { artistKey, displayName } = await resolveCanonicalArtist({
+  const resolved = await resolveCanonicalArtist({
     displayName: artistName,
     youtubeChannelId: browse.artist.channelId,
     source: 'artist_browse',
     thumbnails: { avatar: browse.artist.thumbnailUrl, banner: browse.artist.bannerUrl },
   });
+
+  if (!resolved) throw new Error('[artist_browse] missing canonical artist resolution');
+
+  const { artistKey, displayName } = resolved;
 
   if (!allowArtistWrite) {
     return { artistKey };
