@@ -25,7 +25,6 @@ const SOURCE_TAG = "artist_indexer";
 const MIN_PREFIX_LENGTH = 2;
 const MAX_PREFIX_LENGTH = 120;
 const ENTITY_TYPES = ["artist", "album", "playlist", "track"] as const;
-const CANDIDATE_SCAN_LIMIT = 32;
 
 function normalizeQuery(value: string | null | undefined): string {
   if (!value) return "";
@@ -76,6 +75,33 @@ function buildRows(prefixes: string[], channelId: string, normalizedName: string
   return rows;
 }
 
+async function fetchNextArtist(): Promise<ArtistRow | null> {
+  const client = getSupabaseAdmin();
+  const { data, error } = await client
+    .from("artists")
+    .select("artist_key, artist, display_name, normalized_name, created_at, youtube_channel_id, suggest_queries!left(artist_channel_id)")
+    .not("youtube_channel_id", "is", null)
+    .is("suggest_queries.artist_channel_id", null)
+    .order("created_at", { ascending: true })
+    .limit(1);
+
+  if (error) {
+    console.error("[suggest-indexer] artist_fetch_failed", error.message);
+    return null;
+  }
+
+  const candidate = data && data.length ? data[0] : null;
+  if (!candidate) return null;
+
+  const channelId = (candidate.youtube_channel_id || "").trim();
+  if (!channelId) return null;
+
+  const completed = await alreadyCompleted(channelId);
+  if (completed) return null;
+
+  return candidate;
+}
+
 async function alreadyCompleted(channelId: string): Promise<boolean> {
   const client = getSupabaseAdmin();
   const { data, error } = await client
@@ -91,32 +117,6 @@ async function alreadyCompleted(channelId: string): Promise<boolean> {
   }
 
   return Boolean(data);
-}
-
-async function fetchNextArtist(): Promise<ArtistRow | null> {
-  const client = getSupabaseAdmin();
-  const { data, error } = await client
-    .from("artists")
-    .select("artist_key, artist, display_name, normalized_name, created_at, youtube_channel_id")
-    .not("youtube_channel_id", "is", null)
-    .order("created_at", { ascending: true })
-    .limit(CANDIDATE_SCAN_LIMIT);
-
-  if (error) {
-    console.error("[suggest-indexer] artist_fetch_failed", error.message);
-    return null;
-  }
-
-  if (!data || !data.length) return null;
-
-  for (const artist of data) {
-    const channelId = (artist.youtube_channel_id || "").trim();
-    if (!channelId) continue;
-    const done = await alreadyCompleted(channelId);
-    if (!done) return artist;
-  }
-
-  return null;
 }
 
 async function insertSuggestEntries(rows: SuggestEntryRow[]): Promise<{ success: boolean; inserted: number }> {
