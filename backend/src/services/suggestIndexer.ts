@@ -2,6 +2,7 @@ import { getSupabaseAdmin } from "./supabaseClient";
 
 const PER_RUN_TARGET = 1;
 const CANDIDATE_SCAN_LIMIT = 50;
+const SOURCE_TAG = "artist_indexer";
 
 type ArtistRow = {
   artist_key: string;
@@ -15,6 +16,25 @@ type ArtistRow = {
 function normalizeQuery(value: string | null | undefined): string {
   if (!value) return "";
   return value.toString().trim().toLowerCase().normalize("NFKD").replace(/\p{Diacritic}+/gu, "");
+}
+
+function buildPrefixes(normalized: string): string[] {
+  const output: string[] = [];
+  const minLen = 2;
+  const maxLen = Math.min(normalized.length, 120);
+  for (let i = minLen; i <= maxLen; i++) {
+    output.push(normalized.slice(0, i));
+  }
+  return output;
+}
+
+function pickNormalizedQuery(row: ArtistRow): string {
+  return (
+    normalizeQuery(row.display_name) ||
+    normalizeQuery(row.artist) ||
+    normalizeQuery(row.normalized_name) ||
+    normalizeQuery(row.artist_key)
+  );
 }
 
 async function artistAlreadyProcessed(channelId: string): Promise<boolean> {
@@ -52,6 +72,37 @@ async function fetchArtistBatch(limit: number): Promise<ArtistRow[]> {
   return data ?? [];
 }
 
+async function insertSuggestEntries(channelId: string, normalizedQuery: string): Promise<number> {
+  const client = getSupabaseAdmin();
+  const prefixes = buildPrefixes(normalizedQuery);
+  if (!prefixes.length) return 0;
+
+  const seenAt = new Date().toISOString();
+  const rows = prefixes.map((prefix) => ({
+    query: prefix,
+    normalized_query: prefix,
+    source: SOURCE_TAG,
+    results: {
+      type: "artist",
+      title: normalizedQuery,
+      artist_channel_id: channelId,
+      endpointType: "browse",
+      endpointPayload: channelId,
+    },
+    meta: { artist_channel_id: channelId },
+    hit_count: 1,
+    last_seen_at: seenAt,
+  }));
+
+  const { data, error } = await client.from("suggest_entries").insert(rows).select("id");
+  if (error) {
+    console.error("[suggest-indexer] entries_insert_failed", error.message);
+    return 0;
+  }
+
+  return data?.length ?? 0;
+}
+
 async function markArtistProcessed(channelId: string): Promise<boolean> {
   const client = getSupabaseAdmin();
   const payload = {
@@ -66,15 +117,6 @@ async function markArtistProcessed(channelId: string): Promise<boolean> {
   }
 
   return true;
-}
-
-function pickNormalizedQuery(row: ArtistRow): string {
-  return (
-    normalizeQuery(row.display_name) ||
-    normalizeQuery(row.artist) ||
-    normalizeQuery(row.normalized_name) ||
-    normalizeQuery(row.artist_key)
-  );
 }
 
 export async function runSuggestIndexerTick(): Promise<{ processed: number }> {
@@ -93,12 +135,11 @@ export async function runSuggestIndexerTick(): Promise<{ processed: number }> {
     const normalizedQuery = pickNormalizedQuery(row);
     if (!normalizedQuery) continue;
 
-    // Suggest generation assumed to succeed elsewhere.
+    const insertedCount = await insertSuggestEntries(channelId, normalizedQuery);
+    if (insertedCount <= 0) continue;
+
     const marked = await markArtistProcessed(channelId);
-    if (!marked) {
-      // Do not crash the tick; leave processed unchanged.
-      break;
-    }
+    if (!marked) continue;
 
     processed += 1;
     console.log("[suggest-indexer] artist_done", { channelId, normalizedQuery });
