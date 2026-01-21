@@ -1,7 +1,7 @@
 import cron from 'node-cron';
 
 import env from '../environments';
-import { musicSearch, type MusicSearchArtist } from '../services/youtubeMusicClient';
+import { musicSearch, type MusicSearchArtist, type MusicSearchResults } from '../services/youtubeMusicClient';
 import { runFullArtistIngest } from '../services/fullArtistIngest';
 import { ensureArtistDescriptionForNightly } from '../services/nightlyArtistIngest';
 import {
@@ -21,14 +21,12 @@ export type SchedulerWindow = {
 type JobConfig = {
   cronExpression: string;
   window: SchedulerWindow;
-  batchSize: number;
 };
 
 const JOB_LOG_CONTEXT = '[NightlyArtistIngest]';
 const DEFAULT_CONFIG: JobConfig = {
-  cronExpression: '*/5 * * * *',
+  cronExpression: '*/3 * * * *',
   window: { startHour: 0, endHour: 5 },
-  batchSize: 3,
 };
 
 let scheduled = false;
@@ -42,39 +40,19 @@ function isWithinSchedulerWindow(now: Date, window: SchedulerWindow): boolean {
   return hour >= startHour || hour < endHour;
 }
 
-function normalizeLoose(value: string | null | undefined): string {
-  return typeof value === 'string' ? value.toLowerCase().replace(/\s+/g, ' ').trim() : '';
+function selectHeroArtist(results: MusicSearchResults): MusicSearchArtist | null {
+  const ordered = Array.isArray(results.orderedItems) ? results.orderedItems : [];
+  for (const item of ordered) {
+    if (item.type !== 'artist') continue;
+    const artist = item.data as MusicSearchArtist;
+    if (artist && artist.isOfficial) return artist;
+  }
+  return null;
 }
 
-function looksLikeBrowseId(value: string): boolean {
-  const v = normalizeLoose(value).replace(/\s+/g, '');
-  if (!v) return false;
-  return /^(OLAK|PL|VL|RD|MP|UU|LL|UC|OL|RV)[A-Za-z0-9_-]+$/.test(v);
-}
+async function processCandidate(candidate: UnresolvedArtistCandidate): Promise<void> {
+  await markResolveAttempt(candidate.artistKey);
 
-function pickBestArtistMatch(artists: MusicSearchArtist[], query: string): MusicSearchArtist | null {
-  const target = normalizeLoose(query);
-  if (!target) return null;
-
-  const scored = artists
-    .map((artist) => {
-      const nameNorm = normalizeLoose(artist.name);
-      const pageType = normalizeLoose((artist as any).pageType || '');
-      let score = 0;
-      if (nameNorm === target) score += 200;
-      if (nameNorm.includes(target) || target.includes(nameNorm)) score += 60;
-      if (pageType.includes('artist')) score += 40;
-      if (artist.isOfficial) score += 30;
-      if (nameNorm.includes('tribute') || nameNorm.includes('cover')) score -= 100;
-      return { artist, score };
-    })
-    .filter((entry) => entry.score > 0)
-    .sort((a, b) => b.score - a.score);
-
-  return scored.length ? scored[0].artist : null;
-}
-
-async function resolveBrowseId(candidate: UnresolvedArtistCandidate): Promise<string | null> {
   const queries = Array.from(
     new Set([
       candidate.displayName || '',
@@ -83,12 +61,17 @@ async function resolveBrowseId(candidate: UnresolvedArtistCandidate): Promise<st
     ].filter(Boolean)),
   );
 
+  let hero: MusicSearchArtist | null = null;
+  let heroBrowseId: string | null = null;
+
   for (const q of queries) {
     try {
       const results = await musicSearch(q);
-      const artists = Array.isArray(results.artists) ? results.artists : [];
-      const best = pickBestArtistMatch(artists, q);
-      if (best && looksLikeBrowseId(best.id)) return best.id;
+      hero = selectHeroArtist(results);
+      if (hero && hero.id) {
+        heroBrowseId = hero.id;
+        break;
+      }
     } catch (err) {
       console.error(`${JOB_LOG_CONTEXT} search_failed`, {
         artist_key: candidate.artistKey,
@@ -99,14 +82,7 @@ async function resolveBrowseId(candidate: UnresolvedArtistCandidate): Promise<st
     }
   }
 
-  return null;
-}
-
-async function processCandidate(candidate: UnresolvedArtistCandidate): Promise<void> {
-  await markResolveAttempt(candidate.artistKey);
-
-  const browseId = await resolveBrowseId(candidate);
-  if (!browseId) {
+  if (!hero || !heroBrowseId) {
     console.info(`${JOB_LOG_CONTEXT} resolution_result`, {
       artist_key: candidate.artistKey,
       normalized_name: candidate.normalizedName,
@@ -118,32 +94,39 @@ async function processCandidate(candidate: UnresolvedArtistCandidate): Promise<v
     return;
   }
 
+  console.info(`${JOB_LOG_CONTEXT} hero_artist_selected`, {
+    artist_key: candidate.artistKey,
+    normalized_name: candidate.normalizedName,
+    hero_name: hero.name,
+    youtube_channel_id: heroBrowseId,
+  });
+
   console.info(`${JOB_LOG_CONTEXT} resolution_result`, {
     artist_key: candidate.artistKey,
     normalized_name: candidate.normalizedName,
     resolution_status: 'resolved',
-    youtube_channel_id: browseId,
+    youtube_channel_id: heroBrowseId,
     ingest_started: true,
     ingest_skipped: false,
   });
 
   await persistArtistChannelId({
     artistKey: candidate.artistKey,
-    youtubeChannelId: browseId,
+    youtubeChannelId: heroBrowseId,
     displayName: candidate.displayName || candidate.normalizedName,
   });
 
   try {
     await ensureArtistDescriptionForNightly({
       artistKey: candidate.artistKey,
-      browseId,
+      browseId: heroBrowseId,
       logPrefix: JOB_LOG_CONTEXT,
     });
   } catch (err: any) {
     console.error(`${JOB_LOG_CONTEXT} artist_description_write_failed`, {
       artist_key: candidate.artistKey,
       normalized_name: candidate.normalizedName,
-      youtube_channel_id: browseId,
+      youtube_channel_id: heroBrowseId,
       message: err?.message || String(err),
     });
   }
@@ -151,7 +134,7 @@ async function processCandidate(candidate: UnresolvedArtistCandidate): Promise<v
   try {
     await runFullArtistIngest({
       artistKey: candidate.artistKey,
-      browseId,
+      browseId: heroBrowseId,
       source: 'background',
       force: false,
     });
@@ -159,14 +142,14 @@ async function processCandidate(candidate: UnresolvedArtistCandidate): Promise<v
     console.info(`${JOB_LOG_CONTEXT} ingest_completed`, {
       artist_key: candidate.artistKey,
       normalized_name: candidate.normalizedName,
-      youtube_channel_id: browseId,
+      youtube_channel_id: heroBrowseId,
       ingest_completed: true,
     });
   } catch (err: any) {
     console.error(`${JOB_LOG_CONTEXT} ingest_failed`, {
       artist_key: candidate.artistKey,
       normalized_name: candidate.normalizedName,
-      youtube_channel_id: browseId,
+      youtube_channel_id: heroBrowseId,
       ingest_failed: true,
       message: err?.message || String(err),
     });
@@ -190,27 +173,22 @@ async function runNightlyArtistIngestOnce(config: JobConfig): Promise<void> {
     return;
   }
 
-  let processed = 0;
-
   try {
-    while (processed < config.batchSize) {
-      const candidate = await claimNextUnresolvedArtist();
-      if (!candidate) {
-        console.log(`${JOB_LOG_CONTEXT} no_unresolved_artists`);
-        break;
-      }
-
-      console.info(`${JOB_LOG_CONTEXT} resolution_started`, {
-        artist_key: candidate.artistKey,
-        normalized_name: candidate.normalizedName,
-      });
-
-      await processCandidate(candidate);
-      processed += 1;
+    const candidate = await claimNextUnresolvedArtist();
+    if (!candidate) {
+      console.log(`${JOB_LOG_CONTEXT} no_unresolved_artists`);
+      return;
     }
 
+    console.info(`${JOB_LOG_CONTEXT} resolution_started`, {
+      artist_key: candidate.artistKey,
+      normalized_name: candidate.normalizedName,
+    });
+
+    await processCandidate(candidate);
+
     console.log(`${JOB_LOG_CONTEXT} run_complete`, {
-      processed,
+      processed: 1,
       duration_ms: Date.now() - startedAtMs,
     });
   } finally {
