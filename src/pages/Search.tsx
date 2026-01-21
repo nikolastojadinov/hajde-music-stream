@@ -1,7 +1,7 @@
 // target file: src/pages/Search.tsx
 
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { Loader2, Play, Search as SearchIcon } from "lucide-react";
+import { Loader2, Search as SearchIcon } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import SearchSuggestList from "@/components/search/SearchSuggestList";
 import { Input } from "@/components/ui/input";
@@ -289,6 +289,7 @@ export default function Search() {
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
+    inputRef.current?.blur();
     clearSuggestions();
     void runSearch(query);
   };
@@ -407,45 +408,26 @@ export default function Search() {
     return (
       <section className="mt-6 space-y-3">
         <div className="text-sm font-semibold text-white">Results</div>
-        <div className="space-y-3">
+        <div className="divide-y divide-white/5">
           {results.map((item, idx) => {
             const artistResult = isArtistResult(item);
             const clickable = artistResult || item.endpointType === "watch" || item.endpointType === "browse";
             return (
               <div
                 key={`${item.id}-${idx}`}
-                className={`flex items-center gap-4 rounded-2xl border border-white/5 bg-neutral-900/70 p-3 ${
-                  clickable ? "cursor-pointer hover:border-white/10" : ""
-                }`}
+                className={`flex items-center gap-3 py-3 ${clickable ? "cursor-pointer hover:bg-white/5" : ""}`}
                 onClick={clickable ? () => handleResultSelect(item) : undefined}
               >
-                <div className="h-16 w-16 overflow-hidden rounded-xl bg-neutral-800">
+                <div className="h-12 w-12 overflow-hidden rounded-lg bg-neutral-800 flex-shrink-0">
                   {item.imageUrl ? <img src={item.imageUrl} alt={item.title} className="h-full w-full object-cover" loading="lazy" /> : null}
                 </div>
 
-                <div className="flex-1 space-y-1">
-                  <div className="text-base font-semibold text-white">{item.title}</div>
+                <div className="flex-1 space-y-1 overflow-hidden">
+                  <div className="text-base font-semibold text-white truncate" title={item.title}>
+                    {item.title}
+                  </div>
                   {item.subtitle ? <div className="text-sm text-neutral-400">{item.subtitle}</div> : null}
-                  {item.endpointPayload ? (
-                    <div className="text-[11px] text-neutral-500">
-                      {item.endpointType ?? "endpoint"}: {item.endpointPayload}
-                    </div>
-                  ) : null}
                 </div>
-
-                {item.endpointType === "watch" && item.endpointPayload?.length === 11 ? (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handlePlay(item);
-                    }}
-                    className="inline-flex items-center gap-2 rounded-full border border-white/20 px-3 py-2 text-sm font-semibold text-white transition hover:border-white/40"
-                  >
-                    <Play className="h-4 w-4" />
-                    Play
-                  </button>
-                ) : null}
               </div>
             );
           })}
