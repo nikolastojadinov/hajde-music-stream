@@ -14,8 +14,7 @@ const WINDOW_START_HOUR = 7;
 const WINDOW_END_HOUR = 22;
 
 const PER_RUN_TARGET = 1; // exactly one artist per tick
-const CANDIDATE_SCAN_LIMIT = 25; // scan a small window to find unprocessed artists
-
+const CANDIDATE_SCAN_LIMIT = 25; // scan window to find next unprocessed artist
 
 /* =========================
    Types
@@ -51,22 +50,6 @@ type EntityLookupMeta = {
   entityType: EntityType;
   metaIdKey: string;
 };
-
-/* =========================
-   DB helpers
-========================= */
-
-async function runJsonQuery<T>(sql: string, label: string): Promise<T | null> {
-  const client = getSupabaseAdmin();
-  const { data, error } = await client.rpc("run_raw_single", { sql });
-
-  if (error) throw new Error(`[suggest-indexer] ${label} failed: ${error.message}`);
-  if (!Array.isArray(data) || data.length === 0) return null;
-
-  const payload = (data[0] as any)?.payload;
-  if (payload === null || payload === undefined) return null;
-  return payload as T;
-}
 
 /* =========================
    Utils
@@ -287,6 +270,18 @@ function extractEntities(payload: SearchResultsPayload): Partial<Record<EntityTy
    DB helpers
 ========================= */
 
+async function runJsonQuery<T>(sql: string, label: string): Promise<T | null> {
+  const client = getSupabaseAdmin();
+  const { data, error } = await client.rpc("run_raw_single", { sql });
+
+  if (error) throw new Error(`[suggest-indexer] ${label} failed: ${error.message}`);
+  if (!Array.isArray(data) || data.length === 0) return null;
+
+  const payload = (data[0] as any)?.payload;
+  if (payload === null || payload === undefined) return null;
+  return payload as T;
+}
+
 function toLookupMeta(entity: CanonicalEntity): EntityLookupMeta {
   const metaKey =
     entity.entityType === "artist"
@@ -308,7 +303,7 @@ async function findExisting(prefix: string, entity: CanonicalEntity): Promise<Ex
     .select("id, hit_count")
     .eq("normalized_query", prefix)
     .eq("meta->>entity_type", entityType)
-    .eq(`meta->>${metaIdKey}`, entity.id)
+    .eq(`meta->>${metaIdKey}` as any, entity.id)
     .maybeSingle();
 
   if (error) {
@@ -400,12 +395,6 @@ function pickArtistName(row: ArtistRow): string {
   );
 }
 
-async function markArtistProcessed(channelId: string): Promise<void> {
-  if (!channelId) return;
-  const { error } = await supabase.from("suggest_queries").upsert({ artist_channel_id: channelId }, { onConflict: "artist_channel_id" });
-  if (error) throw new Error(`[suggest-indexer] mark_processed_failed: ${error.message}`);
-}
-
 async function fetchArtistBatch(limit: number, offset = 0): Promise<ArtistRow[]> {
   const sql = `
 SELECT artist_key, artist, display_name, normalized_name, created_at, youtube_channel_id
@@ -427,10 +416,6 @@ OFFSET ${offset};
     return [];
   }
 }
-
-/* =========================
-   Short-run tick execution
-========================= */
 
 function isWithinWindow(nowTs: number): boolean {
   const nowDate = new Date(nowTs);
@@ -458,6 +443,21 @@ async function artistAlreadyIndexed(channelId: string): Promise<boolean> {
   return Boolean(data);
 }
 
+async function markArtistProcessed(channelId: string, normalizedName: string): Promise<void> {
+  if (!channelId) return;
+  const payload = {
+    artist_channel_id: channelId,
+    normalized_query: normalizedName || channelId,
+    created_at: new Date().toISOString(),
+  };
+
+  const { error } = await supabase
+    .from("suggest_queries")
+    .upsert(payload, { onConflict: "artist_channel_id" });
+
+  if (error) throw new Error(`[suggest-indexer] mark_processed_failed: ${error.message}`);
+}
+
 export async function runArtistSuggestTick(): Promise<void> {
   const nowTs = now();
   if (!isWithinWindow(nowTs)) {
@@ -466,7 +466,6 @@ export async function runArtistSuggestTick(): Promise<void> {
   }
 
   let processed = 0;
-
   let offset = 0;
   let scanned = 0;
 
@@ -493,7 +492,7 @@ export async function runArtistSuggestTick(): Promise<void> {
 
       try {
         await processSingleArtist(name);
-        await markArtistProcessed(channelId);
+        await markArtistProcessed(channelId, name);
         processed += 1;
         console.log("[suggest-indexer] artist_done", { name, processed });
       } catch (err) {
@@ -504,7 +503,7 @@ export async function runArtistSuggestTick(): Promise<void> {
       }
     }
 
-    if (candidates.length < CANDIDATE_SCAN_LIMIT) break; // reached end of list
+    if (candidates.length < CANDIDATE_SCAN_LIMIT) break;
   }
 
   console.log("[suggest-indexer] tick_complete", { processed });
