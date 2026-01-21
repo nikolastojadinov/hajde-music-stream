@@ -51,27 +51,26 @@ function pickNormalizedName(row: ArtistRow): string {
 
 function buildRows(prefixes: string[], channelId: string, normalizedName: string, seenAt: string): SuggestEntryRow[] {
   const rows: SuggestEntryRow[] = [];
-  const limit = Math.min(prefixes.length, ENTITY_TYPES.length);
-  for (let i = 0; i < limit; i++) {
-    const prefix = prefixes[i];
-    const entity_type = ENTITY_TYPES[i];
-    rows.push({
-      query: prefix,
-      normalized_query: prefix,
-      source: SOURCE_TAG,
-      results: {
-        type: entity_type,
-        title: normalizedName,
+  for (const prefix of prefixes) {
+    for (const entity_type of ENTITY_TYPES) {
+      rows.push({
+        query: prefix,
+        normalized_query: prefix,
+        source: SOURCE_TAG,
+        results: {
+          type: entity_type,
+          title: normalizedName,
+          artist_channel_id: channelId,
+          endpointType: "browse",
+          endpointPayload: channelId,
+        },
+        meta: { artist_channel_id: channelId, entity_type },
+        hit_count: 1,
+        last_seen_at: seenAt,
         artist_channel_id: channelId,
-        endpointType: "browse",
-        endpointPayload: channelId,
-      },
-      meta: { artist_channel_id: channelId, entity_type },
-      hit_count: 1,
-      last_seen_at: seenAt,
-      artist_channel_id: channelId,
-      entity_type,
-    });
+        entity_type,
+      });
+    }
   }
   return rows;
 }
@@ -80,9 +79,9 @@ async function fetchNextArtist(): Promise<ArtistRow | null> {
   const client = getSupabaseAdmin();
   const { data, error } = await client
     .from("artists")
-    .select("artist_key, artist, display_name, normalized_name, created_at, youtube_channel_id, suggest_queries!left(artist_channel_id)")
+    .select("artist_key, artist, display_name, normalized_name, created_at, youtube_channel_id")
     .not("youtube_channel_id", "is", null)
-    .is("suggest_queries.artist_channel_id", null)
+    .not("youtube_channel_id", "in", "(select artist_channel_id from suggest_queries)")
     .order("created_at", { ascending: true })
     .limit(1);
 
