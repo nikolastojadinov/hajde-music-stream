@@ -1,4 +1,6 @@
-import { Router } from 'express';
+import { Router, type Request } from 'express';
+
+import { trackActivity } from '../lib/activityTracker';
 import { ingestPlaylistOrAlbum } from '../services/ingestPlaylistOrAlbum';
 import { youtubeInnertubeBrowsePlaylist } from '../services/youtubeInnertubeBrowsePlaylist';
 
@@ -6,6 +8,15 @@ const router = Router();
 
 function normalizeString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+function resolveUserId(req: Request): string | null {
+  const fromRequest = typeof req.userId === 'string' ? req.userId.trim() : '';
+  const fromCurrentUser = typeof req.currentUser?.uid === 'string' ? req.currentUser.uid.trim() : '';
+  const fromPiUser = typeof (req as any).user?.id === 'string' ? ((req as any).user.id as string).trim() : '';
+
+  const candidate = fromRequest || fromCurrentUser || fromPiUser;
+  return candidate || null;
 }
 
 router.get('/', async (req, res) => {
@@ -43,6 +54,20 @@ router.get('/', async (req, res) => {
         },
         { mode: 'single-playlist' },
       );
+    }
+
+    const userId = resolveUserId(req);
+    if (userId) {
+      void trackActivity({
+        userId,
+        entityType: 'playlist',
+        entityId: playlistId,
+        context: {
+          endpoint: '/api/playlist',
+          browseId: playlistId,
+          title: result.title,
+        },
+      });
     }
 
     res.set('Cache-Control', 'no-store');

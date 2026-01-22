@@ -32,6 +32,7 @@ declare global {
     interface Request {
       currentUser?: { uid: string; username: string; roles: string[] } | null;
       sid?: string | null;
+      userId?: string | null;
     }
   }
 }
@@ -127,6 +128,20 @@ app.use(async (req: Request, _res: Response, next: NextFunction) => {
     req.currentUser = null;
   }
 
+  next();
+});
+
+function resolveRequestUserId(req: Request): string | null {
+  const sessionUserId = (req.currentUser?.uid || '').trim();
+  const headerUserId = typeof req.headers['x-pi-user-id'] === 'string' ? (req.headers['x-pi-user-id'] as string).trim() : '';
+  const piAuthUserId = typeof (req as any).user?.id === 'string' ? ((req as any).user.id as string).trim() : '';
+
+  const candidate = sessionUserId || piAuthUserId || headerUserId;
+  return candidate || null;
+}
+
+app.use((req: Request, _res: Response, next: NextFunction) => {
+  req.userId = resolveRequestUserId(req);
   next();
 });
 

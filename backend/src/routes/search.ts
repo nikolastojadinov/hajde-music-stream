@@ -1,4 +1,5 @@
-import { Router } from "express";
+import { Router, type Request } from "express";
+import { trackActivity } from "../lib/activityTracker";
 import {
   musicSearch,
   searchSuggestions,
@@ -104,6 +105,15 @@ async function resolveArtistBrowseId(query: string): Promise<string | null> {
   return null;
 }
 
+function resolveUserId(req: Request): string | null {
+  const fromRequest = typeof req.userId === "string" ? req.userId.trim() : "";
+  const fromCurrentUser = typeof req.currentUser?.uid === "string" ? req.currentUser.uid.trim() : "";
+  const fromPiUser = typeof (req as any).user?.id === "string" ? ((req as any).user.id as string).trim() : "";
+
+  const candidate = fromRequest || fromCurrentUser || fromPiUser;
+  return candidate || null;
+}
+
 router.get("/suggest", async (req, res) => {
   const q = normalizeString(req.query.q);
 
@@ -139,6 +149,20 @@ router.get("/results", async (req, res) => {
 
   if (q.length < MIN_QUERY_LENGTH || looksLikeBrowseId(q)) {
     return safeResponse({ ...EMPTY_RESULTS, q });
+  }
+
+  const userId = resolveUserId(req);
+  if (userId) {
+    void trackActivity({
+      userId,
+      entityType: "search",
+      entityId: q,
+      context: {
+        endpoint: "/api/search/results",
+        query: q,
+        source: "search",
+      },
+    });
   }
 
   try {

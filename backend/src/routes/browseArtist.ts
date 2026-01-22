@@ -1,5 +1,6 @@
-import { Router } from 'express';
+import { Router, type Request } from 'express';
 
+import { trackActivity } from '../lib/activityTracker';
 import { ingestArtistBrowse } from '../services/entityIngestion';
 import { runFullArtistIngest } from '../services/fullArtistIngest';
 import { browseArtistById, musicSearch, type MusicSearchArtist } from '../services/youtubeMusicClient';
@@ -15,6 +16,15 @@ const containsWords = (value: string, words: string[]): boolean => {
   const lower = normalizeString(value).toLowerCase();
   return words.some((w) => lower.includes(w));
 };
+
+function resolveUserId(req: Request): string | null {
+  const fromRequest = typeof req.userId === 'string' ? req.userId.trim() : '';
+  const fromCurrentUser = typeof req.currentUser?.uid === 'string' ? req.currentUser.uid.trim() : '';
+  const fromPiUser = typeof (req as any).user?.id === 'string' ? ((req as any).user.id as string).trim() : '';
+
+  const candidate = fromRequest || fromCurrentUser || fromPiUser;
+  return candidate || null;
+}
 
 function pickBestArtistMatch(artists: MusicSearchArtist[], query: string): MusicSearchArtist | null {
   const q = normalizeLoose(query);
@@ -166,6 +176,20 @@ router.get('/', async (req, res) => {
       ingest_status: ingestStatus,
       ingest_error: ingestError,
     };
+
+    const userId = resolveUserId(req);
+    if (userId) {
+      void trackActivity({
+        userId,
+        entityType: 'artist',
+        entityId: ingestBrowseId,
+        context: {
+          endpoint: '/api/browse/artist',
+          browseId: ingestBrowseId,
+          source: 'browse_artist',
+        },
+      });
+    }
 
     res.set('Cache-Control', 'no-store');
     return res.json(payload);

@@ -1,5 +1,6 @@
-import { Router } from 'express';
+import { Router, type Request } from 'express';
 
+import { trackActivity } from '../lib/activityTracker';
 import { ingestPlaylistOrAlbum } from '../services/ingestPlaylistOrAlbum';
 import supabase from '../services/supabaseClient';
 import { browsePlaylistById } from '../services/youtubeMusicClient';
@@ -48,6 +49,15 @@ type PlaylistRow = {
 
 function normalizeString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+function resolveUserId(req: Request): string | null {
+  const fromRequest = typeof req.userId === 'string' ? req.userId.trim() : '';
+  const fromCurrentUser = typeof req.currentUser?.uid === 'string' ? req.currentUser.uid.trim() : '';
+  const fromPiUser = typeof (req as any).user?.id === 'string' ? ((req as any).user.id as string).trim() : '';
+
+  const candidate = fromRequest || fromCurrentUser || fromPiUser;
+  return candidate || null;
 }
 
 function formatDuration(seconds: number | null | undefined): string {
@@ -216,6 +226,20 @@ router.get('/', async (req, res) => {
       }
 
       const payload = normalizeAlbumResponse(album, browseId);
+      const userId = resolveUserId(req);
+      if (userId) {
+        void trackActivity({
+          userId,
+          entityType: 'album',
+          entityId: browseId,
+          context: {
+            endpoint: '/api/browse/playlist',
+            browseId,
+            mode: 'album',
+            title: payload.title,
+          },
+        });
+      }
       res.set('Cache-Control', 'no-store');
       return res.json(payload);
     }
@@ -259,6 +283,20 @@ router.get('/', async (req, res) => {
     }
 
     const payload = normalizePlaylistResponse(playlist, browseId, data.title, data.subtitle, data.thumbnailUrl);
+    const userId = resolveUserId(req);
+    if (userId) {
+      void trackActivity({
+        userId,
+        entityType: 'playlist',
+        entityId: browseId,
+        context: {
+          endpoint: '/api/browse/playlist',
+          browseId,
+          mode: 'playlist',
+          title: payload.title,
+        },
+      });
+    }
     res.set('Cache-Control', 'no-store');
     return res.json(payload);
   } catch (err: any) {
