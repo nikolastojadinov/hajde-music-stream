@@ -16,6 +16,7 @@ export type PlaylistOrAlbumIngest = {
   thumbnailUrl?: string | null;
   tracks: PlaylistBrowse['tracks'];
   trackCount?: number | null;
+  channelId?: string | null;
 };
 
 export type PlaylistOrAlbumOptions = {
@@ -679,7 +680,7 @@ export async function ingestPlaylistOrAlbum(payload: PlaylistOrAlbumIngest, opts
           title,
           description: payload.subtitle ?? null,
           thumbnailUrl: payload.thumbnailUrl ?? null,
-          channelId: null,
+          channelId: payload.channelId ?? null,
           itemCount: tracks.length,
         },
       ])
