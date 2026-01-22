@@ -251,6 +251,7 @@ async function expandArtistPlaylists(ctx: IngestContext, browse: any): Promise<{
           thumbnailUrl: playlistBrowse.thumbnailUrl ?? playlist.imageUrl ?? null,
           tracks: playlistBrowse.tracks,
           trackCount: playlistBrowse.tracks?.length ?? null,
+          channelId: ctx.browseId,
         },
         { primaryArtistKeys: [ctx.artistKey], mode: 'single-playlist' },
       );
