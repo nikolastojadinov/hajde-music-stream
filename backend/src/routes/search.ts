@@ -165,17 +165,13 @@ router.get("/results", async (req, res) => {
   }
 
   const userId = resolveUserId(req);
-  if (userId) {
-    void trackActivity({
-      userId,
-      entityType: "search",
-      entityId: q,
-      context: {
-        endpoint: "/api/search/results",
-        query: q,
-        source: "search",
-      },
-    });
+  const restoreRequested = isRestoreRequested(req);
+
+  if (restoreRequested && userId) {
+    const session = await getLastValidSearchSession({ userId });
+    if (session?.results_snapshot) {
+      return safeResponse(session.results_snapshot as SearchResultsPayload);
+    }
   }
 
   try {
@@ -203,6 +199,12 @@ router.get("/results", async (req, res) => {
     } as any;
 
     if (userId) {
+      void trackActivity({
+        userId,
+        entityType: "search",
+        entityId: q,
+        context: { source: "search", query: q },
+      });
       void saveSearchSession({ userId, query: q, results: response });
     }
 
@@ -230,14 +232,6 @@ router.post("/ingest", async (req, res) => {
     if (!targetBrowseId) {
       const resolutionQuery = displayName || artistKey;
       if (!resolutionQuery) {
-  const restoreRequested = isRestoreRequested(req);
-
-  if (userId && restoreRequested) {
-    const session = await getLastValidSearchSession({ userId });
-    if (session && session.results_snapshot) {
-      return safeResponse(session.results_snapshot as SearchResultsPayload);
-    }
-  }
         return res.status(400).json({ error: "artist_identifier_required" });
       }
       targetBrowseId = (await resolveArtistBrowseId(resolutionQuery)) || "";

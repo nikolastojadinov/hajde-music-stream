@@ -1,8 +1,9 @@
 import { Router, type Request } from 'express';
 
 import { trackActivity } from '../lib/activityTracker';
-import { browseArtistById } from '../services/youtubeMusicClient';
 import { ingestArtistBrowse } from '../services/entityIngestion';
+import { browseArtistById } from '../services/youtubeMusicClient';
+import { normalizeArtistKey } from '../utils/artistKey';
 
 const router = Router();
 
@@ -32,6 +33,8 @@ router.get('/', async (req, res) => {
       return res.status(404).json({ error: 'artist_not_found' });
     }
 
+    const artistKey = normalizeArtistKey(browse.artist.name || '') || browse.artist.channelId || browseId;
+
     const artistDescription = normalizeString((browse as any)?.description);
 
     const mappedTracks = (Array.isArray(browse.topSongs) ? browse.topSongs : [])
@@ -54,11 +57,8 @@ router.get('/', async (req, res) => {
       void trackActivity({
         userId,
         entityType: 'artist',
-        entityId: browseId,
-        context: {
-          endpoint: '/api/artist',
-          browseId,
-        },
+        entityId: artistKey,
+        context: { source: 'artist', browseId },
       });
     }
 

@@ -62,11 +62,7 @@ router.get('/', async (req, res) => {
         userId,
         entityType: 'playlist',
         entityId: playlistId,
-        context: {
-          endpoint: '/api/playlist',
-          browseId: playlistId,
-          title: result.title,
-        },
+        context: { source: 'playlist', browseId: playlistId },
       });
     }
 

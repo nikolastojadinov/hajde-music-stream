@@ -232,12 +232,7 @@ router.get('/', async (req, res) => {
           userId,
           entityType: 'album',
           entityId: browseId,
-          context: {
-            endpoint: '/api/browse/playlist',
-            browseId,
-            mode: 'album',
-            title: payload.title,
-          },
+          context: { source: 'browse_album', browseId },
         });
       }
       res.set('Cache-Control', 'no-store');
@@ -289,12 +284,7 @@ router.get('/', async (req, res) => {
         userId,
         entityType: 'playlist',
         entityId: browseId,
-        context: {
-          endpoint: '/api/browse/playlist',
-          browseId,
-          mode: 'playlist',
-          title: payload.title,
-        },
+        context: { source: 'browse_playlist', browseId },
       });
     }
     res.set('Cache-Control', 'no-store');

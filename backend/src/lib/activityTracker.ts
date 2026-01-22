@@ -1,13 +1,6 @@
 import supabase from '../services/supabaseClient';
 
-export type ActivityEntityType =
-  | 'search'
-  | 'artist'
-  | 'album'
-  | 'playlist'
-  | 'track'
-  | 'video'
-  | 'profile';
+export type ActivityEntityType = 'search' | 'artist' | 'album' | 'playlist';
 
 export type TrackActivityInput = {
   userId: string | null | undefined;
@@ -36,14 +29,12 @@ export async function trackActivity({ userId, entityType, entityId, context }: T
   const contextPayload = serializeContext(context);
 
   try {
-    const { error } = await supabase
-      .from('user_activity_history')
-      .insert({
-        user_id: userIdValue,
-        entity_type: entityType,
-        entity_id: entityIdValue,
-        context: contextPayload,
-      });
+    const { error } = await supabase.from('user_activity_history').insert({
+      user_id: userIdValue,
+      entity_type: entityType,
+      entity_id: entityIdValue,
+      context: contextPayload,
+    });
 
     if (error) {
       console.error('[activityTracker] failed to record activity', {

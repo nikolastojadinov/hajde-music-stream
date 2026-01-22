@@ -182,12 +182,8 @@ router.get('/', async (req, res) => {
       void trackActivity({
         userId,
         entityType: 'artist',
-        entityId: ingestBrowseId,
-        context: {
-          endpoint: '/api/browse/artist',
-          browseId: ingestBrowseId,
-          source: 'browse_artist',
-        },
+        entityId: artistKey || ingestBrowseId,
+        context: { source: 'browse_artist', browseId: ingestBrowseId },
       });
     }
 
