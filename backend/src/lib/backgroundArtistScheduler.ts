@@ -25,8 +25,9 @@ type JobConfig = {
 
 const JOB_LOG_CONTEXT = '[NightlyArtistIngest]';
 const DEFAULT_CONFIG: JobConfig = {
-  cronExpression: '*/3 * * * *',
-  window: { startHour: 0, endHour: 5 },
+  // Run every 5 minutes between 21:00 and 07:00 (next day)
+  cronExpression: '*/5 * * * *',
+  window: { startHour: 21, endHour: 7 },
 };
 
 let scheduled = false;

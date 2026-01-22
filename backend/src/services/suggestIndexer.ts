@@ -206,7 +206,8 @@ export async function runSuggestIndexerTick(): Promise<{ processed: number }> {
   return { processed };
 }
 
-export const DAILY_ARTIST_SUGGEST_CRON = "*/5 * * * *";
+// Run every 5 minutes between 07:00 and 21:00 (hour range 7-20 inclusive)
+export const DAILY_ARTIST_SUGGEST_CRON = "*/5 7-20 * * *";
 
 export async function runArtistSuggestTick(): Promise<void> {
   await runSuggestIndexerTick();

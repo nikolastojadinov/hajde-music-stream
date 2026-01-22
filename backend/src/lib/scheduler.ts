@@ -39,9 +39,9 @@ export function registerSchedulers(): void {
   scheduleArtistSuggestBatchJob();
 
   console.log('[Scheduler] Registered jobs:');
-  console.log('- NightlyArtistIngest: every 5 minutes between 00:00-05:00 local window');
+  console.log('- NightlyArtistIngest: every 5 minutes between 21:00-07:00 local window');
   console.log('- TrendingNow: daily at 06:00 local time');
   console.log('- MostPopular: daily at 06:15 local time');
   console.log('- NewReleases: daily at 06:30 local time');
-  console.log('- ArtistSuggestBatch: daily at 07:00 local time');
+  console.log('- ArtistSuggestBatch: every 5 minutes between 07:00-21:00 local window');
 }
