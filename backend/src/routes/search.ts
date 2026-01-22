@@ -1,6 +1,6 @@
 import { Router, type Request } from "express";
 
-import { saveSearchSession } from "../lib/searchSessionManager";
+import { getLastValidSearchSession, saveSearchSession } from "../lib/searchSessionManager";
 import { trackActivity } from "../lib/activityTracker";
 import {
   musicSearch,
@@ -116,6 +116,17 @@ function resolveUserId(req: Request): string | null {
   return candidate || null;
 }
 
+function isRestoreRequested(req: Request): boolean {
+  const queryFlag = typeof req.query.restoreSearch === "string" ? req.query.restoreSearch : undefined;
+  const headerFlag = typeof req.headers["restoresearch"] === "string" ? (req.headers["restoresearch"] as string) : undefined;
+
+  const normalizeFlag = (value: string | undefined) => (value || "").trim().toLowerCase();
+  const q = normalizeFlag(queryFlag);
+  const h = normalizeFlag(headerFlag);
+
+  return q === "true" || q === "1" || h === "true" || h === "1";
+}
+
 router.get("/suggest", async (req, res) => {
   const q = normalizeString(req.query.q);
 
@@ -219,6 +230,14 @@ router.post("/ingest", async (req, res) => {
     if (!targetBrowseId) {
       const resolutionQuery = displayName || artistKey;
       if (!resolutionQuery) {
+  const restoreRequested = isRestoreRequested(req);
+
+  if (userId && restoreRequested) {
+    const session = await getLastValidSearchSession({ userId });
+    if (session && session.results_snapshot) {
+      return safeResponse(session.results_snapshot as SearchResultsPayload);
+    }
+  }
         return res.status(400).json({ error: "artist_identifier_required" });
       }
       targetBrowseId = (await resolveArtistBrowseId(resolutionQuery)) || "";
