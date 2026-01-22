@@ -34,19 +34,9 @@ export async function saveSearchSession({
       expires_at: expiresAt,
     });
 
-    if (error) {
-      console.error('[searchSessionManager] failed to save session', {
-        userId: userIdValue,
-        query: queryValue,
-        message: error.message,
-      });
-    }
-  } catch (err) {
-    console.error('[searchSessionManager] unexpected save error', {
-      userId: userIdValue,
-      query: queryValue,
-      message: err instanceof Error ? err.message : String(err),
-    });
+    if (error) return;
+  } catch {
+    return;
   }
 }
 
@@ -66,21 +56,10 @@ export async function getLastValidSearchSession({ userId }: { userId: string | n
       .limit(1)
       .maybeSingle();
 
-    if (error && error.code !== 'PGRST116') {
-      console.error('[searchSessionManager] failed to load session', {
-        userId: userIdValue,
-        message: error.message,
-      });
-      return null;
-    }
-
+    if (error && error.code !== 'PGRST116') return null;
     if (!data) return null;
     return data as SearchSessionRow;
-  } catch (err) {
-    console.error('[searchSessionManager] unexpected load error', {
-      userId: userIdValue,
-      message: err instanceof Error ? err.message : String(err),
-    });
+  } catch {
     return null;
   }
 }

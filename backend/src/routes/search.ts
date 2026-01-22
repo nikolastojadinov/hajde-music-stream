@@ -1,7 +1,7 @@
 import { Router, type Request } from "express";
 
-import { getLastValidSearchSession, saveSearchSession } from "../lib/searchSessionManager";
 import { trackActivity } from "../lib/activityTracker";
+import { getLastValidSearchSession, saveSearchSession } from "../lib/searchSessionManager";
 import {
   musicSearch,
   searchSuggestions,
@@ -96,11 +96,8 @@ async function resolveArtistBrowseId(query: string): Promise<string | null> {
         const hinted = pickBestArtistMatch(artists, hint);
         if (hinted && looksLikeBrowseId(hinted.id)) return hinted.id;
       }
-    } catch (err) {
-      console.error("[search/ingest][artist] resolve failed", {
-        query: variant,
-        message: err instanceof Error ? err.message : String(err),
-      });
+    } catch {
+      continue;
     }
   }
 
@@ -142,11 +139,7 @@ router.get("/suggest", async (req, res) => {
   try {
     const suggestions = await searchSuggestions(q);
     return safeResponse(suggestions);
-  } catch (err) {
-    console.error("[search/suggest] failed", {
-      q,
-      error: err instanceof Error ? err.message : String(err),
-    });
+  } catch {
     return safeResponse({ q, source: "youtube_live", suggestions: [] });
   }
 });
@@ -209,11 +202,7 @@ router.get("/results", async (req, res) => {
     }
 
     return safeResponse(response);
-  } catch (err) {
-    console.error("[search/results] failed", {
-      q,
-      error: err instanceof Error ? err.message : String(err),
-    });
+  } catch {
     return safeResponse({ ...EMPTY_RESULTS, q });
   }
 });
@@ -249,11 +238,7 @@ router.post("/ingest", async (req, res) => {
       await ingestArtistBrowse(browse, { allowArtistWrite: false });
 
       return res.json({ status: "ok", kind: "artist", browseId: targetBrowseId });
-    } catch (err) {
-      console.error("[search/ingest][artist] failed", {
-        browseId: targetBrowseId,
-        message: err instanceof Error ? err.message : String(err),
-      });
+    } catch {
       return res.status(500).json({ error: "ingest_failed", browseId: targetBrowseId });
     }
   }
@@ -277,11 +262,7 @@ router.post("/ingest", async (req, res) => {
   try {
     await ingestTrackSelection(selection, { allowArtistWrite: false });
     return res.json({ status: "ok", kind: "track" });
-  } catch (err) {
-    console.error("[search/ingest] failed", {
-      id: selection.youtubeId,
-      message: err instanceof Error ? err.message : String(err),
-    });
+  } catch {
     return res.status(500).json({ error: "ingest_failed" });
   }
 });

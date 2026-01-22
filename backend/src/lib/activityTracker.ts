@@ -24,7 +24,7 @@ export async function trackActivity({ userId, entityType, entityId, context }: T
   const userIdValue = typeof userId === 'string' ? userId.trim() : '';
   const entityIdValue = typeof entityId === 'string' ? entityId.trim() : '';
 
-  if (!userIdValue || !entityType || !entityIdValue) return;
+  if (!userIdValue || !entityType || !entityIdValue || !supabase) return;
 
   const contextPayload = serializeContext(context);
 
@@ -36,20 +36,8 @@ export async function trackActivity({ userId, entityType, entityId, context }: T
       context: contextPayload,
     });
 
-    if (error) {
-      console.error('[activityTracker] failed to record activity', {
-        userId: userIdValue,
-        entityType,
-        entityId: entityIdValue,
-        message: error.message,
-      });
-    }
-  } catch (err) {
-    console.error('[activityTracker] unexpected error', {
-      userId: userIdValue,
-      entityType,
-      entityId: entityIdValue,
-      message: err instanceof Error ? err.message : String(err),
-    });
+    if (error) return;
+  } catch {
+    return;
   }
 }
