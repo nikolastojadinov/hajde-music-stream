@@ -4,6 +4,7 @@ import env from '../environments';
 import { browseArtistById, musicSearch, type MusicSearchArtist, type MusicSearchResults } from '../services/youtubeMusicClient';
 import { runFullArtistIngest } from '../services/fullArtistIngest';
 import { ensureArtistDescriptionForNightly } from '../services/nightlyArtistIngest';
+import { createNightlyIngestReporter, type NightlyIngestReporter } from '../ingest/nightlyIngestRunner';
 import {
   claimNextUnresolvedArtist,
   markResolveAttempt,
@@ -55,7 +56,7 @@ function selectHeroArtist(results: MusicSearchResults): MusicSearchArtist | null
   return null;
 }
 
-async function processCandidate(candidate: UnresolvedArtistCandidate): Promise<void> {
+async function processCandidate(candidate: UnresolvedArtistCandidate, reporter?: NightlyIngestReporter): Promise<void> {
   await markResolveAttempt(candidate.artistKey);
 
   const queries = Array.from(
@@ -85,6 +86,7 @@ async function processCandidate(candidate: UnresolvedArtistCandidate): Promise<v
         query: q,
         message: err instanceof Error ? err.message : String(err),
       });
+      reporter?.addWarning(`search_failed ${candidate.artistKey}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -97,6 +99,7 @@ async function processCandidate(candidate: UnresolvedArtistCandidate): Promise<v
       ingest_started: false,
       ingest_skipped: true,
     });
+    reporter?.addWarning(`artist_unresolved ${candidate.artistKey}`);
     return;
   }
 
@@ -111,6 +114,7 @@ async function processCandidate(candidate: UnresolvedArtistCandidate): Promise<v
       youtube_channel_id: heroBrowseId,
       message: err?.message || String(err),
     });
+    reporter?.addWarning(`browse_resolution_failed ${candidate.artistKey}: ${err?.message || 'unknown_error'}`);
   }
 
   const ingestBrowseId = canonicalBrowseId || heroBrowseId;
@@ -153,12 +157,15 @@ async function processCandidate(candidate: UnresolvedArtistCandidate): Promise<v
   }
 
   try {
-    await runFullArtistIngest({
-      artistKey: candidate.artistKey,
-      browseId: ingestBrowseId,
-      source: 'background',
-      force: false,
-    });
+    await runFullArtistIngest(
+      {
+        artistKey: candidate.artistKey,
+        browseId: ingestBrowseId,
+        source: 'background',
+        force: false,
+      },
+      { reporter },
+    );
 
     console.info(`${JOB_LOG_CONTEXT} ingest_completed`, {
       artist_key: candidate.artistKey,
@@ -174,23 +181,28 @@ async function processCandidate(candidate: UnresolvedArtistCandidate): Promise<v
       ingest_failed: true,
       message: err?.message || String(err),
     });
+    reporter?.addWarning(`ingest_failed ${candidate.artistKey}: ${err?.message || 'unknown_error'}`);
   }
 }
 
 async function runNightlyArtistIngestOnce(config: JobConfig): Promise<void> {
-  const startedAtMs = Date.now();
   const now = new Date();
-
   if (!isWithinSchedulerWindow(now, config.window)) {
     console.log(`${JOB_LOG_CONTEXT} skipped_outside_window`, { hour: now.getHours() });
     return;
   }
+
+  const reporter = createNightlyIngestReporter();
+  const startedAtMs = Date.now();
 
   console.log(`${JOB_LOG_CONTEXT} run_start`, { hour: now.getHours() });
 
   const lockAcquired = await tryAcquireUnresolvedArtistLock();
   if (!lockAcquired) {
     console.log(`${JOB_LOG_CONTEXT} lock_not_acquired`);
+    reporter.addWarning('lock_not_acquired');
+    reporter.markEnd();
+    await reporter.persist();
     return;
   }
 
@@ -198,6 +210,7 @@ async function runNightlyArtistIngestOnce(config: JobConfig): Promise<void> {
     const candidate = await claimNextUnresolvedArtist();
     if (!candidate) {
       console.log(`${JOB_LOG_CONTEXT} no_unresolved_artists`);
+      reporter.addWarning('no_unresolved_artists');
       return;
     }
 
@@ -206,7 +219,7 @@ async function runNightlyArtistIngestOnce(config: JobConfig): Promise<void> {
       normalized_name: candidate.normalizedName,
     });
 
-    await processCandidate(candidate);
+    await processCandidate(candidate, reporter);
 
     console.log(`${JOB_LOG_CONTEXT} run_complete`, {
       processed: 1,
@@ -214,6 +227,8 @@ async function runNightlyArtistIngestOnce(config: JobConfig): Promise<void> {
     });
   } finally {
     await releaseUnresolvedArtistLock();
+    reporter.markEnd();
+    await reporter.persist();
   }
 }
 
