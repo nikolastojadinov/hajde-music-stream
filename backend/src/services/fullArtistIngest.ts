@@ -216,6 +216,67 @@ async function expandArtistAlbums(ctx: IngestContext, browse: any): Promise<{ in
   return { ingested, failed, albumRefs };
 }
 
+async function expandArtistPlaylists(ctx: IngestContext, browse: any): Promise<{ ingested: number; failed: number }> {
+  const playlists = Array.isArray(browse.playlists) ? browse.playlists : [];
+  let ingested = 0;
+  let failed = 0;
+
+  if (!playlists.length) {
+    return { ingested, failed };
+  }
+
+  console.info('[full-artist-ingest] step=expandArtistPlaylists start', {
+    artist_key: ctx.artistKey,
+    playlists_found: playlists.length,
+  });
+
+  for (const playlist of playlists) {
+    const targetId = normalize(playlist.id);
+    if (!targetId) continue;
+
+    try {
+      const playlistBrowse = await browsePlaylistById(targetId);
+      if (!playlistBrowse || !Array.isArray(playlistBrowse.tracks) || playlistBrowse.tracks.length === 0) {
+        failed += 1;
+        console.error('[full-artist-ingest] playlist browse missing', { browseId: targetId });
+        continue;
+      }
+
+      await ingestPlaylistOrAlbum(
+        {
+          kind: 'playlist',
+          browseId: targetId,
+          title: playlistBrowse.title || playlist.title,
+          subtitle: playlistBrowse.subtitle,
+          thumbnailUrl: playlistBrowse.thumbnailUrl ?? playlist.imageUrl ?? null,
+          tracks: playlistBrowse.tracks,
+          trackCount: playlistBrowse.tracks?.length ?? null,
+        },
+        { primaryArtistKeys: [ctx.artistKey], mode: 'single-playlist' },
+      );
+
+      ingested += 1;
+    } catch (err: any) {
+      failed += 1;
+      console.error('[full-artist-ingest] playlist ingest failed', {
+        browseId: targetId,
+        message: err?.message || String(err),
+      });
+    } finally {
+      await sleep(1500);
+    }
+  }
+
+  console.info('[full-artist-ingest] step=expandArtistPlaylists finish', {
+    artist_key: ctx.artistKey,
+    playlists_found: playlists.length,
+    playlists_ingested: ingested,
+    playlists_failed: failed,
+  });
+
+  return { ingested, failed };
+}
+
 export async function runFullArtistIngest(input: FullArtistIngestInput): Promise<FullArtistIngestResult> {
   const browseId = normalize(input.browseId || '');
   const source: FullArtistIngestSource = input.source || 'direct';
@@ -244,6 +305,7 @@ export async function runFullArtistIngest(input: FullArtistIngestInput): Promise
   await persistArtistDescriptionIfAny(ctx, browse);
   await ingestArtistBase(ctx, browse);
   const { albumRefs } = await expandArtistAlbums(ctx, browse);
+  await expandArtistPlaylists(ctx, browse);
   await finalizeArtistIngest(ctx, albumRefs);
 
   const completedAt = nowIso();
