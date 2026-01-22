@@ -94,9 +94,11 @@ router.get('/', async (req, res) => {
     const data = await browseArtistById(targetId);
     let ingestStatus: 'ok' | 'skipped' | 'error' = 'skipped';
     let ingestError: string | null = null;
-    const artistKey = normalizeArtistKey(data?.artist?.name ?? '') || normalizeString(data?.artist?.channelId ?? '') || null;
+    const canonicalChannelId = normalizeString(data?.artist?.channelId ?? '');
+    const artistKey = normalizeArtistKey(data?.artist?.name ?? '') || canonicalChannelId || null;
     const source: 'direct' = 'direct';
     const artistDescription = normalizeString((data as any)?.description);
+    const ingestBrowseId = canonicalChannelId || targetId;
 
     if (data) {
       try {
@@ -109,19 +111,19 @@ router.get('/', async (req, res) => {
       }
 
       if (artistKey) {
-        console.info(`[full-artist-ingest] request artist_key=${artistKey} browse_id=${targetId} force=${forceIngest}`);
-        void runFullArtistIngest({ artistKey, browseId: targetId, source, force: forceIngest })
+        console.info(`[full-artist-ingest] request artist_key=${artistKey} browse_id=${ingestBrowseId} force=${forceIngest}`);
+        void runFullArtistIngest({ artistKey, browseId: ingestBrowseId, source, force: forceIngest })
           .then((result) => {
             console.info('[full-artist-ingest] artist ingest completed', {
               artistKey,
-              browseId: targetId,
+              browseId: ingestBrowseId,
               status: result.status,
             });
           })
           .catch((err: any) => {
             console.error('[full-artist-ingest] orchestrator failed', {
               artistKey,
-              browseId: targetId,
+              browseId: ingestBrowseId,
               message: err?.message || String(err),
             });
           });

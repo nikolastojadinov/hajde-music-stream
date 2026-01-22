@@ -22,6 +22,7 @@ type WalkPredicate = (value: any) => boolean;
 type WalkVisitor = (node: any) => void;
 
 const VIDEO_ID_REGEX = /^[A-Za-z0-9_-]{11}$/;
+const CHANNEL_ID_REGEX = /^UC[A-Za-z0-9_-]+$/;
 
 function normalizeString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
@@ -30,6 +31,11 @@ function normalizeString(value: unknown): string {
 function looksLikeVideoId(value: unknown): value is string {
   const v = normalizeString(value);
   return VIDEO_ID_REGEX.test(v);
+}
+
+function looksLikeChannelId(value: unknown): value is string {
+  const v = normalizeString(value);
+  return CHANNEL_ID_REGEX.test(v);
 }
 
 function pickTextAny(node: any): string {
@@ -117,6 +123,21 @@ function deepFind(node: any, predicate: WalkPredicate): any | null {
   }
 
   return null;
+}
+
+function extractOwnerChannelId(root: any): string {
+  const ownerNode = deepFind(root, (value: any) => {
+    const browseId = normalizeString(value?.navigationEndpoint?.browseEndpoint?.browseId);
+    if (!looksLikeChannelId(browseId)) return false;
+
+    const pageType = value?.navigationEndpoint?.browseEndpoint?.browseEndpointContextSupportedConfigs?.browseEndpointContextMusicConfig?.pageType;
+    if (typeof pageType === "string" && pageType.includes("MUSIC_PAGE_TYPE_ARTIST")) return true;
+
+    return true;
+  });
+
+  const browseId = normalizeString(ownerNode?.navigationEndpoint?.browseEndpoint?.browseId);
+  return looksLikeChannelId(browseId) ? browseId : "";
 }
 
 function extractDescriptionFromShelf(root: any): string {
@@ -319,6 +340,8 @@ function dedupeByKey<T>(items: T[], keyFn: (item: T) => string): T[] {
 
 export function parseArtistBrowseFromInnertube(browseJson: any, browseIdRaw: string): ArtistBrowse {
   const browseId = normalizeString(browseIdRaw);
+  const ownerChannelId = extractOwnerChannelId(browseJson);
+  const channelId = looksLikeChannelId(browseId) ? browseId : ownerChannelId;
 
   const header = browseJson?.header?.musicImmersiveHeaderRenderer || browseJson?.header?.musicHeaderRenderer;
   const artistName = pickTextAny(header?.title) || browseId;
@@ -369,7 +392,7 @@ export function parseArtistBrowseFromInnertube(browseJson: any, browseIdRaw: str
   return {
     artist: {
       name: artistName,
-      channelId: browseId || null,
+      channelId: channelId || browseId || null,
       thumbnailUrl,
       bannerUrl,
     },

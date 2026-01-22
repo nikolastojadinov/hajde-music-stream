@@ -46,8 +46,9 @@ function nowIso(): string {
 
 function withAuthoritativeChannel(browse: any, browseId: string): any {
   const artist = browse?.artist || {};
-  const channelId = normalize(artist.channelId) || browseId;
-  return { ...browse, artist: { ...artist, channelId } };
+  const channelId = normalize(artist.channelId);
+  const authoritativeChannelId = /^UC[A-Za-z0-9_-]+$/.test(channelId) ? channelId : browseId;
+  return { ...browse, artist: { ...artist, channelId: authoritativeChannelId } };
 }
 
 async function ensureArtistChannelPersisted(ctx: IngestContext, browse: any): Promise<void> {
