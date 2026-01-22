@@ -1,7 +1,7 @@
 import cron from 'node-cron';
 
 import env from '../environments';
-import { musicSearch, type MusicSearchArtist, type MusicSearchResults } from '../services/youtubeMusicClient';
+import { browseArtistById, musicSearch, type MusicSearchArtist, type MusicSearchResults } from '../services/youtubeMusicClient';
 import { runFullArtistIngest } from '../services/fullArtistIngest';
 import { ensureArtistDescriptionForNightly } from '../services/nightlyArtistIngest';
 import {
@@ -31,6 +31,10 @@ const DEFAULT_CONFIG: JobConfig = {
 
 let scheduled = false;
 let running = false;
+
+function normalize(value: string | null | undefined): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
 
 function isWithinSchedulerWindow(now: Date, window: SchedulerWindow): boolean {
   const { startHour, endHour } = window;
@@ -63,6 +67,7 @@ async function processCandidate(candidate: UnresolvedArtistCandidate): Promise<v
 
   let hero: MusicSearchArtist | null = null;
   let heroBrowseId: string | null = null;
+  let canonicalBrowseId: string | null = null;
 
   for (const q of queries) {
     try {
@@ -94,36 +99,12 @@ async function processCandidate(candidate: UnresolvedArtistCandidate): Promise<v
     return;
   }
 
-  console.info(`${JOB_LOG_CONTEXT} hero_artist_selected`, {
-    artist_key: candidate.artistKey,
-    normalized_name: candidate.normalizedName,
-    hero_name: hero.name,
-    youtube_channel_id: heroBrowseId,
-  });
-
-  console.info(`${JOB_LOG_CONTEXT} resolution_result`, {
-    artist_key: candidate.artistKey,
-    normalized_name: candidate.normalizedName,
-    resolution_status: 'resolved',
-    youtube_channel_id: heroBrowseId,
-    ingest_started: true,
-    ingest_skipped: false,
-  });
-
-  await persistArtistChannelId({
-    artistKey: candidate.artistKey,
-    youtubeChannelId: heroBrowseId,
-    displayName: candidate.displayName || candidate.normalizedName,
-  });
-
   try {
-    await ensureArtistDescriptionForNightly({
-      artistKey: candidate.artistKey,
-      browseId: heroBrowseId,
-      logPrefix: JOB_LOG_CONTEXT,
-    });
+    const browse = await browseArtistById(heroBrowseId);
+    const parsedChannelId = normalize(browse?.artist?.channelId);
+    canonicalBrowseId = parsedChannelId || heroBrowseId;
   } catch (err: any) {
-    console.error(`${JOB_LOG_CONTEXT} artist_description_write_failed`, {
+    console.error(`${JOB_LOG_CONTEXT} browse_resolution_failed`, {
       artist_key: candidate.artistKey,
       normalized_name: candidate.normalizedName,
       youtube_channel_id: heroBrowseId,
@@ -131,10 +112,49 @@ async function processCandidate(candidate: UnresolvedArtistCandidate): Promise<v
     });
   }
 
+  const ingestBrowseId = canonicalBrowseId || heroBrowseId;
+
+  console.info(`${JOB_LOG_CONTEXT} hero_artist_selected`, {
+    artist_key: candidate.artistKey,
+    normalized_name: candidate.normalizedName,
+    hero_name: hero.name,
+    youtube_channel_id: ingestBrowseId,
+  });
+
+  console.info(`${JOB_LOG_CONTEXT} resolution_result`, {
+    artist_key: candidate.artistKey,
+    normalized_name: candidate.normalizedName,
+    resolution_status: 'resolved',
+    youtube_channel_id: ingestBrowseId,
+    ingest_started: true,
+    ingest_skipped: false,
+  });
+
+  await persistArtistChannelId({
+    artistKey: candidate.artistKey,
+    youtubeChannelId: ingestBrowseId,
+    displayName: candidate.displayName || candidate.normalizedName,
+  });
+
+  try {
+    await ensureArtistDescriptionForNightly({
+      artistKey: candidate.artistKey,
+      browseId: ingestBrowseId,
+      logPrefix: JOB_LOG_CONTEXT,
+    });
+  } catch (err: any) {
+    console.error(`${JOB_LOG_CONTEXT} artist_description_write_failed`, {
+      artist_key: candidate.artistKey,
+      normalized_name: candidate.normalizedName,
+      youtube_channel_id: ingestBrowseId,
+      message: err?.message || String(err),
+    });
+  }
+
   try {
     await runFullArtistIngest({
       artistKey: candidate.artistKey,
-      browseId: heroBrowseId,
+      browseId: ingestBrowseId,
       source: 'background',
       force: false,
     });
