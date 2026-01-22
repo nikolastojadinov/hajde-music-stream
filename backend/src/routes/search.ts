@@ -1,4 +1,6 @@
 import { Router, type Request } from "express";
+
+import { saveSearchSession } from "../lib/searchSessionManager";
 import { trackActivity } from "../lib/activityTracker";
 import {
   musicSearch,
@@ -188,6 +190,10 @@ router.get("/results", async (req, res) => {
       source: "youtube_live",
       featured,
     } as any;
+
+    if (userId) {
+      void saveSearchSession({ userId, query: q, results: response });
+    }
 
     return safeResponse(response);
   } catch (err) {
