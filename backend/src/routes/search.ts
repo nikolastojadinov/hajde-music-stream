@@ -8,6 +8,7 @@ import {
   type SearchResultsPayload,
   type SuggestResponse,
 } from "../lib/youtubeMusicClient";
+import { resolveArtistBrowseId } from "../lib/artistResolver";
 import { browseArtistById } from "../services/youtubeMusicClient";
 import {
   ingestArtistBrowse,
@@ -38,71 +39,6 @@ const looksLikeBrowseId = (value: string): boolean => {
 };
 
 const looksLikeVideoId = (value: string): boolean => /^[A-Za-z0-9_-]{11}$/.test(value.trim());
-
-const containsWords = (value: string, words: string[]): boolean => {
-  const lower = normalizeString(value).toLowerCase();
-  return words.some((word) => lower.includes(word));
-};
-
-function pickBestArtistMatch(artists: any[], query: string): any | null {
-  const q = normalizeLoose(query);
-  if (!q) return null;
-
-  const scored = artists
-    .map((artist) => {
-      const nameNorm = normalizeLoose(artist.name);
-      const subtitle = normalizeString((artist as any).subtitle || (artist as any).channelTitle || "");
-      let score = 0;
-      if (containsWords(subtitle, ["profile"])) score -= 1000;
-      if (nameNorm === q) score += 200;
-      if (nameNorm.includes(q) || q.includes(nameNorm)) score += 40;
-      if (artist.isOfficial) score += 40;
-      if (containsWords(artist.name, ["tribute", "cover"])) score -= 120;
-      if (containsWords(subtitle, ["tribute", "cover"])) score -= 80;
-      return { artist, score };
-    })
-    .filter((entry) => entry.score > 0)
-    .sort((a, b) => b.score - a.score);
-
-  return scored[0]?.artist ?? null;
-}
-
-async function resolveArtistBrowseId(query: string): Promise<string | null> {
-  const base = normalizeString(query);
-  if (!base) return null;
-
-  const variants = Array.from(
-    new Set(
-      [
-        base,
-        base.replace(/[\\/]+/g, " "),
-        base.replace(/[^a-z0-9]+/gi, " ").trim(),
-        base.replace(/[^a-z0-9]+/gi, ""),
-      ].filter(Boolean),
-    ),
-  );
-
-  for (const variant of variants) {
-    try {
-      const search = await musicSearch(variant);
-      const tracks = Array.isArray(search.sections?.songs) ? search.sections.songs : [];
-      const artistHints = tracks.map((t: any) => normalizeString(t.subtitle || t.title || "")).filter(Boolean);
-
-      const artists = Array.isArray(search.sections?.artists) ? search.sections.artists : [];
-      const bestDirect = pickBestArtistMatch(artists, variant);
-      if (bestDirect && looksLikeBrowseId(bestDirect.id)) return bestDirect.id;
-
-      for (const hint of artistHints) {
-        const hinted = pickBestArtistMatch(artists, hint);
-        if (hinted && looksLikeBrowseId(hinted.id)) return hinted.id;
-      }
-    } catch {
-      continue;
-    }
-  }
-
-  return null;
-}
 
 function resolveUserId(req: Request): string | null {
   const fromRequest = typeof req.userId === "string" ? req.userId.trim() : "";
@@ -223,7 +159,8 @@ router.post("/ingest", async (req, res) => {
       if (!resolutionQuery) {
         return res.status(400).json({ error: "artist_identifier_required" });
       }
-      targetBrowseId = (await resolveArtistBrowseId(resolutionQuery)) || "";
+      const resolved = await resolveArtistBrowseId(resolutionQuery);
+      targetBrowseId = resolved?.browseId || "";
     }
 
     if (!targetBrowseId) {

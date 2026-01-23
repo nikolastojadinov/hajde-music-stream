@@ -1,7 +1,7 @@
 import cron from 'node-cron';
 
 import env from '../environments';
-import { browseArtistById, musicSearch, type MusicSearchArtist, type MusicSearchResults } from '../services/youtubeMusicClient';
+import { browseArtistById } from '../services/youtubeMusicClient';
 import { runFullArtistIngest } from '../services/fullArtistIngest';
 import { ensureArtistDescriptionForNightly } from '../services/nightlyArtistIngest';
 import { createNightlyIngestReporter, type NightlyIngestReporter } from '../ingest/nightlyIngestRunner';
@@ -13,6 +13,7 @@ import {
   tryAcquireUnresolvedArtistLock,
   type UnresolvedArtistCandidate,
 } from './db/artistQueries';
+import { resolveArtistBrowseId } from './artistResolver';
 
 export type SchedulerWindow = {
   startHour: number;
@@ -46,16 +47,6 @@ function isWithinSchedulerWindow(now: Date, window: SchedulerWindow): boolean {
   return hour >= startHour || hour < endHour;
 }
 
-function selectHeroArtist(results: MusicSearchResults): MusicSearchArtist | null {
-  const ordered = Array.isArray(results.orderedItems) ? results.orderedItems : [];
-  for (const item of ordered) {
-    if (item.type !== 'artist') continue;
-    const artist = item.data as MusicSearchArtist;
-    if (artist && artist.isOfficial) return artist;
-  }
-  return null;
-}
-
 async function processCandidate(candidate: UnresolvedArtistCandidate, reporter?: NightlyIngestReporter): Promise<void> {
   await markResolveAttempt(candidate.artistKey);
 
@@ -67,16 +58,16 @@ async function processCandidate(candidate: UnresolvedArtistCandidate, reporter?:
     ].filter(Boolean)),
   );
 
-  let hero: MusicSearchArtist | null = null;
+  let heroName: string | null = null;
   let heroBrowseId: string | null = null;
   let canonicalBrowseId: string | null = null;
 
   for (const q of queries) {
     try {
-      const results = await musicSearch(q);
-      hero = selectHeroArtist(results);
-      if (hero && hero.id) {
-        heroBrowseId = hero.id;
+      const resolution = await resolveArtistBrowseId(q);
+      if (resolution?.browseId) {
+        heroBrowseId = resolution.browseId;
+        heroName = resolution.title || heroName;
         break;
       }
     } catch (err) {
@@ -90,7 +81,7 @@ async function processCandidate(candidate: UnresolvedArtistCandidate, reporter?:
     }
   }
 
-  if (!hero || !heroBrowseId) {
+  if (!heroBrowseId) {
     console.info(`${JOB_LOG_CONTEXT} resolution_result`, {
       artist_key: candidate.artistKey,
       normalized_name: candidate.normalizedName,
@@ -122,7 +113,7 @@ async function processCandidate(candidate: UnresolvedArtistCandidate, reporter?:
   console.info(`${JOB_LOG_CONTEXT} hero_artist_selected`, {
     artist_key: candidate.artistKey,
     normalized_name: candidate.normalizedName,
-    hero_name: hero.name,
+    hero_name: heroName,
     youtube_channel_id: ingestBrowseId,
   });
 

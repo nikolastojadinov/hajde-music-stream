@@ -665,7 +665,7 @@ export function parseInnertubeSearch(
   return { featured, sections, orderedItems };
 }
 
-function isArtistResult(item: SearchResultItem | null | undefined): item is SearchResultItem {
+export function isArtistResult(item: SearchResultItem | null | undefined): item is SearchResultItem {
   if (!item) return false;
   if (item.kind !== "artist") return false;
   const pageType = normalizeString(item.pageType).toUpperCase();
@@ -673,7 +673,7 @@ function isArtistResult(item: SearchResultItem | null | undefined): item is Sear
   return pageType.includes("ARTIST") || id.startsWith("UC");
 }
 
-function scoreArtistMatch(candidate: SearchResultItem, query: string): number {
+export function scoreArtistMatch(candidate: SearchResultItem, query: string): number {
   const q = normalizeLoose(query);
   const titleNorm = normalizeLoose(candidate.title);
   const subtitleNorm = normalizeLoose(candidate.subtitle || "");
