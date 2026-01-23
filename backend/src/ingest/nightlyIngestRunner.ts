@@ -196,7 +196,7 @@ export class NightlyIngestReporter {
       const row = {
         source: 'nightly_ingest_report',
         endpoint: 'nightly_ingest_report',
-        payload_json: report,
+        payload: report,
         status: 'done',
         created_at: nowIso(),
       } as Record<string, any>;
