@@ -94,17 +94,19 @@ async function isProcessed(channelId: string): Promise<boolean> {
 
 const LOOKBACK_HOURS = 24;
 const FETCH_LIMIT = 200; // allow progressing through recent artists without getting stuck
+const LOOKBACK_FIELD = "updated_at"; // nightly ingest touches updated_at, created_at can be old
 
 async function fetchNextArtist(): Promise<ArtistRow | null> {
   const client = getSupabaseAdmin();
   const since = new Date(Date.now() - LOOKBACK_HOURS * 60 * 60 * 1000).toISOString();
 
+  // First, try only artists touched in the recent window (by updated_at).
   const { data, error } = await client
     .from("artists")
-    .select("artist_key, artist, display_name, normalized_name, created_at, youtube_channel_id")
+    .select("artist_key, artist, display_name, normalized_name, created_at, youtube_channel_id, updated_at")
     .not("youtube_channel_id", "is", null)
-    .gte("created_at", since)
-    .order("created_at", { ascending: true })
+    .gte(LOOKBACK_FIELD, since)
+    .order(LOOKBACK_FIELD, { ascending: true })
     .limit(FETCH_LIMIT);
 
   if (error) {
@@ -112,9 +114,21 @@ async function fetchNextArtist(): Promise<ArtistRow | null> {
     return null;
   }
 
-  if (!data || !data.length) return null;
+  const candidates = data && data.length ? data : null;
 
-  for (const artist of data) {
+  // If nothing in the recent window, fall back to oldest with a channel (avoid starvation).
+  const rows = candidates
+    ? candidates
+    : (await client
+        .from("artists")
+        .select("artist_key, artist, display_name, normalized_name, created_at, youtube_channel_id, updated_at")
+        .not("youtube_channel_id", "is", null)
+        .order(LOOKBACK_FIELD, { ascending: true })
+        .limit(FETCH_LIMIT)).data;
+
+  if (!rows || !rows.length) return null;
+
+  for (const artist of rows) {
     const channelId = (artist.youtube_channel_id || "").trim();
     if (!channelId) continue;
     const processed = await isProcessed(channelId);
