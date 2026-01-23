@@ -1,6 +1,6 @@
 import { Router } from 'express';
 
-import { trackActivity } from '../lib/activityTracker';
+import { trackActivity } from '../lib/trackActivity';
 import { ingestPlaylistOrAlbum } from '../services/ingestPlaylistOrAlbum';
 import supabase from '../services/supabaseClient';
 import { browsePlaylistById } from '../services/youtubeMusicClient';
@@ -142,7 +142,13 @@ function normalizeAlbumResponse(album: AlbumRow | null, fallbackId: string) {
   };
 }
 
-function normalizePlaylistResponse(playlist: PlaylistRow | null, fallbackId: string, title?: string, subtitle?: string, thumbnail?: string | null) {
+function normalizePlaylistResponse(
+  playlist: PlaylistRow | null,
+  fallbackId: string,
+  title?: string,
+  subtitle?: string,
+  thumbnail?: string | null,
+) {
   if (!playlist) {
     return {
       id: fallbackId,
@@ -219,13 +225,15 @@ router.get('/', async (req, res) => {
 
       const payload = normalizeAlbumResponse(album, browseId);
       const userId = resolveUserId(req);
-      if (userId && album) {
+      if (userId) {
         void trackActivity({
           userId,
-          entityType: 'album',
+          entityType: 'album_open',
           entityId: browseId,
           context: { source: 'browse_album', browseId },
         });
+      } else {
+        console.log('[trackActivity] SKIP', { reason: 'missing_userId', entityType: 'album_open', entityId: browseId });
       }
       res.set('Cache-Control', 'no-store');
       return res.json(payload);
@@ -235,6 +243,17 @@ router.get('/', async (req, res) => {
     if (playlist && Array.isArray(playlist.playlist_tracks) && playlist.playlist_tracks.length > 0) {
       const payload = normalizePlaylistResponse(playlist, browseId);
       res.set('Cache-Control', 'no-store');
+      const userId = resolveUserId(req);
+      if (userId) {
+        void trackActivity({
+          userId,
+          entityType: 'playlist_open',
+          entityId: browseId,
+          context: { source: 'browse_playlist', browseId },
+        });
+      } else {
+        console.log('[trackActivity] SKIP', { reason: 'missing_userId', entityType: 'playlist_open', entityId: browseId });
+      }
       return res.json(payload);
     }
 
@@ -271,13 +290,15 @@ router.get('/', async (req, res) => {
 
     const payload = normalizePlaylistResponse(playlist, browseId, data.title, data.subtitle, data.thumbnailUrl);
     const userId = resolveUserId(req);
-    if (userId && playlist) {
+    if (userId) {
       void trackActivity({
         userId,
-        entityType: 'playlist',
+        entityType: 'playlist_open',
         entityId: browseId,
         context: { source: 'browse_playlist', browseId },
       });
+    } else {
+      console.log('[trackActivity] SKIP', { reason: 'missing_userId', entityType: 'playlist_open', entityId: browseId });
     }
     res.set('Cache-Control', 'no-store');
     return res.json(payload);

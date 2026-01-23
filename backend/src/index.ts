@@ -23,6 +23,7 @@ import browseArtistRouter from './routes/browseArtist';
 import clientLogRouter from './routes/clientLog';
 import playlistRouter from './routes/playlist';
 import browsePlaylistRouter from './routes/browsePlaylist';
+import activityRouter from './routes/activity';
 import { registerSchedulers } from './lib/scheduler';
 
 declare global {
@@ -37,7 +38,6 @@ declare global {
   }
 }
 
-
 //
 // I. Initialize and set up the express app and various middlewares and packages:
 //
@@ -48,12 +48,14 @@ const app: express.Application = express();
 app.use(logger('dev'));
 
 // Full log of all requests to /log/access.log:
-app.use(logger('common', {
-  stream: fs.createWriteStream(path.join(__dirname, '..', 'log', 'access.log'), { flags: 'a' }),
-}));
+app.use(
+  logger('common', {
+    stream: fs.createWriteStream(path.join(__dirname, '..', 'log', 'access.log'), { flags: 'a' }),
+  }),
+);
 
 // Enable response bodies to be sent as JSON:
-app.use(express.json())
+app.use(express.json());
 
 // Disable ETag to avoid 304s on dynamic JSON (e.g., recent searches)
 app.disable('etag');
@@ -72,24 +74,23 @@ const allowedOrigins = [
   'capacitor://localhost',
   'ionic://localhost',
   'file://',
-  'null'
+  'null',
 ];
 
 // Allow localhost/127.0.0.1 on any port for local dev
-const devOriginRegexes = [
-  /^https?:\/\/localhost(?::\d+)?$/,
-  /^https?:\/\/127\.0\.0\.1(?::\d+)?$/
-];
+const devOriginRegexes = [/^https?:\/\/localhost(?::\d+)?$/, /^https?:\/\/127\.0\.0\.1(?::\d+)?$/];
 
-app.use(cors({
-  origin: (origin: string | undefined, cb: (err: Error | null, allowed?: boolean) => void) => {
-    if (!origin) return cb(null, true);
-    if (allowedOrigins.includes(origin)) return cb(null, true);
-    if (devOriginRegexes.some((pattern) => pattern.test(origin))) return cb(null, true);
-    return cb(new Error('Not allowed by CORS: ' + origin), false);
-  },
-  credentials: true
-}));
+app.use(
+  cors({
+    origin: (origin: string | undefined, cb: (err: Error | null, allowed?: boolean) => void) => {
+      if (!origin) return cb(null, true);
+      if (allowedOrigins.includes(origin)) return cb(null, true);
+      if (devOriginRegexes.some((pattern) => pattern.test(origin))) return cb(null, true);
+      return cb(new Error('Not allowed by CORS: ' + origin), false);
+    },
+    credentials: true,
+  }),
+);
 
 // Handle cookies 🍪
 app.use(cookieParser());
@@ -132,11 +133,12 @@ app.use(async (req: Request, _res: Response, next: NextFunction) => {
 });
 
 function resolveRequestUserId(req: Request): string | null {
+  const headerUid = typeof req.headers['x-pi-uid'] === 'string' ? (req.headers['x-pi-uid'] as string).trim() : '';
+  const headerLegacy = typeof req.headers['x-pi-user-id'] === 'string' ? (req.headers['x-pi-user-id'] as string).trim() : '';
   const sessionUserId = (req.currentUser?.uid || '').trim();
-  const headerUserId = typeof req.headers['x-pi-user-id'] === 'string' ? (req.headers['x-pi-user-id'] as string).trim() : '';
   const piAuthUserId = typeof (req as any).user?.id === 'string' ? ((req as any).user.id as string).trim() : '';
 
-  const candidate = sessionUserId || piAuthUserId || headerUserId;
+  const candidate = headerUid || headerLegacy || sessionUserId || piAuthUserId;
   return candidate || null;
 }
 
@@ -144,7 +146,6 @@ app.use((req: Request, _res: Response, next: NextFunction) => {
   req.userId = resolveRequestUserId(req);
   next();
 });
-
 
 //
 // II. Mount app endpoints:
@@ -159,7 +160,6 @@ app.use('/api/payments', paymentsVerifyRouter);
 const userRouter = express.Router();
 mountUserEndpoints(userRouter);
 app.use('/user', userRouter);
-
 
 // Notification endpoints under /notifications:
 const notificationRouter = express.Router();
@@ -183,6 +183,9 @@ app.use('/api/browse/artist', browseArtistRouter);
 app.use('/api/playlist', playlistRouter);
 app.use('/api/browse/playlist', browsePlaylistRouter);
 
+// Activity tracking
+app.use('/api/activity', activityRouter);
+
 // Pi Network routes under /pi:
 app.use('/pi', piAuthRouter);
 app.use('/pi/payments', piPaymentsRouter);
@@ -195,16 +198,13 @@ app.use('/', healthRouter);
 
 // Hello World page to check everything works:
 app.get('/', async (_req: Request, res: Response) => {
-  res.status(200).send({ message: "Hello, World!" });
+  res.status(200).send({ message: 'Hello, World!' });
 });
-
 
 // III. Background jobs (cron-compatible)
 registerSchedulers();
 
-
 // IV. Boot up the app:
-
 app.listen(env.port, async () => {
   console.log(`Connected to Supabase at ${env.supabase_url}`);
   console.log(`App backend listening on port ${env.port}!`);

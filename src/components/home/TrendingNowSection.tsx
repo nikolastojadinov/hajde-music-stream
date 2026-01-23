@@ -1,9 +1,9 @@
 import { AlertCircle, RefreshCcw } from "lucide-react";
-import { useNavigate } from "react-router-dom";
 
 import PlaylistCard from "@/components/PlaylistCard";
 import { TrendingSnapshot } from "@/lib/api/home";
 import { adaptTrendingSnapshotItem } from "@/lib/adapters/playlists";
+import { trackActivityClient } from "@/lib/activityTracker";
 
 type Props = {
   snapshot: TrendingSnapshot | null;
@@ -22,13 +22,19 @@ const formatUpdatedAt = (iso: string | null): string => {
 const skeletonItems = Array.from({ length: 6 });
 
 export default function TrendingNowSection({ snapshot, loading, error, onRetry }: Props) {
-  const normalizedItems = (snapshot?.items || [])
-    .map(adaptTrendingSnapshotItem)
-    .filter(Boolean);
+  const normalizedItems = (snapshot?.items || []).map(adaptTrendingSnapshotItem).filter(Boolean);
 
   const hasItems = normalizedItems.length > 0;
   const updatedLabel = snapshot ? formatUpdatedAt(snapshot.generated_at) : "";
-  const navigate = useNavigate();
+
+  const handleClick = (browseId: string) => {
+    trackActivityClient({
+      entityType: "home_click_playlist",
+      entityId: browseId,
+      context: { section: "trending-now" },
+      clientLogMessage: `[Activity] home click playlist id=${browseId} section=trending-now`,
+    });
+  };
 
   return (
     <section className="relative mx-auto mt-10 w-full max-w-6xl rounded-2xl px-3 py-5 sm:px-6">
@@ -88,6 +94,7 @@ export default function TrendingNowSection({ snapshot, loading, error, onRetry }
                     imageUrl={item.imageUrl ?? undefined}
                     viewCount={item.trackCount ?? undefined}
                     linkState={item.navState}
+                    onClick={() => handleClick(item.browseId)}
                   />
                 </div>
               ) : null,

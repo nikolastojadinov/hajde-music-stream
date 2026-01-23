@@ -1,6 +1,6 @@
 import { Router } from 'express';
 
-import { trackActivity } from '../lib/activityTracker';
+import { trackActivity } from '../lib/trackActivity';
 import { ingestArtistBrowse } from '../services/entityIngestion';
 import { runFullArtistIngest } from '../services/fullArtistIngest';
 import { browseArtistById, musicSearch, type MusicSearchArtist } from '../services/youtubeMusicClient';
@@ -46,16 +46,7 @@ async function resolveArtistBrowseId(query: string): Promise<string | null> {
   const base = normalizeString(query);
   if (!base) return null;
 
-  const variants = Array.from(
-    new Set(
-      [
-        base,
-        base.replace(/[\\/]+/g, ' '),
-        base.replace(/[^a-z0-9]+/gi, ' ').trim(),
-        base.replace(/[^a-z0-9]+/gi, ''),
-      ].filter(Boolean),
-    ),
-  );
+  const variants = Array.from(new Set([base, base.replace(/[\\/]+/g, ' '), base.replace(/[^a-z0-9]+/gi, ' ').trim(), base.replace(/[^a-z0-9]+/gi, '')].filter(Boolean)));
 
   for (const variant of variants) {
     const search = await musicSearch(variant);
@@ -178,10 +169,12 @@ router.get('/', async (req, res) => {
     if (userId && exists?.data) {
       void trackActivity({
         userId,
-        entityType: 'artist',
+        entityType: 'artist_open',
         entityId: artistKey || ingestBrowseId,
         context: { source: 'browse_artist', browseId: ingestBrowseId },
       });
+    } else if (!userId) {
+      console.log('[trackActivity] SKIP', { reason: 'missing_userId', entityType: 'artist_open', entityId: artistKey || ingestBrowseId });
     }
 
     res.set('Cache-Control', 'no-store');

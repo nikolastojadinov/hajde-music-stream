@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { AuthProvider as PiAuthProvider, useAuth } from "@/hooks/useAuth";
+import { withBackendOrigin } from "@/lib/backendUrl";
 
 export type PiUser = {
   uid: string;
@@ -26,6 +27,7 @@ type PiContextValue = {
 
 let piUserStore: PiUser | null = null;
 const listeners = new Set<(next: PiUser | null) => void>();
+let lastLoggedUid: string | null = null;
 
 const PiContext = createContext<PiContextValue>({
   user: null,
@@ -86,6 +88,19 @@ const notifySubscribers = () => {
   });
 };
 
+const sendClientLog = (message: string) => {
+  try {
+    void fetch(withBackendOrigin("/client-log"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message }),
+      keepalive: true,
+    });
+  } catch {
+    // silent
+  }
+};
+
 export const setUserFromPi = (next: PiUser | null) => {
   piUserStore = next ? normalizePiUser(next) : null;
   notifySubscribers();
@@ -96,8 +111,11 @@ export const clearPiUser = () => {
   notifySubscribers();
 };
 
+export const getCurrentPiUser = (): PiUser | null => piUserStore;
+
 export const getBackendHeaders = (): Record<string, string> => {
   return {
+    "x-pi-uid": piUserStore?.uid ?? "",
     "x-pi-user-id": piUserStore?.uid ?? "",
     "x-pi-username": piUserStore?.username ?? "",
     "x-pi-premium": piUserStore?.premium ? "true" : "false",
@@ -140,13 +158,20 @@ const PiStateProvider = ({ children }: { children: ReactNode }) => {
 
   useEffect(() => {
     if (auth.user) {
-      console.info("[PiContext] Auth user available", auth.user.uid);
-      setUserFromPi({
+      const normalized = normalizePiUser({
         uid: auth.user.uid,
         username: auth.user.username ?? null,
         premium: Boolean(auth.user.premium),
         premium_until: auth.user.premium_until ?? null,
       });
+
+      console.info("[PiContext] Auth user available", normalized.uid);
+      setUserFromPi(normalized);
+
+      if (normalized.uid && normalized.uid !== lastLoggedUid) {
+        sendClientLog(`[Activity] client tracker ready uid=${normalized.uid}`);
+        lastLoggedUid = normalized.uid;
+      }
       return;
     }
 
@@ -172,18 +197,7 @@ const PiStateProvider = ({ children }: { children: ReactNode }) => {
       createPayment: auth.createPayment,
       isProcessingPayment: auth.isProcessingPayment,
     }),
-    [
-      user,
-      hydrating,
-      auth.loading,
-      auth.debugLog,
-      isPiBrowser,
-      auth.login,
-      auth.logout,
-      auth.signIn,
-      auth.createPayment,
-      auth.isProcessingPayment,
-    ],
+    [user, hydrating, auth.loading, auth.debugLog, isPiBrowser, auth.login, auth.logout, auth.signIn, auth.createPayment, auth.isProcessingPayment],
   );
 
   return <PiContext.Provider value={value}>{children}</PiContext.Provider>;

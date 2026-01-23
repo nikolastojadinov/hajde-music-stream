@@ -1,6 +1,6 @@
 import { Router } from 'express';
 
-import { trackActivity } from '../lib/activityTracker';
+import { trackActivity } from '../lib/trackActivity';
 import { ingestPlaylistOrAlbum } from '../services/ingestPlaylistOrAlbum';
 import { youtubeInnertubeBrowsePlaylist } from '../services/youtubeInnertubeBrowsePlaylist';
 import { resolveUserId } from '../lib/resolveUserId';
@@ -57,10 +57,12 @@ router.get('/', async (req, res) => {
     if (userId && exists?.data) {
       void trackActivity({
         userId,
-        entityType: 'playlist',
+        entityType: 'playlist_open',
         entityId: playlistId,
         context: { source: 'playlist', browseId: playlistId },
       });
+    } else if (!userId) {
+      console.log('[trackActivity] SKIP', { reason: 'missing_userId', entityType: 'playlist_open', entityId: playlistId });
     }
 
     res.set('Cache-Control', 'no-store');

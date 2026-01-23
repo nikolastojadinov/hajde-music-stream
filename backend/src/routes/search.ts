@@ -1,6 +1,6 @@
 import { Router, type Request } from "express";
 
-import { trackActivity } from "../lib/activityTracker";
+import { trackActivity } from "../lib/trackActivity";
 import supabase from "../services/supabaseClient";
 import { getLastValidSearchSession, saveSearchSession } from "../lib/searchSessionManager";
 import {
@@ -28,7 +28,7 @@ const EMPTY_RESULTS: SearchResultsPayload = {
   source: "youtube_live",
   featured: null,
   orderedItems: [],
-  sections: { songs: [], artists: [], albums: [], playlists: [] },
+  sections: { songs: [], artists: [], albums: [] , playlists: []},
 } as any;
 
 const normalizeString = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
