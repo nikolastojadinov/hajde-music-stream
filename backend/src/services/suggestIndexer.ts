@@ -116,15 +116,25 @@ async function fetchNextArtist(): Promise<ArtistRow | null> {
 
   const candidates = data && data.length ? data : null;
 
-  // If nothing in the recent window, fall back to oldest with a channel (avoid starvation).
-  const rows = candidates
-    ? candidates
-    : (await client
-        .from("artists")
-        .select("artist_key, artist, display_name, normalized_name, created_at, youtube_channel_id, updated_at")
-        .not("youtube_channel_id", "is", null)
-        .order(LOOKBACK_FIELD, { ascending: true })
-        .limit(FETCH_LIMIT)).data;
+  // If we have candidates in the recent window, scan them first.
+  if (candidates && candidates.length) {
+    for (const artist of candidates) {
+      const channelId = (artist.youtube_channel_id || "").trim();
+      if (!channelId) continue;
+      const processed = await isProcessed(channelId);
+      if (!processed) return artist;
+    }
+  }
+
+  // Fall back to the oldest-with-channel set to avoid starvation when the recent window is fully processed.
+  const rows = (
+    await client
+      .from("artists")
+      .select("artist_key, artist, display_name, normalized_name, created_at, youtube_channel_id, updated_at")
+      .not("youtube_channel_id", "is", null)
+      .order(LOOKBACK_FIELD, { ascending: true })
+      .limit(FETCH_LIMIT)
+  ).data;
 
   if (!rows || !rows.length) return null;
 
