@@ -21,10 +21,19 @@ function serializeContext(context: unknown): string | null {
 }
 
 export async function trackActivity({ userId, entityType, entityId, context }: TrackActivityInput): Promise<void> {
+  console.log('[trackActivity] called with', { userId, entityType, entityId });
   const userIdValue = typeof userId === 'string' ? userId.trim() : '';
   const entityIdValue = typeof entityId === 'string' ? entityId.trim() : '';
 
-  if (!userIdValue || !entityType || !entityIdValue || !supabase) return;
+  if (!userIdValue || !entityType || !entityIdValue || !supabase) {
+    console.log('[trackActivity] SKIPPED', {
+      userIdValue,
+      entityType,
+      entityIdValue,
+      hasSupabase: !!supabase,
+    });
+    return;
+  }
 
   const contextPayload = serializeContext(context);
 
