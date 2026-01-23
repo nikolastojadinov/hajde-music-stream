@@ -114,8 +114,8 @@ async function fetchNextArtist(): Promise<ArtistRow | null> {
   if (!artists || artists.length === 0) return null;
 
   const channelIds = artists
-    .map((a) => (a.youtube_channel_id || "").trim())
-    .filter((c) => c.length > 0);
+    .map((a: ArtistRow) => (a.youtube_channel_id || "").trim())
+    .filter((c: string) => c.length > 0);
 
   if (channelIds.length === 0) return null;
 
@@ -130,7 +130,7 @@ async function fetchNextArtist(): Promise<ArtistRow | null> {
     return null;
   }
 
-  const processedSet = new Set((processedRows || []).map((row) => (row.artist_channel_id || "").trim()));
+  const processedSet = new Set((processedRows || []).map((row: { artist_channel_id?: string }) => (row.artist_channel_id || "").trim()));
 
   // Pick the oldest artist whose channelId is not yet in suggest_queries.
   for (const artist of artists) {
