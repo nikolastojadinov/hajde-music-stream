@@ -86,46 +86,46 @@ function buildRows(
 }
 
 /**
- * FIXED VERSION
- * --------------------------------------------------
- * Fetch exactly ONE unprocessed artist by filtering
- * at the SQL level (no LIMIT trap, no in-memory sets).
+ * FIXED VERSION (cursor-based, NO subqueries)
+ * -------------------------------------------
+ * Uses suggest_queries count as OFFSET cursor.
+ * Always returns the next unprocessed artist.
  */
 async function fetchNextArtist(): Promise<ArtistRow | null> {
   const client = getSupabaseAdmin();
 
+  const { count, error: countError } = await client
+    .from("suggest_queries")
+    .select("*", { count: "exact", head: true });
+
+  if (countError) {
+    console.error(
+      "[suggest-indexer] processed_count_failed",
+      countError.message
+    );
+    return null;
+  }
+
+  const offset = count ?? 0;
+
   const { data, error } = await client
     .from("artists")
     .select(
-      `
-        artist_key,
-        artist,
-        display_name,
-        normalized_name,
-        created_at,
-        youtube_channel_id,
-        updated_at
-      `
+      "artist_key, artist, display_name, normalized_name, created_at, youtube_channel_id"
     )
     .not("youtube_channel_id", "is", null)
     .neq("youtube_channel_id", "")
-    .not(
-      "youtube_channel_id",
-      "in",
-      client
-        .from("suggest_queries")
-        .select("artist_channel_id")
-    )
-    .order("updated_at", { ascending: true })
-    .limit(1)
-    .maybeSingle();
+    .order("created_at", { ascending: true })
+    .range(offset, offset); // <-- KEY FIX
 
   if (error) {
     console.error("[suggest-indexer] artist_fetch_failed", error.message);
     return null;
   }
 
-  return data ?? null;
+  if (!data || data.length === 0) return null;
+
+  return data[0];
 }
 
 async function insertSuggestEntries(
