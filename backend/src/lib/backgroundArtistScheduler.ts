@@ -26,6 +26,7 @@ type JobConfig = {
 };
 
 const JOB_LOG_CONTEXT = '[NightlyArtistIngest]';
+const SCHEDULER_TIMEZONE = process.env.TZ || 'UTC';
 const DEFAULT_CONFIG: JobConfig = {
   // Run every 5 minutes between 21:00 and 07:00 (next day)
   cronExpression: '*/5 * * * *',
@@ -37,6 +38,11 @@ let running = false;
 
 function normalize(value: string | null | undefined): string {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+function nowInSchedulerTimezone(): Date {
+  // Force Date construction to the configured timezone; node-cron also uses this TZ when scheduling.
+  return new Date(new Date().toLocaleString('en-US', { timeZone: SCHEDULER_TIMEZONE }));
 }
 
 function isWithinSchedulerWindow(now: Date, window: SchedulerWindow): boolean {
@@ -177,9 +183,9 @@ async function processCandidate(candidate: UnresolvedArtistCandidate, reporter?:
 }
 
 async function runNightlyArtistIngestOnce(config: JobConfig): Promise<void> {
-  const now = new Date();
+  const now = nowInSchedulerTimezone();
   if (!isWithinSchedulerWindow(now, config.window)) {
-    console.log(`${JOB_LOG_CONTEXT} skipped_outside_window`, { hour: now.getHours() });
+    console.log(`${JOB_LOG_CONTEXT} skipped_outside_window`, { hour: now.getHours(), timezone: SCHEDULER_TIMEZONE });
     return;
   }
 
@@ -246,8 +252,13 @@ export function scheduleUnresolvedArtistJob(window: SchedulerWindow): void {
     } finally {
       running = false;
     }
-  });
+  }, { timezone: SCHEDULER_TIMEZONE });
 
   scheduled = true;
-  console.log(`${JOB_LOG_CONTEXT} scheduled`, { cron: config.cronExpression, window_start: window.startHour, window_end: window.endHour });
+  console.log(`${JOB_LOG_CONTEXT} scheduled`, {
+    cron: config.cronExpression,
+    window_start: window.startHour,
+    window_end: window.endHour,
+    timezone: SCHEDULER_TIMEZONE,
+  });
 }
