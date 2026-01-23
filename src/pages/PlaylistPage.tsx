@@ -5,6 +5,7 @@ import { PlaylistHeader } from "@/components/PlaylistHeader";
 import { TrackRow } from "@/components/TrackRow";
 import { usePlayer } from "@/contexts/PlayerContext";
 import { withBackendOrigin } from "@/lib/backendUrl";
+import { getBackendHeaders } from "@/contexts/PiContext";
 
 type ApiTrack = {
   videoId: string;
@@ -58,7 +59,7 @@ export default function PlaylistPage() {
         const url = withBackendOrigin(`/api/browse/playlist?browseId=${encodeURIComponent(browseId)}`);
         const res = await fetch(url, {
           method: "GET",
-          headers: { Accept: "application/json" },
+          headers: { Accept: "application/json", ...getBackendHeaders() },
           credentials: "include",
           signal: controller.signal,
         });

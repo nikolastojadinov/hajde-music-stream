@@ -1,4 +1,5 @@
 import { withBackendOrigin } from "@/lib/backendUrl";
+import { getBackendHeaders } from "@/contexts/PiContext";
 
 type CacheEntry = { at: number; value: any };
 
@@ -23,7 +24,7 @@ function getFreshCompleted(key: string): any | null {
 async function fetchJson(url: string): Promise<any> {
   const res = await fetch(url, {
     method: "GET",
-    headers: { Accept: "application/json" },
+    headers: { Accept: "application/json", ...getBackendHeaders() },
     credentials: "include",
   });
 

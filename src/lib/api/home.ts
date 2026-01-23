@@ -1,4 +1,5 @@
 import { withBackendOrigin } from "@/lib/backendUrl";
+import { getBackendHeaders } from "@/contexts/PiContext";
 
 export type TrendingSnapshotItem = {
   type: "playlist";
@@ -84,6 +85,7 @@ export async function fetchTrendingNowSnapshot(options?: { signal?: AbortSignal 
     signal: options?.signal,
     headers: {
       Accept: "application/json",
+      ...getBackendHeaders(),
     },
   });
 
@@ -102,6 +104,7 @@ export async function fetchMostPopularSnapshot(options?: { signal?: AbortSignal 
     signal: options?.signal,
     headers: {
       Accept: "application/json",
+      ...getBackendHeaders(),
     },
   });
 
@@ -120,6 +123,7 @@ export async function fetchNewReleasesSnapshot(options?: { signal?: AbortSignal 
     signal: options?.signal,
     headers: {
       Accept: "application/json",
+      ...getBackendHeaders(),
     },
   });
 

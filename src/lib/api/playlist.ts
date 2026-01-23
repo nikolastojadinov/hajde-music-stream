@@ -1,4 +1,5 @@
 import { withBackendOrigin } from "@/lib/backendUrl";
+import { getBackendHeaders } from "@/contexts/PiContext";
 
 export type PlaylistResponse = {
   id: string;
@@ -31,7 +32,7 @@ export async function fetchPlaylistById(playlistId: string, opts?: { max?: numbe
   const response = await fetch(url.toString(), {
     method: "GET",
     credentials: "include",
-    headers: { Accept: "application/json" },
+    headers: { Accept: "application/json", ...getBackendHeaders() },
   });
 
   const json = await readJson(response).catch(() => ({}));

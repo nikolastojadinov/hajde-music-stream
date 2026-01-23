@@ -1,4 +1,5 @@
 import { withBackendOrigin } from "@/lib/backendUrl";
+import { getBackendHeaders } from "@/contexts/PiContext";
 
 export type SearchResultKind = "song" | "artist" | "album" | "playlist";
 
@@ -370,7 +371,7 @@ export async function searchSuggest(
     method: "GET",
     credentials: "include",
     signal: options?.signal,
-    headers: { Accept: "application/json" },
+    headers: { Accept: "application/json", ...getBackendHeaders() },
   });
 
   if (!response.ok) {
@@ -410,7 +411,7 @@ export async function searchResolve(
     method: "GET",
     credentials: "include",
     signal: options?.signal,
-    headers: { Accept: "application/json" },
+    headers: { Accept: "application/json", ...getBackendHeaders() },
   });
 
   if (!response.ok) {
@@ -427,7 +428,7 @@ export async function fetchSearchHistory(): Promise<SearchHistoryResponse> {
   const response = await fetch(url, {
     method: "GET",
     credentials: "include",
-    headers: { Accept: "application/json" },
+    headers: { Accept: "application/json", ...getBackendHeaders() },
   });
 
   if (!response.ok) {
@@ -445,7 +446,7 @@ export async function ingestSearchSelection(payload: SearchSelectionPayload): Pr
   await fetch(url, {
     method: "POST",
     credentials: "include",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    headers: { "Content-Type": "application/json", Accept: "application/json", ...getBackendHeaders() },
     body: JSON.stringify({
       type: payload.type,
       id: payload.id,

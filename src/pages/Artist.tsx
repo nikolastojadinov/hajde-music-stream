@@ -5,6 +5,7 @@ import { ArrowLeft, MoreVertical } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { usePlayer } from "@/contexts/PlayerContext";
 import { withBackendOrigin } from "@/lib/backendUrl";
+import { getBackendHeaders } from "@/contexts/PiContext";
 
 type BrowseArtistResponse = {
   artistName: string | null;
@@ -45,7 +46,7 @@ export default function Artist() {
         const url = withBackendOrigin(`/api/browse/artist?browseId=${encodeURIComponent(artistKey)}`);
         const res = await fetch(url, {
           method: "GET",
-          headers: { Accept: "application/json" },
+          headers: { Accept: "application/json", ...getBackendHeaders() },
           credentials: "include",
           signal: controller.signal,
         });
