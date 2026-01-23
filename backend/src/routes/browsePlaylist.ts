@@ -219,7 +219,7 @@ router.get('/', async (req, res) => {
 
       const payload = normalizeAlbumResponse(album, browseId);
       const userId = resolveUserId(req);
-      if (userId) {
+      if (userId && album) {
         void trackActivity({
           userId,
           entityType: 'album',
@@ -271,7 +271,7 @@ router.get('/', async (req, res) => {
 
     const payload = normalizePlaylistResponse(playlist, browseId, data.title, data.subtitle, data.thumbnailUrl);
     const userId = resolveUserId(req);
-    if (userId) {
+    if (userId && playlist) {
       void trackActivity({
         userId,
         entityType: 'playlist',

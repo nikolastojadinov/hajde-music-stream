@@ -5,6 +5,7 @@ import { ingestArtistBrowse } from '../services/entityIngestion';
 import { browseArtistById } from '../services/youtubeMusicClient';
 import { normalizeArtistKey } from '../utils/artistKey';
 import { resolveUserId } from '../lib/resolveUserId';
+import supabase from '../services/supabaseClient';
 
 const router = Router();
 
@@ -45,7 +46,11 @@ router.get('/', async (req, res) => {
     await ingestArtistBrowse(browse);
 
     const userId = resolveUserId(req);
-    if (userId) {
+    const exists = supabase
+      ? await supabase.from('artists').select('artist_key').eq('artist_key', artistKey).limit(1).maybeSingle()
+      : null;
+
+    if (userId && exists?.data) {
       void trackActivity({
         userId,
         entityType: 'artist',

@@ -4,6 +4,7 @@ import { trackActivity } from '../lib/activityTracker';
 import { ingestPlaylistOrAlbum } from '../services/ingestPlaylistOrAlbum';
 import { youtubeInnertubeBrowsePlaylist } from '../services/youtubeInnertubeBrowsePlaylist';
 import { resolveUserId } from '../lib/resolveUserId';
+import supabase from '../services/supabaseClient';
 
 const router = Router();
 
@@ -49,7 +50,11 @@ router.get('/', async (req, res) => {
     }
 
     const userId = resolveUserId(req);
-    if (userId) {
+    const exists = supabase
+      ? await supabase.from('playlists').select('external_id').eq('external_id', playlistId).limit(1).maybeSingle()
+      : null;
+
+    if (userId && exists?.data) {
       void trackActivity({
         userId,
         entityType: 'playlist',
