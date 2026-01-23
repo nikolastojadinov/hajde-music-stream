@@ -87,9 +87,7 @@ function buildRows(
 
 /**
  * ✅ REAL FIX
- * -------------------------------------------
  * Fetch first artist whose channel_id is NOT in suggest_queries.
- * No OFFSET. No cursor. No looping.
  */
 async function fetchNextArtist(): Promise<ArtistRow | null> {
   const client = getSupabaseAdmin();
@@ -108,7 +106,10 @@ async function fetchNextArtist(): Promise<ArtistRow | null> {
   }
 
   const processedSet = new Set(
-    (processedRows || []).map((r) => (r.artist_channel_id || "").trim())
+    (processedRows || []).map(
+      (r: { artist_channel_id: string | null }) =>
+        (r.artist_channel_id || "").trim()
+    )
   );
 
   // Load next batch of artists
@@ -161,7 +162,7 @@ async function insertSuggestEntries(
 }
 
 /**
- * ✅ FIX: use UPSERT so processed marker always saves
+ * ✅ Processed marker always saves
  */
 async function markArtistProcessed(channelId: string): Promise<boolean> {
   const client = getSupabaseAdmin();
