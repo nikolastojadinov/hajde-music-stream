@@ -1,7 +1,7 @@
 // target file: src/pages/Search.tsx
 
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { Clock3, Loader2, Music2, Search as SearchIcon, UserRound, Vinyl } from "lucide-react";
+import { Clock3, Disc3, Loader2, Music2, Search as SearchIcon, UserRound } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import SearchSuggestList from "@/components/search/SearchSuggestList";
 import { Input } from "@/components/ui/input";
@@ -385,7 +385,7 @@ export default function Search() {
 
     const iconFor = (type: SearchHistoryItem["entityType"]) => {
       if (type === "artist") return <UserRound className="h-4 w-4" />;
-      if (type === "album") return <Vinyl className="h-4 w-4" />;
+      if (type === "album") return <Disc3 className="h-4 w-4" />;
       if (type === "playlist") return <Music2 className="h-4 w-4" />;
       return <SearchIcon className="h-4 w-4" />;
     };
