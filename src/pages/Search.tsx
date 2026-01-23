@@ -117,7 +117,11 @@ const splitArtists = (value?: string | null): string[] => {
 
 const ALLOWED_RENDERERS = new Set(["musicResponsiveListItemRenderer", "musicCardShelfRenderer"]);
 
-const buildDisplayItems = (rawItems: RawSearchItem[]): DisplayResultItem[] => {
+const buildDisplayItems = (
+  rawItems: RawSearchItem[] = [],
+  orderedItems: any[] = [],
+  sections?: { songs?: any[]; artists?: any[]; albums?: any[]; playlists?: any[] }
+): DisplayResultItem[] => {
   const items: DisplayResultItem[] = [];
 
   (rawItems || []).forEach((entry, index) => {
@@ -194,6 +198,38 @@ const buildDisplayItems = (rawItems: RawSearchItem[]): DisplayResultItem[] => {
       raw: data,
     });
   });
+
+  // Fallback: if raw parsing yields nothing, derive from structured sections/orderedItems.
+  if (items.length === 0) {
+    const pushFromStructured = (entry: any) => {
+      if (!entry) return;
+      const id = normalizeString(entry.id || entry.endpointPayload);
+      const endpointType = entry.endpointType === "watch" || entry.endpointType === "browse" ? entry.endpointType : undefined;
+      const endpointPayload = normalizeString(entry.endpointPayload || entry.id);
+      if (!endpointPayload) return;
+      items.push({
+        id: id || endpointPayload,
+        title: normalizeString(entry.title) || normalizeString(entry.name) || "Result",
+        subtitle: normalizeString(entry.subtitle) || undefined,
+        imageUrl: entry.imageUrl ?? null,
+        rendererType: entry.kind || entry.pageType || "section-item",
+        endpointType,
+        endpointPayload: endpointPayload || undefined,
+        browsePageType: entry.pageType,
+        browseId: endpointType === "browse" ? endpointPayload : undefined,
+        raw: entry,
+      });
+    };
+
+    const ordered = Array.isArray(orderedItems) ? orderedItems : [];
+    ordered.forEach(pushFromStructured);
+
+    const safeSections = sections || {};
+    (safeSections.songs || []).forEach(pushFromStructured);
+    (safeSections.artists || []).forEach(pushFromStructured);
+    (safeSections.albums || []).forEach(pushFromStructured);
+    (safeSections.playlists || []).forEach(pushFromStructured);
+  }
 
   return items;
 };
@@ -290,7 +326,7 @@ export default function Search() {
 
     try {
       const res = await searchResolve({ q });
-      const displayItems = buildDisplayItems(res?.rawItems ?? []);
+      const displayItems = buildDisplayItems(res?.rawItems ?? [], (res as any)?.orderedItems ?? [], (res as any)?.sections);
       setResults(displayItems);
       const next = new URLSearchParams(searchParams);
       next.set("q", q);
