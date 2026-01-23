@@ -269,7 +269,7 @@ export default function Artist() {
             </div>
           )}
         </div>
-
+      </div>
     </div>
   );
 }
