@@ -31,6 +31,7 @@ const SOURCE_TAG = "artist_indexer";
 const MIN_PREFIX_LENGTH = 2;
 const MAX_PREFIX_LENGTH = 120;
 const ENTITY_TYPES = ["artist", "album", "playlist", "track"] as const;
+const BATCH_LIMIT = 50;
 
 function normalizeQuery(value: string | null | undefined): string {
   if (!value) return "";
@@ -93,54 +94,27 @@ function buildRows(
   return rows;
 }
 
-/**
- * ✅ FINAL FIX (NO loops, NO repeated artists)
- * ------------------------------------------
- * Uses DB-side anti-join with correct ordering:
- * ORDER BY artists.updated_at ASC
- *
- * Requires RPC function in Supabase:
- *
- * CREATE OR REPLACE FUNCTION next_unprocessed_artist()
- * RETURNS TABLE (
- *   artist_key text,
- *   artist text,
- *   display_name text,
- *   normalized_name text,
- *   youtube_channel_id text,
- *   updated_at timestamptz
- * )
- * LANGUAGE sql
- * AS $$
- *   SELECT a.artist_key,
- *          a.artist,
- *          a.display_name,
- *          a.normalized_name,
- *          a.youtube_channel_id,
- *          a.updated_at
- *   FROM artists a
- *   LEFT JOIN suggest_queries s
- *     ON TRIM(a.youtube_channel_id) = TRIM(s.artist_channel_id)
- *   WHERE a.youtube_channel_id IS NOT NULL
- *     AND TRIM(a.youtube_channel_id) <> ''
- *     AND s.artist_channel_id IS NULL
- *   ORDER BY a.updated_at ASC NULLS LAST, a.created_at ASC
- *   LIMIT 1;
- * $$;
- */
-async function fetchNextArtist(): Promise<ArtistRow | null> {
+async function fetchUnprocessedArtists(limit: number): Promise<ArtistRow[]> {
   const client = getSupabaseAdmin();
 
-  const { data, error } = await client.rpc("next_unprocessed_artist");
+  const { data, error } = await client
+    .from("artists")
+    .select(
+      "artist_key, artist, display_name, normalized_name, youtube_channel_id, updated_at, created_at, suggest_queries: suggest_queries!left(artist_channel_id)"
+    )
+    .not("youtube_channel_id", "is", null)
+    .neq("youtube_channel_id", "")
+    .is("suggest_queries.artist_channel_id", null)
+    .order("updated_at", { ascending: true, nullsFirst: false })
+    .order("created_at", { ascending: true })
+    .limit(limit);
 
   if (error) {
     console.error("[suggest-indexer] artist_fetch_failed", error.message);
-    return null;
+    return [];
   }
 
-  if (!data || data.length === 0) return null;
-
-  return data[0] as ArtistRow;
+  return (data || []) as ArtistRow[];
 }
 
 async function insertSuggestEntries(
@@ -191,53 +165,46 @@ async function markArtistProcessed(channelId: string): Promise<boolean> {
 export async function runSuggestIndexerTick(): Promise<{ processed: number }> {
   let processed = 0;
 
-  const artist = await fetchNextArtist();
-  if (!artist) {
+  const artists = await fetchUnprocessedArtists(BATCH_LIMIT);
+  if (!artists.length) {
     console.log("[suggest-indexer] tick_complete", { processed });
     return { processed };
   }
 
-  const channelId = (artist.youtube_channel_id || "").trim();
-  if (!channelId) {
-    console.log("[suggest-indexer] tick_complete", { processed });
-    return { processed };
+  for (const artist of artists) {
+    const channelId = (artist.youtube_channel_id || "").trim();
+    if (!channelId) continue;
+
+    const normalizedName = pickNormalizedName(artist);
+    if (!normalizedName || normalizedName.length < MIN_PREFIX_LENGTH) {
+      await markArtistProcessed(channelId);
+      processed += 1;
+      continue;
+    }
+
+    const prefixes = buildPrefixes(normalizedName);
+    if (!prefixes.length) {
+      await markArtistProcessed(channelId);
+      processed += 1;
+      continue;
+    }
+
+    const seenAt = new Date().toISOString();
+    const rows = buildRows(prefixes, channelId, normalizedName, seenAt);
+
+    const insertResult = await insertSuggestEntries(rows);
+    const marked = await markArtistProcessed(channelId);
+
+    if (insertResult.success && marked) {
+      processed += 1;
+      console.log("[suggest-indexer] artist_done", {
+        channelId,
+        normalizedName,
+        totalPrefixes: prefixes.length,
+        insertedCount: insertResult.inserted,
+      });
+    }
   }
-
-  const normalizedName = pickNormalizedName(artist);
-  if (!normalizedName || normalizedName.length < MIN_PREFIX_LENGTH) {
-    console.log("[suggest-indexer] tick_complete", { processed });
-    return { processed };
-  }
-
-  const prefixes = buildPrefixes(normalizedName);
-  if (!prefixes.length) {
-    console.log("[suggest-indexer] tick_complete", { processed });
-    return { processed };
-  }
-
-  const seenAt = new Date().toISOString();
-  const rows = buildRows(prefixes, channelId, normalizedName, seenAt);
-
-  const insertResult = await insertSuggestEntries(rows);
-  if (!insertResult.success || insertResult.inserted <= 0) {
-    console.log("[suggest-indexer] tick_complete", { processed });
-    return { processed };
-  }
-
-  const marked = await markArtistProcessed(channelId);
-  if (!marked) {
-    console.log("[suggest-indexer] tick_complete", { processed });
-    return { processed };
-  }
-
-  processed = 1;
-
-  console.log("[suggest-indexer] artist_done", {
-    channelId,
-    normalizedName,
-    totalPrefixes: prefixes.length,
-    insertedCount: insertResult.inserted,
-  });
 
   console.log("[suggest-indexer] tick_complete", { processed });
   return { processed };
