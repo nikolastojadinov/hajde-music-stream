@@ -20,33 +20,59 @@ function serializeContext(context: unknown): string | null {
   }
 }
 
-export async function trackActivity({ userId, entityType, entityId, context }: TrackActivityInput): Promise<void> {
-  console.log('[trackActivity] called with', { userId, entityType, entityId });
+export async function trackActivity({
+  userId,
+  entityType,
+  entityId,
+  context,
+}: TrackActivityInput): Promise<void> {
+
+  console.log('[trackActivity] ENTER', {
+    userId,
+    entityType,
+    entityId,
+    hasSupabase: Boolean(supabase),
+  });
+
   const userIdValue = typeof userId === 'string' ? userId.trim() : '';
   const entityIdValue = typeof entityId === 'string' ? entityId.trim() : '';
 
   if (!userIdValue || !entityType || !entityIdValue || !supabase) {
-    console.log('[trackActivity] SKIPPED', {
+    console.log('[trackActivity] EARLY RETURN', {
       userIdValue,
       entityType,
       entityIdValue,
-      hasSupabase: !!supabase,
+      hasSupabase: Boolean(supabase),
     });
     return;
   }
 
   const contextPayload = serializeContext(context);
 
-  try {
-    const { error } = await supabase.from('user_activity_history').insert({
-      user_id: userIdValue,
-      entity_type: entityType,
-      entity_id: entityIdValue,
-      context: contextPayload,
-    });
+  console.log('[trackActivity] INSERT ATTEMPT', {
+    user_id: userIdValue,
+    entity_type: entityType,
+    entity_id: entityIdValue,
+    context: contextPayload,
+  });
 
-    if (error) return;
-  } catch {
-    return;
+  try {
+    const { error } = await supabase
+      .from('user_activity_history')
+      .insert({
+        user_id: userIdValue,
+        entity_type: entityType,
+        entity_id: entityIdValue,
+        context: contextPayload,
+      });
+
+    if (error) {
+      console.error('[trackActivity] INSERT ERROR', error);
+      return;
+    }
+
+    console.log('[trackActivity] INSERT OK');
+  } catch (err) {
+    console.error('[trackActivity] EXCEPTION', err);
   }
 }
