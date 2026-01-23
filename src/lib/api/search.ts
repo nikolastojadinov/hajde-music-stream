@@ -98,6 +98,18 @@ export type SearchResolveResponse = {
   rawItems?: RawSearchItem[];
 };
 
+export type SearchHistoryItem = {
+  id: string;
+  entityType: "search" | "artist" | "album" | "playlist";
+  entityId: string;
+  context?: any;
+  createdAt: string;
+};
+
+export type SearchHistoryResponse = {
+  items: SearchHistoryItem[];
+};
+
 const DEFAULT_SECTIONS: SearchSections = { songs: [], artists: [], albums: [], playlists: [] };
 
 const normalizeString = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
@@ -407,6 +419,24 @@ export async function searchResolve(
 
   const json = await readJson(response);
   return json as SearchResolveResponse;
+}
+
+export async function fetchSearchHistory(): Promise<SearchHistoryResponse> {
+  const url = withBackendOrigin("/api/search/history");
+
+  const response = await fetch(url, {
+    method: "GET",
+    credentials: "include",
+    headers: { Accept: "application/json" },
+  });
+
+  if (!response.ok) {
+    throw new Error("Search history failed");
+  }
+
+  const json = await readJson(response);
+  const items = Array.isArray(json?.items) ? (json.items as SearchHistoryItem[]) : [];
+  return { items };
 }
 
 export async function ingestSearchSelection(payload: SearchSelectionPayload): Promise<void> {

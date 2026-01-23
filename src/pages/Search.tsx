@@ -1,17 +1,19 @@
 // target file: src/pages/Search.tsx
 
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { Loader2, Search as SearchIcon } from "lucide-react";
+import { Clock3, Loader2, Music2, Search as SearchIcon, UserRound, Vinyl } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import SearchSuggestList from "@/components/search/SearchSuggestList";
 import { Input } from "@/components/ui/input";
 import { usePlayer } from "@/contexts/PlayerContext";
 import {
   ingestSearchSelection,
+  fetchSearchHistory,
   searchResolve,
   searchSuggest,
   type RawSearchItem,
   type SearchSuggestItem,
+  type SearchHistoryItem,
 } from "@/lib/api/search";
 
 const SUGGEST_DEBOUNCE_MS = 250;
@@ -225,14 +227,28 @@ export default function Search() {
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastSearched, setLastSearched] = useState("");
+  const [historyItems, setHistoryItems] = useState<SearchHistoryItem[]>([]);
+  const [historyError, setHistoryError] = useState<string | null>(null);
 
   const suggestAbort = useRef<AbortController | null>(null);
   const suggestTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
+  const loadHistory = async () => {
+    try {
+      const res = await fetchSearchHistory();
+      setHistoryItems(res.items || []);
+      setHistoryError(null);
+    } catch {
+      setHistoryError("Unable to load recent activity.");
+      setHistoryItems([]);
+    }
+  };
+
   useEffect(() => {
     inputRef.current?.focus();
     inputRef.current?.select();
+    void loadHistory();
   }, []);
 
   const clearSuggestions = () => {
@@ -300,6 +316,75 @@ export default function Search() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const handleHistorySelect = (item: SearchHistoryItem) => {
+    const entityId = normalizeString(item.entityId);
+    if (!entityId) return;
+
+    if (item.entityType === "artist") {
+      navigate(`/artist/${encodeURIComponent(entityId)}`);
+      return;
+    }
+
+    if (item.entityType === "album" || item.entityType === "playlist") {
+      navigate(`/playlist/${encodeURIComponent(entityId)}`);
+      return;
+    }
+
+    if (item.entityType === "search") {
+      setQuery(entityId);
+      void runSearch(entityId);
+      return;
+    }
+  };
+
+  const renderHistory = () => {
+    if (submitted || query.trim().length > 1) return null;
+    if (historyItems.length === 0) {
+      if (historyError) {
+        return <div className="mt-6 text-sm text-red-200/80">{historyError}</div>;
+      }
+      return null;
+    }
+
+    const iconFor = (type: SearchHistoryItem["entityType"]) => {
+      if (type === "artist") return <UserRound className="h-4 w-4" />;
+      if (type === "album") return <Vinyl className="h-4 w-4" />;
+      if (type === "playlist") return <Music2 className="h-4 w-4" />;
+      return <SearchIcon className="h-4 w-4" />;
+    };
+
+    return (
+      <section className="mt-6 space-y-3">
+        <div className="flex items-center gap-2 text-sm font-semibold text-white">
+          <Clock3 className="h-4 w-4" />
+          Recent activity
+        </div>
+        <div className="divide-y divide-white/5 rounded-xl border border-white/5">
+          {historyItems.map((item) => {
+            const label = item.entityId;
+            const typeLabel = item.entityType.charAt(0).toUpperCase() + item.entityType.slice(1);
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => handleHistorySelect(item)}
+                className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-white/5"
+              >
+                <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-white/5 text-white/80">
+                  {iconFor(item.entityType)}
+                </span>
+                <div className="flex min-w-0 flex-col">
+                  <span className="truncate text-sm font-semibold text-white">{label}</span>
+                  <span className="text-xs text-neutral-400">{typeLabel}</span>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+    );
+  };
 
   const handlePlay = (item: DisplayResultItem) => {
     const id = normalizeString(item.endpointPayload);
@@ -479,6 +564,7 @@ export default function Search() {
         ) : null}
 
         {renderResults()}
+        {renderHistory()}
       </div>
     </div>
   );

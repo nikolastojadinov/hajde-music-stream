@@ -1,6 +1,7 @@
 import { Router, type Request } from "express";
 
 import { trackActivity } from "../lib/activityTracker";
+import supabase from "../services/supabaseClient";
 import { getLastValidSearchSession, saveSearchSession } from "../lib/searchSessionManager";
 import {
   musicSearch,
@@ -140,6 +141,51 @@ router.get("/results", async (req, res) => {
     return safeResponse(response);
   } catch {
     return safeResponse({ ...EMPTY_RESULTS, q });
+  }
+});
+
+router.get("/history", async (req, res) => {
+  const userId = resolveUserId(req);
+  if (!userId || !supabase) {
+    return res.json({ items: [] });
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from("user_activity_history")
+      .select("id,entity_type,entity_id,context,created_at")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false })
+      .limit(50);
+
+    if (error) {
+      console.error("[search/history] query_failed", { userId, message: error.message });
+      return res.status(500).json({ items: [] });
+    }
+
+    const items = (data || []).map((row) => {
+      let parsedContext: any = null;
+      if (typeof row.context === "string") {
+        try {
+          parsedContext = JSON.parse(row.context);
+        } catch {
+          parsedContext = row.context;
+        }
+      }
+
+      return {
+        id: row.id,
+        entityType: row.entity_type,
+        entityId: row.entity_id,
+        context: parsedContext,
+        createdAt: row.created_at,
+      };
+    });
+
+    return res.json({ items });
+  } catch (err: any) {
+    console.error("[search/history] unexpected_error", { userId, message: err?.message || String(err) });
+    return res.status(500).json({ items: [] });
   }
 });
 
