@@ -1,3 +1,8 @@
+// target file: backend/src/services/suggestIndexer.ts
+// FULL REWRITE — replace entire file content with this version.
+// FIX: stable "next unprocessed artist" selection using updated_at ASC
+// and explicit SQL anti-join via RPC (no subquery parser bugs, no OFFSET loops).
+
 import { getSupabaseAdmin } from "./supabaseClient";
 
 type ArtistRow = {
@@ -6,6 +11,7 @@ type ArtistRow = {
   display_name: string | null;
   normalized_name: string | null;
   created_at: string | null;
+  updated_at?: string | null;
   youtube_channel_id: string | null;
 };
 
@@ -86,58 +92,53 @@ function buildRows(
 }
 
 /**
- * ✅ REAL FIX
- * Fetch first artist whose channel_id is NOT in suggest_queries.
+ * ✅ FINAL FIX (NO loops, NO repeated artists)
+ * ------------------------------------------
+ * Uses a DB-side anti-join with correct ordering:
+ * ORDER BY artists.updated_at ASC
+ *
+ * Requires RPC function in Supabase:
+ *
+ * CREATE OR REPLACE FUNCTION next_unprocessed_artist()
+ * RETURNS TABLE (
+ *   artist_key text,
+ *   artist text,
+ *   display_name text,
+ *   normalized_name text,
+ *   youtube_channel_id text,
+ *   updated_at timestamptz
+ * )
+ * LANGUAGE sql
+ * AS $$
+ *   SELECT a.artist_key,
+ *          a.artist,
+ *          a.display_name,
+ *          a.normalized_name,
+ *          a.youtube_channel_id,
+ *          a.updated_at
+ *   FROM artists a
+ *   LEFT JOIN suggest_queries s
+ *     ON TRIM(a.youtube_channel_id) = TRIM(s.artist_channel_id)
+ *   WHERE a.youtube_channel_id IS NOT NULL
+ *     AND TRIM(a.youtube_channel_id) <> ''
+ *     AND s.artist_channel_id IS NULL
+ *   ORDER BY a.updated_at ASC NULLS LAST, a.created_at ASC
+ *   LIMIT 1;
+ * $$;
  */
 async function fetchNextArtist(): Promise<ArtistRow | null> {
   const client = getSupabaseAdmin();
 
-  // Load processed channel IDs
-  const { data: processedRows, error: processedError } = await client
-    .from("suggest_queries")
-    .select("artist_channel_id");
-
-  if (processedError) {
-    console.error(
-      "[suggest-indexer] processed_fetch_failed",
-      processedError.message
-    );
-    return null;
-  }
-
-  const processedSet = new Set(
-    (processedRows || []).map(
-      (r: { artist_channel_id: string | null }) =>
-        (r.artist_channel_id || "").trim()
-    )
-  );
-
-  // Load next batch of artists
-  const { data: artists, error } = await client
-    .from("artists")
-    .select(
-      "artist_key, artist, display_name, normalized_name, created_at, youtube_channel_id"
-    )
-    .not("youtube_channel_id", "is", null)
-    .neq("youtube_channel_id", "")
-    .order("created_at", { ascending: true })
-    .limit(200);
+  const { data, error } = await client.rpc("next_unprocessed_artist");
 
   if (error) {
     console.error("[suggest-indexer] artist_fetch_failed", error.message);
     return null;
   }
 
-  if (!artists || artists.length === 0) return null;
+  if (!data || data.length === 0) return null;
 
-  // Return first unprocessed artist
-  for (const artist of artists) {
-    const channelId = (artist.youtube_channel_id || "").trim();
-    if (!channelId) continue;
-    if (!processedSet.has(channelId)) return artist;
-  }
-
-  return null;
+  return data[0] as ArtistRow;
 }
 
 async function insertSuggestEntries(
@@ -162,7 +163,7 @@ async function insertSuggestEntries(
 }
 
 /**
- * ✅ Processed marker always saves
+ * ✅ Process marker must persist uniquely
  */
 async function markArtistProcessed(channelId: string): Promise<boolean> {
   const client = getSupabaseAdmin();
@@ -172,11 +173,9 @@ async function markArtistProcessed(channelId: string): Promise<boolean> {
     created_at: new Date().toISOString(),
   };
 
-  const { error } = await client
-    .from("suggest_queries")
-    .upsert(payload, {
-      onConflict: "artist_channel_id",
-    });
+  const { error } = await client.from("suggest_queries").upsert(payload, {
+    onConflict: "artist_channel_id",
+  });
 
   if (error) {
     console.error("[suggest-indexer] mark_processed_failed", error.message);
@@ -240,7 +239,7 @@ export async function runSuggestIndexerTick(): Promise<{ processed: number }> {
   return { processed };
 }
 
-// Run every 5 minutes between 07:00 and 21:00
+// Run every 5 minutes between 07:00 and 21:00 (hour range 7-20 inclusive)
 export const DAILY_ARTIST_SUGGEST_CRON = "*/5 7-20 * * *";
 
 export async function runArtistSuggestTick(): Promise<void> {
