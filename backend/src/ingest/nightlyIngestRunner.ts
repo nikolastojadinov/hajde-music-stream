@@ -194,8 +194,10 @@ export class NightlyIngestReporter {
       const supabase = getSupabaseAdmin();
       const report = this.buildReport();
       const row = {
-        payload_type: 'nightly_ingest_report',
+        source: 'nightly_ingest_report',
+        endpoint: 'nightly_ingest_report',
         payload_json: report,
+        status: 'done',
         created_at: nowIso(),
       } as Record<string, any>;
 
