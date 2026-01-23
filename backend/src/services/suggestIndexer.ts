@@ -86,29 +86,33 @@ function buildRows(
 }
 
 /**
- * FIXED VERSION (cursor-based, NO subqueries)
+ * ✅ REAL FIX
  * -------------------------------------------
- * Uses suggest_queries count as OFFSET cursor.
- * Always returns the next unprocessed artist.
+ * Fetch first artist whose channel_id is NOT in suggest_queries.
+ * No OFFSET. No cursor. No looping.
  */
 async function fetchNextArtist(): Promise<ArtistRow | null> {
   const client = getSupabaseAdmin();
 
-  const { count, error: countError } = await client
+  // Load processed channel IDs
+  const { data: processedRows, error: processedError } = await client
     .from("suggest_queries")
-    .select("*", { count: "exact", head: true });
+    .select("artist_channel_id");
 
-  if (countError) {
+  if (processedError) {
     console.error(
-      "[suggest-indexer] processed_count_failed",
-      countError.message
+      "[suggest-indexer] processed_fetch_failed",
+      processedError.message
     );
     return null;
   }
 
-  const offset = count ?? 0;
+  const processedSet = new Set(
+    (processedRows || []).map((r) => (r.artist_channel_id || "").trim())
+  );
 
-  const { data, error } = await client
+  // Load next batch of artists
+  const { data: artists, error } = await client
     .from("artists")
     .select(
       "artist_key, artist, display_name, normalized_name, created_at, youtube_channel_id"
@@ -116,16 +120,23 @@ async function fetchNextArtist(): Promise<ArtistRow | null> {
     .not("youtube_channel_id", "is", null)
     .neq("youtube_channel_id", "")
     .order("created_at", { ascending: true })
-    .range(offset, offset);
+    .limit(200);
 
   if (error) {
     console.error("[suggest-indexer] artist_fetch_failed", error.message);
     return null;
   }
 
-  if (!data || data.length === 0) return null;
+  if (!artists || artists.length === 0) return null;
 
-  return data[0];
+  // Return first unprocessed artist
+  for (const artist of artists) {
+    const channelId = (artist.youtube_channel_id || "").trim();
+    if (!channelId) continue;
+    if (!processedSet.has(channelId)) return artist;
+  }
+
+  return null;
 }
 
 async function insertSuggestEntries(
@@ -150,8 +161,7 @@ async function insertSuggestEntries(
 }
 
 /**
- * ✅ ONLY FIX: use UPSERT instead of INSERT
- * Otherwise processed marker never saves.
+ * ✅ FIX: use UPSERT so processed marker always saves
  */
 async function markArtistProcessed(channelId: string): Promise<boolean> {
   const client = getSupabaseAdmin();
@@ -224,11 +234,12 @@ export async function runSuggestIndexerTick(): Promise<{ processed: number }> {
     totalPrefixes: prefixes.length,
     insertedCount: insertResult.inserted,
   });
+
   console.log("[suggest-indexer] tick_complete", { processed });
   return { processed };
 }
 
-// Run every 5 minutes between 07:00 and 21:00 (hour range 7-20 inclusive)
+// Run every 5 minutes between 07:00 and 21:00
 export const DAILY_ARTIST_SUGGEST_CRON = "*/5 7-20 * * *";
 
 export async function runArtistSuggestTick(): Promise<void> {
