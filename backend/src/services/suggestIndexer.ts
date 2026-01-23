@@ -28,7 +28,12 @@ const ENTITY_TYPES = ["artist", "album", "playlist", "track"] as const;
 
 function normalizeQuery(value: string | null | undefined): string {
   if (!value) return "";
-  return value.toString().trim().toLowerCase().normalize("NFKD").replace(/\p{Diacritic}+/gu, "");
+  return value
+    .toString()
+    .trim()
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/\p{Diacritic}+/gu, "");
 }
 
 function buildPrefixes(normalized: string): string[] {
@@ -49,7 +54,12 @@ function pickNormalizedName(row: ArtistRow): string {
   );
 }
 
-function buildRows(prefixes: string[], channelId: string, normalizedName: string, seenAt: string): SuggestEntryRow[] {
+function buildRows(
+  prefixes: string[],
+  channelId: string,
+  normalizedName: string,
+  seenAt: string
+): SuggestEntryRow[] {
   const rows: SuggestEntryRow[] = [];
   for (const prefix of prefixes) {
     for (const entity_type of ENTITY_TYPES) {
@@ -75,80 +85,60 @@ function buildRows(prefixes: string[], channelId: string, normalizedName: string
   return rows;
 }
 
-async function isProcessed(channelId: string): Promise<boolean> {
-  const client = getSupabaseAdmin();
-  const { data, error } = await client
-    .from("suggest_queries")
-    .select("artist_channel_id")
-    .eq("artist_channel_id", channelId)
-    .limit(1)
-    .maybeSingle();
-
-  if (error && error.code !== "PGRST116") {
-    console.error("[suggest-indexer] processed_check_failed", error.message);
-    return false;
-  }
-
-  return Boolean(data);
-}
-
-const FETCH_LIMIT = 500; // small dataset; pull enough to cover backlog
-
+/**
+ * FIXED VERSION
+ * --------------------------------------------------
+ * Fetch exactly ONE unprocessed artist by filtering
+ * at the SQL level (no LIMIT trap, no in-memory sets).
+ */
 async function fetchNextArtist(): Promise<ArtistRow | null> {
   const client = getSupabaseAdmin();
 
-  // Pull a bounded set of artists with channel IDs, oldest first by updated_at.
-  const { data: artists, error } = await client
+  const { data, error } = await client
     .from("artists")
-    .select("artist_key, artist, display_name, normalized_name, created_at, youtube_channel_id, updated_at")
+    .select(
+      `
+        artist_key,
+        artist,
+        display_name,
+        normalized_name,
+        created_at,
+        youtube_channel_id,
+        updated_at
+      `
+    )
     .not("youtube_channel_id", "is", null)
     .neq("youtube_channel_id", "")
+    .not(
+      "youtube_channel_id",
+      "in",
+      client
+        .from("suggest_queries")
+        .select("artist_channel_id")
+    )
     .order("updated_at", { ascending: true })
-    .limit(FETCH_LIMIT);
+    .limit(1)
+    .maybeSingle();
 
   if (error) {
     console.error("[suggest-indexer] artist_fetch_failed", error.message);
     return null;
   }
 
-  if (!artists || artists.length === 0) return null;
-
-  const channelIds = artists
-    .map((a: ArtistRow) => (a.youtube_channel_id || "").trim())
-    .filter((c: string) => c.length > 0);
-
-  if (channelIds.length === 0) return null;
-
-  // Fetch processed set only for these channel IDs.
-  const { data: processedRows, error: processedError } = await client
-    .from("suggest_queries")
-    .select("artist_channel_id")
-    .in("artist_channel_id", channelIds);
-
-  if (processedError) {
-    console.error("[suggest-indexer] processed_fetch_failed", processedError.message);
-    return null;
-  }
-
-  const processedSet = new Set((processedRows || []).map((row: { artist_channel_id?: string }) => (row.artist_channel_id || "").trim()));
-
-  // Pick the oldest artist whose channelId is not yet in suggest_queries.
-  for (const artist of artists) {
-    const channelId = (artist.youtube_channel_id || "").trim();
-    if (!channelId) continue;
-    if (!processedSet.has(channelId)) return artist;
-  }
-
-  return null;
+  return data ?? null;
 }
 
-async function insertSuggestEntries(rows: SuggestEntryRow[]): Promise<{ success: boolean; inserted: number }> {
+async function insertSuggestEntries(
+  rows: SuggestEntryRow[]
+): Promise<{ success: boolean; inserted: number }> {
   if (!rows.length) return { success: false, inserted: 0 };
 
   const client = getSupabaseAdmin();
   const { data, error } = await client
     .from("suggest_entries")
-    .upsert(rows, { onConflict: "source,normalized_query,artist_channel_id,entity_type" })
+    .upsert(rows, {
+      onConflict: "source,normalized_query,artist_channel_id,entity_type",
+    })
     .select("id");
 
   if (error) {
@@ -223,9 +213,12 @@ export async function runSuggestIndexerTick(): Promise<{ processed: number }> {
   }
 
   processed = 1;
-  const totalPrefixes = prefixes.length;
-  const insertedCount = insertResult.inserted;
-  console.log("[suggest-indexer] artist_done", { channelId, normalizedName, totalPrefixes, insertedCount });
+  console.log("[suggest-indexer] artist_done", {
+    channelId,
+    normalizedName,
+    totalPrefixes: prefixes.length,
+    insertedCount: insertResult.inserted,
+  });
   console.log("[suggest-indexer] tick_complete", { processed });
   return { processed };
 }
@@ -236,4 +229,3 @@ export const DAILY_ARTIST_SUGGEST_CRON = "*/5 7-20 * * *";
 export async function runArtistSuggestTick(): Promise<void> {
   await runSuggestIndexerTick();
 }
-
