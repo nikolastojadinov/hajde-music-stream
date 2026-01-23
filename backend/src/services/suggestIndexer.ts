@@ -116,7 +116,7 @@ async function fetchNextArtist(): Promise<ArtistRow | null> {
     .not("youtube_channel_id", "is", null)
     .neq("youtube_channel_id", "")
     .order("created_at", { ascending: true })
-    .range(offset, offset); // <-- KEY FIX
+    .range(offset, offset);
 
   if (error) {
     console.error("[suggest-indexer] artist_fetch_failed", error.message);
@@ -149,8 +149,13 @@ async function insertSuggestEntries(
   return { success: true, inserted: data?.length ?? 0 };
 }
 
+/**
+ * ✅ ONLY FIX: use UPSERT instead of INSERT
+ * Otherwise processed marker never saves.
+ */
 async function markArtistProcessed(channelId: string): Promise<boolean> {
   const client = getSupabaseAdmin();
+
   const payload = {
     artist_channel_id: channelId,
     created_at: new Date().toISOString(),
@@ -158,11 +163,11 @@ async function markArtistProcessed(channelId: string): Promise<boolean> {
 
   const { error } = await client
     .from("suggest_queries")
-    .insert(payload, { onConflict: "artist_channel_id" })
-    .select("artist_channel_id")
-    .single();
+    .upsert(payload, {
+      onConflict: "artist_channel_id",
+    });
 
-  if (error && error.code !== "23505") {
+  if (error) {
     console.error("[suggest-indexer] mark_processed_failed", error.message);
     return false;
   }
