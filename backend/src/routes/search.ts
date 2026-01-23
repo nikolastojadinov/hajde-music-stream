@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, type Request } from "express";
 
 import { trackActivity } from "../lib/activityTracker";
 import supabase from "../services/supabaseClient";
