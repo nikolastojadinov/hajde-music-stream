@@ -1,4 +1,4 @@
-import { Router, type Request } from "express";
+import { Router } from "express";
 
 import { trackActivity } from "../lib/activityTracker";
 import supabase from "../services/supabaseClient";
@@ -16,6 +16,7 @@ import {
   ingestTrackSelection,
   type TrackSelectionInput,
 } from "../services/entityIngestion";
+import { resolveUserId } from "../lib/resolveUserId";
 
 const router = Router();
 
@@ -40,15 +41,6 @@ const looksLikeBrowseId = (value: string): boolean => {
 };
 
 const looksLikeVideoId = (value: string): boolean => /^[A-Za-z0-9_-]{11}$/.test(value.trim());
-
-function resolveUserId(req: Request): string | null {
-  const fromRequest = typeof req.userId === "string" ? req.userId.trim() : "";
-  const fromCurrentUser = typeof req.currentUser?.uid === "string" ? req.currentUser.uid.trim() : "";
-  const fromPiUser = typeof (req as any).user?.id === "string" ? ((req as any).user.id as string).trim() : "";
-
-  const candidate = fromRequest || fromCurrentUser || fromPiUser;
-  return candidate || null;
-}
 
 function isRestoreRequested(req: Request): boolean {
   const queryFlag = typeof req.query.restoreSearch === "string" ? req.query.restoreSearch : undefined;

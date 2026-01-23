@@ -1,24 +1,16 @@
-import { Router, type Request } from 'express';
+import { Router } from 'express';
 
 import { trackActivity } from '../lib/activityTracker';
 import { ingestArtistBrowse } from '../services/entityIngestion';
 import { browseArtistById } from '../services/youtubeMusicClient';
 import { normalizeArtistKey } from '../utils/artistKey';
+import { resolveUserId } from '../lib/resolveUserId';
 
 const router = Router();
 
 const normalizeString = (value: unknown): string => (typeof value === 'string' ? value.trim() : '');
 const looksLikeVideoId = (value: string | undefined | null): value is string =>
   typeof value === 'string' && /^[A-Za-z0-9_-]{11}$/.test(value.trim());
-
-function resolveUserId(req: Request): string | null {
-  const fromRequest = typeof req.userId === 'string' ? req.userId.trim() : '';
-  const fromCurrentUser = typeof req.currentUser?.uid === 'string' ? req.currentUser.uid.trim() : '';
-  const fromPiUser = typeof (req as any).user?.id === 'string' ? ((req as any).user.id as string).trim() : '';
-
-  const candidate = fromRequest || fromCurrentUser || fromPiUser;
-  return candidate || null;
-}
 
 router.get('/', async (req, res) => {
   const browseId = normalizeString((req.query.id as string) || (req.query.browseId as string));
