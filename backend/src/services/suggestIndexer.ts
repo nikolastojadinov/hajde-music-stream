@@ -92,21 +92,18 @@ async function isProcessed(channelId: string): Promise<boolean> {
   return Boolean(data);
 }
 
-const LOOKBACK_HOURS = 24;
-const FETCH_LIMIT = 200; // allow progressing through recent artists without getting stuck
-const LOOKBACK_FIELD = "updated_at"; // nightly ingest touches updated_at, created_at can be old
+const FETCH_LIMIT = 500; // small dataset; pull enough to cover backlog
 
 async function fetchNextArtist(): Promise<ArtistRow | null> {
   const client = getSupabaseAdmin();
-  const since = new Date(Date.now() - LOOKBACK_HOURS * 60 * 60 * 1000).toISOString();
 
-  // First, try only artists touched in the recent window (by updated_at).
-  const { data, error } = await client
+  // Pull a bounded set of artists with channel IDs, oldest first by updated_at.
+  const { data: artists, error } = await client
     .from("artists")
     .select("artist_key, artist, display_name, normalized_name, created_at, youtube_channel_id, updated_at")
     .not("youtube_channel_id", "is", null)
-    .gte(LOOKBACK_FIELD, since)
-    .order(LOOKBACK_FIELD, { ascending: true })
+    .neq("youtube_channel_id", "")
+    .order("updated_at", { ascending: true })
     .limit(FETCH_LIMIT);
 
   if (error) {
@@ -114,35 +111,32 @@ async function fetchNextArtist(): Promise<ArtistRow | null> {
     return null;
   }
 
-  const candidates = data && data.length ? data : null;
+  if (!artists || artists.length === 0) return null;
 
-  // If we have candidates in the recent window, scan them first.
-  if (candidates && candidates.length) {
-    for (const artist of candidates) {
-      const channelId = (artist.youtube_channel_id || "").trim();
-      if (!channelId) continue;
-      const processed = await isProcessed(channelId);
-      if (!processed) return artist;
-    }
+  const channelIds = artists
+    .map((a) => (a.youtube_channel_id || "").trim())
+    .filter((c) => c.length > 0);
+
+  if (channelIds.length === 0) return null;
+
+  // Fetch processed set only for these channel IDs.
+  const { data: processedRows, error: processedError } = await client
+    .from("suggest_queries")
+    .select("artist_channel_id")
+    .in("artist_channel_id", channelIds);
+
+  if (processedError) {
+    console.error("[suggest-indexer] processed_fetch_failed", processedError.message);
+    return null;
   }
 
-  // Fall back to the oldest-with-channel set to avoid starvation when the recent window is fully processed.
-  const rows = (
-    await client
-      .from("artists")
-      .select("artist_key, artist, display_name, normalized_name, created_at, youtube_channel_id, updated_at")
-      .not("youtube_channel_id", "is", null)
-      .order(LOOKBACK_FIELD, { ascending: true })
-      .limit(FETCH_LIMIT)
-  ).data;
+  const processedSet = new Set((processedRows || []).map((row) => (row.artist_channel_id || "").trim()));
 
-  if (!rows || !rows.length) return null;
-
-  for (const artist of rows) {
+  // Pick the oldest artist whose channelId is not yet in suggest_queries.
+  for (const artist of artists) {
     const channelId = (artist.youtube_channel_id || "").trim();
     if (!channelId) continue;
-    const processed = await isProcessed(channelId);
-    if (!processed) return artist;
+    if (!processedSet.has(channelId)) return artist;
   }
 
   return null;
