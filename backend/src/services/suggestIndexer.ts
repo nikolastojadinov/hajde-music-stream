@@ -92,14 +92,20 @@ async function isProcessed(channelId: string): Promise<boolean> {
   return Boolean(data);
 }
 
+const LOOKBACK_HOURS = 24;
+const FETCH_LIMIT = 200; // allow progressing through recent artists without getting stuck
+
 async function fetchNextArtist(): Promise<ArtistRow | null> {
   const client = getSupabaseAdmin();
+  const since = new Date(Date.now() - LOOKBACK_HOURS * 60 * 60 * 1000).toISOString();
+
   const { data, error } = await client
     .from("artists")
     .select("artist_key, artist, display_name, normalized_name, created_at, youtube_channel_id")
     .not("youtube_channel_id", "is", null)
+    .gte("created_at", since)
     .order("created_at", { ascending: true })
-    .limit(50);
+    .limit(FETCH_LIMIT);
 
   if (error) {
     console.error("[suggest-indexer] artist_fetch_failed", error.message);
