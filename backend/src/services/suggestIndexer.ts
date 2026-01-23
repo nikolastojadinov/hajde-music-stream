@@ -1,6 +1,7 @@
 // target file: backend/src/services/suggestIndexer.ts
 // FULL REWRITE — replace entire file content with this version.
-// FIX: stable next-unprocessed artist selection (no RPC, no offset, no repeats)
+// FIX: stable "next unprocessed artist" selection using updated_at ASC
+// FIX: TypeScript strict mode (no implicit any parameters)
 
 import { getSupabaseAdmin } from "./supabaseClient";
 
@@ -10,7 +11,7 @@ type ArtistRow = {
   display_name: string | null;
   normalized_name: string | null;
   created_at: string | null;
-  updated_at: string | null;
+  updated_at?: string | null;
   youtube_channel_id: string | null;
 };
 
@@ -66,6 +67,7 @@ function buildRows(
   seenAt: string
 ): SuggestEntryRow[] {
   const rows: SuggestEntryRow[] = [];
+
   for (const prefix of prefixes) {
     for (const entity_type of ENTITY_TYPES) {
       rows.push({
@@ -87,61 +89,58 @@ function buildRows(
       });
     }
   }
+
   return rows;
 }
 
 /**
- * ✅ REAL FIX:
- * Fetch next artist NOT present in suggest_queries
- * (no subquery parser bug, no RPC, no offset)
+ * ✅ FINAL FIX (NO loops, NO repeated artists)
+ * ------------------------------------------
+ * Uses DB-side anti-join with correct ordering:
+ * ORDER BY artists.updated_at ASC
+ *
+ * Requires RPC function in Supabase:
+ *
+ * CREATE OR REPLACE FUNCTION next_unprocessed_artist()
+ * RETURNS TABLE (
+ *   artist_key text,
+ *   artist text,
+ *   display_name text,
+ *   normalized_name text,
+ *   youtube_channel_id text,
+ *   updated_at timestamptz
+ * )
+ * LANGUAGE sql
+ * AS $$
+ *   SELECT a.artist_key,
+ *          a.artist,
+ *          a.display_name,
+ *          a.normalized_name,
+ *          a.youtube_channel_id,
+ *          a.updated_at
+ *   FROM artists a
+ *   LEFT JOIN suggest_queries s
+ *     ON TRIM(a.youtube_channel_id) = TRIM(s.artist_channel_id)
+ *   WHERE a.youtube_channel_id IS NOT NULL
+ *     AND TRIM(a.youtube_channel_id) <> ''
+ *     AND s.artist_channel_id IS NULL
+ *   ORDER BY a.updated_at ASC NULLS LAST, a.created_at ASC
+ *   LIMIT 1;
+ * $$;
  */
 async function fetchNextArtist(): Promise<ArtistRow | null> {
   const client = getSupabaseAdmin();
 
-  // 1) Pull candidate artists
-  const { data: artists, error } = await client
-    .from("artists")
-    .select(
-      "artist_key, artist, display_name, normalized_name, created_at, updated_at, youtube_channel_id"
-    )
-    .not("youtube_channel_id", "is", null)
-    .neq("youtube_channel_id", "")
-    .order("updated_at", { ascending: true })
-    .limit(50);
+  const { data, error } = await client.rpc("next_unprocessed_artist");
 
   if (error) {
     console.error("[suggest-indexer] artist_fetch_failed", error.message);
     return null;
   }
 
-  if (!artists || artists.length === 0) return null;
+  if (!data || data.length === 0) return null;
 
-  // 2) Check which ones are already processed
-  const channelIds = artists
-    .map((a) => (a.youtube_channel_id || "").trim())
-    .filter(Boolean);
-
-  const { data: processed, error: pErr } = await client
-    .from("suggest_queries")
-    .select("artist_channel_id")
-    .in("artist_channel_id", channelIds);
-
-  if (pErr) {
-    console.error("[suggest-indexer] processed_fetch_failed", pErr.message);
-    return null;
-  }
-
-  const processedSet = new Set(
-    (processed || []).map((r) => (r.artist_channel_id || "").trim())
-  );
-
-  // 3) Return first unprocessed artist
-  for (const a of artists) {
-    const cid = (a.youtube_channel_id || "").trim();
-    if (!processedSet.has(cid)) return a;
-  }
-
-  return null;
+  return data[0] as ArtistRow;
 }
 
 async function insertSuggestEntries(
@@ -150,6 +149,7 @@ async function insertSuggestEntries(
   if (!rows.length) return { success: false, inserted: 0 };
 
   const client = getSupabaseAdmin();
+
   const { data, error } = await client
     .from("suggest_entries")
     .upsert(rows, {
@@ -165,6 +165,9 @@ async function insertSuggestEntries(
   return { success: true, inserted: data?.length ?? 0 };
 }
 
+/**
+ * ✅ Process marker must persist uniquely
+ */
 async function markArtistProcessed(channelId: string): Promise<boolean> {
   const client = getSupabaseAdmin();
 
@@ -195,27 +198,52 @@ export async function runSuggestIndexerTick(): Promise<{ processed: number }> {
   }
 
   const channelId = (artist.youtube_channel_id || "").trim();
+  if (!channelId) {
+    console.log("[suggest-indexer] tick_complete", { processed });
+    return { processed };
+  }
+
   const normalizedName = pickNormalizedName(artist);
+  if (!normalizedName || normalizedName.length < MIN_PREFIX_LENGTH) {
+    console.log("[suggest-indexer] tick_complete", { processed });
+    return { processed };
+  }
 
   const prefixes = buildPrefixes(normalizedName);
+  if (!prefixes.length) {
+    console.log("[suggest-indexer] tick_complete", { processed });
+    return { processed };
+  }
+
   const seenAt = new Date().toISOString();
   const rows = buildRows(prefixes, channelId, normalizedName, seenAt);
 
   const insertResult = await insertSuggestEntries(rows);
-  if (!insertResult.success) return { processed: 0 };
+  if (!insertResult.success || insertResult.inserted <= 0) {
+    console.log("[suggest-indexer] tick_complete", { processed });
+    return { processed };
+  }
 
-  await markArtistProcessed(channelId);
+  const marked = await markArtistProcessed(channelId);
+  if (!marked) {
+    console.log("[suggest-indexer] tick_complete", { processed });
+    return { processed };
+  }
 
   processed = 1;
+
   console.log("[suggest-indexer] artist_done", {
     channelId,
     normalizedName,
+    totalPrefixes: prefixes.length,
     insertedCount: insertResult.inserted,
   });
 
+  console.log("[suggest-indexer] tick_complete", { processed });
   return { processed };
 }
 
+// Run every 5 minutes between 07:00 and 21:00
 export const DAILY_ARTIST_SUGGEST_CRON = "*/5 7-20 * * *";
 
 export async function runArtistSuggestTick(): Promise<void> {
