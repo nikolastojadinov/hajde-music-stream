@@ -163,7 +163,7 @@ router.get("/history", async (req, res) => {
       return res.status(500).json({ items: [] });
     }
 
-    const items = (data || []).map((row) => {
+    const items = (data || []).map((row: { id: string; entity_type: string; entity_id: string; context: any; created_at: string }) => {
       let parsedContext: any = null;
       if (typeof row.context === "string") {
         try {
