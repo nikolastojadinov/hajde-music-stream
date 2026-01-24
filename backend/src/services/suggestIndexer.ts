@@ -1,9 +1,4 @@
-// target file: backend/src/services/suggestIndexer.ts
-// FULL REWRITE — replace entire file content with this version.
-// FIX: stable "next unprocessed artist" selection using updated_at ASC
-// FIX: TypeScript strict mode (no implicit any parameters)
-
-import { getSupabaseAdmin } from "./supabaseClient";
+import { getSupabaseAdmin } from './supabaseClient';
 
 type ArtistRow = {
   artist_key: string;
@@ -24,23 +19,28 @@ type SuggestEntryRow = {
   hit_count: number;
   last_seen_at: string;
   artist_channel_id: string;
-  entity_type: "artist" | "album" | "playlist" | "track";
+  entity_type: 'artist' | 'album' | 'playlist' | 'track';
 };
 
-const SOURCE_TAG = "artist_indexer";
+type SuggestQueryRow = {
+  artist_channel_id: string;
+};
+
+const SOURCE_TAG = 'artist_indexer';
 const MIN_PREFIX_LENGTH = 2;
 const MAX_PREFIX_LENGTH = 120;
-const ENTITY_TYPES = ["artist", "album", "playlist", "track"] as const;
+const ENTITY_TYPES = ['artist', 'album', 'playlist', 'track'] as const;
 const BATCH_LIMIT = 50;
+const CANDIDATE_MULTIPLIER = 3;
 
 function normalizeQuery(value: string | null | undefined): string {
-  if (!value) return "";
+  if (!value) return '';
   return value
     .toString()
     .trim()
     .toLowerCase()
-    .normalize("NFKD")
-    .replace(/\p{Diacritic}+/gu, "");
+    .normalize('NFKD')
+    .replace(/\p{Diacritic}+/gu, '');
 }
 
 function buildPrefixes(normalized: string): string[] {
@@ -79,7 +79,7 @@ function buildRows(
           type: entity_type,
           title: normalizedName,
           artist_channel_id: channelId,
-          endpointType: "browse",
+          endpointType: 'browse',
           endpointPayload: channelId,
         },
         meta: { artist_channel_id: channelId, entity_type },
@@ -94,27 +94,74 @@ function buildRows(
   return rows;
 }
 
-async function fetchUnprocessedArtists(limit: number): Promise<ArtistRow[]> {
+async function fetchCandidateArtists(limit: number): Promise<ArtistRow[]> {
   const client = getSupabaseAdmin();
+  const candidateLimit = limit * CANDIDATE_MULTIPLIER;
+
+  console.log('[suggest-indexer] artists_fetch_start', {
+    candidateLimit,
+    sort: ['updated_at asc', 'created_at asc'],
+  });
 
   const { data, error } = await client
-    .from("artists")
-    .select(
-      "artist_key, artist, display_name, normalized_name, youtube_channel_id, updated_at, created_at, suggest_queries: suggest_queries!left(artist_channel_id)"
-    )
-    .not("youtube_channel_id", "is", null)
-    .neq("youtube_channel_id", "")
-    .is("suggest_queries.artist_channel_id", null)
-    .order("updated_at", { ascending: true, nullsFirst: false })
-    .order("created_at", { ascending: true })
-    .limit(limit);
+    .from('artists')
+    .select('artist_key, artist, display_name, normalized_name, youtube_channel_id, updated_at, created_at')
+    .not('youtube_channel_id', 'is', null)
+    .neq('youtube_channel_id', '')
+    .order('updated_at', { ascending: true, nullsFirst: false })
+    .order('created_at', { ascending: true })
+    .limit(candidateLimit);
 
   if (error) {
-    console.error("[suggest-indexer] artist_fetch_failed", error.message);
+    console.error('[suggest-indexer] artist_fetch_failed', error.message);
     return [];
   }
 
   return (data || []) as ArtistRow[];
+}
+
+async function fetchProcessedChannels(channelIds: string[]): Promise<Set<string>> {
+  if (!channelIds.length) return new Set();
+
+  const client = getSupabaseAdmin();
+  console.log('[suggest-indexer] processed_channels_fetch', { count: channelIds.length });
+
+  const { data, error } = await client
+    .from('suggest_queries')
+    .select('artist_channel_id')
+    .in('artist_channel_id', channelIds);
+
+  if (error) {
+    console.error('[suggest-indexer] processed_fetch_failed', error.message);
+    return new Set();
+  }
+
+  const processedRows = (data || []) as SuggestQueryRow[];
+  return new Set(processedRows.map((row) => row.artist_channel_id).filter(Boolean));
+}
+
+async function fetchUnprocessedArtists(limit: number): Promise<ArtistRow[]> {
+  const candidates = await fetchCandidateArtists(limit);
+  if (!candidates.length) return [];
+
+  const channelIds = candidates
+    .map((row) => row.youtube_channel_id?.trim())
+    .filter((id): id is string => Boolean(id));
+
+  const processedSet = await fetchProcessedChannels(channelIds);
+  const unprocessed = candidates.filter((row) => {
+    const channelId = row.youtube_channel_id?.trim() || '';
+    return channelId && !processedSet.has(channelId);
+  });
+
+  console.log('[suggest-indexer] unprocessed_ready', {
+    candidates: candidates.length,
+    processed: processedSet.size,
+    selected: unprocessed.length,
+    limit,
+  });
+
+  return unprocessed.slice(0, limit);
 }
 
 async function insertSuggestEntries(
@@ -125,37 +172,30 @@ async function insertSuggestEntries(
   const client = getSupabaseAdmin();
 
   const { data, error } = await client
-    .from("suggest_entries")
+    .from('suggest_entries')
     .upsert(rows, {
-      onConflict: "source,normalized_query,artist_channel_id,entity_type",
+      onConflict: 'source,normalized_query,artist_channel_id,entity_type',
     })
-    .select("id");
+    .select('id');
 
   if (error) {
-    console.error("[suggest-indexer] entries_upsert_failed", error.message);
+    console.error('[suggest-indexer] entries_upsert_failed', error.message);
     return { success: false, inserted: 0 };
   }
 
   return { success: true, inserted: data?.length ?? 0 };
 }
 
-/**
- * ✅ Process marker must persist uniquely
- */
 async function markArtistProcessed(channelId: string): Promise<boolean> {
   const client = getSupabaseAdmin();
+  const payload = { artist_channel_id: channelId, created_at: new Date().toISOString() };
 
-  const payload = {
-    artist_channel_id: channelId,
-    created_at: new Date().toISOString(),
-  };
-
-  const { error } = await client.from("suggest_queries").upsert(payload, {
-    onConflict: "artist_channel_id",
+  const { error } = await client.from('suggest_queries').upsert(payload, {
+    onConflict: 'artist_channel_id',
   });
 
   if (error) {
-    console.error("[suggest-indexer] mark_processed_failed", error.message);
+    console.error('[suggest-indexer] mark_processed_failed', error.message);
     return false;
   }
 
@@ -167,12 +207,12 @@ export async function runSuggestIndexerTick(): Promise<{ processed: number }> {
 
   const artists = await fetchUnprocessedArtists(BATCH_LIMIT);
   if (!artists.length) {
-    console.log("[suggest-indexer] tick_complete", { processed });
+    console.log('[suggest-indexer] tick_complete', { processed });
     return { processed };
   }
 
   for (const artist of artists) {
-    const channelId = (artist.youtube_channel_id || "").trim();
+    const channelId = (artist.youtube_channel_id || '').trim();
     if (!channelId) continue;
 
     const normalizedName = pickNormalizedName(artist);
@@ -197,7 +237,7 @@ export async function runSuggestIndexerTick(): Promise<{ processed: number }> {
 
     if (insertResult.success && marked) {
       processed += 1;
-      console.log("[suggest-indexer] artist_done", {
+      console.log('[suggest-indexer] artist_done', {
         channelId,
         normalizedName,
         totalPrefixes: prefixes.length,
@@ -206,12 +246,11 @@ export async function runSuggestIndexerTick(): Promise<{ processed: number }> {
     }
   }
 
-  console.log("[suggest-indexer] tick_complete", { processed });
+  console.log('[suggest-indexer] tick_complete', { processed });
   return { processed };
 }
 
-// Run every 5 minutes between 07:00 and 21:00
-export const DAILY_ARTIST_SUGGEST_CRON = "*/5 7-20 * * *";
+export const DAILY_ARTIST_SUGGEST_CRON = '*/5 7-20 * * *';
 
 export async function runArtistSuggestTick(): Promise<void> {
   await runSuggestIndexerTick();
