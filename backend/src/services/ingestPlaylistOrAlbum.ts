@@ -1,6 +1,7 @@
 import { canonicalArtistName, normalizeArtistKey } from '../utils/artistKey';
 import { getSupabaseAdmin } from './supabaseClient';
 import { upsertArtists, type ArtistInput, type ArtistResult } from './upsertArtists';
+import { linkArtistTracks, type ArtistTrackLink } from './linkArtistTracks';
 import { isDuplicateConstraint } from '../lib/dbErrors';
 import type { PlaylistBrowse } from './youtubeMusicClient';
 
@@ -58,7 +59,7 @@ type TrackInput = {
 };
 
 type IdMap = Record<string, string>;
-type ArtistTrackPair = { trackId: string; artistKeys: string[] };
+type DerivedArtist = { key: string; display: string; normalizedName: string };
 type AlbumCompletion = { albumId: string | null; expected: number | null; actual: number; percent: number; state: 'unknown' | 'partial' | 'complete' };
 
 function normalize(value: unknown): string {
@@ -69,6 +70,10 @@ function normalizeKey(value: string | null | undefined): string {
   const base = normalize(value);
   const normalized = normalizeArtistKey(base);
   return normalized || base;
+}
+
+function normalizeArtistLookupName(value: string): string {
+  return normalizeArtistKey(canonicalArtistName(value) || value).toLowerCase();
 }
 
 function uniqueStrings(values: Array<string | null | undefined>): string[] {
@@ -144,15 +149,16 @@ function normalizeTrackSource(): 'youtube' {
   return 'youtube';
 }
 
-function deriveArtistKeys(names: string[]): { key: string; display: string }[] {
+function deriveArtistKeys(names: string[]): DerivedArtist[] {
   const seen = new Set<string>();
-  const out: { key: string; display: string }[] = [];
+  const out: DerivedArtist[] = [];
   names.forEach((name) => {
-    const display = canonicalArtistName(name);
+    const display = canonicalArtistName(name) || name;
     const key = normalizeArtistKey(display || name);
-    if (!key || seen.has(key)) return;
-    seen.add(key);
-    out.push({ key, display: display || key });
+    const normalizedName = normalizeArtistLookupName(display || key);
+    if (!key || !normalizedName || seen.has(normalizedName)) return;
+    seen.add(normalizedName);
+    out.push({ key, display: display || key, normalizedName });
   });
   return out;
 }
@@ -354,7 +360,7 @@ async function upsertPlaylists(inputs: PlaylistInput[]): Promise<{ map: IdMap; c
 async function upsertTracks(
   inputs: TrackInput[],
   albumMap: IdMap,
-): Promise<{ idMap: IdMap; artistTrackPairs: ArtistTrackPair[]; count: number }> {
+): Promise<{ idMap: IdMap; artistTrackPairs: ArtistTrackLink[]; count: number }> {
   if (!inputs.length) return { idMap: {}, artistTrackPairs: [], count: 0 };
   const client = getSupabaseAdmin();
   const now = NOW();
@@ -386,11 +392,15 @@ async function upsertTracks(
           sync_status: 'fetched',
           is_explicit: t.isExplicit ?? null,
         },
-        artistKeys: artists.map((a) => a.key),
+        artists: artists.map((artist) => ({
+          normalizedName: artist.normalizedName,
+          rawName: artist.display,
+          candidateKey: artist.key,
+        })),
         youtubeId,
       };
     })
-    .filter(Boolean) as Array<{ row: any; artistKeys: string[]; youtubeId: string }>;
+    .filter(Boolean) as Array<{ row: any; artists: ArtistTrackLink['artists']; youtubeId: string }>;
 
   const rows = uniqueBy(prepared.map((p) => p.row), (row) => row.youtube_id).filter((row) => Boolean(row.youtube_id));
   if (!rows.length) return { idMap: {}, artistTrackPairs: [], count: 0 };
@@ -409,45 +419,28 @@ async function upsertTracks(
     if (row?.youtube_id && row?.id) idMap[row.youtube_id] = row.id;
   });
 
-  const artistTrackPairs: ArtistTrackPair[] = [];
+  const artistTrackPairs: ArtistTrackLink[] = [];
   const seenPairs = new Set<string>();
   prepared.forEach((item) => {
     const trackId = idMap[item.youtubeId];
-    if (!trackId || !item.artistKeys.length) return;
-    const uniqueArtistKeys = uniqueKeys(item.artistKeys);
-    uniqueArtistKeys.forEach((artistKey) => {
-      const token = `${trackId}-${artistKey}`;
-      if (seenPairs.has(token)) return;
-      seenPairs.add(token);
-      artistTrackPairs.push({ trackId, artistKeys: [artistKey] });
-    });
+    if (!trackId || !item.artists.length) return;
+
+    item.artists
+      .map((artist) => ({
+        normalizedName: normalizeArtistLookupName(artist.normalizedName),
+        rawName: artist.rawName ?? artist.normalizedName,
+        candidateKey: artist.candidateKey ?? null,
+      }))
+      .filter((artist) => Boolean(artist.normalizedName))
+      .forEach((artist) => {
+        const token = `${trackId}-${artist.normalizedName}`;
+        if (seenPairs.has(token)) return;
+        seenPairs.add(token);
+        artistTrackPairs.push({ trackId, artists: [artist] });
+      });
   });
 
   return { idMap, artistTrackPairs, count: rows.length };
-}
-
-async function linkArtistTracks(pairs: ArtistTrackPair[]): Promise<number> {
-  if (!pairs.length) return 0;
-  const client = getSupabaseAdmin();
-  const rows: Array<{ artist_key: string; track_id: string }> = [];
-  const seen = new Set<string>();
-  pairs.forEach((pair) => {
-    pair.artistKeys.forEach((artistKey) => {
-      const token = `${artistKey}-${pair.trackId}`;
-      if (seen.has(token)) return;
-      seen.add(token);
-      rows.push({ artist_key: artistKey, track_id: pair.trackId });
-    });
-  });
-  if (!rows.length) return 0;
-  try {
-    const { error } = await client.from('artist_tracks').upsert(rows, { onConflict: 'artist_key,track_id' });
-    if (error) throw error;
-    return rows.length;
-  } catch (err: any) {
-    console.error('[linkArtistTracks] failed', { message: err?.message || String(err) });
-    return 0;
-  }
 }
 
 async function linkArtistAlbums(albumIds: string[], artistKeys: string[]): Promise<number> {
@@ -509,32 +502,43 @@ function orderedTrackIds(tracks: PlaylistBrowse['tracks'], idMap: IdMap): string
 }
 
 function buildArtistTrackPairs(
-  trackResult: { idMap: IdMap; artistTrackPairs: ArtistTrackPair[] },
-  fallbackArtistKeys: string[],
+  trackResult: { idMap: IdMap; artistTrackPairs: ArtistTrackLink[] },
+  fallbackIdentifiers: string[],
   videoOrder: string[],
-): ArtistTrackPair[] {
-  const pairs: ArtistTrackPair[] = [];
+): ArtistTrackLink[] {
+  const pairs: ArtistTrackLink[] = [];
   const seen = new Set<string>();
-  const normalizedFallback = uniqueKeys(fallbackArtistKeys);
+  const normalizedFallback = uniqueStrings(fallbackIdentifiers.map((value) => normalizeArtistLookupName(value)));
 
-  const push = (trackId: string, artistKeys: string[]) => {
-    const keys = uniqueKeys(artistKeys);
-    keys.forEach((key) => {
-      const token = `${trackId}-${key}`;
+  const normalizeArtists = (artists: ArtistTrackLink['artists']): ArtistTrackLink['artists'] =>
+    (artists || [])
+      .map((artist) => ({
+        normalizedName: normalizeArtistLookupName(artist.normalizedName),
+        rawName: artist.rawName ?? artist.normalizedName,
+        candidateKey: artist.candidateKey ?? null,
+      }))
+      .filter((artist) => Boolean(artist.normalizedName));
+
+  const push = (trackId: string, artists: ArtistTrackLink['artists']) => {
+    normalizeArtists(artists).forEach((artist) => {
+      const token = `${trackId}-${artist.normalizedName}`;
       if (seen.has(token)) return;
       seen.add(token);
-      pairs.push({ trackId, artistKeys: [key] });
+      pairs.push({ trackId, artists: [artist] });
     });
   };
 
-  trackResult.artistTrackPairs.forEach((pair) => push(pair.trackId, pair.artistKeys));
+  trackResult.artistTrackPairs.forEach((pair) => push(pair.trackId, pair.artists));
+
+  const fallbackArtists = normalizedFallback.map((normalizedName) => ({ normalizedName }));
+
   videoOrder.forEach((youtubeId) => {
     const trackId = trackResult.idMap[normalize(youtubeId)];
-    if (trackId) push(trackId, normalizedFallback);
+    if (trackId) push(trackId, fallbackArtists);
   });
   Object.values(trackResult.idMap)
     .filter(Boolean)
-    .forEach((trackId) => push(trackId, normalizedFallback));
+    .forEach((trackId) => push(trackId, fallbackArtists));
 
   return pairs;
 }
