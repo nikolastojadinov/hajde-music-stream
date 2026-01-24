@@ -1,7 +1,7 @@
 import cron from 'node-cron';
 
 import env from '../environments';
-import { DAILY_ARTIST_SUGGEST_CRON, runArtistSuggestTick } from '../services/suggestIndexer';
+import { DAILY_ARTIST_SUGGEST_CRON, runArtistSuggestTick } from './ArtistSuggestBatch';
 
 const JOB_LOG_CONTEXT = '[ArtistSuggestBatch]';
 const SCHEDULER_TIMEZONE = process.env.TZ || 'UTC';
