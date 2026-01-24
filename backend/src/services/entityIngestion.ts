@@ -1,5 +1,6 @@
 import { canonicalArtistName, normalizeArtistKey } from '../utils/artistKey';
 import { getSupabaseAdmin } from './supabaseClient';
+import { upsertArtists, type ArtistInput, type ArtistResult } from './upsertArtists';
 import type { ArtistBrowse } from './youtubeMusicClient';
 
 export { ingestPlaylistOrAlbum, getAlbumCompletion, isAlbumComplete } from './ingestPlaylistOrAlbum';
@@ -18,7 +19,6 @@ export type TrackSelectionInput = {
 const VIDEO_ID_REGEX = /^[A-Za-z0-9_-]{11}$/;
 const NOW = () => new Date().toISOString();
 
-type ArtistInput = { name: string; channelId?: string | null; thumbnails?: { avatar?: string | null; banner?: string | null }; source?: string | null };
 type AlbumInput = { externalId: string; title: string; thumbnailUrl?: string | null; releaseDate?: string | null; albumType?: string | null; artistKeys?: string[] };
 type PlaylistInput = { externalId: string; title: string; description?: string | null; thumbnailUrl?: string | null; channelId?: string | null; itemCount?: number | null };
 type TrackInput = {
@@ -34,7 +34,6 @@ type TrackInput = {
 };
 
 type IdMap = Record<string, string>;
-type ArtistResult = { keys: string[]; count: number };
 
 type CanonicalArtistParams = {
   displayName: string;
@@ -249,31 +248,6 @@ async function resolveCanonicalArtist(params: CanonicalArtistParams): Promise<{ 
   if (insertErr) throw new Error(`[artist] insert ${insertErr.message}`);
 
   return { artistKey: inserted.artist_key, displayName: inserted.display_name || displayName };
-}
-
-async function upsertArtists(inputs: ArtistInput[], sourceHint?: string): Promise<ArtistResult> {
-  if (!inputs.length) return { keys: [], count: 0 };
-
-  const seen = new Set<string>();
-  const keys: string[] = [];
-
-  for (const artist of uniqueBy(inputs, (a) => `${normalize(a.channelId) || ''}::${normalize(a.name)}`)) {
-    const resolved = await resolveCanonicalArtist({
-      displayName: artist.name,
-      youtubeChannelId: artist.channelId,
-      source: artist.source || sourceHint || 'ingest',
-      thumbnails: artist.thumbnails ?? null,
-    });
-
-    if (!resolved) continue;
-
-    if (!seen.has(resolved.artistKey)) {
-      seen.add(resolved.artistKey);
-      keys.push(resolved.artistKey);
-    }
-  }
-
-  return { keys, count: keys.length };
 }
 
 async function upsertAlbums(inputs: AlbumInput[]): Promise<{ map: IdMap; count: number }> {

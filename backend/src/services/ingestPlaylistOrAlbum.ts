@@ -1,5 +1,7 @@
 import { canonicalArtistName, normalizeArtistKey } from '../utils/artistKey';
 import { getSupabaseAdmin } from './supabaseClient';
+import { upsertArtists, type ArtistInput, type ArtistResult } from './upsertArtists';
+import { isDuplicateConstraint } from '../lib/dbErrors';
 import type { PlaylistBrowse } from './youtubeMusicClient';
 
 const VIDEO_ID_REGEX = /^[A-Za-z0-9_-]{11}$/;
@@ -33,7 +35,6 @@ export type PlaylistOrAlbumResult = {
   artistAlbumCount: number;
 };
 
-type ArtistInput = { name: string; channelId?: string | null; thumbnails?: { avatar?: string | null; banner?: string | null } };
 type AlbumInput = {
   externalId: string;
   title: string;
@@ -57,7 +58,6 @@ type TrackInput = {
 };
 
 type IdMap = Record<string, string>;
-type ArtistResult = { keys: string[]; count: number };
 type ArtistTrackPair = { trackId: string; artistKeys: string[] };
 type AlbumCompletion = { albumId: string | null; expected: number | null; actual: number; percent: number; state: 'unknown' | 'partial' | 'complete' };
 
@@ -233,63 +233,6 @@ export async function getAlbumCompletion(externalId: string): Promise<AlbumCompl
 export async function isAlbumComplete(albumId: string | null): Promise<boolean> {
   const status = await computeAlbumCompletion(albumId);
   return status.state === 'complete';
-}
-
-async function upsertArtists(inputs: ArtistInput[]): Promise<ArtistResult> {
-  if (!inputs.length) return { keys: [], count: 0 };
-  const client = getSupabaseAdmin();
-
-  const channelIds = Array.from(
-    new Set(
-      inputs
-        .map((a) => normalize(a.channelId))
-        .filter((v) => Boolean(v)),
-    ),
-  );
-
-  const channelMap: Record<string, string> = {};
-  if (channelIds.length) {
-    const { data, error } = await client
-      .from('artists')
-      .select('artist_key, youtube_channel_id')
-      .in('youtube_channel_id', channelIds);
-    if (error) throw new Error(`[upsertArtists] channel lookup ${error.message}`);
-    (data || []).forEach((row: any) => {
-      const channel = normalize(row.youtube_channel_id);
-      const key = normalize(row.artist_key);
-      if (channel && key) channelMap[channel] = key;
-    });
-  }
-
-  const rows = uniqueBy(
-    inputs
-      .map((artist) => {
-        const display = canonicalArtistName(artist.name);
-        const key = normalizeArtistKey(display || artist.name);
-        const artistValue = normalize(display || artist.name || key);
-        if (!key || !artistValue) return null;
-        const channelId = normalize(artist.channelId) || null;
-        const canonicalKey = channelId && channelMap[channelId] ? channelMap[channelId] : key;
-        return {
-          artist: artistValue,
-          artist_key: canonicalKey,
-          display_name: display || artist.name,
-          normalized_name: artistValue.toLowerCase(),
-          youtube_channel_id: channelId,
-          thumbnails: artist.thumbnails || null,
-          updated_at: NOW(),
-        };
-      })
-      .filter(Boolean) as Array<Record<string, any>>,
-    (row) => row.artist_key,
-  );
-
-  if (!rows.length) return { keys: [], count: 0 };
-
-  const { error } = await client.from('artists').upsert(rows, { onConflict: 'artist_key' });
-  if (error) throw new Error(`[upsertArtists] ${error.message}`);
-
-  return { keys: rows.map((r) => r.artist_key as string), count: rows.length };
 }
 
 async function upsertAlbums(inputs: AlbumInput[]): Promise<{ map: IdMap; count: number }> {
@@ -650,7 +593,22 @@ export async function ingestPlaylistOrAlbum(payload: PlaylistOrAlbumIngest, opts
 
   const collectedArtistNames = uniqueStrings([...artistsFromSubtitle, ...trackInputs.flatMap((t) => t.artistNames)]);
 
-  const artistResult: ArtistResult = allowArtistWrite ? await upsertArtists(collectedArtistNames.map((name) => ({ name }))) : { keys: [], count: 0 };
+  let artistResult: ArtistResult = { keys: [], count: 0 };
+  if (allowArtistWrite) {
+    try {
+      artistResult = await upsertArtists(collectedArtistNames.map((name) => ({ name })) as ArtistInput[]);
+    } catch (err) {
+      if (isDuplicateConstraint(err, 'artists_canonical_unique') || isDuplicateConstraint(err)) {
+        const derivedKeys = deriveArtistKeys(collectedArtistNames).map((a) => a.key);
+        const safeKeys = uniqueKeys(derivedKeys);
+        console.info('[upsertArtists] artist_exists_skip', { keys: safeKeys });
+        artistResult = { keys: safeKeys, count: safeKeys.length };
+      } else {
+        throw err;
+      }
+    }
+  }
+
   const primaryKeys = allowArtistWrite ? uniqueKeys([...(opts?.primaryArtistKeys ?? []), ...artistResult.keys]) : [];
 
   const fallbackKeys = allowArtistWrite && primaryKeys.length
