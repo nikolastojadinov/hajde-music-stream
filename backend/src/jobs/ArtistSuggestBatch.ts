@@ -118,32 +118,8 @@ async function countQueuedSuggestions(client: SupabaseClient): Promise<number | 
   return count ?? null;
 }
 
-async function countRemainingCandidates(client: SupabaseClient): Promise<number | null> {
-  const { count, error } = await client
-    .from('artists')
-    .select('youtube_channel_id', { count: 'exact', head: true })
-    .not('youtube_channel_id', 'is', null)
-    .neq('youtube_channel_id', '')
-    .not('youtube_channel_id', 'in', '(select artist_channel_id from suggest_queries)');
-
-  if (error) {
-    console.error(`${JOB_LOG_CONTEXT} count_remaining_failed`, { message: error.message });
-    return null;
-  }
-
-  return count ?? null;
-}
-
-async function fetchCandidateArtists(client: SupabaseClient, limit: number): Promise<ArtistRow[]> {
-  const { data, error } = await client
-    .from('artists')
-    .select('artist_key, artist, display_name, normalized_name, youtube_channel_id, created_at, updated_at')
-    .not('youtube_channel_id', 'is', null)
-    .neq('youtube_channel_id', '')
-    .not('youtube_channel_id', 'in', '(select artist_channel_id from suggest_queries)')
-    .order('updated_at', { ascending: true, nullsFirst: false })
-    .order('created_at', { ascending: true })
-    .limit(limit);
+async function fetchArtistSuggestCandidates(client: SupabaseClient, limit: number): Promise<ArtistRow[]> {
+  const { data, error } = await client.rpc('fetch_artist_suggest_candidates', { limit_count: limit });
 
   if (error) {
     console.error(`${JOB_LOG_CONTEXT} candidates_select_failed`, { message: error.message });
@@ -179,10 +155,7 @@ async function markArtistsProcessed(
   const now = new Date().toISOString();
   const payload = uniqueChannelIds.map((artist_channel_id) => ({ artist_channel_id, created_at: now }));
 
-  const { data, error } = await client
-    .from('suggest_queries')
-    .upsert(payload, { onConflict: 'artist_channel_id', ignoreDuplicates: true })
-    .select('artist_channel_id');
+  const { data, error } = await client.from('suggest_queries').insert(payload, { ignoreDuplicates: true });
 
   if (error) {
     console.error(`${INDEXER_LOG_CONTEXT} mark_processed_failed`, { message: error.message });
@@ -218,14 +191,7 @@ export async function runArtistSuggestBatch(): Promise<{ processed: number }> {
     console.log(`${JOB_LOG_CONTEXT} candidates_already_queued`, { status: 'unknown', reason: 'count_failed' });
   }
 
-  const remaining = await countRemainingCandidates(client);
-  if (remaining !== null) {
-    console.log(`${JOB_LOG_CONTEXT} candidates_remaining`, { remaining });
-  } else {
-    console.log(`${JOB_LOG_CONTEXT} candidates_remaining`, { status: 'unknown', reason: 'count_failed' });
-  }
-
-  const candidates = await fetchCandidateArtists(client, BATCH_LIMIT);
+  const candidates = await fetchArtistSuggestCandidates(client, BATCH_LIMIT);
   console.log(`${JOB_LOG_CONTEXT} candidates_new`, { count: candidates.length, limit: BATCH_LIMIT });
 
   if (!candidates.length) {
