@@ -196,29 +196,38 @@ function extractNavigation(renderer: any): { browseId: string; videoId: string }
   return { browseId, videoId };
 }
 
-function findFirstRenderer(node: any): any | null {
-  if (!node) return null;
-  if (typeof node !== 'object') return null;
+function findRendererForType(json: any, type: SuggestEntityType): any | null {
+  const tabs =
+    json?.contents?.tabbedSearchResultsRenderer?.tabs ||
+    json?.tabbedSearchResultsRenderer?.tabs ||
+    [];
 
-  if (node.musicResponsiveListItemRenderer) return node.musicResponsiveListItemRenderer;
+  for (const tab of tabs) {
+    const sections = tab?.tabRenderer?.content?.sectionListRenderer?.contents || [];
 
-  if (Array.isArray(node)) {
-    for (const item of node) {
-      const found = findFirstRenderer(item);
-      if (found) return found;
+    for (const section of sections) {
+      const shelf = section?.musicShelfRenderer;
+      const contents = shelf?.contents || [];
+
+      for (const item of contents) {
+        const renderer = item?.musicResponsiveListItemRenderer;
+        if (!renderer) continue;
+
+        const { browseId, videoId } = extractNavigation(renderer);
+        const candidateId = type === 'track' ? videoId : browseId;
+
+        if (candidateId && isValidExternalId(type, candidateId)) {
+          return renderer;
+        }
+      }
     }
-    return null;
   }
 
-  for (const value of Object.values(node)) {
-    const found = findFirstRenderer(value);
-    if (found) return found;
-  }
   return null;
 }
 
 function parseTopEntity(prefix: string, type: SuggestEntityType, json: any): PrefixEntity | null {
-  const renderer = findFirstRenderer(json);
+  const renderer = findRendererForType(json, type);
   if (!renderer) return null;
 
   const title =
@@ -261,7 +270,26 @@ async function searchTop(prefix: string, type: SuggestEntityType, config: Innert
 
   try {
     const json = await callYoutubei(config, 'search', payload);
-    return parseTopEntity(prefix, type, json);
+    const entity = parseTopEntity(prefix, type, json);
+
+    if (!entity && (type === 'playlist' || type === 'track')) {
+      const renderer = findRendererForType(json, type);
+      const title =
+        pickRunsText(renderer?.flexColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs) ||
+        pickText(renderer?.title);
+      const { browseId, videoId } = extractNavigation(renderer ?? {});
+
+      console.log(`${INDEXER_LOG_CONTEXT} search_no_entity`, {
+        prefix,
+        entity_type: type,
+        title,
+        browse_id: browseId,
+        video_id: videoId,
+        has_renderer: Boolean(renderer),
+      });
+    }
+
+    return entity;
   } catch (err) {
     console.error(`${INDEXER_LOG_CONTEXT} search_failed`, {
       prefix,
