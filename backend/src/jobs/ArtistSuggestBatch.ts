@@ -155,7 +155,9 @@ async function markArtistsProcessed(
   const now = new Date().toISOString();
   const payload = uniqueChannelIds.map((artist_channel_id) => ({ artist_channel_id, created_at: now }));
 
-  const { data, error } = await client.from('suggest_queries').insert(payload, { ignoreDuplicates: true });
+  const { data, error } = await client
+    .from('suggest_queries')
+    .insert(payload, { ignoreDuplicates: true, returning: 'representation' });
 
   if (error) {
     console.error(`${INDEXER_LOG_CONTEXT} mark_processed_failed`, { message: error.message });
