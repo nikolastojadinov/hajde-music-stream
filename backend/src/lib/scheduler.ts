@@ -30,5 +30,5 @@ export function registerSchedulers(): void {
   console.log('- TrendingNow: daily at 06:00 local time');
   console.log('- MostPopular: daily at 06:15 local time');
   console.log('- NewReleases: daily at 06:30 local time');
-  console.log('- ArtistSuggestBatch: every 5 minutes between 07:00-21:00 local window');
+  console.log('- ArtistSuggestBatch: every minute (24/7)');
 }

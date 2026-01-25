@@ -1,7 +1,7 @@
 import cron from 'node-cron';
 
 import env from '../environments';
-import { DAILY_ARTIST_SUGGEST_CRON, runArtistSuggestTick } from './ArtistSuggestBatch';
+import { ARTIST_SUGGEST_CRON, runArtistSuggestTick } from './ArtistSuggestBatch';
 
 const JOB_LOG_CONTEXT = '[ArtistSuggestBatch]';
 const SCHEDULER_TIMEZONE = process.env.TZ || 'UTC';
@@ -15,7 +15,7 @@ export function scheduleArtistSuggestBatchJob(): void {
   }
   if (scheduled) return;
 
-  cron.schedule(DAILY_ARTIST_SUGGEST_CRON, async () => {
+  cron.schedule(ARTIST_SUGGEST_CRON, async () => {
     if (running) {
       console.log(`${JOB_LOG_CONTEXT} skip_concurrent_run`);
       return;
@@ -23,7 +23,7 @@ export function scheduleArtistSuggestBatchJob(): void {
 
     running = true;
     const hour = new Date().toLocaleString('en-US', { timeZone: SCHEDULER_TIMEZONE, hour: '2-digit', hour12: false });
-    console.log(`${JOB_LOG_CONTEXT} run_start`, { hour, cron: DAILY_ARTIST_SUGGEST_CRON });
+    console.log(`${JOB_LOG_CONTEXT} run_start`, { hour, cron: ARTIST_SUGGEST_CRON });
 
     try {
       await runArtistSuggestTick();
@@ -36,5 +36,5 @@ export function scheduleArtistSuggestBatchJob(): void {
   }, { timezone: SCHEDULER_TIMEZONE });
 
   scheduled = true;
-  console.log(`${JOB_LOG_CONTEXT} scheduled`, { cron: DAILY_ARTIST_SUGGEST_CRON, timezone: SCHEDULER_TIMEZONE });
+  console.log(`${JOB_LOG_CONTEXT} scheduled`, { cron: ARTIST_SUGGEST_CRON, timezone: SCHEDULER_TIMEZONE });
 }
