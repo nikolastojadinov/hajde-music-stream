@@ -7,7 +7,6 @@ const INDEXER_LOG_CONTEXT = '[suggest-indexer]';
 export const DAILY_ARTIST_SUGGEST_CRON = '*/5 7-20 * * *';
 
 const BATCH_LIMIT = 50;
-const PROCESSED_PAGE_SIZE = 1000;
 const SOURCE_TAG = 'artist_indexer';
 const MIN_PREFIX_LENGTH = 2;
 const MAX_PREFIX_LENGTH = 120;
@@ -33,10 +32,6 @@ interface SuggestEntryRow {
   last_seen_at: string;
   artist_channel_id: string;
   entity_type: (typeof ENTITY_TYPES)[number];
-}
-
-interface SuggestQueryRow {
-  artist_channel_id: string;
 }
 
 function normalizeQuery(value: string | null | undefined): string {
@@ -110,13 +105,26 @@ async function countArtistsWithChannel(client: SupabaseClient): Promise<number |
   return count ?? null;
 }
 
+async function countQueuedSuggestions(client: SupabaseClient): Promise<number | null> {
+  const { count, error } = await client
+    .from('suggest_queries')
+    .select('artist_channel_id', { count: 'exact', head: true });
+
+  if (error) {
+    console.error(`${JOB_LOG_CONTEXT} count_queued_failed`, { message: error.message });
+    return null;
+  }
+
+  return count ?? null;
+}
+
 async function countRemainingCandidates(client: SupabaseClient): Promise<number | null> {
   const { count, error } = await client
     .from('artists')
-    .select('youtube_channel_id,suggest_queries!left(artist_channel_id)', { count: 'exact', head: true })
+    .select('youtube_channel_id', { count: 'exact', head: true })
     .not('youtube_channel_id', 'is', null)
     .neq('youtube_channel_id', '')
-    .is('suggest_queries.artist_channel_id', null);
+    .filter('youtube_channel_id', 'not.in', '(select artist_channel_id from suggest_queries)');
 
   if (error) {
     console.error(`${JOB_LOG_CONTEXT} count_remaining_failed`, { message: error.message });
@@ -126,106 +134,23 @@ async function countRemainingCandidates(client: SupabaseClient): Promise<number 
   return count ?? null;
 }
 
-async function fetchAllProcessedChannelIds(client: SupabaseClient): Promise<Set<string>> {
-  const processed = new Set<string>();
-  let offset = 0;
-
-  while (true) {
-    const { data, error } = await client
-      .from('suggest_queries')
-      .select('artist_channel_id')
-      .order('artist_channel_id', { ascending: true })
-      .range(offset, offset + PROCESSED_PAGE_SIZE - 1);
-
-    if (error) {
-      console.error(`${JOB_LOG_CONTEXT} processed_channels_fetch_failed`, { message: error.message });
-      break;
-    }
-
-    const rows = (data || []) as SuggestQueryRow[];
-    for (const row of rows) {
-      if (row.artist_channel_id) processed.add(row.artist_channel_id);
-    }
-
-    if (rows.length < PROCESSED_PAGE_SIZE) break;
-    offset += PROCESSED_PAGE_SIZE;
-  }
-
-  console.log(`${JOB_LOG_CONTEXT} processed_channels_loaded`, { count: processed.size });
-  return processed;
-}
-
-async function fetchCandidatesWithJoin(
-  client: SupabaseClient,
-  limit: number
-): Promise<{ rows: ArtistRow[]; errorMessage?: string }> {
-  const { data, error } = await client
-    .from('artists')
-    .select(
-      'artist_key, artist, display_name, normalized_name, youtube_channel_id, created_at, updated_at, suggest_queries!left(artist_channel_id)'
-    )
-    .not('youtube_channel_id', 'is', null)
-    .neq('youtube_channel_id', '')
-    .is('suggest_queries.artist_channel_id', null)
-    .order('updated_at', { ascending: true, nullsFirst: false })
-    .order('created_at', { ascending: true })
-    .limit(limit);
-
-  if (error) {
-    const message = error.message || 'unknown_error';
-    console.error(`${JOB_LOG_CONTEXT} candidates_select_failed`, { message });
-    return { rows: [], errorMessage: message };
-  }
-
-  return { rows: (data || []) as ArtistRow[] };
-}
-
-async function fetchCandidatesFallback(client: SupabaseClient, limit: number): Promise<ArtistRow[]> {
-  console.log(`${JOB_LOG_CONTEXT} fallback_candidates_fetch_start`, { limit });
-  const processedSet = await fetchAllProcessedChannelIds(client);
-
+async function fetchCandidateArtists(client: SupabaseClient, limit: number): Promise<ArtistRow[]> {
   const { data, error } = await client
     .from('artists')
     .select('artist_key, artist, display_name, normalized_name, youtube_channel_id, created_at, updated_at')
     .not('youtube_channel_id', 'is', null)
     .neq('youtube_channel_id', '')
+    .filter('youtube_channel_id', 'not.in', '(select artist_channel_id from suggest_queries)')
     .order('updated_at', { ascending: true, nullsFirst: false })
     .order('created_at', { ascending: true })
-    .limit(limit * 4);
+    .limit(limit);
 
   if (error) {
-    console.error(`${JOB_LOG_CONTEXT} fallback_candidates_fetch_failed`, { message: error.message });
+    console.error(`${JOB_LOG_CONTEXT} candidates_select_failed`, { message: error.message });
     return [];
   }
 
-  const rows = (data || []) as ArtistRow[];
-  const filtered = rows.filter((row) => {
-    const channelId = row.youtube_channel_id?.trim();
-    return channelId && !processedSet.has(channelId);
-  });
-
-  console.log(`${JOB_LOG_CONTEXT} fallback_candidates_filtered`, {
-    fetched: rows.length,
-    filtered: filtered.length,
-    limit,
-  });
-
-  return filtered.slice(0, limit);
-}
-
-async function fetchCandidateArtists(
-  client: SupabaseClient,
-  limit: number
-): Promise<{ rows: ArtistRow[]; errorMessage?: string; usedFallback: boolean }> {
-  const { rows, errorMessage } = await fetchCandidatesWithJoin(client, limit);
-  if (!errorMessage) return { rows, usedFallback: false };
-
-  const lower = errorMessage.toLowerCase();
-  const shouldFallback = lower.includes('relationship') || lower.includes('foreign key') || lower.includes('schema');
-  if (!shouldFallback) return { rows: [], errorMessage, usedFallback: false };
-
-  const fallbackRows = await fetchCandidatesFallback(client, limit);
-  return { rows: fallbackRows, errorMessage, usedFallback: true };
+  return (data || []) as ArtistRow[];
 }
 
 async function insertSuggestEntries(client: SupabaseClient, rows: SuggestEntryRow[]): Promise<{ success: boolean; inserted: number }> {
@@ -264,9 +189,16 @@ export async function runArtistSuggestBatch(): Promise<{ processed: number }> {
 
   const totalWithChannel = await countArtistsWithChannel(client);
   if (totalWithChannel !== null) {
-    console.log(`${JOB_LOG_CONTEXT} candidates_total`, { total_with_channel: totalWithChannel });
+    console.log(`${JOB_LOG_CONTEXT} candidates_total_with_channel`, { total_with_channel: totalWithChannel });
   } else {
-    console.log(`${JOB_LOG_CONTEXT} candidates_total`, { status: 'unknown', reason: 'count_failed' });
+    console.log(`${JOB_LOG_CONTEXT} candidates_total_with_channel`, { status: 'unknown', reason: 'count_failed' });
+  }
+
+  const alreadyQueued = await countQueuedSuggestions(client);
+  if (alreadyQueued !== null) {
+    console.log(`${JOB_LOG_CONTEXT} candidates_already_queued`, { queued: alreadyQueued });
+  } else {
+    console.log(`${JOB_LOG_CONTEXT} candidates_already_queued`, { status: 'unknown', reason: 'count_failed' });
   }
 
   const remaining = await countRemainingCandidates(client);
@@ -276,17 +208,15 @@ export async function runArtistSuggestBatch(): Promise<{ processed: number }> {
     console.log(`${JOB_LOG_CONTEXT} candidates_remaining`, { status: 'unknown', reason: 'count_failed' });
   }
 
-  const candidateResult = await fetchCandidateArtists(client, BATCH_LIMIT);
-  if (candidateResult.usedFallback) {
-    console.log(`${JOB_LOG_CONTEXT} fallback_active`, { limit: BATCH_LIMIT });
-  }
-  if (!candidateResult.rows.length) {
-    const reason = candidateResult.errorMessage ? 'candidate_query_failed' : 'no_remaining_candidates';
-    console.log(`${INDEXER_LOG_CONTEXT} tick_complete`, { processed: processed.count, reason });
+  const candidates = await fetchCandidateArtists(client, BATCH_LIMIT);
+  console.log(`${JOB_LOG_CONTEXT} candidates_selected_new`, { count: candidates.length, limit: BATCH_LIMIT });
+
+  if (!candidates.length) {
+    console.log(`${INDEXER_LOG_CONTEXT} tick_complete`, { processed: processed.count, reason: 'no_remaining_candidates' });
     return { processed: processed.count };
   }
 
-  for (const artist of candidateResult.rows) {
+  for (const artist of candidates) {
     const channelId = (artist.youtube_channel_id || '').trim();
     if (!channelId) continue;
 
