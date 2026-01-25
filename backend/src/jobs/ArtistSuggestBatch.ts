@@ -124,7 +124,7 @@ async function countRemainingCandidates(client: SupabaseClient): Promise<number 
     .select('youtube_channel_id', { count: 'exact', head: true })
     .not('youtube_channel_id', 'is', null)
     .neq('youtube_channel_id', '')
-    .filter('youtube_channel_id', 'not.in', '(select artist_channel_id from suggest_queries)');
+    .not('youtube_channel_id', 'in', '(select artist_channel_id from suggest_queries)');
 
   if (error) {
     console.error(`${JOB_LOG_CONTEXT} count_remaining_failed`, { message: error.message });
@@ -140,7 +140,7 @@ async function fetchCandidateArtists(client: SupabaseClient, limit: number): Pro
     .select('artist_key, artist, display_name, normalized_name, youtube_channel_id, created_at, updated_at')
     .not('youtube_channel_id', 'is', null)
     .neq('youtube_channel_id', '')
-    .filter('youtube_channel_id', 'not.in', '(select artist_channel_id from suggest_queries)')
+    .not('youtube_channel_id', 'in', '(select artist_channel_id from suggest_queries)')
     .order('updated_at', { ascending: true, nullsFirst: false })
     .order('created_at', { ascending: true })
     .limit(limit);
@@ -201,8 +201,8 @@ async function markArtistsProcessed(
 
 export async function runArtistSuggestBatch(): Promise<{ processed: number }> {
   const client = getSupabaseAdmin();
-  let processedCount = 0;
   const readyToMark: string[] = [];
+  let processedAttempted = 0;
 
   const totalWithChannel = await countArtistsWithChannel(client);
   if (totalWithChannel !== null) {
@@ -226,16 +226,22 @@ export async function runArtistSuggestBatch(): Promise<{ processed: number }> {
   }
 
   const candidates = await fetchCandidateArtists(client, BATCH_LIMIT);
-  console.log(`${JOB_LOG_CONTEXT} candidates_selected_new`, { count: candidates.length, limit: BATCH_LIMIT });
+  console.log(`${JOB_LOG_CONTEXT} candidates_new`, { count: candidates.length, limit: BATCH_LIMIT });
 
   if (!candidates.length) {
-    console.log(`${INDEXER_LOG_CONTEXT} tick_complete`, { processed: processedCount, reason: 'no_remaining_candidates' });
-    return { processed: processedCount };
+    console.log(`${INDEXER_LOG_CONTEXT} tick_complete`, {
+      processed_attempted: 0,
+      inserted_new: 0,
+      skipped_existing: 0,
+      reason: 'no_remaining_candidates',
+    });
+    return { processed: 0 };
   }
 
   for (const artist of candidates) {
     const channelId = (artist.youtube_channel_id || '').trim();
     if (!channelId) continue;
+    processedAttempted += 1;
 
     const normalizedName = pickNormalizedName(artist);
     if (!normalizedName || normalizedName.length < MIN_PREFIX_LENGTH) {
@@ -256,27 +262,25 @@ export async function runArtistSuggestBatch(): Promise<{ processed: number }> {
 
     if (insertResult.success) {
       readyToMark.push(channelId);
-      console.log(`${INDEXER_LOG_CONTEXT} artist_done`, {
-        channelId,
-        normalizedName,
-        totalPrefixes: prefixes.length,
-        insertedCount: insertResult.inserted,
-      });
     }
+
+    console.log(`${INDEXER_LOG_CONTEXT} artist_done`, {
+      channelId,
+      normalizedName,
+      totalPrefixes: prefixes.length,
+      insertedCount: insertResult.inserted,
+    });
   }
 
   const markResult = await markArtistsProcessed(client, readyToMark);
-  if (markResult.success) {
-    processedCount += markResult.inserted;
-  }
 
   console.log(`${INDEXER_LOG_CONTEXT} tick_complete`, {
-    processed: processedCount,
+    processed_attempted: processedAttempted,
     inserted_new: markResult.inserted,
     skipped_existing: markResult.skipped,
   });
 
-  return { processed: processedCount };
+  return { processed: processedAttempted };
 }
 
 export async function runArtistSuggestTick(): Promise<void> {
