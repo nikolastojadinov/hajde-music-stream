@@ -169,23 +169,40 @@ async function insertSuggestEntries(client: SupabaseClient, rows: SuggestEntryRo
   return { success: true, inserted: data?.length ?? 0 };
 }
 
-async function markArtistProcessed(client: SupabaseClient, channelId: string): Promise<boolean> {
-  const payload = { artist_channel_id: channelId, created_at: new Date().toISOString() };
-  const { error } = await client
+async function markArtistsProcessed(
+  client: SupabaseClient,
+  channelIds: string[],
+): Promise<{ success: boolean; inserted: number; skipped: number }> {
+  const uniqueChannelIds = Array.from(new Set(channelIds.map((id) => id.trim()).filter(Boolean)));
+  if (!uniqueChannelIds.length) return { success: true, inserted: 0, skipped: 0 };
+
+  const now = new Date().toISOString();
+  const payload = uniqueChannelIds.map((artist_channel_id) => ({ artist_channel_id, created_at: now }));
+
+  const { data, error } = await client
     .from('suggest_queries')
-    .insert(payload, { onConflict: 'artist_channel_id', ignoreDuplicates: true });
+    .upsert(payload, { onConflict: 'artist_channel_id', ignoreDuplicates: true })
+    .select('artist_channel_id');
 
   if (error) {
-    console.error(`${INDEXER_LOG_CONTEXT} mark_processed_failed`, { channelId, message: error.message });
-    return false;
+    console.error(`${INDEXER_LOG_CONTEXT} mark_processed_failed`, { message: error.message });
+    return { success: false, inserted: 0, skipped: 0 };
   }
 
-  return true;
+  const inserted = data?.length ?? 0;
+  const skipped = Math.max(uniqueChannelIds.length - inserted, 0);
+  console.log(`${INDEXER_LOG_CONTEXT} mark_processed`, {
+    inserted_new: inserted,
+    skipped_existing: skipped,
+  });
+
+  return { success: true, inserted, skipped };
 }
 
 export async function runArtistSuggestBatch(): Promise<{ processed: number }> {
   const client = getSupabaseAdmin();
-  const processed = { count: 0 };
+  let processedCount = 0;
+  const readyToMark: string[] = [];
 
   const totalWithChannel = await countArtistsWithChannel(client);
   if (totalWithChannel !== null) {
@@ -212,8 +229,8 @@ export async function runArtistSuggestBatch(): Promise<{ processed: number }> {
   console.log(`${JOB_LOG_CONTEXT} candidates_selected_new`, { count: candidates.length, limit: BATCH_LIMIT });
 
   if (!candidates.length) {
-    console.log(`${INDEXER_LOG_CONTEXT} tick_complete`, { processed: processed.count, reason: 'no_remaining_candidates' });
-    return { processed: processed.count };
+    console.log(`${INDEXER_LOG_CONTEXT} tick_complete`, { processed: processedCount, reason: 'no_remaining_candidates' });
+    return { processed: processedCount };
   }
 
   for (const artist of candidates) {
@@ -222,24 +239,23 @@ export async function runArtistSuggestBatch(): Promise<{ processed: number }> {
 
     const normalizedName = pickNormalizedName(artist);
     if (!normalizedName || normalizedName.length < MIN_PREFIX_LENGTH) {
-      await markArtistProcessed(client, channelId);
-      processed.count += 1;
+      readyToMark.push(channelId);
+      console.log(`${INDEXER_LOG_CONTEXT} artist_skipped_short_name`, { channelId, normalizedName });
       continue;
     }
 
     const prefixes = buildPrefixes(normalizedName);
     if (!prefixes.length) {
-      await markArtistProcessed(client, channelId);
-      processed.count += 1;
+      readyToMark.push(channelId);
+      console.log(`${INDEXER_LOG_CONTEXT} artist_skipped_no_prefixes`, { channelId, normalizedName });
       continue;
     }
 
     const rows = buildRows(prefixes, channelId, normalizedName, new Date().toISOString());
     const insertResult = await insertSuggestEntries(client, rows);
-    const marked = await markArtistProcessed(client, channelId);
 
-    if (insertResult.success && marked) {
-      processed.count += 1;
+    if (insertResult.success) {
+      readyToMark.push(channelId);
       console.log(`${INDEXER_LOG_CONTEXT} artist_done`, {
         channelId,
         normalizedName,
@@ -249,8 +265,18 @@ export async function runArtistSuggestBatch(): Promise<{ processed: number }> {
     }
   }
 
-  console.log(`${INDEXER_LOG_CONTEXT} tick_complete`, { processed: processed.count });
-  return { processed: processed.count };
+  const markResult = await markArtistsProcessed(client, readyToMark);
+  if (markResult.success) {
+    processedCount += markResult.inserted;
+  }
+
+  console.log(`${INDEXER_LOG_CONTEXT} tick_complete`, {
+    processed: processedCount,
+    inserted_new: markResult.inserted,
+    skipped_existing: markResult.skipped,
+  });
+
+  return { processed: processedCount };
 }
 
 export async function runArtistSuggestTick(): Promise<void> {
