@@ -185,8 +185,8 @@ export default function AlbumPage() {
               ))}
             </div>
           )}
-+        </div>
-+      </div>
-+    </div>
-+  );
-+}
+        </div>
+      </div>
+    </div>
+  );
+}
