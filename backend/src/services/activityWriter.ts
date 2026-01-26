@@ -23,8 +23,4 @@ export async function recordActivityOnce(params: {
     return 'skipped_invalid_entity';
   }
   return writeActivity(params);
-}import { writeActivity } from './localSearchService';
-
-export async function recordActivityOnce(params: { userId: string; entityType: string; entityId: string; context?: unknown }): Promise<'inserted' | 'skipped_duplicate'> {
-  return writeActivity(params);
 }
