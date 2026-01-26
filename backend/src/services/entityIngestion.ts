@@ -260,7 +260,7 @@ async function resolveCanonicalArtist(params: CanonicalArtistParams): Promise<{ 
 async function upsertAlbums(inputs: AlbumInput[]): Promise<{ map: IdMap; count: number }> {
   if (!inputs.length) return { map: {}, count: 0 };
   const client = getSupabaseAdmin();
-  const rows = uniqueBy(
+  const prepared = uniqueBy(
     inputs.map((a) => ({
       external_id: normalize(a.externalId),
       title: normalize(a.title) || 'Album',
@@ -272,6 +272,32 @@ async function upsertAlbums(inputs: AlbumInput[]): Promise<{ map: IdMap; count: 
     })),
     (row) => row.external_id,
   ).filter((row) => Boolean(row.external_id));
+
+  if (!prepared.length) return { map: {}, count: 0 };
+
+  const artistCandidates = Array.from(new Set(prepared.map((row) => row.artist_key).filter((key): key is string => Boolean(key))));
+  const validArtists = new Set<string>();
+
+  if (artistCandidates.length) {
+    const { data: artistRows, error: artistError } = await client
+      .from('artists')
+      .select('artist_key')
+      .in('artist_key', artistCandidates);
+
+    if (artistError) throw new Error(`[upsertAlbums] artist_lookup ${artistError.message}`);
+    (artistRows || []).forEach((row: any) => {
+      if (row?.artist_key) validArtists.add(row.artist_key);
+    });
+  }
+
+  const rows = prepared.filter((row) => {
+    if (!row.artist_key) return true;
+    const exists = validArtists.has(row.artist_key);
+    if (!exists) {
+      console.info('[upsertAlbums] skipped_missing_artist', { external_id: row.external_id, artist_key: row.artist_key });
+    }
+    return exists;
+  });
 
   if (!rows.length) return { map: {}, count: 0 };
 
