@@ -19,10 +19,9 @@ import piPaymentsRouter from './routes/pi/payments';
 
 import searchRouter from './routes/search';
 import artistRouter from './routes/artist';
-import browseArtistRouter from './routes/browseArtist';
+import browseRouter from './routes';
 import clientLogRouter from './routes/clientLog';
 import playlistRouter from './routes/playlist';
-import browsePlaylistRouter from './routes/browsePlaylist';
 import activityRouter from './routes/activity';
 import localSearchRouter from './routes/localSearch';
 import { registerSchedulers } from './lib/scheduler';
@@ -178,11 +177,10 @@ app.use('/api/home', homeRouter);
 
 // On-demand artist hydration + local bundle
 app.use('/api/artist', artistRouter);
-app.use('/api/browse/artist', browseArtistRouter);
+app.use('/api/browse', browseRouter);
 
 // Playlist browse (YouTube Music)
 app.use('/api/playlist', playlistRouter);
-app.use('/api/browse/playlist', browsePlaylistRouter);
 
 // Activity tracking
 app.use('/api/activity', activityRouter);
