@@ -155,12 +155,22 @@ export default function Search() {
     }
 
     if (kind === "playlist") {
-      navigate(`/playlist/${encodeURIComponent(id)}`);
+      navigate(`/playlist/${encodeURIComponent(id)}`, {
+        state: {
+          externalId: id,
+          snapshot: meta ? { title: meta.title, subtitle: meta.subtitle ?? null, imageUrl: meta.imageUrl ?? null } : undefined,
+        },
+      });
       return;
     }
 
     if (kind === "album") {
-      navigate(`/album/${encodeURIComponent(id)}`);
+      navigate(`/album/${encodeURIComponent(id)}`, {
+        state: {
+          externalId: id,
+          snapshot: meta ? { title: meta.title, subtitle: meta.subtitle ?? null, imageUrl: meta.imageUrl ?? null } : undefined,
+        },
+      });
       return;
     }
 

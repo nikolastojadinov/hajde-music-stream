@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 
 import { PlaylistHeader } from "@/components/PlaylistHeader";
 import { TrackRow } from "@/components/TrackRow";
@@ -22,13 +22,21 @@ const isVideoId = (value: string | undefined | null): value is string => typeof 
 export default function PlaylistPage() {
   const { id } = useParams();
   const browseId = normalize(id);
+  const location = useLocation();
   const navigate = useNavigate();
   const { playCollection } = usePlayer();
 
+  const state = (location.state || {}) as { externalId?: string; snapshot?: { title?: string; subtitle?: string | null; imageUrl?: string | null } };
+  const snapshotTitle = normalize(state.snapshot?.title);
+  const snapshotSubtitle = normalize(state.snapshot?.subtitle);
+  const snapshotImage = state.snapshot?.imageUrl ?? null;
+
+  console.debug("[playlist] route snapshot", { snapshotTitle, snapshotSubtitle, snapshotImage });
+
   const [meta, setMeta] = useState<{ title: string; subtitle: string; thumbnail: string | null }>({
-    title: browseId,
-    subtitle: "",
-    thumbnail: null,
+    title: snapshotTitle || browseId,
+    subtitle: snapshotSubtitle,
+    thumbnail: snapshotImage,
   });
   const [tracks, setTracks] = useState<PlaylistApiResponse["tracks"]>([]);
   const [loading, setLoading] = useState(false);
@@ -37,7 +45,7 @@ export default function PlaylistPage() {
   useEffect(() => {
     if (!browseId) return;
 
-    setMeta({ title: browseId, subtitle: "", thumbnail: null });
+    setMeta({ title: snapshotTitle || browseId, subtitle: snapshotSubtitle, thumbnail: snapshotImage });
     setTracks([]);
     setError(null);
 
@@ -58,13 +66,20 @@ export default function PlaylistPage() {
         const json = (await res.json().catch(() => ({}))) as Partial<PlaylistApiResponse> & { error?: string };
         if (!res.ok) throw new Error(typeof json.error === "string" ? json.error : "Playlist fetch failed");
 
-        setMeta((prev) => ({
-          title: normalize(json.title) || prev.title || browseId,
-          subtitle: normalize(json.subtitle) || prev.subtitle,
-          thumbnail: normalize(json.thumbnail) || prev.thumbnail || null,
-        }));
-
+        const fetchedTitle = normalize(json.title);
+        const fetchedSubtitle = normalize(json.subtitle);
+        const fetchedThumb = normalize(json.thumbnail) || null;
         const nextTracks = Array.isArray(json.tracks) ? json.tracks : [];
+
+        console.debug("[playlist] backend response", { title: fetchedTitle || null, trackCount: nextTracks.length });
+
+        const shouldFallback = !fetchedTitle || nextTracks.length === 0;
+
+        setMeta((prev) => ({
+          title: (shouldFallback ? snapshotTitle : fetchedTitle) || prev.title || browseId,
+          subtitle: (shouldFallback ? snapshotSubtitle : fetchedSubtitle) || prev.subtitle,
+          thumbnail: (shouldFallback ? snapshotImage : fetchedThumb) || prev.thumbnail || null,
+        }));
         setTracks(nextTracks);
       } catch (err: any) {
         if (err?.name === "AbortError") return;
@@ -121,6 +136,8 @@ export default function PlaylistPage() {
     playCollection(playbackQueue, index, "playlist", browseId || null);
   };
 
+  const playlistSubtitle = `Playlist • ${normalizedTracks.length} songs`;
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-neutral-950 via-neutral-950 to-black text-white">
       <div className="relative mx-auto max-w-6xl px-4 pb-24">
@@ -143,7 +160,7 @@ export default function PlaylistPage() {
           onPlayAll={handlePlayAll}
           onShuffle={handleShufflePlay}
           disablePlayback={!playbackQueue.length}
-          subtitle={meta.subtitle}
+          subtitle={playlistSubtitle}
         />
 
         {error ? (

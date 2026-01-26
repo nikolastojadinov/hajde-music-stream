@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 
 import { PlaylistHeader } from "@/components/PlaylistHeader";
 import { TrackRow } from "@/components/TrackRow";
@@ -23,13 +23,21 @@ const isVideoId = (value: string | undefined | null): value is string => typeof 
 export default function AlbumPage() {
   const { id } = useParams();
   const albumId = normalize(id);
+  const location = useLocation();
   const navigate = useNavigate();
   const { playCollection } = usePlayer();
 
+  const state = (location.state || {}) as { externalId?: string; snapshot?: { title?: string; subtitle?: string | null; imageUrl?: string | null } };
+  const snapshotTitle = normalize(state.snapshot?.title);
+  const snapshotSubtitle = normalize(state.snapshot?.subtitle);
+  const snapshotImage = state.snapshot?.imageUrl ?? null;
+
+  console.debug("[album] route snapshot", { snapshotTitle, snapshotSubtitle, snapshotImage });
+
   const [meta, setMeta] = useState<{ title: string; subtitle: string; thumbnail: string | null }>({
-    title: albumId,
-    subtitle: "",
-    thumbnail: null,
+    title: snapshotTitle || albumId,
+    subtitle: snapshotSubtitle,
+    thumbnail: snapshotImage,
   });
   const [tracks, setTracks] = useState<AlbumApiResponse["tracks"]>([]);
   const [loading, setLoading] = useState(false);
@@ -38,7 +46,7 @@ export default function AlbumPage() {
   useEffect(() => {
     if (!albumId) return;
 
-    setMeta({ title: albumId, subtitle: "", thumbnail: null });
+    setMeta({ title: snapshotTitle || albumId, subtitle: snapshotSubtitle, thumbnail: snapshotImage });
     setTracks([]);
     setError(null);
 
@@ -59,13 +67,20 @@ export default function AlbumPage() {
         const json = (await res.json().catch(() => ({}))) as Partial<AlbumApiResponse> & { error?: string };
         if (!res.ok) throw new Error(typeof json.error === "string" ? json.error : "Album fetch failed");
 
-        setMeta((prev) => ({
-          title: normalize(json.title) || prev.title || albumId,
-          subtitle: normalize(json.subtitle) || prev.subtitle,
-          thumbnail: normalize(json.thumbnail) || prev.thumbnail || null,
-        }));
-
+        const fetchedTitle = normalize(json.title);
+        const fetchedSubtitle = normalize(json.subtitle);
+        const fetchedThumb = normalize(json.thumbnail) || null;
         const nextTracks = Array.isArray(json.tracks) ? json.tracks : [];
+
+        console.debug("[album] backend response", { title: fetchedTitle || null, trackCount: nextTracks.length });
+
+        const shouldFallback = !fetchedTitle || nextTracks.length === 0;
+
+        setMeta((prev) => ({
+          title: (shouldFallback ? snapshotTitle : fetchedTitle) || prev.title || albumId,
+          subtitle: (shouldFallback ? snapshotSubtitle : fetchedSubtitle) || prev.subtitle,
+          thumbnail: (shouldFallback ? snapshotImage : fetchedThumb) || prev.thumbnail || null,
+        }));
         setTracks(nextTracks);
       } catch (err: any) {
         if (err?.name === "AbortError") return;
@@ -156,7 +171,7 @@ export default function AlbumPage() {
           {loading ? (
             <div className="px-6 py-10 text-center text-sm text-neutral-400">Loading tracks...</div>
           ) : normalizedTracks.length === 0 ? (
-            <div className="px-6 py-10 text-center text-sm text-neutral-400">No tracks available for this album.</div>
+            <div className="px-6 py-10 text-center text-sm text-neutral-400">Album tracks not ingested yet</div>
           ) : (
             <div className="divide-y divide-white/5">
               {normalizedTracks.map((track, index) => (
