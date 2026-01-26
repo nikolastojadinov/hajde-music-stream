@@ -1,7 +1,13 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import { CONSENT_COOKIES, fetchInnertubeConfig } from '../services/youtubeInnertubeConfig';
 import { getSupabaseAdmin } from '../services/supabaseClient';
+import {
+  musicSearch,
+  type MusicSearchAlbum,
+  type MusicSearchArtist,
+  type MusicSearchPlaylist,
+  type MusicSearchTrack,
+} from '../services/youtubeMusicClient';
 
 const JOB_LOG_CONTEXT = '[ArtistSuggestBatch]';
 const INDEXER_LOG_CONTEXT = '[suggest-indexer]';
@@ -13,7 +19,6 @@ const MAX_PREFIX_LENGTH = 12;
 const SOURCE_TAG = 'artist_indexer';
 
 type SuggestEntityType = 'artist' | 'album' | 'playlist' | 'track';
-type SuggestEndpointType = 'browse' | 'watch' | 'watchPlaylist';
 
 type ArtistRow = {
   artist_key: string;
@@ -31,34 +36,14 @@ type SuggestEntryInsert = {
   results: Record<string, unknown>;
   meta: Record<string, unknown>;
   source: string;
+  artist_channel_id: string | null;
 };
 
-type PrefixEntity = {
-  type: SuggestEntityType;
-  externalId: string;
-  title: string;
-  endpointType: SuggestEndpointType;
-  endpointPayload: string;
-};
-
-type PrefixEntityMap = Partial<Record<SuggestEntityType, PrefixEntity>>;
-
-type InnertubeConfig = {
-  apiKey: string;
-  clientName: string;
-  clientVersion: string;
-  visitorData: string;
-  apiBase: string;
-};
-
-const USER_AGENT =
-  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
-
-const SEARCH_PARAMS: Record<SuggestEntityType, string> = {
-  artist: 'EgWKAQIIAWoKEAkQBRAKEAMQBA%3D%3D',
-  album: 'EgWKAQIYAWoKEAkQBRAKEAMQBA%3D%3D',
-  playlist: 'EgWKAQIQAWoKEAkQBRAKEAMQBA%3D%3D',
-  track: 'EgWKAQIoAWoKEAkQBRAKEAMQBA%3D%3D',
+type InsertedEntityFlags = {
+  artist: boolean;
+  track: boolean;
+  album: boolean;
+  playlist: boolean;
 };
 
 const VALID_ID_PATTERNS: Record<SuggestEntityType, RegExp> = {
@@ -67,8 +52,6 @@ const VALID_ID_PATTERNS: Record<SuggestEntityType, RegExp> = {
   playlist: /^(PL|VLPL|RDCLAK|OLAK5uy)[a-zA-Z0-9_-]+$/,
   track: /^[a-zA-Z0-9_-]{11}$/,
 };
-
-const ENTITY_TYPES: SuggestEntityType[] = ['artist', 'album', 'playlist', 'track'];
 
 function normalizeQuery(value: string | null | undefined): string {
   if (!value) return '';
@@ -110,231 +93,139 @@ async function fetchArtistCandidate(client: SupabaseClient): Promise<ArtistRow |
 }
 
 function isValidExternalId(type: SuggestEntityType, id: string): boolean {
-  return VALID_ID_PATTERNS[type].test(id);
+  const normalized = normalizeValue(id);
+  if (!normalized) return false;
+  return VALID_ID_PATTERNS[type].test(normalized);
 }
 
-function resolveApiBase(config: InnertubeConfig): string {
-  return config.apiBase.endsWith('/') ? config.apiBase : `${config.apiBase}/`;
+function buildResultPayload(
+  entityType: SuggestEntityType,
+  title: string,
+  endpointType: 'browse' | 'watch',
+  endpointPayload: string,
+  imageUrl?: string | null,
+  subtitle?: string | null,
+): Record<string, unknown> {
+  const payload: Record<string, unknown> = { type: entityType, title, endpointType, endpointPayload };
+  if (subtitle) payload.subtitle = subtitle;
+  if (imageUrl) payload.imageUrl = imageUrl;
+  return payload;
 }
 
-async function callYoutubei(config: InnertubeConfig, path: string, payload: Record<string, unknown>): Promise<any> {
-  const base = resolveApiBase(config);
-  const url = `${base}${path}?prettyPrint=false&key=${encodeURIComponent(config.apiKey)}`;
+function buildArtistRow(prefix: string, artist?: MusicSearchArtist): SuggestEntryInsert | null {
+  if (!artist) return null;
+  const channelId = normalizeValue(artist.id);
+  if (!isValidExternalId('artist', channelId)) return null;
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-      'Accept-Language': 'en-US,en;q=0.9',
-      'User-Agent': USER_AGENT,
-      Origin: 'https://music.youtube.com',
-      Referer: 'https://music.youtube.com/search',
-      Cookie: CONSENT_COOKIES,
-      'X-Goog-Visitor-Id': config.visitorData,
-      'X-YouTube-Client-Name': config.clientName,
-      'X-YouTube-Client-Version': config.clientVersion,
-    },
-    body: JSON.stringify(payload),
-  });
+  const title = normalizeValue(artist.name) || channelId;
+  const results = buildResultPayload('artist', title, 'browse', channelId, artist.imageUrl ?? null, null);
 
-  if (!response.ok) {
-    throw new Error(`Innertube request failed: ${response.status}`);
-  }
-
-  return response.json();
-}
-
-function buildSearchBody(config: InnertubeConfig, query: string, params: string): Record<string, unknown> {
   return {
-    context: {
-      client: {
-        clientName: config.clientName,
-        clientVersion: config.clientVersion,
-        hl: 'en',
-        gl: 'US',
-        platform: 'DESKTOP',
-        visitorData: config.visitorData,
-        userAgent: USER_AGENT,
-        utcOffsetMinutes: 0,
-      },
-      user: { enableSafetyMode: false },
-      request: { internalExperimentFlags: [], sessionIndex: 0 },
-    },
-    query,
-    params,
+    query: prefix,
+    normalized_query: prefix,
+    entity_type: 'artist',
+    external_id: channelId,
+    results,
+    meta: { entity_type: 'artist', external_id: channelId },
+    source: SOURCE_TAG,
+    artist_channel_id: channelId,
   };
 }
 
-function pickRunsText(runs: any): string {
-  if (!Array.isArray(runs) || runs.length === 0) return '';
-  return runs
-    .map((r) => normalizeValue(r?.text))
-    .join('')
-    .trim();
-}
+function buildTrackRow(prefix: string, track?: MusicSearchTrack): SuggestEntryInsert | null {
+  if (!track) return null;
+  const videoId = normalizeValue(track.youtubeId || track.id);
+  if (!isValidExternalId('track', videoId)) return null;
 
-function pickText(node: any): string {
-  const runs = node?.runs;
-  if (Array.isArray(runs) && runs.length > 0) return pickRunsText(runs);
-  const simple = node?.simpleText;
-  return normalizeValue(simple);
-}
-
-function extractNavigation(renderer: any): { browseId: string; videoId: string } {
-  const navigation =
-    renderer?.navigationEndpoint ||
-    renderer?.playNavigationEndpoint ||
-    renderer?.overlay?.musicItemThumbnailOverlayRenderer?.content?.musicPlayButtonRenderer?.playNavigationEndpoint ||
-    renderer?.menu?.navigationItemRenderer?.navigationEndpoint;
-
-  const browseId = normalizeValue(
-    navigation?.browseEndpoint?.browseId ||
-      renderer?.browseEndpoint?.browseId ||
-      navigation?.watchEndpoint?.playlistId ||
-      renderer?.playlistId,
-  );
-  const videoId = normalizeValue(navigation?.watchEndpoint?.videoId || renderer?.watchEndpoint?.videoId || renderer?.videoId);
-  return { browseId, videoId };
-}
-
-function findRendererMatchingType(json: any, type: SuggestEntityType): any | null {
-  const tabs =
-    json?.contents?.tabbedSearchResultsRenderer?.tabs ||
-    json?.tabbedSearchResultsRenderer?.tabs ||
-    [];
-
-  for (const tab of tabs) {
-    const sections = tab?.tabRenderer?.content?.sectionListRenderer?.contents || [];
-
-    for (const section of sections) {
-      const shelf = section?.musicShelfRenderer;
-      const contents = shelf?.contents || [];
-
-      for (const item of contents) {
-        const renderer = item?.musicResponsiveListItemRenderer;
-        if (!renderer) continue;
-
-        const { browseId, videoId } = extractNavigation(renderer);
-        const candidateId = type === 'track' ? videoId : browseId;
-
-        if (candidateId && isValidExternalId(type, candidateId)) {
-          return renderer;
-        }
-      }
-    }
-  }
-
-  return null;
-}
-
-function parseTopEntity(prefix: string, type: SuggestEntityType, json: any): PrefixEntity | null {
-  const renderer = findRendererMatchingType(json, type);
-  if (!renderer) return null;
-
-  const title =
-    pickRunsText(renderer?.flexColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs) ||
-    pickText(renderer?.title);
-
-  const { browseId, videoId } = extractNavigation(renderer);
-
-  if (type === 'track') {
-    const video = normalizeValue(videoId);
-    if (video && isValidExternalId('track', video)) {
-      return {
-        type: 'track',
-        externalId: video,
-        title: title || video,
-        endpointType: 'watch',
-        endpointPayload: video,
-      };
-    }
-    return null;
-  }
-
-  const browse = normalizeValue(browseId);
-  if (!browse || !isValidExternalId(type, browse)) return null;
-
-  const endpointType: SuggestEndpointType = type === 'playlist' ? 'watchPlaylist' : 'browse';
+  const title = normalizeValue(track.title) || videoId;
+  const subtitle = normalizeValue(track.artist);
+  const results = buildResultPayload('track', title, 'watch', videoId, track.imageUrl ?? null, subtitle || null);
 
   return {
-    type,
-    externalId: browse,
-    title: title || browse,
-    endpointType,
-    endpointPayload: browse,
+    query: prefix,
+    normalized_query: prefix,
+    entity_type: 'track',
+    external_id: videoId,
+    results,
+    meta: { entity_type: 'track', external_id: videoId },
+    source: SOURCE_TAG,
+    artist_channel_id: null,
   };
 }
 
-async function searchTop(prefix: string, type: SuggestEntityType, config: InnertubeConfig): Promise<PrefixEntity | null> {
-  const params = SEARCH_PARAMS[type];
-  const payload = buildSearchBody(config, prefix, params);
+function buildAlbumRow(prefix: string, album?: MusicSearchAlbum): SuggestEntryInsert | null {
+  if (!album) return null;
+  const albumId = normalizeValue(album.id);
+  if (!isValidExternalId('album', albumId)) return null;
 
-  try {
-    const json = await callYoutubei(config, 'search', payload);
-    const entity = parseTopEntity(prefix, type, json);
+  const title = normalizeValue(album.title) || albumId;
+  const subtitle = normalizeValue(album.channelTitle) || normalizeValue(album.channelId);
+  const results = buildResultPayload('album', title, 'browse', albumId, album.imageUrl ?? null, subtitle || null);
 
-    if (!entity) {
-      const renderer = findRendererMatchingType(json, type);
-      const title =
-        pickRunsText(renderer?.flexColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs) ||
-        pickText(renderer?.title);
-      const { browseId, videoId } = extractNavigation(renderer ?? {});
-
-      console.log(`${INDEXER_LOG_CONTEXT} search_no_entity`, {
-        prefix,
-        entity_type: type,
-        title,
-        browse_id: browseId,
-        video_id: videoId,
-        has_renderer: Boolean(renderer),
-      });
-    }
-
-    return entity;
-  } catch (err) {
-    console.error(`${INDEXER_LOG_CONTEXT} search_failed`, {
-      prefix,
-      entity_type: type,
-      message: err instanceof Error ? err.message : String(err),
-    });
-    return null;
-  }
+  return {
+    query: prefix,
+    normalized_query: prefix,
+    entity_type: 'album',
+    external_id: albumId,
+    results,
+    meta: { entity_type: 'album', external_id: albumId },
+    source: SOURCE_TAG,
+    artist_channel_id: null,
+  };
 }
 
-async function fetchPrefixEntities(prefix: string, config: InnertubeConfig): Promise<PrefixEntityMap> {
-  const entities: PrefixEntityMap = {};
-  for (const type of ENTITY_TYPES) {
-    const entity = await searchTop(prefix, type, config);
-    if (entity) {
-      entities[type] = entity;
-    }
-  }
-  return entities;
+function buildPlaylistRow(prefix: string, playlist?: MusicSearchPlaylist): SuggestEntryInsert | null {
+  if (!playlist) return null;
+  const playlistId = normalizeValue(playlist.id);
+  if (!isValidExternalId('playlist', playlistId)) return null;
+
+  const title = normalizeValue(playlist.title) || playlistId;
+  const subtitle = normalizeValue(playlist.channelTitle) || normalizeValue(playlist.channelId);
+  const results = buildResultPayload('playlist', title, 'browse', playlistId, playlist.imageUrl ?? null, subtitle || null);
+
+  return {
+    query: prefix,
+    normalized_query: prefix,
+    entity_type: 'playlist',
+    external_id: playlistId,
+    results,
+    meta: { entity_type: 'playlist', external_id: playlistId },
+    source: SOURCE_TAG,
+    artist_channel_id: null,
+  };
 }
 
-function buildRows(prefix: string, entities: PrefixEntityMap): SuggestEntryInsert[] {
+async function buildRowsFromSearch(prefix: string): Promise<{ rows: SuggestEntryInsert[]; flags: InsertedEntityFlags }> {
   const rows: SuggestEntryInsert[] = [];
-  for (const type of ENTITY_TYPES) {
-    const entity = entities[type];
-    if (!entity) continue;
+  const flags: InsertedEntityFlags = { artist: false, track: false, album: false, playlist: false };
 
-    rows.push({
-      query: prefix,
-      normalized_query: prefix,
-      entity_type: type,
-      external_id: entity.externalId,
-      results: {
-        type: entity.type,
-        title: entity.title,
-        endpointType: entity.endpointType,
-        endpointPayload: entity.endpointPayload,
-      },
-      meta: { entity_type: entity.type, external_id: entity.externalId },
-      source: SOURCE_TAG,
-    });
+  const searchResults = await musicSearch(prefix);
+
+  const artistRow = buildArtistRow(prefix, searchResults.artists?.[0]);
+  if (artistRow) {
+    rows.push(artistRow);
+    flags.artist = true;
   }
-  return rows;
+
+  const trackRow = buildTrackRow(prefix, searchResults.tracks?.[0]);
+  if (trackRow) {
+    rows.push(trackRow);
+    flags.track = true;
+  }
+
+  const albumRow = buildAlbumRow(prefix, searchResults.albums?.[0]);
+  if (albumRow) {
+    rows.push(albumRow);
+    flags.album = true;
+  }
+
+  const playlistRow = buildPlaylistRow(prefix, searchResults.playlists?.[0]);
+  if (playlistRow) {
+    rows.push(playlistRow);
+    flags.playlist = true;
+  }
+
+  return { rows, flags };
 }
 
 async function countExisting(
@@ -351,6 +242,7 @@ async function countExisting(
     .from('suggest_entries')
     .select('external_id', { head: false })
     .eq('normalized_query', prefix)
+    .eq('source', SOURCE_TAG)
     .in('entity_type', entityTypes)
     .in('external_id', externalIds);
 
@@ -366,8 +258,7 @@ async function insertSuggestEntries(
   client: SupabaseClient,
   prefix: string,
   rows: SuggestEntryInsert[],
-): Promise<{ insertedNew: number; skippedExisting: number; attempted: number; success: boolean }>
-{
+): Promise<{ insertedNew: number; skippedExisting: number; attempted: number; success: boolean }> {
   const attempted = rows.length;
   if (!attempted) return { insertedNew: 0, skippedExisting: 0, attempted: 0, success: true };
 
@@ -376,13 +267,20 @@ async function insertSuggestEntries(
   const { error } = await client
     .from('suggest_entries')
     .upsert(rows, {
-      onConflict: 'normalized_query,entity_type,external_id',
+      onConflict: 'source,normalized_query,entity_type,external_id',
       ignoreDuplicates: true,
       returning: 'minimal',
     });
 
   if (error) {
-    console.error(`${INDEXER_LOG_CONTEXT} entries_insert_failed`, { prefix, message: error.message });
+    const message = error.message;
+    const missingUnique = message?.toLowerCase().includes('no unique or exclusion constraint matching the on conflict specification');
+    console.error(`${INDEXER_LOG_CONTEXT} entries_insert_failed`, { prefix, message });
+    if (missingUnique) {
+      console.error(`${INDEXER_LOG_CONTEXT} missing_unique_constraint`, {
+        required: 'UNIQUE(source, normalized_query, entity_type, external_id)',
+      });
+    }
     return { insertedNew: 0, skippedExisting: 0, attempted, success: false };
   }
 
@@ -393,8 +291,7 @@ async function insertSuggestEntries(
 async function markArtistProcessed(
   client: SupabaseClient,
   channelId: string,
-): Promise<{ insertedNew: number; skippedExisting: number }>
-{
+): Promise<{ insertedNew: number; skippedExisting: number }> {
   const id = normalizeValue(channelId);
   if (!id) return { insertedNew: 0, skippedExisting: 0 };
 
@@ -419,7 +316,6 @@ async function markArtistProcessed(
 
 export async function runArtistSuggestBatch(): Promise<{ processed: number }> {
   const client = getSupabaseAdmin();
-  const config = (await fetchInnertubeConfig()) as InnertubeConfig;
 
   let processedAttempted = 0;
   let prefixesGenerated = 0;
@@ -460,8 +356,7 @@ export async function runArtistSuggestBatch(): Promise<{ processed: number }> {
   prefixesGenerated = prefixes.length;
 
   for (const prefix of prefixes) {
-    const entities = await fetchPrefixEntities(prefix, config);
-    const rows = buildRows(prefix, entities);
+    const { rows, flags } = await buildRowsFromSearch(prefix);
 
     const { insertedNew, skippedExisting, attempted, success } = await insertSuggestEntries(client, prefix, rows);
     if (success) {
@@ -469,16 +364,9 @@ export async function runArtistSuggestBatch(): Promise<{ processed: number }> {
       skippedExistingTotal += skippedExisting;
     }
 
-    const insertedEntities = {
-      artist: Boolean(rows.find((r) => r.entity_type === 'artist')),
-      album: Boolean(rows.find((r) => r.entity_type === 'album')),
-      playlist: Boolean(rows.find((r) => r.entity_type === 'playlist')),
-      track: Boolean(rows.find((r) => r.entity_type === 'track')),
-    };
-
     console.log(`${INDEXER_LOG_CONTEXT} prefix_processed`, {
       prefix,
-      inserted_entities: insertedEntities,
+      inserted_entities: flags,
       inserted_new_total: insertedNewTotal,
       skipped_existing_total: skippedExistingTotal,
       attempted,
