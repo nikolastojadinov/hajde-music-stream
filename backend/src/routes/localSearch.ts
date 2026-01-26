@@ -7,8 +7,8 @@ import {
   fetchRecentSearches,
   resolveUserIdentity,
   upsertRecentSearch,
-  writeActivity,
 } from '../services/localSearchService';
+import { recordActivityOnce } from '../services/activityWriter';
 
 const router = Router();
 
@@ -35,16 +35,24 @@ router.get('/activity', async (req, res) => {
 router.post('/activity', async (req, res) => {
   const userUid = resolveUserId(req);
   const body = req.body || {};
-  const entityType = typeof body.entityType === 'string' ? body.entityType.trim() : '';
-  const entityId = typeof body.entityId === 'string' ? body.entityId.trim() : '';
+  const rawType = typeof body.entityType === 'string' ? body.entityType.trim() : '';
+  const rawId = typeof body.entityId === 'string' ? body.entityId.trim() : '';
 
-  if (!userUid || !entityType || !entityId) {
-    console.warn('[local/activity] invalid_payload', { userUid, entityType, entityId });
+  if (!userUid || !rawType || !rawId) {
+    console.warn('[local/activity] invalid_payload', { userUid, rawType, rawId });
+    return res.status(400).json({ status: 'invalid_payload' });
+  }
+
+  // Normalize type to allowed set
+  const type = rawType.toLowerCase() === 'song' ? 'track' : rawType.toLowerCase();
+  if (!['artist', 'playlist', 'album', 'track'].includes(type)) {
+    console.warn('[local/activity] invalid_type', { type, rawType });
     return res.status(400).json({ status: 'invalid_payload' });
   }
 
   try {
-    const status = await writeActivity({ userId: userUid, entityType, entityId, context: body.context });
+    const status = await recordActivityOnce({ userId: userUid, entityType: type, entityId: rawId, context: body.context });
+    if (status === 'skipped_invalid_entity') return res.status(400).json({ status });
     return res.json({ status });
   } catch (err: any) {
     console.error('[local/activity] insert_failed', { message: err?.message || String(err) });

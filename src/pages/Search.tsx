@@ -3,8 +3,8 @@ import { Clock3, Loader2, Music2, Search as SearchIcon, Sparkles, UserRound } fr
 import { useNavigate } from "react-router-dom";
 
 import { Input } from "@/components/ui/input";
-import { useActivityLogger } from "@/hooks/useActivityLogger";
 import { usePlayer } from "@/contexts/PlayerContext";
+import { useActivityLogger } from "@/hooks/useActivityLogger";
 import {
   fetchLocalActivity,
   fetchLocalRecentQueries,
@@ -119,16 +119,6 @@ export default function Search() {
     const now = new Date().toISOString();
     upsertRecent({ query: q, lastUsedAt: now, useCount: 1 });
     await postLocalRecentSearch(q);
-    await logActivity("search", q);
-    upsertActivity({
-      entityType: "search",
-      entityId: q,
-      title: q,
-      subtitle: "Search",
-      imageUrl: null,
-      externalId: q,
-      createdAt: now,
-    });
   };
 
   const handleNavigate = async (type: string, entityId: string, title: string, subtitle?: string | null, imageUrl?: string | null) => {
@@ -234,7 +224,11 @@ export default function Search() {
           <button
             key={`${s.type}-${s.externalId || s.title}-${idx}`}
             className="flex w-full items-center gap-3 bg-white/0 px-4 py-3 text-left text-sm text-white transition hover:bg-white/5"
-            onClick={() => handleNavigate(s.type || "search", s.externalId || s.title, s.title, s.subtitle, s.imageUrl)}
+            onClick={() => {
+              const targetId = s.externalId || "";
+              if (!targetId) return;
+              void handleNavigate(s.type || "track", targetId, s.title, s.subtitle, s.imageUrl);
+            }}
           >
             <span className="flex h-9 w-9 items-center justify-center rounded-full bg-white/5 text-white/80">{iconForType(s.type)}</span>
             <div className="min-w-0">

@@ -30,6 +30,19 @@ const normalize = (value: unknown): string => (typeof value === 'string' ? value
 
 const isUuid = (value: string): boolean => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 
+const isValidEntityId = (entityTypeRaw: string, entityIdRaw: string): boolean => {
+  const type = normalize(entityTypeRaw).toLowerCase();
+  const id = normalize(entityIdRaw);
+  if (!type || !id) return false;
+
+  if (type === 'playlist') return id.startsWith('VL') || id.startsWith('PL');
+  if (type === 'artist') return id.startsWith('UC');
+  if (type === 'album') return id.startsWith('MPRE');
+  if (type === 'track' || type === 'song') return id.length === 11;
+
+  return false;
+};
+
 const takeUniqueBy = <T>(items: T[], key: (item: T) => string, limit: number): T[] => {
   const seen = new Set<string>();
   const out: T[] = [];
@@ -280,9 +293,12 @@ export async function fetchActivity(userId: string, limit = FALLBACK_LIMIT): Pro
 
 export async function writeActivity(params: { userId: string; entityType: string; entityId: string; context?: unknown }): Promise<'inserted' | 'skipped_duplicate'> {
   const userId = normalize(params.userId);
-  const entityType = normalize(params.entityType);
+  const entityType = normalize(params.entityType).toLowerCase();
   const entityId = normalize(params.entityId);
+
+  // Enforce only known entity formats; drop anything that looks like a raw query.
   if (!userId || !entityType || !entityId || !supabase) return 'skipped_duplicate';
+  if (!isValidEntityId(entityType, entityId)) return 'skipped_duplicate';
 
   const { data: lastRows, error: lastError } = await supabase
     .from('user_activity_history')
@@ -301,9 +317,11 @@ export async function writeActivity(params: { userId: string; entityType: string
 
   const context = params.context === undefined || params.context === null ? null : JSON.stringify(params.context);
 
+  const entityTypeForStorage = entityType === 'song' ? 'track' : entityType;
+
   const { error } = await supabase.from('user_activity_history').insert({
     user_id: userId,
-    entity_type: entityType,
+    entity_type: entityTypeForStorage,
     entity_id: entityId,
     context,
   });

@@ -47,7 +47,7 @@ export async function fetchLocalActivity(limit = 15): Promise<LocalActivityItem[
   }));
 }
 
-export async function postLocalActivity(payload: { entityType: string; entityId: string; context?: unknown }): Promise<'inserted' | 'skipped_duplicate' | 'error'> {
+export async function postLocalActivity(payload: { entityType: string; entityId: string; context?: unknown }): Promise<'inserted' | 'skipped_duplicate' | 'skipped_invalid_entity' | 'error'> {
   const url = withBackendOrigin('/api/local/activity');
   const res = await fetch(url, {
     method: 'POST',
@@ -55,7 +55,7 @@ export async function postLocalActivity(payload: { entityType: string; entityId:
     body: JSON.stringify(payload),
   });
   const data = await toJson(res);
-  return (data?.status as 'inserted' | 'skipped_duplicate') || 'error';
+  return (data?.status as 'inserted' | 'skipped_duplicate' | 'skipped_invalid_entity') || 'error';
 }
 
 export async function postLocalRecentSearch(query: string): Promise<'ok' | 'error'> {
