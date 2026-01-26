@@ -314,6 +314,7 @@ export async function fetchActivity(userId: string, limit = FALLBACK_LIMIT): Pro
     const type = typeRaw === 'song' ? 'track' : typeRaw;
     const id = normalize(row?.entity_id);
 
+    if (type.endsWith('_open')) return [] as Array<{ entity_type: string; entity_id: string; created_at: string; context?: any }>;
     if (!allowedTypes.has(type)) return [] as Array<{ entity_type: string; entity_id: string; created_at: string; context?: any }>;
     if (!isValidEntityId(type, id)) return [] as Array<{ entity_type: string; entity_id: string; created_at: string; context?: any }>;
 
@@ -344,6 +345,7 @@ export async function writeActivity(params: { userId: string; entityType: string
 
   // Enforce only known entity formats; drop anything that looks like a raw query.
   if (!userId || !entityType || !entityId || !supabase) return 'skipped_duplicate';
+  if (entityType.endsWith('_open')) return 'skipped_duplicate';
   if (!isValidEntityId(entityType, entityId)) return 'skipped_duplicate';
 
   const { data: lastRows, error: lastError } = await supabase

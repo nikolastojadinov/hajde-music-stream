@@ -9,6 +9,19 @@ export type TrackActivityInput = {
 
 type SerializedContext = string | null;
 
+const normalize = (value: unknown): string => (typeof value === 'string' ? value.trim() : '');
+
+const isValidEntityId = (entityTypeRaw: string, entityIdRaw: string): boolean => {
+  const type = normalize(entityTypeRaw).toLowerCase();
+  const id = normalize(entityIdRaw);
+  if (!type || !id) return false;
+  if (type === 'playlist') return id.startsWith('VL') || id.startsWith('PL');
+  if (type === 'artist') return id.startsWith('UC');
+  if (type === 'album') return id.startsWith('MPRE');
+  if (type === 'track' || type === 'song') return id.length === 11;
+  return false;
+};
+
 function serializeContext(context: unknown): SerializedContext {
   if (context === undefined || context === null) return null;
   if (typeof context === 'string') return context;
@@ -22,9 +35,10 @@ function serializeContext(context: unknown): SerializedContext {
 }
 
 export async function trackActivity({ userId, entityType, entityId, context }: TrackActivityInput): Promise<void> {
-  const userIdValue = typeof userId === 'string' ? userId.trim() : '';
-  const entityTypeValue = typeof entityType === 'string' ? entityType.trim() : '';
-  const entityIdValue = typeof entityId === 'string' ? entityId.trim() : '';
+  const userIdValue = normalize(userId);
+  const rawTypeValue = normalize(entityType).toLowerCase();
+  const entityTypeValue = rawTypeValue === 'song' ? 'track' : rawTypeValue;
+  const entityIdValue = normalize(entityId);
 
   console.log('[trackActivity] ENTER', {
     userId: userIdValue,
@@ -44,6 +58,16 @@ export async function trackActivity({ userId, entityType, entityId, context }: T
       entityType: entityTypeValue,
       entityId: entityIdValue,
     });
+    return;
+  }
+
+  if (entityTypeValue.endsWith('_open')) {
+    console.log('[trackActivity] SKIP', { reason: 'legacy_open_type', entityType: entityTypeValue, entityId: entityIdValue });
+    return;
+  }
+
+  if (!isValidEntityId(entityTypeValue, entityIdValue)) {
+    console.log('[trackActivity] SKIP', { reason: 'invalid_entity', entityType: entityTypeValue, entityId: entityIdValue });
     return;
   }
 
