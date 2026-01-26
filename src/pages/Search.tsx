@@ -68,9 +68,15 @@ export default function Search() {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const suggestTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const bootstrapRanRef = useRef(false);
+
   useEffect(() => {
+    if (bootstrapRanRef.current) return;
+    bootstrapRanRef.current = true;
+
     let active = true;
     inputRef.current?.focus();
+
     (async () => {
       try {
         const [act, recent] = await Promise.all([fetchLocalActivity(LIST_LIMIT), fetchLocalRecentQueries(LIST_LIMIT)]);
@@ -85,6 +91,7 @@ export default function Search() {
         if (active) setLoadingInitial(false);
       }
     })();
+
     return () => {
       active = false;
     };
@@ -143,15 +150,14 @@ export default function Search() {
     }
 
     if (kind === "playlist" || kind === "album") {
-      navigate(`/playlist/${encodeURIComponent(id)}`,
-        {
-          state: {
-            playlistId: id,
-            playlistTitle: title || id,
-            playlistCover: imageUrl ?? null,
-            artistName: subtitle || "",
-          },
-        });
+      navigate(`/playlist/${encodeURIComponent(id)}`, {
+        state: {
+          playlistId: id,
+          playlistTitle: title || id,
+          playlistCover: imageUrl ?? null,
+          artistName: subtitle || "",
+        },
+      });
       return;
     }
 
@@ -193,6 +199,17 @@ export default function Search() {
     navigateTo(item.entityType, item.entityId, item.title, item.subtitle, item.imageUrl ?? null);
   };
 
+  const subtitleFor = (item: LocalActivityItem): string => {
+    const cleaned = normalize(item.subtitle);
+    if (cleaned) return cleaned;
+    const type = item.entityType.toLowerCase();
+    if (type === "track" || type === "song") return "Song";
+    if (type === "album") return "Album";
+    if (type === "artist") return "Artist";
+    if (type === "playlist") return "Playlist";
+    return item.entityType || "";
+  };
+
   const renderActivity = () => {
     if (activity.length === 0) return null;
     return (
@@ -211,7 +228,7 @@ export default function Search() {
               <Thumb imageUrl={item.imageUrl} fallback={iconForType(item.entityType)} />
               <div className="min-w-0">
                 <div className="truncate font-semibold">{item.title}</div>
-                <div className="truncate text-xs text-white/60">{item.subtitle || item.entityType}</div>
+                <div className="truncate text-xs text-white/60">{subtitleFor(item)}</div>
               </div>
             </button>
           ))}
