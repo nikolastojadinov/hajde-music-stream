@@ -10,6 +10,7 @@ import {
   fetchLocalRecentQueries,
   fetchLocalSuggest,
   postLocalRecentSearch,
+  type ActivitySnapshot,
   type LocalActivityItem,
   type LocalRecentQuery,
   type LocalSuggestItem,
@@ -139,7 +140,11 @@ export default function Search() {
     await postLocalRecentSearch(q);
   };
 
-  const navigateTo = (type: string, entityId: string, title: string, subtitle?: string | null, imageUrl?: string | null) => {
+  const navigateTo = (
+    type: string,
+    entityId: string,
+    meta?: { title?: string; subtitle?: string | null; imageUrl?: string | null },
+  ) => {
     const kind = type.toLowerCase();
     const id = normalize(entityId);
     if (!id) return;
@@ -150,29 +155,17 @@ export default function Search() {
     }
 
     if (kind === "playlist") {
-      navigate(`/playlist/${encodeURIComponent(id)}`, {
-        state: {
-          playlistId: id,
-          playlistTitle: title || id,
-          playlistCover: imageUrl ?? null,
-          artistName: subtitle || "",
-          snapshot: { title, subtitle, imageUrl },
-        },
-      });
+      navigate(`/playlist/${encodeURIComponent(id)}`);
       return;
     }
 
     if (kind === "album") {
-      navigate(`/album/${encodeURIComponent(id)}`, {
-        state: {
-          snapshot: { title, subtitle, imageUrl },
-        },
-      });
+      navigate(`/album/${encodeURIComponent(id)}`);
       return;
     }
 
     if (kind === "track" || kind === "song") {
-      playTrack({ youtubeVideoId: id, title: title || "Track", artist: subtitle || "" }, "song");
+      playTrack({ youtubeVideoId: id, title: meta?.title || "Track", artist: meta?.subtitle || "" }, "song");
     }
   };
 
@@ -190,6 +183,7 @@ export default function Search() {
       imageUrl: s.imageUrl ?? null,
       externalId: id,
       createdAt: now,
+      context: { snapshot: { title: s.title, subtitle: s.subtitle ?? null, imageUrl: s.imageUrl ?? null } },
     });
 
     await logActivity({
@@ -202,22 +196,48 @@ export default function Search() {
       },
     });
 
-    navigateTo(type, id, s.title, s.subtitle, s.imageUrl ?? null);
+    navigateTo(type, id, { title: s.title, subtitle: s.subtitle ?? null, imageUrl: s.imageUrl ?? null });
   };
 
-  const handleActivityClick = (item: LocalActivityItem) => {
-    navigateTo(item.entityType, item.entityId, item.title, item.subtitle, item.imageUrl ?? null);
+  const snapshotFor = (item: LocalActivityItem): ActivitySnapshot | null => {
+    const snap = item.context?.snapshot;
+    if (snap && typeof snap === "object") return snap;
+    return null;
+  };
+
+  const withPrefix = (label: string, value: string): string => {
+    const cleaned = normalize(value);
+    if (!cleaned) return label;
+    if (cleaned.toLowerCase().startsWith(label.toLowerCase())) return cleaned;
+    return `${label} • ${cleaned}`;
+  };
+
+  const titleFor = (item: LocalActivityItem): string => {
+    const snap = snapshotFor(item);
+    return normalize(item.title) || normalize(snap?.title) || normalize(item.entityId) || "";
   };
 
   const subtitleFor = (item: LocalActivityItem): string => {
-    const cleaned = normalize(item.subtitle);
-    if (cleaned) return cleaned;
+    const snap = snapshotFor(item);
+    const cleaned = normalize(item.subtitle) || normalize(snap?.subtitle) || "";
     const type = item.entityType.toLowerCase();
-    if (type === "track" || type === "song") return "Song";
-    if (type === "album") return "Album";
-    if (type === "artist") return "Artist";
-    if (type === "playlist") return "Playlist";
-    return item.entityType || "";
+    if (type === "track" || type === "song") return withPrefix("Song", cleaned);
+    if (type === "playlist") return withPrefix("Playlist", cleaned);
+    if (type === "album") return withPrefix("Album", cleaned);
+    if (type === "artist") return cleaned || "Artist";
+    return cleaned || item.entityType || "";
+  };
+
+  const imageFor = (item: LocalActivityItem): string | null => {
+    const snap = snapshotFor(item);
+    return snap?.imageUrl ?? item.imageUrl ?? null;
+  };
+
+  const handleActivityClick = (item: LocalActivityItem) => {
+    const snap = snapshotFor(item);
+    const rawSubtitle = normalize(item.subtitle) || normalize(snap?.subtitle) || "";
+    const meta = { title: titleFor(item), subtitle: rawSubtitle, imageUrl: imageFor(item) ?? undefined };
+    navigateTo(item.entityType, item.entityId, meta);
   };
 
   const renderActivity = () => {
@@ -235,9 +255,9 @@ export default function Search() {
               className="flex w-full items-center gap-3 bg-white/0 px-4 py-3 text-left text-sm text-white transition hover:bg-white/5"
               onClick={() => handleActivityClick(item)}
             >
-              <Thumb imageUrl={item.imageUrl} fallback={iconForType(item.entityType)} />
+              <Thumb imageUrl={imageFor(item)} fallback={iconForType(item.entityType)} />
               <div className="min-w-0">
-                <div className="truncate font-semibold">{item.title}</div>
+                <div className="truncate font-semibold">{titleFor(item)}</div>
                 <div className="truncate text-xs text-white/60">{subtitleFor(item)}</div>
               </div>
             </button>

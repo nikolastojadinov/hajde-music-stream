@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 
 import { PlaylistHeader } from "@/components/PlaylistHeader";
 import { TrackRow } from "@/components/TrackRow";
@@ -15,18 +15,6 @@ type PlaylistApiResponse = {
   tracks: Array<{ videoId: string; title: string; artist: string; duration: string; thumbnail: string | null }>;
 };
 
-type LocationSnapshot = {
-  playlistId?: string;
-  playlistTitle?: string;
-  playlistCover?: string | null;
-  artistName?: string;
-  snapshot?: {
-    title?: string;
-    subtitle?: string | null;
-    imageUrl?: string | null;
-  };
-};
-
 const normalize = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
 
 const isVideoId = (value: string | undefined | null): value is string => typeof value === "string" && /^[A-Za-z0-9_-]{11}$/.test(value.trim());
@@ -35,28 +23,23 @@ export default function PlaylistPage() {
   const { id } = useParams();
   const browseId = normalize(id);
   const navigate = useNavigate();
-  const location = useLocation();
   const { playCollection } = usePlayer();
 
-  const bootstrapRanRef = useRef(false);
-
-  const state = (location.state || {}) as LocationSnapshot;
-  const snapshotTitle = normalize(state.snapshot?.title ?? state.playlistTitle);
-  const snapshotSubtitle = normalize(state.snapshot?.subtitle ?? state.artistName);
-  const snapshotImage = state.snapshot?.imageUrl ?? state.playlistCover ?? null;
-
   const [meta, setMeta] = useState<{ title: string; subtitle: string; thumbnail: string | null }>({
-    title: snapshotTitle || browseId,
-    subtitle: snapshotSubtitle,
-    thumbnail: snapshotImage,
+    title: browseId,
+    subtitle: "",
+    thumbnail: null,
   });
   const [tracks, setTracks] = useState<PlaylistApiResponse["tracks"]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!browseId || bootstrapRanRef.current) return;
-    bootstrapRanRef.current = true;
+    if (!browseId) return;
+
+    setMeta({ title: browseId, subtitle: "", thumbnail: null });
+    setTracks([]);
+    setError(null);
 
     const controller = new AbortController();
 

@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 
 import { PlaylistHeader } from "@/components/PlaylistHeader";
 import { TrackRow } from "@/components/TrackRow";
@@ -16,14 +16,6 @@ type AlbumApiResponse = {
   tracks: Array<{ videoId: string; title: string; artist: string; duration: string; thumbnail: string | null }>;
 };
 
-type LocationSnapshot = {
-  snapshot?: {
-    title?: string;
-    subtitle?: string | null;
-    imageUrl?: string | null;
-  };
-};
-
 const normalize = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
 
 const isVideoId = (value: string | undefined | null): value is string => typeof value === "string" && /^[A-Za-z0-9_-]{11}$/.test(value.trim());
@@ -32,28 +24,23 @@ export default function AlbumPage() {
   const { id } = useParams();
   const albumId = normalize(id);
   const navigate = useNavigate();
-  const location = useLocation();
   const { playCollection } = usePlayer();
 
-  const bootstrapRanRef = useRef(false);
-
-  const state = (location.state || {}) as LocationSnapshot;
-  const snapshotTitle = normalize(state.snapshot?.title);
-  const snapshotSubtitle = normalize(state.snapshot?.subtitle);
-  const snapshotImage = state.snapshot?.imageUrl ?? null;
-
   const [meta, setMeta] = useState<{ title: string; subtitle: string; thumbnail: string | null }>({
-    title: snapshotTitle || albumId,
-    subtitle: snapshotSubtitle,
-    thumbnail: snapshotImage,
+    title: albumId,
+    subtitle: "",
+    thumbnail: null,
   });
   const [tracks, setTracks] = useState<AlbumApiResponse["tracks"]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!albumId || bootstrapRanRef.current) return;
-    bootstrapRanRef.current = true;
+    if (!albumId) return;
+
+    setMeta({ title: albumId, subtitle: "", thumbnail: null });
+    setTracks([]);
+    setError(null);
 
     const controller = new AbortController();
 

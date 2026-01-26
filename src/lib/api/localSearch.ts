@@ -1,6 +1,12 @@
 import { getBackendHeaders } from '@/contexts/PiContext';
 import { withBackendOrigin } from '@/lib/backendUrl';
 
+export type ActivitySnapshot = {
+  title?: string;
+  subtitle?: string | null;
+  imageUrl?: string | null;
+};
+
 export type LocalActivityItem = {
   entityType: string;
   entityId: string;
@@ -9,6 +15,9 @@ export type LocalActivityItem = {
   imageUrl?: string | null;
   externalId?: string | null;
   createdAt: string;
+  context?: {
+    snapshot?: ActivitySnapshot | null;
+  };
 };
 
 export type LocalRecentQuery = {
@@ -31,6 +40,28 @@ const toJson = async (response: Response) => {
   return JSON.parse(text);
 };
 
+const parseSnapshot = (raw: unknown): ActivitySnapshot | null => {
+  if (!raw) return null;
+  let ctx: any = raw;
+  if (typeof raw === "string") {
+    try {
+      ctx = JSON.parse(raw);
+    } catch (err) {
+      console.error("[localSearch] failed to parse context", err);
+      return null;
+    }
+  }
+
+  const snap = (ctx as any)?.snapshot ?? ctx;
+  if (!snap || typeof snap !== "object") return null;
+
+  return {
+    title: typeof snap.title === "string" ? snap.title : undefined,
+    subtitle: typeof snap.subtitle === "string" ? snap.subtitle : snap.subtitle ?? null,
+    imageUrl: typeof snap.imageUrl === "string" ? snap.imageUrl : snap.imageUrl ?? null,
+  };
+};
+
 export async function fetchLocalActivity(limit = 15): Promise<LocalActivityItem[]> {
   const url = withBackendOrigin(`/api/local/activity?limit=${encodeURIComponent(String(limit))}`);
   const res = await fetch(url, { headers: await getBackendHeaders() });
@@ -44,6 +75,9 @@ export async function fetchLocalActivity(limit = 15): Promise<LocalActivityItem[
     imageUrl: row?.image_url ?? null,
     externalId: row?.external_id ?? null,
     createdAt: row?.created_at || '',
+    context: {
+      snapshot: parseSnapshot(row?.context),
+    },
   }));
 }
 
