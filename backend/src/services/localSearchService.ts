@@ -270,16 +270,25 @@ export async function fetchActivity(userId: string, limit = FALLBACK_LIMIT): Pro
     return [];
   }
 
-  const baseRows = Array.isArray(data)
-    ? (data as Array<{ entity_type: string; entity_id: string; created_at: string }>)
-    : [];
+  const allowedTypes = new Set(['artist', 'album', 'playlist', 'track']);
 
-  const rows = takeUniqueBy(baseRows, (row) => `${normalize(row.entity_type)}|${normalize(row.entity_id)}`, limit);
+  const sanitized = (Array.isArray(data) ? data : []).flatMap((row: any) => {
+    const typeRaw = normalize(row?.entity_type).toLowerCase();
+    const type = typeRaw === 'song' ? 'track' : typeRaw;
+    const id = normalize(row?.entity_id);
 
-  const artistIds = rows.filter((r) => normalize(r.entity_type) === 'artist').map((r) => normalize(r.entity_id));
-  const playlistIds = rows.filter((r) => normalize(r.entity_type) === 'playlist').map((r) => normalize(r.entity_id));
-  const albumIds = rows.filter((r) => normalize(r.entity_type) === 'album').map((r) => normalize(r.entity_id));
-  const trackIds = rows.filter((r) => ['track', 'song'].includes(normalize(r.entity_type))).map((r) => normalize(r.entity_id));
+    if (!allowedTypes.has(type)) return [] as Array<{ entity_type: string; entity_id: string; created_at: string }>;
+    if (!isValidEntityId(type, id)) return [] as Array<{ entity_type: string; entity_id: string; created_at: string }>;
+
+    return [{ entity_type: type, entity_id: id, created_at: row?.created_at || '' }];
+  });
+
+  const rows = takeUniqueBy(sanitized, (row) => `${row.entity_type}|${row.entity_id}`, limit);
+
+  const artistIds = rows.filter((r) => r.entity_type === 'artist').map((r) => r.entity_id);
+  const playlistIds = rows.filter((r) => r.entity_type === 'playlist').map((r) => r.entity_id);
+  const albumIds = rows.filter((r) => r.entity_type === 'album').map((r) => r.entity_id);
+  const trackIds = rows.filter((r) => r.entity_type === 'track').map((r) => r.entity_id);
 
   const [artistMeta, playlistMeta, albumMeta, trackMeta] = await Promise.all([
     fetchArtistMeta(artistIds),
