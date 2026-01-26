@@ -24,6 +24,7 @@ import clientLogRouter from './routes/clientLog';
 import playlistRouter from './routes/playlist';
 import browsePlaylistRouter from './routes/browsePlaylist';
 import activityRouter from './routes/activity';
+import localSearchRouter from './routes/localSearch';
 import { registerSchedulers } from './lib/scheduler';
 
 declare global {
@@ -185,6 +186,9 @@ app.use('/api/browse/playlist', browsePlaylistRouter);
 
 // Activity tracking
 app.use('/api/activity', activityRouter);
+
+// Local-only search/suggest/history (DB-backed, frontend only)
+app.use('/api/local', localSearchRouter);
 
 // Pi Network routes under /pi:
 app.use('/pi', piAuthRouter);
