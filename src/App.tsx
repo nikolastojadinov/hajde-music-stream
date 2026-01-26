@@ -28,6 +28,7 @@ import Library from "@/pages/Library";
 import License from "@/pages/License";
 import NotFound from "@/pages/NotFound";
 import PlaylistPage from "@/pages/PlaylistPage";
+import AlbumPage from "@/pages/Album";
 import Privacy from "@/pages/Privacy";
 import Search from "@/pages/Search";
 import Terms from "@/pages/Terms";
@@ -241,6 +242,7 @@ const AppRoutes = () => {
       <Route path="/library" element={<Library />} />
       <Route path="/artist/:artistKey" element={<Artist />} />
       <Route path="/playlist/:id" element={<PlaylistPage />} />
+      <Route path="/album/:id" element={<AlbumPage />} />
       <Route path="/create" element={<CreatePlaylist />} />
       <Route path="/edit/:id" element={<EditPlaylist />} />
       <Route path="/favorites" element={<Favorites />} />

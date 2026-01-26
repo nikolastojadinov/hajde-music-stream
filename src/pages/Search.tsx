@@ -149,13 +149,23 @@ export default function Search() {
       return;
     }
 
-    if (kind === "playlist" || kind === "album") {
+    if (kind === "playlist") {
       navigate(`/playlist/${encodeURIComponent(id)}`, {
         state: {
           playlistId: id,
           playlistTitle: title || id,
           playlistCover: imageUrl ?? null,
           artistName: subtitle || "",
+          snapshot: { title, subtitle, imageUrl },
+        },
+      });
+      return;
+    }
+
+    if (kind === "album") {
+      navigate(`/album/${encodeURIComponent(id)}`, {
+        state: {
+          snapshot: { title, subtitle, imageUrl },
         },
       });
       return;
