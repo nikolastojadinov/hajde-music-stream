@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, ReactNode, useEffect, useRef, useState } from "react";
 import { Clock3, Loader2, Music2, Search as SearchIcon, Sparkles, UserRound } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
@@ -39,6 +39,17 @@ const iconForType = (type: string) => {
   if (t === "album" || t === "playlist") return <Music2 className="h-4 w-4" />;
   if (t === "track" || t === "song") return <Sparkles className="h-4 w-4" />;
   return <SearchIcon className="h-4 w-4" />;
+};
+
+const Thumb = ({ imageUrl, fallback }: { imageUrl: string | null | undefined; fallback: ReactNode }) => {
+  if (imageUrl) {
+    return <img src={imageUrl} alt="" className="h-9 w-9 rounded-full object-cover" />;
+  }
+  return (
+    <span className="flex h-9 w-9 items-center justify-center rounded-full bg-white/5 text-white/80">
+      {fallback}
+    </span>
+  );
 };
 
 export default function Search() {
@@ -121,7 +132,7 @@ export default function Search() {
     await postLocalRecentSearch(q);
   };
 
-  const navigateTo = (type: string, entityId: string, title: string, subtitle?: string | null) => {
+  const navigateTo = (type: string, entityId: string, title: string, subtitle?: string | null, imageUrl?: string | null) => {
     const kind = type.toLowerCase();
     const id = normalize(entityId);
     if (!id) return;
@@ -132,7 +143,15 @@ export default function Search() {
     }
 
     if (kind === "playlist" || kind === "album") {
-      navigate(`/playlist/${encodeURIComponent(id)}`);
+      navigate(`/playlist/${encodeURIComponent(id)}`,
+        {
+          state: {
+            playlistId: id,
+            playlistTitle: title || id,
+            playlistCover: imageUrl ?? null,
+            artistName: subtitle || "",
+          },
+        });
       return;
     }
 
@@ -167,11 +186,11 @@ export default function Search() {
       },
     });
 
-    navigateTo(type, id, s.title, s.subtitle);
+    navigateTo(type, id, s.title, s.subtitle, s.imageUrl ?? null);
   };
 
   const handleActivityClick = (item: LocalActivityItem) => {
-    navigateTo(item.entityType, item.entityId, item.title, item.subtitle);
+    navigateTo(item.entityType, item.entityId, item.title, item.subtitle, item.imageUrl ?? null);
   };
 
   const renderActivity = () => {
@@ -189,7 +208,7 @@ export default function Search() {
               className="flex w-full items-center gap-3 bg-white/0 px-4 py-3 text-left text-sm text-white transition hover:bg-white/5"
               onClick={() => handleActivityClick(item)}
             >
-              <span className="flex h-9 w-9 items-center justify-center rounded-full bg-white/5 text-white/80">{iconForType(item.entityType)}</span>
+              <Thumb imageUrl={item.imageUrl} fallback={iconForType(item.entityType)} />
               <div className="min-w-0">
                 <div className="truncate font-semibold">{item.title}</div>
                 <div className="truncate text-xs text-white/60">{item.subtitle || item.entityType}</div>
@@ -245,7 +264,7 @@ export default function Search() {
             className="flex w-full items-center gap-3 bg-white/0 px-4 py-3 text-left text-sm text-white transition hover:bg-white/5"
             onClick={() => void handleSuggestionClick(s)}
           >
-            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-white/5 text-white/80">{iconForType(s.type)}</span>
+            <Thumb imageUrl={s.imageUrl} fallback={iconForType(s.type)} />
             <div className="min-w-0">
               <div className="truncate font-semibold">{s.title}</div>
               <div className="truncate text-xs text-white/60">{s.subtitle || s.type}</div>
