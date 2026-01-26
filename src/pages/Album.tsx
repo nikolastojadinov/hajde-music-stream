@@ -151,7 +151,7 @@ export default function AlbumPage() {
         </div>
 
         <PlaylistHeader
-+          // PlaylistHeader also serves album layouts for consistency
+          // PlaylistHeader also serves album layouts for consistency
           title={meta.title || albumId}
           thumbnail={meta.thumbnail}
           trackCount={normalizedTracks.length}
