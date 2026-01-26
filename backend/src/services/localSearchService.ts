@@ -257,7 +257,11 @@ export async function fetchActivity(userId: string, limit = FALLBACK_LIMIT): Pro
     return [];
   }
 
-  const rows = takeUniqueBy(data || [], (row) => `${normalize(row.entity_type)}|${normalize(row.entity_id)}`, limit);
+  const baseRows = Array.isArray(data)
+    ? (data as Array<{ entity_type: string; entity_id: string; created_at: string }>)
+    : [];
+
+  const rows = takeUniqueBy(baseRows, (row) => `${normalize(row.entity_type)}|${normalize(row.entity_id)}`, limit);
 
   const artistIds = rows.filter((r) => normalize(r.entity_type) === 'artist').map((r) => normalize(r.entity_id));
   const playlistIds = rows.filter((r) => normalize(r.entity_type) === 'playlist').map((r) => normalize(r.entity_id));
