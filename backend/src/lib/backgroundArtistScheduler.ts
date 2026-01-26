@@ -5,6 +5,7 @@ import { browseArtistById } from '../services/youtubeMusicClient';
 import { runFullArtistIngest } from '../services/fullArtistIngest';
 import { ensureArtistDescriptionForNightly } from '../services/nightlyArtistIngest';
 import { createNightlyIngestReporter, type NightlyIngestReporter } from '../ingest/nightlyIngestRunner';
+import { getSupabaseAdmin } from '../services/supabaseClient';
 import {
   claimNextUnresolvedArtist,
   markResolveAttempt,
@@ -19,8 +20,29 @@ const JOB_LOG_CONTEXT = '[NightlyArtistIngest]';
 const SCHEDULER_TIMEZONE = process.env.TZ || 'UTC';
 const CRON_EXPRESSION = '*/5 * * * *';
 
+const GLOBAL_NIGHTLY_LOCK_KEY = 8900421;
+
 let scheduled = false;
 let running = false;
+
+async function tryAcquireGlobalNightlyLock(): Promise<boolean> {
+  const client = getSupabaseAdmin();
+  const sql = `SELECT to_jsonb(pg_try_advisory_lock(${GLOBAL_NIGHTLY_LOCK_KEY})) AS payload;`;
+  const { data, error } = await client.rpc('run_raw_single', { sql });
+  if (error) throw new Error(`[NightlyArtistIngest] global_lock_failed ${error.message}`);
+  if (!Array.isArray(data) || data.length === 0) return false;
+  const payload = (data[0] as any)?.payload;
+  if (payload === null || payload === undefined) return false;
+  if (typeof payload === 'boolean') return payload;
+  if (typeof payload?.value === 'boolean') return payload.value;
+  return Boolean(payload);
+}
+
+async function releaseGlobalNightlyLock(): Promise<void> {
+  const client = getSupabaseAdmin();
+  const sql = `SELECT to_jsonb(pg_advisory_unlock(${GLOBAL_NIGHTLY_LOCK_KEY})) AS payload;`;
+  await client.rpc('run_raw_single', { sql });
+}
 
 function normalize(value: string | null | undefined): string {
   return typeof value === 'string' ? value.trim() : '';
@@ -165,6 +187,15 @@ async function runNightlyArtistIngestOnce(): Promise<void> {
   const reporter = createNightlyIngestReporter();
   const startedAtMs = Date.now();
 
+  const globalLock = await tryAcquireGlobalNightlyLock();
+  if (!globalLock) {
+    console.log(`${JOB_LOG_CONTEXT} skipped_already_running`);
+    reporter.addWarning('global_lock_not_acquired');
+    reporter.markEnd();
+    await reporter.persist();
+    return;
+  }
+
   console.log(`${JOB_LOG_CONTEXT} run_start`, { hour: now.getHours(), mode: '24h', timezone: SCHEDULER_TIMEZONE });
 
   const lockAcquired = await tryAcquireUnresolvedArtistLock();
@@ -173,6 +204,7 @@ async function runNightlyArtistIngestOnce(): Promise<void> {
     reporter.addWarning('lock_not_acquired');
     reporter.markEnd();
     await reporter.persist();
+    await releaseGlobalNightlyLock();
     return;
   }
 
@@ -181,6 +213,12 @@ async function runNightlyArtistIngestOnce(): Promise<void> {
     if (!candidate) {
       console.log(`${JOB_LOG_CONTEXT} no_unresolved_artists`);
       reporter.addWarning('no_unresolved_artists');
+      return;
+    }
+
+    if (!candidate.artistKey) {
+      console.log(`${JOB_LOG_CONTEXT} skipped_empty_artist`);
+      reporter.addWarning('empty_artist_key');
       return;
     }
 
@@ -197,6 +235,7 @@ async function runNightlyArtistIngestOnce(): Promise<void> {
     });
   } finally {
     await releaseUnresolvedArtistLock();
+    await releaseGlobalNightlyLock();
     reporter.markEnd();
     await reporter.persist();
   }
