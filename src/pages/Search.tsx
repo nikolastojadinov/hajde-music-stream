@@ -121,23 +121,10 @@ export default function Search() {
     await postLocalRecentSearch(q);
   };
 
-  const handleNavigate = async (type: string, entityId: string, title: string, subtitle?: string | null, imageUrl?: string | null) => {
+  const navigateTo = (type: string, entityId: string, title: string, subtitle?: string | null) => {
     const kind = type.toLowerCase();
     const id = normalize(entityId);
     if (!id) return;
-
-    const now = new Date().toISOString();
-    upsertActivity({
-      entityType: kind,
-      entityId: id,
-      title: title || id,
-      subtitle: subtitle ?? null,
-      imageUrl: imageUrl ?? null,
-      externalId: id,
-      createdAt: now,
-    });
-
-    await logActivity(kind, id);
 
     if (kind === "artist") {
       navigate(`/artist/${encodeURIComponent(id)}`);
@@ -151,8 +138,40 @@ export default function Search() {
 
     if (kind === "track" || kind === "song") {
       playTrack({ youtubeVideoId: id, title: title || "Track", artist: subtitle || "" }, "song");
-      return;
     }
+  };
+
+  const handleSuggestionClick = async (s: LocalSuggestItem) => {
+    const id = normalize(s.externalId);
+    const type = (s.type || "track").toLowerCase();
+    if (!id) return;
+
+    const now = new Date().toISOString();
+    upsertActivity({
+      entityType: type,
+      entityId: id,
+      title: s.title || id,
+      subtitle: s.subtitle ?? null,
+      imageUrl: s.imageUrl ?? null,
+      externalId: id,
+      createdAt: now,
+    });
+
+    await logActivity({
+      type,
+      externalId: id,
+      snapshot: {
+        title: s.title,
+        subtitle: s.subtitle ?? null,
+        imageUrl: s.imageUrl ?? null,
+      },
+    });
+
+    navigateTo(type, id, s.title, s.subtitle);
+  };
+
+  const handleActivityClick = (item: LocalActivityItem) => {
+    navigateTo(item.entityType, item.entityId, item.title, item.subtitle);
   };
 
   const renderActivity = () => {
@@ -168,7 +187,7 @@ export default function Search() {
             <button
               key={`${item.entityType}-${item.entityId}`}
               className="flex w-full items-center gap-3 bg-white/0 px-4 py-3 text-left text-sm text-white transition hover:bg-white/5"
-              onClick={() => handleNavigate(item.entityType, item.entityId, item.title, item.subtitle, item.imageUrl)}
+              onClick={() => handleActivityClick(item)}
             >
               <span className="flex h-9 w-9 items-center justify-center rounded-full bg-white/5 text-white/80">{iconForType(item.entityType)}</span>
               <div className="min-w-0">
@@ -224,11 +243,7 @@ export default function Search() {
           <button
             key={`${s.type}-${s.externalId || s.title}-${idx}`}
             className="flex w-full items-center gap-3 bg-white/0 px-4 py-3 text-left text-sm text-white transition hover:bg-white/5"
-            onClick={() => {
-              const targetId = s.externalId || "";
-              if (!targetId) return;
-              void handleNavigate(s.type || "track", targetId, s.title, s.subtitle, s.imageUrl);
-            }}
+            onClick={() => void handleSuggestionClick(s)}
           >
             <span className="flex h-9 w-9 items-center justify-center rounded-full bg-white/5 text-white/80">{iconForType(s.type)}</span>
             <div className="min-w-0">

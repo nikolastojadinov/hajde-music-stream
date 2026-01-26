@@ -10,6 +10,12 @@ export type ActivityItem = {
   created_at: string;
 };
 
+type SnapshotMeta = {
+  title?: string;
+  subtitle?: string | null;
+  imageUrl?: string | null;
+};
+
 export type SuggestItem = {
   type: string;
   external_id: string | null;
@@ -180,7 +186,7 @@ async function fetchAlbumMeta(ids: string[]): Promise<Record<string, { title: st
 }
 
 function mergeMeta(
-  items: Array<{ entity_type: string; entity_id: string; created_at: string }>,
+  items: Array<{ entity_type: string; entity_id: string; created_at: string; context?: any }>,
   meta: {
     artists: Record<string, { title: string; image: string | null }>;
     playlists: Record<string, { title: string; subtitle: string | null; image: string | null }>;
@@ -192,13 +198,34 @@ function mergeMeta(
     const key = normalize(row.entity_id);
     const type = normalize(row.entity_type).toLowerCase();
 
+    const context = typeof row.context === 'string' ? safeParseContext(row.context) : row.context;
+    const snapshot: SnapshotMeta | null = (context as any)?.snapshot || null;
+
+    const pickTitle = (catalogTitle?: string | null): string => {
+      if (catalogTitle) return catalogTitle;
+      if (snapshot?.title) return snapshot.title;
+      return key;
+    };
+
+    const pickSubtitle = (catalogSubtitle?: string | null): string | null => {
+      if (catalogSubtitle) return catalogSubtitle;
+      if (snapshot?.subtitle !== undefined) return snapshot.subtitle ?? null;
+      return null;
+    };
+
+    const pickImageFrom = (catalogImage?: string | null): string | null => {
+      if (catalogImage) return catalogImage;
+      if (snapshot?.imageUrl) return snapshot.imageUrl || null;
+      return null;
+    };
+
     if (type === 'artist') {
       const m = meta.artists[key];
       return {
         entity_type: 'artist',
         entity_id: key,
-        title: m?.title || key,
-        image_url: m?.image || null,
+        title: pickTitle(m?.title),
+        image_url: pickImageFrom(m?.image),
         external_id: key,
         created_at: row.created_at,
       };
@@ -209,9 +236,9 @@ function mergeMeta(
       return {
         entity_type: 'playlist',
         entity_id: key,
-        title: m?.title || key,
-        subtitle: m?.subtitle || null,
-        image_url: m?.image || null,
+        title: pickTitle(m?.title),
+        subtitle: pickSubtitle(m?.subtitle),
+        image_url: pickImageFrom(m?.image),
         external_id: key,
         created_at: row.created_at,
       };
@@ -222,9 +249,9 @@ function mergeMeta(
       return {
         entity_type: 'album',
         entity_id: key,
-        title: m?.title || key,
-        subtitle: m?.subtitle || null,
-        image_url: m?.image || null,
+        title: pickTitle(m?.title),
+        subtitle: pickSubtitle(m?.subtitle),
+        image_url: pickImageFrom(m?.image),
         external_id: key,
         created_at: row.created_at,
       };
@@ -235,9 +262,9 @@ function mergeMeta(
       return {
         entity_type: 'track',
         entity_id: key,
-        title: m?.title || key,
-        subtitle: m?.subtitle || null,
-        image_url: m?.image || null,
+        title: pickTitle(m?.title),
+        subtitle: pickSubtitle(m?.subtitle),
+        image_url: pickImageFrom(m?.image),
         external_id: key,
         created_at: row.created_at,
       };
@@ -246,13 +273,23 @@ function mergeMeta(
     return {
       entity_type: type || 'generic',
       entity_id: key,
-      title: key,
-      image_url: null,
+      title: pickTitle(),
+      image_url: pickImageFrom(),
       external_id: key,
       created_at: row.created_at,
     };
   });
 }
+
+const safeParseContext = (contextRaw: string): unknown => {
+  if (!contextRaw) return null;
+  try {
+    return JSON.parse(contextRaw);
+  } catch (err) {
+    console.warn('[localSearch] context_parse_failed', { message: (err as Error)?.message });
+    return null;
+  }
+};
 
 export async function fetchActivity(userId: string, limit = FALLBACK_LIMIT): Promise<ActivityItem[]> {
   const uid = normalize(userId);
@@ -260,7 +297,7 @@ export async function fetchActivity(userId: string, limit = FALLBACK_LIMIT): Pro
 
   const { data, error } = await supabase
     .from('user_activity_history')
-    .select('entity_type,entity_id,created_at')
+    .select('entity_type,entity_id,created_at,context')
     .eq('user_id', uid)
     .order('created_at', { ascending: false })
     .limit(limit * 5);
@@ -277,10 +314,10 @@ export async function fetchActivity(userId: string, limit = FALLBACK_LIMIT): Pro
     const type = typeRaw === 'song' ? 'track' : typeRaw;
     const id = normalize(row?.entity_id);
 
-    if (!allowedTypes.has(type)) return [] as Array<{ entity_type: string; entity_id: string; created_at: string }>;
-    if (!isValidEntityId(type, id)) return [] as Array<{ entity_type: string; entity_id: string; created_at: string }>;
+    if (!allowedTypes.has(type)) return [] as Array<{ entity_type: string; entity_id: string; created_at: string; context?: any }>;
+    if (!isValidEntityId(type, id)) return [] as Array<{ entity_type: string; entity_id: string; created_at: string; context?: any }>;
 
-    return [{ entity_type: type, entity_id: id, created_at: row?.created_at || '' }];
+    return [{ entity_type: type, entity_id: id, created_at: row?.created_at || '', context: row?.context }];
   });
 
   const rows = takeUniqueBy(sanitized, (row) => `${row.entity_type}|${row.entity_id}`, limit);
@@ -324,7 +361,16 @@ export async function writeActivity(params: { userId: string; entityType: string
     }
   }
 
-  const context = params.context === undefined || params.context === null ? null : JSON.stringify(params.context);
+  const context = (() => {
+    if (params.context === undefined || params.context === null) return null;
+    if (typeof params.context === 'string') return params.context;
+    try {
+      return JSON.stringify(params.context);
+    } catch (err) {
+      console.warn('[localSearch] activity_context_stringify_failed', { message: (err as Error)?.message });
+      return null;
+    }
+  })();
 
   const entityTypeForStorage = entityType === 'song' ? 'track' : entityType;
 

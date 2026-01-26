@@ -1,5 +1,11 @@
 import { writeActivity } from './localSearchService';
 
+type SnapshotMeta = {
+  title: string;
+  subtitle?: string | null;
+  imageUrl?: string | null;
+};
+
 const isValidEntityId = (entityTypeRaw: string, entityIdRaw: string): boolean => {
   const type = (entityTypeRaw || '').trim().toLowerCase();
   const id = (entityIdRaw || '').trim();
@@ -18,9 +24,22 @@ export async function recordActivityOnce(params: {
   entityType: string;
   entityId: string;
   context?: unknown;
+  snapshot?: SnapshotMeta | null;
 }): Promise<'inserted' | 'skipped_duplicate' | 'skipped_invalid_entity'> {
   if (!isValidEntityId(params.entityType, params.entityId)) {
     return 'skipped_invalid_entity';
   }
-  return writeActivity(params);
+
+  const contextPayload = (() => {
+    if (params.context !== undefined) return params.context;
+    if (params.snapshot) return { snapshot: params.snapshot };
+    return undefined;
+  })();
+
+  return writeActivity({
+    userId: params.userId,
+    entityType: params.entityType,
+    entityId: params.entityId,
+    context: contextPayload,
+  });
 }
