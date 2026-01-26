@@ -391,15 +391,11 @@ export async function fetchLocalSuggest(q: string, limit = 10): Promise<SuggestI
   }
 
   return (data || []).map((row: any) => {
-    const title = normalize(row?.query) || normalize(row?.normalized_query) || query;
-    const meta = row?.meta || {};
-    let image: string | null = null;
-    if (meta?.image_url) image = normalize(meta.image_url) || null;
-    else if (meta?.thumbnail_url) image = normalize(meta.thumbnail_url) || null;
+    const results = row?.results || {};
 
-    let subtitle: string | null = null;
-    if (meta?.subtitle) subtitle = normalize(meta.subtitle) || null;
-    else if (meta?.channel_title) subtitle = normalize(meta.channel_title) || null;
+    const title = normalize(results?.title) || normalize(row?.query) || query;
+    const subtitle = normalize(results?.subtitle) || null;
+    const image = normalize(results?.imageUrl) || null;
 
     return {
       type: normalize(row?.entity_type) || 'generic',
