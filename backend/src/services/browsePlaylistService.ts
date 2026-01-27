@@ -1,4 +1,4 @@
-import { parsePlaylistFromInnertube, type ParsedTrack } from "../lib/innertube/playlistParser";
+import { parsePlaylistFromInnertube, type ParsedPlaylist, type ParsedTrack } from "../lib/innertube/playlistParser";
 import { ingestPlaylistOrAlbum } from "./ingestPlaylistOrAlbum";
 import { recordInnertubePayload } from "./innertubeRawStore";
 import { getSupabaseAdmin } from "./supabaseClient";
