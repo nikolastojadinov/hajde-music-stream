@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 import { PlaylistHeader } from "@/components/PlaylistHeader";
 import { TrackRow } from "@/components/TrackRow";
@@ -7,7 +8,7 @@ import { usePlayer } from "@/contexts/PlayerContext";
 import { getBackendHeaders } from "@/contexts/PiContext";
 import { withBackendOrigin } from "@/lib/backendUrl";
 
-// We reuse the browse/playlist endpoint because it supports albums (MPRE* IDs).
+// Backend album payload shape
 type AlbumApiResponse = {
   id: string;
   title: string;
@@ -16,9 +17,98 @@ type AlbumApiResponse = {
   tracks: Array<{ videoId: string; title: string; artist: string; duration: string; thumbnail: string | null }>;
 };
 
+type AlbumMeta = { title: string; subtitle: string; thumbnail: string | null };
+
+type SupabaseTrackRow = {
+  position: number | null;
+  tracks: { id: string | null; title: string | null; artist: string | null; duration: number | null; cover_url: string | null } | null;
+};
+
+type FetchedAlbum = { meta: AlbumMeta; tracks: AlbumApiResponse["tracks"] };
+
 const normalize = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
 
 const isVideoId = (value: string | undefined | null): value is string => typeof value === "string" && /^[A-Za-z0-9_-]{11}$/.test(value.trim());
+
+const formatDuration = (value: string | number | null | undefined): string => {
+  if (typeof value === "string" && value.includes(":")) return value.trim();
+  const seconds = typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : null;
+  if (seconds === null) return "";
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${mins}:${secs.toString().padStart(2, "0")}`;
+};
+
+const buildSupabase = (): SupabaseClient | null => {
+  const url = normalize(import.meta.env.VITE_SUPABASE_URL);
+  const key = normalize(import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY);
+  if (!url || !key) return null;
+  return createClient(url, key);
+};
+
+async function fetchBackendAlbum(browseId: string): Promise<FetchedAlbum | null> {
+  const url = withBackendOrigin(`/api/browse/album?browseId=${encodeURIComponent(browseId)}`);
+  const res = await fetch(url, {
+    method: "GET",
+    headers: { Accept: "application/json", ...(await getBackendHeaders()) },
+    credentials: "include",
+  });
+
+  const json = (await res.json().catch(() => ({}))) as Partial<AlbumApiResponse> & { error?: string };
+  if (!res.ok) throw new Error(typeof json.error === "string" ? json.error : "Album fetch failed");
+
+  const meta: AlbumMeta = {
+    title: normalize(json.title) || browseId,
+    subtitle: normalize(json.subtitle) || "Album",
+    thumbnail: normalize(json.thumbnail) || null,
+  };
+
+  const tracks = Array.isArray(json.tracks) ? json.tracks : [];
+  return { meta, tracks };
+}
+
+async function fetchSupabaseAlbum(client: SupabaseClient | null, externalId: string): Promise<FetchedAlbum | null> {
+  if (!client) return null;
+
+  const { data: albumRow, error: albumErr } = await client
+    .from("albums")
+    .select("id,title,cover_url,external_id")
+    .eq("external_id", externalId)
+    .maybeSingle();
+
+  if (albumErr || !albumRow) return null;
+
+  const { data: trackRows, error: trackErr } = await client
+    .from("album_tracks")
+    .select("position, tracks:tracks(*)")
+    .eq("album_id", albumRow.id)
+    .order("position", { ascending: true });
+
+  if (trackErr || !Array.isArray(trackRows)) return null;
+
+  const tracks: AlbumApiResponse["tracks"] = (trackRows as SupabaseTrackRow[])
+    .map((row) => {
+      const track = row.tracks;
+      const videoId = normalize(track?.id);
+      if (!videoId) return null;
+      return {
+        videoId,
+        title: normalize(track?.title) || "Untitled",
+        artist: normalize(track?.artist),
+        duration: formatDuration(track?.duration),
+        thumbnail: normalize(track?.cover_url) || null,
+      };
+    })
+    .filter(Boolean) as AlbumApiResponse["tracks"];
+
+  const meta: AlbumMeta = {
+    title: normalize(albumRow.title) || externalId,
+    subtitle: "Album",
+    thumbnail: normalize(albumRow.cover_url) || null,
+  };
+
+  return { meta, tracks };
+}
 
 export default function AlbumPage() {
   const { id } = useParams();
@@ -27,16 +117,19 @@ export default function AlbumPage() {
   const navigate = useNavigate();
   const { playCollection } = usePlayer();
 
-  const state = (location.state || {}) as { externalId?: string; snapshot?: { title?: string; subtitle?: string | null; imageUrl?: string | null } };
+  const state = (location.state || {}) as {
+    externalId?: string;
+    snapshot?: { title?: string; subtitle?: string | null; imageUrl?: string | null };
+  };
   const snapshotTitle = normalize(state.snapshot?.title);
   const snapshotSubtitle = normalize(state.snapshot?.subtitle);
   const snapshotImage = state.snapshot?.imageUrl ?? null;
 
-  console.debug("[album] route snapshot", { snapshotTitle, snapshotSubtitle, snapshotImage });
+  const supabase = useMemo(() => buildSupabase(), []);
 
-  const [meta, setMeta] = useState<{ title: string; subtitle: string; thumbnail: string | null }>({
+  const [meta, setMeta] = useState<AlbumMeta>({
     title: snapshotTitle || albumId,
-    subtitle: snapshotSubtitle,
+    subtitle: snapshotSubtitle || "Album",
     thumbnail: snapshotImage,
   });
   const [tracks, setTracks] = useState<AlbumApiResponse["tracks"]>([]);
@@ -46,7 +139,7 @@ export default function AlbumPage() {
   useEffect(() => {
     if (!albumId) return;
 
-    setMeta({ title: snapshotTitle || albumId, subtitle: snapshotSubtitle, thumbnail: snapshotImage });
+    setMeta({ title: snapshotTitle || albumId, subtitle: snapshotSubtitle || "Album", thumbnail: snapshotImage });
     setTracks([]);
     setError(null);
 
@@ -54,46 +147,52 @@ export default function AlbumPage() {
 
     const load = async () => {
       setLoading(true);
-      setError(null);
       try {
-        const url = withBackendOrigin(`/api/browse/playlist?browseId=${encodeURIComponent(albumId)}`);
-        const res = await fetch(url, {
-          method: "GET",
-          headers: { Accept: "application/json", ...(await getBackendHeaders()) },
-          credentials: "include",
-          signal: controller.signal,
-        });
+        // 1) Backend first
+        const backend = await fetchBackendAlbum(albumId);
+        if (controller.signal.aborted) return;
 
-        const json = (await res.json().catch(() => ({}))) as Partial<AlbumApiResponse> & { error?: string };
-        if (!res.ok) throw new Error(typeof json.error === "string" ? json.error : "Album fetch failed");
+        if (backend && backend.tracks.length > 0) {
+          setMeta(backend.meta);
+          setTracks(backend.tracks);
+          return;
+        }
 
-        const fetchedTitle = normalize(json.title);
-        const fetchedSubtitle = normalize(json.subtitle);
-        const fetchedThumb = normalize(json.thumbnail) || null;
-        const nextTracks = Array.isArray(json.tracks) ? json.tracks : [];
+        // 2) Supabase fallback when backend has no tracks
+        const supabaseResult = await fetchSupabaseAlbum(supabase, albumId);
+        if (controller.signal.aborted) return;
 
-        console.debug("[album] backend response", { title: fetchedTitle || null, trackCount: nextTracks.length });
+        if (supabaseResult && supabaseResult.tracks.length > 0) {
+          setMeta((prev) => ({
+            title: supabaseResult.meta.title || prev.title,
+            subtitle: supabaseResult.meta.subtitle || prev.subtitle,
+            thumbnail: supabaseResult.meta.thumbnail || prev.thumbnail,
+          }));
+          setTracks(supabaseResult.tracks);
+          return;
+        }
 
-        const shouldFallback = !fetchedTitle || nextTracks.length === 0;
-
-        setMeta((prev) => ({
-          title: (shouldFallback ? snapshotTitle : fetchedTitle) || prev.title || albumId,
-          subtitle: (shouldFallback ? snapshotSubtitle : fetchedSubtitle) || prev.subtitle,
-          thumbnail: (shouldFallback ? snapshotImage : fetchedThumb) || prev.thumbnail || null,
-        }));
-        setTracks(nextTracks);
+        // Keep backend meta even if empty
+        if (backend) {
+          setMeta((prev) => ({
+            title: backend.meta.title || prev.title,
+            subtitle: backend.meta.subtitle || prev.subtitle,
+            thumbnail: backend.meta.thumbnail || prev.thumbnail,
+          }));
+          setTracks([]);
+        }
       } catch (err: any) {
-        if (err?.name === "AbortError") return;
+        if (controller.signal.aborted) return;
         setError(err?.message || "Album fetch failed");
         setTracks([]);
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       }
     };
 
     void load();
     return () => controller.abort();
-  }, [albumId]);
+  }, [albumId, snapshotImage, snapshotSubtitle, snapshotTitle, supabase]);
 
   const normalizedTracks = useMemo(() => {
     return tracks
@@ -153,7 +252,6 @@ export default function AlbumPage() {
         </div>
 
         <PlaylistHeader
-          // PlaylistHeader also serves album layouts for consistency
           title={meta.title || albumId}
           thumbnail={meta.thumbnail}
           trackCount={normalizedTracks.length}
@@ -171,7 +269,7 @@ export default function AlbumPage() {
           {loading ? (
             <div className="px-6 py-10 text-center text-sm text-neutral-400">Loading tracks...</div>
           ) : normalizedTracks.length === 0 ? (
-            <div className="px-6 py-10 text-center text-sm text-neutral-400">Album tracks not ingested yet</div>
+            <div className="px-6 py-10 text-center text-sm text-neutral-400">No tracks found</div>
           ) : (
             <div className="divide-y divide-white/5">
               {normalizedTracks.map((track, index) => (
