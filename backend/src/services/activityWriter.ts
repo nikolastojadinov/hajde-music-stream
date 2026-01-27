@@ -6,9 +6,11 @@ type SnapshotMeta = {
   imageUrl?: string | null;
 };
 
+const normalize = (value: unknown): string => (typeof value === 'string' ? value.trim() : '');
+
 const isValidEntityId = (entityTypeRaw: string, entityIdRaw: string): boolean => {
-  const type = (entityTypeRaw || '').trim().toLowerCase();
-  const id = (entityIdRaw || '').trim();
+  const type = normalize(entityTypeRaw).toLowerCase();
+  const id = normalize(entityIdRaw);
   if (!type || !id) return false;
 
   if (type === 'playlist') return id.startsWith('VL') || id.startsWith('PL');
@@ -26,7 +28,11 @@ export async function recordActivityOnce(params: {
   context?: unknown;
   snapshot?: SnapshotMeta | null;
 }): Promise<'inserted' | 'skipped_duplicate' | 'skipped_invalid_entity'> {
-  if (!isValidEntityId(params.entityType, params.entityId)) {
+  const entityType = normalize(params.entityType).toLowerCase();
+  const entityId = normalize(params.entityId);
+  const normalizedType = entityType === 'song' ? 'track' : entityType;
+
+  if (!isValidEntityId(normalizedType, entityId)) {
     return 'skipped_invalid_entity';
   }
 
@@ -37,9 +43,9 @@ export async function recordActivityOnce(params: {
   })();
 
   return writeActivity({
-    userId: params.userId,
-    entityType: params.entityType,
-    entityId: params.entityId,
+    userId: normalize(params.userId),
+    entityType: normalizedType,
+    entityId,
     context: contextPayload,
   });
 }

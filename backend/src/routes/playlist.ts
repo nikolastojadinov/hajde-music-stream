@@ -57,12 +57,12 @@ router.get('/', async (req, res) => {
     if (userId && exists?.data) {
       void trackActivity({
         userId,
-        entityType: 'playlist_open',
+        entityType: 'playlist',
         entityId: playlistId,
         context: { source: 'playlist', browseId: playlistId },
       });
     } else if (!userId) {
-      console.log('[trackActivity] SKIP', { reason: 'missing_userId', entityType: 'playlist_open', entityId: playlistId });
+      console.log('[trackActivity] SKIP', { reason: 'missing_userId', entityType: 'playlist', entityId: playlistId });
     }
 
     res.set('Cache-Control', 'no-store');

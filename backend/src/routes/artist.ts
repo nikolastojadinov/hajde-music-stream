@@ -53,12 +53,12 @@ router.get('/', async (req, res) => {
     if (userId && exists?.data) {
       void trackActivity({
         userId,
-        entityType: 'artist_open',
-        entityId: artistKey,
+        entityType: 'artist',
+        entityId: browse.artist.channelId || browseId,
         context: { source: 'artist', browseId },
       });
     } else if (!userId) {
-      console.log('[trackActivity] SKIP', { reason: 'missing_userId', entityType: 'artist_open', entityId: artistKey });
+      console.log('[trackActivity] SKIP', { reason: 'missing_userId', entityType: 'artist', entityId: browse.artist.channelId || browseId });
     }
 
     res.set('Cache-Control', 'no-store');

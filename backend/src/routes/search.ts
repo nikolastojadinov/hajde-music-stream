@@ -1,6 +1,5 @@
 import { Router, type Request } from "express";
 
-import { trackActivity } from "../lib/trackActivity";
 import supabase from "../services/supabaseClient";
 import { getLastValidSearchSession, saveSearchSession } from "../lib/searchSessionManager";
 import {
@@ -121,12 +120,6 @@ router.get("/results", async (req, res) => {
     } as any;
 
     if (userId) {
-      void trackActivity({
-        userId,
-        entityType: "search",
-        entityId: q,
-        context: { source: "search", query: q },
-      });
       void saveSearchSession({ userId, query: q, results: response });
     }
 

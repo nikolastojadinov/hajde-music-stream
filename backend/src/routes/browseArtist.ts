@@ -169,12 +169,12 @@ router.get('/', async (req, res) => {
     if (userId && exists?.data) {
       void trackActivity({
         userId,
-        entityType: 'artist_open',
-        entityId: artistKey || ingestBrowseId,
+        entityType: 'artist',
+        entityId: ingestBrowseId,
         context: { source: 'browse_artist', browseId: ingestBrowseId },
       });
     } else if (!userId) {
-      console.log('[trackActivity] SKIP', { reason: 'missing_userId', entityType: 'artist_open', entityId: artistKey || ingestBrowseId });
+      console.log('[trackActivity] SKIP', { reason: 'missing_userId', entityType: 'artist', entityId: ingestBrowseId });
     }
 
     res.set('Cache-Control', 'no-store');

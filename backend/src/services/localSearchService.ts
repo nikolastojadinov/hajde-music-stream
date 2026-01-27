@@ -338,9 +338,12 @@ export async function fetchActivity(userId: string, limit = FALLBACK_LIMIT): Pro
   return mergeMeta(rows, { artists: artistMeta, playlists: playlistMeta, albums: albumMeta, tracks: trackMeta });
 }
 
+const ACTIVITY_DEDUPE_WINDOW_MS = 5 * 60 * 1000; // five minutes
+
 export async function writeActivity(params: { userId: string; entityType: string; entityId: string; context?: unknown }): Promise<'inserted' | 'skipped_duplicate'> {
   const userId = normalize(params.userId);
-  const entityType = normalize(params.entityType).toLowerCase();
+  const entityTypeRaw = normalize(params.entityType).toLowerCase();
+  const entityType = entityTypeRaw === 'song' ? 'track' : entityTypeRaw;
   const entityId = normalize(params.entityId);
 
   // Enforce only known entity formats; drop anything that looks like a raw query.
@@ -348,19 +351,26 @@ export async function writeActivity(params: { userId: string; entityType: string
   if (entityType.endsWith('_open')) return 'skipped_duplicate';
   if (!isValidEntityId(entityType, entityId)) return 'skipped_duplicate';
 
-  const { data: lastRows, error: lastError } = await supabase
-    .from('user_activity_history')
-    .select('entity_type, entity_id')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: false })
-    .limit(1);
+  const dedupeSince = new Date(Date.now() - ACTIVITY_DEDUPE_WINDOW_MS).toISOString();
 
-  if (!lastError && Array.isArray(lastRows) && lastRows.length === 1) {
-    const last = lastRows[0];
-    if (normalize(last?.entity_type) === entityType && normalize(last?.entity_id) === entityId) {
-      console.info('[localSearch] activity_skipped_duplicate', { userId, entityType, entityId });
-      return 'skipped_duplicate';
-    }
+  const { data: recentRow, error: recentError } = await supabase
+    .from('user_activity_history')
+    .select('entity_type, entity_id, created_at')
+    .eq('user_id', userId)
+    .eq('entity_type', entityType)
+    .eq('entity_id', entityId)
+    .gte('created_at', dedupeSince)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!recentError && recentRow) {
+    console.info('[localSearch] activity_skipped_duplicate', { userId, entityType, entityId, dedupeSince });
+    return 'skipped_duplicate';
+  }
+
+  if (recentError && recentError.code !== 'PGRST116') {
+    console.warn('[localSearch] activity_dedupe_lookup_failed', { message: recentError.message, userId, entityType, entityId });
   }
 
   const context = (() => {
@@ -374,11 +384,9 @@ export async function writeActivity(params: { userId: string; entityType: string
     }
   })();
 
-  const entityTypeForStorage = entityType === 'song' ? 'track' : entityType;
-
   const { error } = await supabase.from('user_activity_history').insert({
     user_id: userId,
-    entity_type: entityTypeForStorage,
+    entity_type: entityType,
     entity_id: entityId,
     context,
   });
