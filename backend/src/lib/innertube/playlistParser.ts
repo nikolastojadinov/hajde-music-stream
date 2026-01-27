@@ -173,7 +173,7 @@ export function parseTracksFromInnertube(data: any, albumArtist: string | null, 
 	const items = collectTrackRenderers(data);
 
 	const responsiveTracks = Array.isArray(items)
-		? (items
+		? items
 				.map((item: any) => item?.musicResponsiveListItemRenderer)
 				.filter(Boolean)
 				.map((renderer: any) => {
