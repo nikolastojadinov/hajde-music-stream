@@ -7,282 +7,284 @@ const VIDEO_ID_REGEX = /^[A-Za-z0-9_-]{11}$/;
 const normalizeString = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
 
 const textOrNull = (value: unknown): string | null => {
-	const text = normalizeString(value);
-	return text ? text : null;
+  const text = normalizeString(value);
+  return text ? text : null;
 };
 
 const ensureVideoId = (value: unknown): string | null => {
-	const candidate = normalizeString(value);
-	return VIDEO_ID_REGEX.test(candidate) ? candidate : null;
+  const candidate = normalizeString(value);
+  return VIDEO_ID_REGEX.test(candidate) ? candidate : null;
 };
 
-const pickLastThumbnail = (thumbnails?: any): string | null => {
-	const arr = Array.isArray(thumbnails) ? thumbnails : thumbnails?.thumbnails;
-	if (!Array.isArray(arr) || arr.length === 0) return null;
-	const last = arr[arr.length - 1] as ThumbnailCandidate;
-	return normalizeString(last?.url) || null;
+const pickBestThumbnail = (thumbnails?: any): string | null => {
+  const arr = Array.isArray(thumbnails) ? thumbnails : thumbnails?.thumbnails;
+  if (!Array.isArray(arr) || !arr.length) return null;
+  const sorted = [...arr].sort((a: ThumbnailCandidate, b: ThumbnailCandidate) => (b?.width || 0) - (a?.width || 0));
+  const best = sorted[0];
+  return textOrNull(best?.url);
 };
 
 const startsWithUc = (browseId: string | null | undefined): boolean => typeof browseId === "string" && browseId.startsWith("UC");
 
 const extractHeaderTitle = (data: any): string | null => {
-	const microTitle = textOrNull(data?.microformat?.microformatDataRenderer?.title);
-	if (microTitle) return microTitle;
-	return textOrNull(data?.header?.musicDetailHeaderRenderer?.title?.runs?.[0]?.text);
+  const microTitle = textOrNull(data?.microformat?.microformatDataRenderer?.title);
+  if (microTitle) return microTitle;
+  return textOrNull(data?.header?.musicDetailHeaderRenderer?.title?.runs?.[0]?.text);
 };
 
 const extractHeaderThumbnail = (data: any): string | null => {
-	const thumb = pickLastThumbnail(
-		data?.header?.musicDetailHeaderRenderer?.thumbnail?.croppedSquareThumbnailRenderer?.thumbnail?.thumbnails,
-	);
-	if (thumb) return thumb;
-	return pickLastThumbnail(data?.microformat?.microformatDataRenderer?.thumbnail?.thumbnails);
+  const thumb = pickBestThumbnail(
+    data?.header?.musicDetailHeaderRenderer?.thumbnail?.croppedSquareThumbnailRenderer?.thumbnail?.thumbnails,
+  );
+  if (thumb) return thumb;
+  return pickBestThumbnail(data?.microformat?.microformatDataRenderer?.thumbnail?.thumbnails);
 };
 
 const extractHeaderArtist = (data: any): string | null => {
-	const runs: Runs = data?.header?.musicDetailHeaderRenderer?.subtitle?.runs;
-	if (!Array.isArray(runs)) return null;
-	for (const run of runs) {
-		const browseId = normalizeString(run?.navigationEndpoint?.browseEndpoint?.browseId);
-		if (!startsWithUc(browseId)) continue;
-		const name = textOrNull(run?.text);
-		if (name) return name;
-	}
-	for (const run of runs) {
-		const name = textOrNull(run?.text);
-		if (name) return name;
-	}
-	return null;
+  const runs: Runs = data?.header?.musicDetailHeaderRenderer?.subtitle?.runs;
+  if (!Array.isArray(runs)) return null;
+  for (const run of runs) {
+    const browseId = normalizeString(run?.navigationEndpoint?.browseEndpoint?.browseId);
+    if (!startsWithUc(browseId)) continue;
+    const name = textOrNull(run?.text);
+    if (name) return name;
+  }
+  for (const run of runs) {
+    const name = textOrNull(run?.text);
+    if (name) return name;
+  }
+  return null;
 };
 
-const secondsToDuration = (value: string | number | null | undefined): string | null => {
-	if (value === null || value === undefined) return null;
-	const asNumber = typeof value === "number" ? value : Number.parseInt(String(value), 10);
-	if (!Number.isFinite(asNumber) || asNumber < 0) return null;
-	const total = Math.trunc(asNumber);
-	const mins = Math.floor(total / 60);
-	const secs = total % 60;
-	return `${mins}:${secs.toString().padStart(2, "0")}`;
-};
-
-const extractDurationText = (maybeDuration: any): string | null => {
-	return textOrNull(maybeDuration?.runs?.[0]?.text) || textOrNull(maybeDuration?.simpleText);
-};
-
-const extractDurationFromOverlays = (renderer: any): string | null => {
-	const overlays = Array.isArray(renderer?.thumbnailOverlays) ? renderer.thumbnailOverlays : [];
-	for (const overlay of overlays) {
-		const time = overlay?.thumbnailOverlayTimeStatusRenderer?.text;
-		const duration = extractDurationText(time);
-		if (duration) return duration;
-	}
-	return null;
+const parseDuration = (raw: string | number | null | undefined): string | null => {
+  const value = raw === null || raw === undefined ? "" : String(raw).trim();
+  if (!value) return null;
+  if (/^\d+$/.test(value)) {
+    const total = Number.parseInt(value, 10);
+    if (!Number.isFinite(total) || total < 0) return null;
+    const hrs = Math.floor(total / 3600);
+    const mins = Math.floor((total % 3600) / 60);
+    const secs = total % 60;
+    return hrs > 0 ? `${hrs}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}` : `${mins}:${secs.toString().padStart(2, "0")}`;
+  }
+  if (value.includes(":")) {
+    const parts = value.split(":").map((p) => Number.parseInt(p.trim(), 10)).filter((n) => Number.isFinite(n) && n >= 0);
+    if (!parts.length) return null;
+    const total = parts.reduce((acc, cur) => acc * 60 + cur, 0);
+    const hrs = Math.floor(total / 3600);
+    const mins = Math.floor((total % 3600) / 60);
+    const secs = total % 60;
+    return hrs > 0 ? `${hrs}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}` : `${mins}:${secs.toString().padStart(2, "0")}`;
+  }
+  return null;
 };
 
 const extractDuration = (renderer: any): string | null => {
-	return (
-		extractDurationText(renderer?.fixedColumns?.[0]?.musicResponsiveListItemFixedColumnRenderer?.text) ||
-		extractDurationText(renderer?.lengthText) ||
-		secondsToDuration(renderer?.lengthSeconds) ||
-		extractDurationFromOverlays(renderer)
-	);
+  return (
+    parseDuration(renderer?.fixedColumns?.[0]?.musicResponsiveListItemFixedColumnRenderer?.text?.runs?.[0]?.text) ||
+    parseDuration(renderer?.fixedColumns?.[0]?.musicResponsiveListItemFixedColumnRenderer?.text?.simpleText) ||
+    parseDuration(renderer?.lengthText?.runs?.[0]?.text) ||
+    parseDuration(renderer?.lengthText?.simpleText) ||
+    parseDuration(renderer?.lengthSeconds) ||
+    parseDuration(renderer?.videoInfo?.lengthSeconds)
+  );
+};
+
+const extractTitleFromRuns = (node: any): string | null => {
+  const runs: Runs = node?.runs;
+  if (!Array.isArray(runs)) return textOrNull(node?.simpleText);
+  for (const run of runs) {
+    const t = textOrNull(run?.text);
+    if (t) return t;
+  }
+  return null;
+};
+
+const extractTitle = (renderer: any): string | null => {
+  return (
+    extractTitleFromRuns(renderer?.title) ||
+    extractTitleFromRuns(renderer?.headline) ||
+    extractTitleFromRuns(renderer?.flexColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text) ||
+    extractTitleFromRuns(renderer?.videoTitle) ||
+    textOrNull(renderer?.title)
+  );
+};
+
+const extractArtist = (renderer: any, fallbackArtist: string | null): string | null => {
+  const bylines: Runs[] = [
+    renderer?.longBylineText?.runs,
+    renderer?.shortBylineText?.runs,
+    renderer?.flexColumns?.[1]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs,
+    renderer?.subtitle?.runs,
+  ];
+
+  for (const candidate of bylines) {
+    if (!Array.isArray(candidate)) continue;
+    for (const run of candidate) {
+      const name = textOrNull(run?.text);
+      if (name) return name;
+    }
+  }
+
+  return fallbackArtist;
+};
+
+const extractThumbnail = (renderer: any, fallbackThumb: string | null): string | null => {
+  return (
+    pickBestThumbnail(renderer?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails) ||
+    pickBestThumbnail(renderer?.thumbnail?.thumbnails) ||
+    pickBestThumbnail(renderer?.thumbnailRenderer?.musicThumbnailRenderer?.thumbnail?.thumbnails) ||
+    fallbackThumb
+  );
 };
 
 const extractVideoIdFromRenderer = (renderer: any): string | null => {
-	const candidates = [
-		renderer?.videoId,
-		renderer?.playlistVideoRenderer?.videoId,
-		renderer?.navigationEndpoint?.watchEndpoint?.videoId,
-		renderer?.playNavigationEndpoint?.watchEndpoint?.videoId,
-		renderer?.navigationEndpoint?.watchPlaylistEndpoint?.videoId,
-	];
+  const candidates = [
+    renderer?.videoId,
+    renderer?.playlistVideoRenderer?.videoId,
+    renderer?.navigationEndpoint?.watchEndpoint?.videoId,
+    renderer?.navigationEndpoint?.watchPlaylistEndpoint?.videoId,
+    renderer?.playNavigationEndpoint?.watchEndpoint?.videoId,
+    renderer?.playlistPanelVideoRenderer?.videoId,
+  ];
 
-	for (const candidate of candidates) {
-		const resolved = ensureVideoId(candidate);
-		if (resolved) return resolved;
-	}
+  for (const candidate of candidates) {
+    const resolved = ensureVideoId(candidate);
+    if (resolved) return resolved;
+  }
 
-	return null;
+  return null;
 };
 
-const extractResponsiveTrack = (renderer: any, fallbackArtist: string | null, fallbackThumb: string | null) => {
-	const videoId = extractVideoIdFromRenderer(renderer);
-	if (!videoId) return null;
+const extractTrackFromRenderer = (renderer: any, kind: string, fallbackArtist: string | null, fallbackThumb: string | null) => {
+  const videoId = extractVideoIdFromRenderer(renderer);
+  if (!videoId) return null;
 
-	const title = textOrNull(renderer?.flexColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.[0]?.text);
+  const title = extractTitle(renderer);
+  const artist = extractArtist(renderer, fallbackArtist);
+  const duration = extractDuration(renderer);
+  const thumbnail = extractThumbnail(renderer, fallbackThumb);
 
-	const runs: Runs = renderer?.flexColumns?.[1]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs;
-	let artist: string | null = fallbackArtist;
-	if (Array.isArray(runs)) {
-		for (const run of runs) {
-			const browseId = normalizeString(run?.navigationEndpoint?.browseEndpoint?.browseId);
-			if (!startsWithUc(browseId)) continue;
-			const name = textOrNull(run?.text);
-			if (name) {
-				artist = name;
-				break;
-			}
-		}
-		if (!artist) {
-			for (const run of runs) {
-				const name = textOrNull(run?.text);
-				if (name) {
-					artist = name;
-					break;
-				}
-			}
-		}
-	}
-
-	const duration = extractDuration(renderer);
-
-	const thumbnail =
-		pickLastThumbnail(renderer?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails) ||
-		pickLastThumbnail(renderer?.thumbnail?.thumbnails) ||
-		fallbackThumb;
-
-	return { videoId, title, artist, duration, thumbnail } as ParsedTrack;
+  return { videoId, title, artist, duration, thumbnail, kind } as ParsedTrack & { kind: string };
 };
 
-const extractPanelTrack = (renderer: any, fallbackArtist: string | null, fallbackThumb: string | null) => {
-	const videoId = extractVideoIdFromRenderer(renderer);
-	if (!videoId) return null;
+const collectRenderers = (data: any): Array<{ kind: string; node: any }> => {
+  const found: Array<{ kind: string; node: any }> = [];
+  const stack: Array<{ value: any; path: string }> = [{ value: data, path: "$" }];
 
-	const title = textOrNull(renderer?.title?.runs?.[0]?.text) || textOrNull(renderer?.title?.simpleText);
+  const pushIf = (kind: string, node: any) => {
+    if (node) found.push({ kind, node });
+  };
 
-	let artist: string | null = fallbackArtist;
-	const runs: Runs = renderer?.longBylineText?.runs || renderer?.shortBylineText?.runs;
-	if (Array.isArray(runs)) {
-		for (const run of runs) {
-			const name = textOrNull(run?.text);
-			if (name) {
-				artist = name;
-				break;
-			}
-		}
-	}
+  while (stack.length) {
+    const { value } = stack.pop() as { value: any; path: string };
+    if (!value) continue;
+    if (Array.isArray(value)) {
+      value.forEach((child) => stack.push({ value: child, path: "" }));
+      continue;
+    }
+    if (typeof value !== "object") continue;
 
-	const duration = extractDuration(renderer);
+    const mri = (value as any).musicResponsiveListItemRenderer;
+    if (mri) pushIf("musicResponsiveListItemRenderer", mri);
 
-	const thumbnail = pickLastThumbnail(renderer?.thumbnail?.thumbnails) || fallbackThumb;
+    const ppvr = (value as any).playlistPanelVideoRenderer;
+    if (ppvr) pushIf("playlistPanelVideoRenderer", ppvr);
 
-	return { videoId, title, artist, duration, thumbnail } as ParsedTrack;
+    const pvr = (value as any).playlistVideoRenderer;
+    if (pvr) pushIf("playlistVideoRenderer", pvr);
+
+    const videoRenderer = (value as any).videoRenderer;
+    if (videoRenderer) pushIf("videoRenderer", videoRenderer);
+
+    Object.values(value).forEach((child) => stack.push({ value: child, path: "" }));
+  }
+
+  return found;
 };
 
-const collectRendererKinds = (data: any): string[] => {
-	const kinds = new Set<string>();
-	const walk = (node: any) => {
-		if (!node) return;
-		if (Array.isArray(node)) {
-			node.forEach(walk);
-			return;
-		}
-		if (typeof node !== "object") return;
-		if ((node as any).musicResponsiveListItemRenderer) kinds.add("musicResponsiveListItemRenderer");
-		if ((node as any).playlistPanelVideoRenderer) kinds.add("playlistPanelVideoRenderer");
-		if ((node as any).playlistVideoRenderer) kinds.add("playlistVideoRenderer");
-		Object.values(node).forEach(walk);
-	};
-	walk(data);
-	return Array.from(kinds);
+const computeRendererCounts = (renderers: Array<{ kind: string }>): Record<string, number> => {
+  const counts: Record<string, number> = {};
+  renderers.forEach((r) => {
+    counts[r.kind] = (counts[r.kind] || 0) + 1;
+  });
+  return counts;
 };
 
-const collectResponsiveRenderers = (data: any): any[] => {
-	const secondary =
-		data?.contents?.twoColumnBrowseResultsRenderer?.secondaryContents?.sectionListRenderer?.contents?.[0]?.musicShelfRenderer
-			?.contents;
-	if (Array.isArray(secondary)) return secondary;
-
-	const shelves = data?.contents?.twoColumnBrowseResultsRenderer?.secondaryContents?.sectionListRenderer?.contents;
-	if (Array.isArray(shelves)) {
-		for (const shelf of shelves) {
-			const contents = shelf?.musicShelfRenderer?.contents;
-			if (Array.isArray(contents)) return contents;
-		}
-	}
-
-	const singleShelf = data?.contents?.singleColumnBrowseResultsRenderer?.tabs?.[0]?.tabRenderer?.content?.sectionListRenderer
-		?.contents?.[0]?.musicShelfRenderer?.contents;
-	if (Array.isArray(singleShelf)) return singleShelf;
-
-	return [];
-};
-
-const collectPanelRenderers = (data: any): any[] => {
-	const renderers: any[] = [];
-	const walk = (node: any) => {
-		if (!node) return;
-		if (Array.isArray(node)) {
-			node.forEach(walk);
-			return;
-		}
-		if (typeof node !== "object") return;
-		const panel = (node as any)?.playlistPanelVideoRenderer;
-		if (panel) renderers.push(panel);
-		const pv = (node as any)?.playlistVideoRenderer;
-		if (pv) renderers.push(pv);
-		Object.values(node).forEach(walk);
-	};
-	walk(data);
-	return renderers;
+export type ParserDiagnostics = {
+  rendererCounts: Record<string, number>;
+  sampleRendererKinds: string[];
 };
 
 export type ParsedTrack = {
-	videoId: string | null;
-	title: string | null;
-	artist: string | null;
-	duration: string | null;
-	thumbnail: string | null;
+  videoId: string | null;
+  title: string | null;
+  artist: string | null;
+  duration: string | null;
+  thumbnail: string | null;
 };
 
 export type ParsedPlaylist = {
-	id: string;
-	title: string | null;
-	thumbnail: string | null;
-	tracks: ParsedTrack[];
-	trackCount: number;
+  id: string;
+  title: string | null;
+  thumbnail: string | null;
+  tracks: ParsedTrack[];
+  trackCount: number;
 };
 
-export function parseTracksFromInnertube(data: any, albumArtist: string | null, albumThumbnail: string | null): ParsedTrack[] {
-	const responsive = collectResponsiveRenderers(data)
-		.map((item: any) => item?.musicResponsiveListItemRenderer)
-		.filter(Boolean)
-		.map((renderer) => extractResponsiveTrack(renderer, albumArtist, albumThumbnail))
-		.filter(Boolean) as ParsedTrack[];
+export type PlaylistParseResult = {
+  playlist: ParsedPlaylist;
+  diagnostics: ParserDiagnostics;
+};
 
-	const panels = collectPanelRenderers(data)
-		.map((renderer) => extractPanelTrack(renderer, albumArtist, albumThumbnail))
-		.filter(Boolean) as ParsedTrack[];
+function dedupeTracks(tracks: Array<ParsedTrack & { kind?: string }>): ParsedTrack[] {
+  const best = new Map<string, ParsedTrack & { score: number }>();
 
-	const combined = [...responsive, ...panels];
-	const deduped: ParsedTrack[] = [];
-	const seen = new Set<string>();
-	combined.forEach((track) => {
-		if (!track.videoId) return;
-		if (seen.has(track.videoId)) return;
-		seen.add(track.videoId);
-		deduped.push(track);
-	});
+  tracks.forEach((track) => {
+    const videoId = track.videoId || "";
+    if (!videoId) return;
+    const score = [track.title, track.artist, track.duration, track.thumbnail].filter((v) => Boolean(normalizeString(v))).length;
+    const current = best.get(videoId);
+    if (!current || score > current.score) {
+      best.set(videoId, { ...track, score });
+    }
+  });
 
-	if (deduped.length === 0) {
-		const kinds = collectRendererKinds(data);
-		console.info("[playlistParser] empty_tracks", { rendererKinds: kinds });
-	}
+  return Array.from(best.values()).map(({ score: _score, ...rest }) => rest);
+}
 
-	return deduped;
+export function parsePlaylistFromInnertubeWithDiagnostics(browseJson: any, browseId: string): PlaylistParseResult {
+  const title = extractHeaderTitle(browseJson);
+  const albumArtist = extractHeaderArtist(browseJson);
+  const thumbnail = extractHeaderThumbnail(browseJson);
+
+  const renderers = collectRenderers(browseJson);
+  const rendererCounts = computeRendererCounts(renderers);
+
+  const tracks = renderers
+    .map((item) => extractTrackFromRenderer(item.node, item.kind, albumArtist, thumbnail))
+    .filter(Boolean) as Array<ParsedTrack & { kind: string }>;
+
+  const deduped = dedupeTracks(tracks);
+
+  const diagnostics: ParserDiagnostics = {
+    rendererCounts,
+    sampleRendererKinds: Object.keys(rendererCounts).slice(0, 5),
+  };
+
+  return {
+    playlist: {
+      id: browseId,
+      title,
+      thumbnail,
+      tracks: deduped,
+      trackCount: deduped.length,
+    },
+    diagnostics,
+  };
 }
 
 export function parsePlaylistFromInnertube(browseJson: any, browseId: string): ParsedPlaylist {
-	const title = extractHeaderTitle(browseJson);
-	const albumArtist = extractHeaderArtist(browseJson);
-	const thumbnail = extractHeaderThumbnail(browseJson);
-	const tracks = parseTracksFromInnertube(browseJson, albumArtist, thumbnail);
-
-	return {
-		id: browseId,
-		title,
-		thumbnail,
-		tracks,
-		trackCount: tracks.length,
-	};
+  const { playlist } = parsePlaylistFromInnertubeWithDiagnostics(browseJson, browseId);
+  return playlist;
 }

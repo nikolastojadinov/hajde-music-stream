@@ -1,4 +1,9 @@
-import { parsePlaylistFromInnertube, type ParsedPlaylist, type ParsedTrack } from "../lib/innertube/playlistParser";
+import {
+  parsePlaylistFromInnertubeWithDiagnostics,
+  type ParsedPlaylist,
+  type ParsedTrack,
+  type ParserDiagnostics,
+} from "../lib/innertube/playlistParser";
 import { ingestPlaylistOrAlbum } from "./ingestPlaylistOrAlbum";
 import { recordInnertubePayload } from "./innertubeRawStore";
 import { getSupabaseAdmin } from "./supabaseClient";
@@ -52,6 +57,7 @@ type DbSnapshot = {
 type InnertubeResult = {
   playlist: ParsedPlaylist | null;
   rendererKinds: string[];
+  rendererCounts: Record<string, number>;
 };
 
 const normalize = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
@@ -70,24 +76,6 @@ const ensureBrowseId = (raw: string): string | null => {
   const upper = incoming.toUpperCase();
   if (upper.startsWith("VL") || upper.startsWith("PL") || upper.startsWith("OLAK")) return incoming;
   return `VL${incoming}`;
-};
-
-const collectRendererKinds = (data: any): string[] => {
-  const kinds = new Set<string>();
-  const walk = (node: any) => {
-    if (!node) return;
-    if (Array.isArray(node)) {
-      node.forEach(walk);
-      return;
-    }
-    if (typeof node !== "object") return;
-    if ((node as any).musicResponsiveListItemRenderer) kinds.add("musicResponsiveListItemRenderer");
-    if ((node as any).playlistPanelVideoRenderer) kinds.add("playlistPanelVideoRenderer");
-    if ((node as any).playlistVideoRenderer) kinds.add("playlistVideoRenderer");
-    Object.values(node).forEach(walk);
-  };
-  walk(data);
-  return Array.from(kinds);
 };
 
 async function fetchInnertubePlaylist(browseId: string): Promise<InnertubeResult> {
@@ -123,18 +111,19 @@ async function fetchInnertubePlaylist(browseId: string): Promise<InnertubeResult
       body: JSON.stringify(payload),
     });
 
-    if (!res.ok) return { playlist: null, rendererKinds: [] };
+    if (!res.ok) return { playlist: null, rendererKinds: [], rendererCounts: {} };
     const json = await res.json().catch(() => null);
-    if (!json) return { playlist: null, rendererKinds: [] };
+    if (!json) return { playlist: null, rendererKinds: [], rendererCounts: {} };
 
     recordInnertubePayload("playlist", browseId, json);
-    const rendererKinds = collectRendererKinds(json);
-    const playlist = parsePlaylistFromInnertube(json, browseId);
-    return { playlist, rendererKinds };
+    const { playlist, diagnostics } = parsePlaylistFromInnertubeWithDiagnostics(json, browseId);
+    const rendererKinds = diagnostics.sampleRendererKinds;
+    const rendererCounts = diagnostics.rendererCounts;
+    return { playlist, rendererKinds, rendererCounts };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.warn("[browse/playlist] innertube_failed", { browseId, message });
-    return { playlist: null, rendererKinds: [] };
+    return { playlist: null, rendererKinds: [], rendererCounts: {} };
   }
 }
 
@@ -259,7 +248,7 @@ export async function browsePlaylist(browseIdRaw: string): Promise<PlaylistBrows
     return buildResponse(browseId, snapshot.title, snapshot.thumbnail, snapshot.tracks, snapshot.trackCount);
   }
 
-  const { playlist: innertube, rendererKinds } = await fetchInnertubePlaylist(browseId);
+  const { playlist: innertube, rendererKinds, rendererCounts } = await fetchInnertubePlaylist(browseId);
   const parsedTracks = Array.isArray(innertube?.tracks)
     ? (innertube?.tracks.map(normalizeParsedTrack).filter(Boolean) as PlaylistTrack[])
     : [];
@@ -268,6 +257,7 @@ export async function browsePlaylist(browseIdRaw: string): Promise<PlaylistBrows
     browseId,
     parsedTrackCount: parsedTracks.length,
     rendererKinds,
+    rendererCounts,
     trackCountField: innertube?.trackCount ?? null,
   });
 
@@ -276,7 +266,7 @@ export async function browsePlaylist(browseIdRaw: string): Promise<PlaylistBrows
   let title = normalize(innertube?.title) || browseId;
 
   if (!tracks.length) {
-    console.warn("[browse/playlist] parsed_empty_trigger_fallback", { browseId, rendererKinds });
+    console.warn("[browse/playlist] parsed_empty_trigger_fallback", { browseId, rendererKinds, rendererCounts });
     const fallback = await youtubeInnertubeBrowsePlaylist(browseId, { max: 500 });
     if (fallback?.videoIds?.length) {
       const fallbackThumb = normalize(fallback.thumbnailUrl) || thumbnail;
@@ -296,7 +286,7 @@ export async function browsePlaylist(browseIdRaw: string): Promise<PlaylistBrows
   }
 
   if (!tracks.length) {
-    console.error("[browse/playlist] EMPTY_AFTER_FALLBACK", { browseId, rendererKinds });
+    console.error("[browse/playlist] EMPTY_AFTER_FALLBACK", { browseId, rendererKinds, rendererCounts });
     return buildResponse(browseId, title, thumbnail, [], 0);
   }
 
