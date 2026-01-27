@@ -1,6 +1,6 @@
 import supabase from './supabaseClient';
 import { parseInnertubeSearch } from '../lib/youtubeMusicClient';
-import { parsePlaylistFromInnertube } from '../lib/parsers/playlistParser';
+import { parsePlaylistFromInnertube } from '../lib/innertube/playlistParser';
 import { parseArtistBrowseFromInnertube } from './ytmArtistParser';
 import { canonicalArtistName, normalizeArtistKey } from '../utils/artistKey';
 
@@ -181,11 +181,11 @@ function decodePlaylistPayload(row: RawPayloadRow): EntityBundle {
   const playlist: PlaylistEntity = {
     external_id: playlistId,
     title: normalizeTitle(parsed.title) || playlistId,
-    description: normalizeTitle(parsed.subtitle),
+    description: null,
     image_url: parsed.thumbnail,
     cover_url: parsed.thumbnail,
     is_public: true,
-    item_count: parsed.tracks.length,
+    item_count: parsed.tracks.length || parsed.trackCount || 0,
   };
 
   const artists: ArtistEntity[] = [];
