@@ -2,10 +2,18 @@ type Runs = Array<{ text?: string; navigationEndpoint?: { browseEndpoint?: { bro
 
 type ThumbnailCandidate = { url?: string | null; width?: number; height?: number };
 
+const VIDEO_ID_REGEX = /^[A-Za-z0-9_-]{11}$/;
+
 const normalizeString = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
+
 const textOrNull = (value: unknown): string | null => {
 	const text = normalizeString(value);
 	return text ? text : null;
+};
+
+const ensureVideoId = (value: unknown): string | null => {
+	const candidate = normalizeString(value);
+	return VIDEO_ID_REGEX.test(candidate) ? candidate : null;
 };
 
 const pickLastThumbnail = (thumbnails?: any): string | null => {
@@ -47,6 +55,16 @@ const extractHeaderArtist = (data: any): string | null => {
 	return null;
 };
 
+const secondsToDuration = (value: string | number | null | undefined): string | null => {
+	if (value === null || value === undefined) return null;
+	const asNumber = typeof value === "number" ? value : Number.parseInt(String(value), 10);
+	if (!Number.isFinite(asNumber) || asNumber < 0) return null;
+	const total = Math.trunc(asNumber);
+	const mins = Math.floor(total / 60);
+	const secs = total % 60;
+	return `${mins}:${secs.toString().padStart(2, "0")}`;
+};
+
 const extractDurationText = (maybeDuration: any): string | null => {
 	return textOrNull(maybeDuration?.runs?.[0]?.text) || textOrNull(maybeDuration?.simpleText);
 };
@@ -61,8 +79,34 @@ const extractDurationFromOverlays = (renderer: any): string | null => {
 	return null;
 };
 
+const extractDuration = (renderer: any): string | null => {
+	return (
+		extractDurationText(renderer?.fixedColumns?.[0]?.musicResponsiveListItemFixedColumnRenderer?.text) ||
+		extractDurationText(renderer?.lengthText) ||
+		secondsToDuration(renderer?.lengthSeconds) ||
+		extractDurationFromOverlays(renderer)
+	);
+};
+
+const extractVideoIdFromRenderer = (renderer: any): string | null => {
+	const candidates = [
+		renderer?.videoId,
+		renderer?.playlistVideoRenderer?.videoId,
+		renderer?.navigationEndpoint?.watchEndpoint?.videoId,
+		renderer?.playNavigationEndpoint?.watchEndpoint?.videoId,
+		renderer?.navigationEndpoint?.watchPlaylistEndpoint?.videoId,
+	];
+
+	for (const candidate of candidates) {
+		const resolved = ensureVideoId(candidate);
+		if (resolved) return resolved;
+	}
+
+	return null;
+};
+
 const extractResponsiveTrack = (renderer: any, fallbackArtist: string | null, fallbackThumb: string | null) => {
-	const videoId = textOrNull(renderer?.playNavigationEndpoint?.watchEndpoint?.videoId);
+	const videoId = extractVideoIdFromRenderer(renderer);
 	if (!videoId) return null;
 
 	const title = textOrNull(renderer?.flexColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.[0]?.text);
@@ -90,9 +134,7 @@ const extractResponsiveTrack = (renderer: any, fallbackArtist: string | null, fa
 		}
 	}
 
-	const duration = extractDurationText(
-		renderer?.fixedColumns?.[0]?.musicResponsiveListItemFixedColumnRenderer?.text,
-	) || extractDurationFromOverlays(renderer);
+	const duration = extractDuration(renderer);
 
 	const thumbnail =
 		pickLastThumbnail(renderer?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails) ||
@@ -103,13 +145,13 @@ const extractResponsiveTrack = (renderer: any, fallbackArtist: string | null, fa
 };
 
 const extractPanelTrack = (renderer: any, fallbackArtist: string | null, fallbackThumb: string | null) => {
-	const videoId = textOrNull(renderer?.videoId);
+	const videoId = extractVideoIdFromRenderer(renderer);
 	if (!videoId) return null;
 
 	const title = textOrNull(renderer?.title?.runs?.[0]?.text) || textOrNull(renderer?.title?.simpleText);
 
 	let artist: string | null = fallbackArtist;
-	const runs: Runs = renderer?.longBylineText?.runs;
+	const runs: Runs = renderer?.longBylineText?.runs || renderer?.shortBylineText?.runs;
 	if (Array.isArray(runs)) {
 		for (const run of runs) {
 			const name = textOrNull(run?.text);
@@ -120,7 +162,7 @@ const extractPanelTrack = (renderer: any, fallbackArtist: string | null, fallbac
 		}
 	}
 
-	const duration = extractDurationText(renderer?.lengthText) || extractDurationFromOverlays(renderer);
+	const duration = extractDuration(renderer);
 
 	const thumbnail = pickLastThumbnail(renderer?.thumbnail?.thumbnails) || fallbackThumb;
 
@@ -147,8 +189,8 @@ const collectRendererKinds = (data: any): string[] => {
 
 const collectResponsiveRenderers = (data: any): any[] => {
 	const secondary =
-		data?.contents?.twoColumnBrowseResultsRenderer?.secondaryContents?.sectionListRenderer?.contents?.[0]
-			?.musicShelfRenderer?.contents;
+		data?.contents?.twoColumnBrowseResultsRenderer?.secondaryContents?.sectionListRenderer?.contents?.[0]?.musicShelfRenderer
+			?.contents;
 	if (Array.isArray(secondary)) return secondary;
 
 	const shelves = data?.contents?.twoColumnBrowseResultsRenderer?.secondaryContents?.sectionListRenderer?.contents;
