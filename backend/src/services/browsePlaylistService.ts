@@ -1,14 +1,4 @@
-import {
-  parsePlaylistFromInnertubeWithDiagnostics,
-  type ParsedPlaylist,
-  type ParsedTrack,
-  type ParserDiagnostics,
-} from "../lib/innertube/playlistParser";
-import { ingestPlaylistOrAlbum } from "./ingestPlaylistOrAlbum";
-import { recordInnertubePayload } from "./innertubeRawStore";
 import { getSupabaseAdmin } from "./supabaseClient";
-import { CONSENT_COOKIES, fetchInnertubeConfig } from "./youtubeInnertubeConfig";
-import { youtubeInnertubeBrowsePlaylist } from "./youtubeInnertubeBrowsePlaylist";
 
 type PlaylistTrack = {
   videoId: string;
@@ -19,6 +9,7 @@ type PlaylistTrack = {
 };
 
 type PlaylistRow = {
+  id: string;
   external_id: string | null;
   title: string | null;
   cover_url: string | null;
@@ -48,16 +39,12 @@ export type PlaylistBrowseResult = {
 };
 
 type DbSnapshot = {
+  playlistId: string;
+  externalId: string;
   title: string | null;
   thumbnail: string | null;
   tracks: PlaylistTrack[];
   trackCount: number;
-};
-
-type InnertubeResult = {
-  playlist: ParsedPlaylist | null;
-  rendererKinds: string[];
-  rendererCounts: Record<string, number>;
 };
 
 const normalize = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
@@ -70,70 +57,50 @@ const formatDuration = (seconds: number | null | undefined): string => {
   return `${mins}:${secs.toString().padStart(2, "0")}`;
 };
 
-const ensureBrowseId = (raw: string): string | null => {
-  const incoming = normalize(raw);
-  if (!incoming) return null;
-  const upper = incoming.toUpperCase();
-  if (upper.startsWith("VL") || upper.startsWith("PL") || upper.startsWith("OLAK")) return incoming;
-  return `VL${incoming}`;
+const buildCandidateExternalIds = (raw: string): string[] => {
+  const value = normalize(raw);
+  if (!value) return [];
+
+  const candidates = new Set<string>();
+  candidates.add(value);
+
+  if (value.startsWith("VL")) {
+    const stripped = value.slice(2);
+    if (stripped) candidates.add(stripped);
+    if (stripped.startsWith("PL")) candidates.add(stripped);
+  }
+
+  return Array.from(candidates).filter(Boolean);
 };
 
-async function fetchInnertubePlaylist(browseId: string): Promise<InnertubeResult> {
-  try {
-    const config = await fetchInnertubeConfig();
-    const payload = {
-      context: {
-        client: {
-          clientName: config.clientName || "WEB_REMIX",
-          clientVersion: config.clientVersion || "1.20241210.01.00",
-          hl: "en",
-          gl: "US",
-          visitorData: config.visitorData || undefined,
-        },
-        user: { enableSafetyMode: false },
-      },
-      browseId,
-    };
+const mapTracks = (rows: PlaylistRow): PlaylistTrack[] => {
+  if (!Array.isArray(rows.playlist_tracks)) return [];
 
-    const url = `${config.apiBase}/browse?prettyPrint=false&key=${encodeURIComponent(config.apiKey)}`;
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json",
-        "Accept-Language": "en-US,en;q=0.9",
-        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) HajdeMusic/1.0",
-        Origin: "https://music.youtube.com",
-        Referer: `https://music.youtube.com/playlist?list=${encodeURIComponent(browseId)}`,
-        Cookie: CONSENT_COOKIES,
-        "X-Goog-Visitor-Id": config.visitorData || "",
-      },
-      body: JSON.stringify(payload),
-    });
+  return rows.playlist_tracks
+    .map((item) => {
+      const videoId = normalize(item?.track?.youtube_id);
+      if (!videoId) return null;
+      return {
+        videoId,
+        title: normalize(item?.track?.title) || "Untitled",
+        artist: normalize(item?.track?.artist),
+        duration: formatDuration(item?.track?.duration),
+        thumbnail: normalize(item?.track?.cover_url) || normalize(item?.track?.image_url) || null,
+      } as PlaylistTrack;
+    })
+    .filter(Boolean) as PlaylistTrack[];
+};
 
-    if (!res.ok) return { playlist: null, rendererKinds: [], rendererCounts: {} };
-    const json = await res.json().catch(() => null);
-    if (!json) return { playlist: null, rendererKinds: [], rendererCounts: {} };
+async function fetchPlaylistSnapshot(externalIds: string[]): Promise<DbSnapshot | null> {
+  if (!externalIds.length) return null;
 
-    recordInnertubePayload("playlist", browseId, json);
-    const { playlist, diagnostics } = parsePlaylistFromInnertubeWithDiagnostics(json, browseId);
-    const rendererKinds = diagnostics.sampleRendererKinds;
-    const rendererCounts = diagnostics.rendererCounts;
-    return { playlist, rendererKinds, rendererCounts };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.warn("[browse/playlist] innertube_failed", { browseId, message });
-    return { playlist: null, rendererKinds: [], rendererCounts: {} };
-  }
-}
-
-async function fetchPlaylistSnapshot(browseId: string): Promise<DbSnapshot | null> {
   try {
     const client = getSupabaseAdmin();
     const { data, error } = await client
       .from("playlists")
       .select(
         [
+          "id",
           "external_id",
           "title",
           "cover_url",
@@ -142,170 +109,73 @@ async function fetchPlaylistSnapshot(browseId: string): Promise<DbSnapshot | nul
           "playlist_tracks(position, track:tracks(youtube_id,title,artist,duration,cover_url,image_url))",
         ].join(","),
       )
-      .eq("external_id", browseId)
-      .order("position", { foreignTable: "playlist_tracks", ascending: true })
-      .maybeSingle();
+      .in("external_id", externalIds)
+      .order("position", { foreignTable: "playlist_tracks", ascending: true });
 
     if (error) {
-      console.warn("[browse/playlist] supabase_playlist_error", { browseId, message: error.message });
+      console.warn("[browse/playlist] supabase_playlist_error", { externalIds, message: error.message });
       return null;
     }
 
-    const row = (data as PlaylistRow | null) ?? null;
-    if (!row) return null;
+    const rows = (data as PlaylistRow[] | null) ?? [];
+    const pick = externalIds.map((id) => rows.find((row) => normalize(row.external_id) === id)).find(Boolean) || rows[0];
+    if (!pick) return null;
 
-    const tracks = Array.isArray(row.playlist_tracks)
-      ? (row.playlist_tracks
-          .map((item) => {
-            const videoId = normalize(item?.track?.youtube_id);
-            if (!videoId) return null;
-            return {
-              videoId,
-              title: normalize(item?.track?.title) || "Untitled",
-              artist: normalize(item?.track?.artist),
-              duration: formatDuration(item?.track?.duration),
-              thumbnail: normalize(item?.track?.cover_url) || normalize(item?.track?.image_url) || null,
-            } as PlaylistTrack;
-          })
-          .filter(Boolean) as PlaylistTrack[])
-      : [];
+    const tracks = mapTracks(pick);
+    const trackCount = tracks.length || pick.item_count || 0;
 
-    const trackCount = tracks.length || row.item_count || 0;
-    console.log("[browse/playlist] db_snapshot", { browseId, dbTrackCount: tracks.length, item_count: row.item_count });
+    console.log("[browse/playlist] db_snapshot", {
+      requested: externalIds[0],
+      playlistId: pick.id,
+      externalId: pick.external_id,
+      dbTrackCount: tracks.length,
+      item_count: pick.item_count,
+    });
 
     return {
-      title: normalize(row.title) || null,
-      thumbnail: normalize(row.cover_url) || normalize(row.image_url) || null,
+      playlistId: pick.id,
+      externalId: normalize(pick.external_id) || externalIds[0],
+      title: normalize(pick.title) || null,
+      thumbnail: normalize(pick.cover_url) || normalize(pick.image_url) || null,
       tracks,
       trackCount,
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.warn("[browse/playlist] supabase_playlist_exception", { browseId, message });
+    console.warn("[browse/playlist] supabase_playlist_exception", { externalIds, message });
     return null;
   }
 }
 
-const normalizeParsedTrack = (track: ParsedTrack): PlaylistTrack | null => {
-  const videoId = normalize(track.videoId);
-  if (!videoId) return null;
+function buildResponse(snapshot: DbSnapshot): PlaylistBrowseResult {
   return {
-    videoId,
-    title: normalize(track.title) || "Untitled",
-    artist: normalize(track.artist),
-    duration: normalize(track.duration),
-    thumbnail: normalize(track.thumbnail) || null,
-  };
-};
-
-async function ingestPlaylist(browseId: string, title: string, thumbnail: string | null, tracks: PlaylistTrack[]): Promise<number> {
-  try {
-    const result = await ingestPlaylistOrAlbum(
-      {
-        browseId,
-        kind: "playlist",
-        title,
-        subtitle: `Playlist • ${tracks.length} songs`,
-        thumbnailUrl: thumbnail,
-        tracks,
-        trackCount: tracks.length,
-      },
-      { mode: "single-playlist" },
-    );
-
-    console.log("[browse/playlist] ingest_complete", {
-      browseId,
-      ingestedCount: result.trackCount,
-      playlistTrackLinks: result.playlistTrackCount,
-      artistTrackLinks: result.artistTrackCount,
-    });
-
-    return result.trackCount;
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.warn("[browse/playlist] ingest_failed", { browseId, message });
-    return 0;
-  }
-}
-
-function buildResponse(browseId: string, title: string | null, thumbnail: string | null, tracks: PlaylistTrack[], trackCount: number): PlaylistBrowseResult {
-  return {
-    id: browseId,
-    title: normalize(title) || browseId,
-    subtitle: `Playlist • ${trackCount} songs`,
-    thumbnail: thumbnail || null,
-    tracks,
+    id: snapshot.externalId,
+    title: snapshot.title || snapshot.externalId,
+    subtitle: `Playlist • ${snapshot.trackCount} songs`,
+    thumbnail: snapshot.thumbnail,
+    tracks: snapshot.tracks,
   };
 }
 
 export async function browsePlaylist(browseIdRaw: string): Promise<PlaylistBrowseResult | null> {
-  const browseId = ensureBrowseId(browseIdRaw);
+  const browseId = normalize(browseIdRaw);
+  console.log("[browse/playlist] request", { browseId });
   if (!browseId) return null;
 
-  const snapshot = await fetchPlaylistSnapshot(browseId);
-  if (snapshot?.tracks.length) {
-    console.log("[browse/playlist] return_db", { browseId, dbTrackCount: snapshot.tracks.length });
-    return buildResponse(browseId, snapshot.title, snapshot.thumbnail, snapshot.tracks, snapshot.trackCount);
+  const candidates = buildCandidateExternalIds(browseId);
+  const snapshot = await fetchPlaylistSnapshot(candidates);
+
+  if (!snapshot) {
+    console.warn("[browse/playlist] not_found", { browseId, candidates });
+    return null;
   }
 
-  const { playlist: innertube, rendererKinds, rendererCounts } = await fetchInnertubePlaylist(browseId);
-  const parsedTracks = Array.isArray(innertube?.tracks)
-    ? (innertube?.tracks.map(normalizeParsedTrack).filter(Boolean) as PlaylistTrack[])
-    : [];
-
-  console.log("[browse/playlist] innertube_parsed", {
+  console.log("[browse/playlist] resolved", {
     browseId,
-    parsedTrackCount: parsedTracks.length,
-    rendererKinds,
-    rendererCounts,
-    trackCountField: innertube?.trackCount ?? null,
+    playlistId: snapshot.playlistId,
+    externalId: snapshot.externalId,
+    dbTrackCount: snapshot.tracks.length,
   });
 
-  let tracks: PlaylistTrack[] = parsedTracks;
-  let thumbnail = normalize(innertube?.thumbnail) || null;
-  let title = normalize(innertube?.title) || browseId;
-
-  if (!tracks.length) {
-    console.warn("[browse/playlist] parsed_empty_trigger_fallback", { browseId, rendererKinds, rendererCounts });
-    const fallback = await youtubeInnertubeBrowsePlaylist(browseId, { max: 500 });
-    if (fallback?.videoIds?.length) {
-      const fallbackThumb = normalize(fallback.thumbnailUrl) || thumbnail;
-      tracks = fallback.videoIds
-        .map((videoId) => ({
-          videoId,
-          title: "",
-          artist: "",
-          duration: "",
-          thumbnail: fallbackThumb,
-        }))
-        .filter((t) => normalize(t.videoId));
-      title = normalize(fallback.title) || title;
-      thumbnail = fallbackThumb || thumbnail;
-      console.log("[browse/playlist] fallback_tracks", { browseId, fallbackCount: tracks.length });
-    }
-  }
-
-  if (!tracks.length) {
-    console.error("[browse/playlist] EMPTY_AFTER_FALLBACK", { browseId, rendererKinds, rendererCounts });
-    return buildResponse(browseId, title, thumbnail, [], 0);
-  }
-
-  const ingestedCount = await ingestPlaylist(browseId, title, thumbnail, tracks);
-
-  const hydrated = await fetchPlaylistSnapshot(browseId);
-  if (hydrated?.tracks.length) {
-    console.log("[browse/playlist] hydrated_from_db", {
-      browseId,
-      dbTrackCount: hydrated.tracks.length,
-      ingestedCount,
-    });
-    return buildResponse(browseId, hydrated.title || title, hydrated.thumbnail || thumbnail, hydrated.tracks, hydrated.trackCount);
-  }
-
-  console.warn("[browse/playlist] returning_ingested_memory", {
-    browseId,
-    ingestedCount,
-    trackCount: tracks.length,
-  });
-  return buildResponse(browseId, title, thumbnail, tracks, tracks.length);
+  return buildResponse(snapshot);
 }
