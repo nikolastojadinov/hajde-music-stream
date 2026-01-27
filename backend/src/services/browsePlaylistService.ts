@@ -3,6 +3,7 @@ import { ingestPlaylistOrAlbum } from "./ingestPlaylistOrAlbum";
 import { recordInnertubePayload } from "./innertubeRawStore";
 import { CONSENT_COOKIES, fetchInnertubeConfig } from "./youtubeInnertubeConfig";
 import { getSupabaseAdmin } from "./supabaseClient";
+import { youtubeInnertubeBrowsePlaylist } from "./youtubeInnertubeBrowsePlaylist";
 
 type PlaylistTrack = {
   videoId: string;
@@ -291,7 +292,26 @@ export async function browsePlaylist(browseIdRaw: string): Promise<PlaylistBrows
     fetchActivitySnapshotTitle(browseId),
   ]);
 
-  const source = pickPlaylistSource(innertube, playlistRow);
+  let source = pickPlaylistSource(innertube, playlistRow);
+
+  if (source.tracks.length === 0) {
+    const fallback = await youtubeInnertubeBrowsePlaylist(browseId, { max: 500 });
+    if (fallback && Array.isArray(fallback.videoIds) && fallback.videoIds.length > 0) {
+      const fallbackThumb = normalize(fallback.thumbnailUrl) || source.thumbnail || null;
+      source = {
+        tracks: fallback.videoIds.map((videoId) => ({
+          videoId,
+          title: "",
+          artist: "",
+          duration: "",
+          thumbnail: fallbackThumb,
+        })),
+        trackCount: fallback.videoIds.length,
+        titleCandidate: source.titleCandidate || normalize(fallback.title) || null,
+        thumbnail: fallbackThumb,
+      };
+    }
+  }
   const titleResolution = resolveTitle(browseId, source.titleCandidate, suggestTitle, activityTitle, playlistRow?.title ?? null);
   console.log("[browse/playlist] resolved_title", { browseId, title: titleResolution.title, source: titleResolution.source });
 

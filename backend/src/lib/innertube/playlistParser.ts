@@ -76,6 +76,30 @@ const extractTrackThumbnail = (renderer: any, albumThumbnail: string | null): st
 	return albumThumbnail;
 };
 
+const extractPanelTrack = (renderer: any, albumArtist: string | null, albumThumbnail: string | null): ParsedTrack | null => {
+	const videoId = textOrNull(renderer?.videoId);
+	if (!videoId) return null;
+
+	const title = textOrNull(renderer?.title?.runs?.[0]?.text) || textOrNull(renderer?.title?.simpleText);
+
+	const artist = (() => {
+		const runs: Runs = renderer?.longBylineText?.runs;
+		if (Array.isArray(runs)) {
+			for (const run of runs) {
+				const name = textOrNull(run?.text);
+				if (name) return name;
+			}
+		}
+		return albumArtist;
+	})();
+
+	const duration = textOrNull(renderer?.lengthText?.runs?.[0]?.text) || textOrNull(renderer?.lengthText?.simpleText);
+
+	const thumb = pickLastThumbnail(renderer?.thumbnail?.thumbnails) || albumThumbnail;
+
+	return { videoId, title, artist, duration, thumbnail: thumb };
+};
+
 const collectTrackRenderers = (data: any): any[] => {
 	const secondary =
 		data?.contents?.twoColumnBrowseResultsRenderer?.secondaryContents?.sectionListRenderer?.contents?.[0]
@@ -97,6 +121,38 @@ const collectTrackRenderers = (data: any): any[] => {
 	return [];
 };
 
+const collectPanelTracks = (data: any, albumArtist: string | null, albumThumbnail: string | null): ParsedTrack[] => {
+	const tracks: ParsedTrack[] = [];
+
+	const walk = (node: any) => {
+		if (!node) return;
+
+		if (Array.isArray(node)) {
+			node.forEach(walk);
+			return;
+		}
+
+		if (typeof node !== "object") return;
+
+		const panel = (node as any)?.playlistPanelVideoRenderer;
+		if (panel) {
+			const parsed = extractPanelTrack(panel, albumArtist, albumThumbnail);
+			if (parsed) tracks.push(parsed);
+		}
+
+		const pv = (node as any)?.playlistVideoRenderer;
+		if (pv) {
+			const parsed = extractPanelTrack(pv, albumArtist, albumThumbnail);
+			if (parsed) tracks.push(parsed);
+		}
+
+		Object.values(node).forEach(walk);
+	};
+
+	walk(data);
+	return tracks;
+};
+
 export type ParsedTrack = {
 	videoId: string | null;
 	title: string | null;
@@ -115,25 +171,29 @@ export type ParsedPlaylist = {
 
 export function parseTracksFromInnertube(data: any, albumArtist: string | null, albumThumbnail: string | null): ParsedTrack[] {
 	const items = collectTrackRenderers(data);
-	if (!Array.isArray(items)) return [];
 
-	const tracks = items
-		.map((item: any) => item?.musicResponsiveListItemRenderer)
-		.filter(Boolean)
-		.map((renderer: any) => {
-			const videoId = textOrNull(renderer?.playNavigationEndpoint?.watchEndpoint?.videoId);
-			const title = extractTrackTitle(renderer);
-			const artist = extractTrackArtist(renderer, albumArtist);
-			const duration = extractDuration(renderer);
-			const thumbnail = extractTrackThumbnail(renderer, albumThumbnail);
+	const responsiveTracks = Array.isArray(items)
+		? (items
+				.map((item: any) => item?.musicResponsiveListItemRenderer)
+				.filter(Boolean)
+				.map((renderer: any) => {
+					const videoId = textOrNull(renderer?.playNavigationEndpoint?.watchEndpoint?.videoId);
+					const title = extractTrackTitle(renderer);
+					const artist = extractTrackArtist(renderer, albumArtist);
+					const duration = extractDuration(renderer);
+					const thumbnail = extractTrackThumbnail(renderer, albumThumbnail);
 
-			return { videoId, title, artist, duration, thumbnail } as ParsedTrack;
-		})
-		.filter((track: ParsedTrack) => Boolean(track.videoId));
+					return { videoId, title, artist, duration, thumbnail } as ParsedTrack;
+				})
+				.filter((track: ParsedTrack) => Boolean(track.videoId))
+		: [];
 
+	const panelTracks = collectPanelTracks(data, albumArtist, albumThumbnail);
+
+	const combined = [...responsiveTracks, ...panelTracks];
 	const deduped: ParsedTrack[] = [];
 	const seen = new Set<string>();
-	tracks.forEach((track) => {
+	combined.forEach((track) => {
 		if (!track.videoId) return;
 		const key = track.videoId;
 		if (seen.has(key)) return;
